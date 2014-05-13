@@ -1,0 +1,48 @@
+Setup pip
+
+1) Download EZ_Setup.py #http://www.pip-installer.org/en/latest/installing.html
+2) run ez_setup.py with administrator access
+
+Install PIP
+
+1) download get-pip.py securely # http://www.pip-installer.org/en/latest/installing.html
+2) run get-pip.py with administrator access
+
+
+Other requirements:
+
+* libjpeg
+* zlib
+* libtiff
+* libfreetype
+* littlecms
+* libwebp
+* Cheetah Template Engine
+
+
+# install homebrew		(See http://brew.sh)
+
+# http://stackoverflow.com/questions/12042537/installing-homebrew-via-shell-script
+
+1) ruby -e "$(curl -fsSL https://raw.github.com/mxcl/homebrew/go)"
+
+2) brew doctor
+3) brew install libjpeg libtiff  webp littlecms
+#  littlecms		# includes freetype and libpng as dependencies
+4) brew install unrar
+
+5) sudo pip install Pillow
+6) brew install ghostscript
+
+Should give:
+
+    --- TKINTER support available
+    --- JPEG support available
+    --- ZLIB (PNG/ZIP) support available
+    --- TIFF G3/G4 (experimental) support available
+    --- FREETYPE2 support available
+    --- LITTLECMS support available
+    --- WEBP support available
+    --- WEBPMUX support available
+    
+5) Install Cheetah Template Engine, download https://pypi.python.org/pypi/Cheetah/2.4.4
