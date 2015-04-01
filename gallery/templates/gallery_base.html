@@ -1,0 +1,103 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:fb="http://ogp.me/ns/fb#">
+
+{#
+
+Template Variables:
+  username
+
+#}
+
+
+<head>
+  <title> {% block title %} Muet {% endblock %} </title>
+  <link rel="stylesheet" href="/css/bootstrap.min.css" />
+  <link rel="stylesheet" href="/css/bootstrap-theme.min.css" />
+  <link rel="stylesheet" href="/css/muet.css" />
+
+  {#
+    JQuery is necessary to get bootstraps transitions, and collapse
+  #}
+
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
+  <script src="/javascript/bootstrap.min.js"></script>
+  <script src="/javascript/jquery.lazy.min.js"></script>
+
+  <meta http-equiv="content-type" content="text/html; charset=utf-8" />
+  <meta charset="utf-8"/>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+
+<script type="text/javascript">
+function debug_info(){
+  var generator=window.open('','name','height=700,width=700');
+  generator.document.write('<html><head><title>Debug Data</title>');
+  generator.document.write('</head><body>');
+  {% block debug %}  {% endblock debug %}
+  generator.document.write('<p><a href="javascript:self.close()">Close</a> the popup.</p>');
+  generator.document.write('</body></html>');
+  generator.document.close();
+}
+</script>
+
+</head>
+
+
+<body {% block body %} {% endblock body %}>
+
+  <nav class="navbar navbar-default navbar-fixed-top" role="navigation">
+    <div class="container">
+      <div class="navbar-header">
+        <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
+          <span class="sr-only">Toggle navigation</span>
+          <span class="icon-bar"></span>
+          <span class="icon-bar"></span>
+          <span class="icon-bar"></span>
+        </button>
+        <a class="navbar-brand" href="/albums">Gallery</a>
+      </div>
+
+      <div class="collapse navbar-collapse">
+        <ul class="nav navbar-nav">
+          <li class=""><a href="#navitem1">File</a></li>
+          <li class=""><a href="#navitem2">Edit</a></li>
+          <li class="">
+            <a href="javascript:debug_info();">Debug</a></li>
+
+        </ul>
+
+        <p class="navbar-text pull-right">
+          {% if username %}
+          Logged in as <strong>{{ username }}</strong>.
+          <a data-method="delete" href="/logout" rel="nofollow">Log Out</a>
+          {% else %}
+          <a data-method="delete" href="/login" rel="nofollow">Log In</a>
+          {% endif %}
+        </p>
+
+      </div>
+    </div>
+  </nav>
+
+{% block sidebar %}
+{% endblock sidebar %}
+
+{% block content %}
+{% endblock content %}
+
+{% block grid %}
+{% endblock grid %}
+
+
+  <footer>
+    <div class="container">
+      {% block footer %}
+      Footer goes here
+      {% endblock footer %}
+    </div>
+  </footer>
+</body>
+
+</html>
+
+

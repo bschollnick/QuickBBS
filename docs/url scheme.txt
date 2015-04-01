@@ -1,0 +1,37 @@
+URL schemes for Gallery
+
+http://127.0.0.1:8888/              -> Internally remapped to /albums
+http://127.0.0.1:8888/albums        -> displays the root for the albums folder
+http://127.0.0.1:8888/resources     -> static files from the /resources folder tree 
+                                        (e.g. Javascript, CSS, etc)
+                                        
+http://127.0.0.1:8888/thumbnails    -> static files from the /thumbnails folder tree
+
+?show_file      -> display a file / picture / etc in single view mode
+    ?auto           -> Slide show, when in single viewing mode.
+    ?archiveview    -> view a zip / rar / cbz / cbr in "archive gallery" mode
+    ?index          -> The index of the file to view
+    
+?offset         -> the starting offset for viewing in a gallery / archive gallery.
+?gallery        -> Show a Gallery format
+?sort		-> Sort indicator:
+		        Sort Types - 
+		            0   - Name Sort (A..Z)
+		            1   - Name Sort (Z..A) - Reversed
+
+		            2   - Last Modified Sort (Oldest .. Newest)
+		            3   - Last Modified Sort (Newest .. Oldest)
+
+		            4   - Creation Time Sort (Oldest .. Newest)            
+		            5   - Creation Time Sort (Newest .. Oldest)            
+				
+                                    
+Switch to Semantic Web style page numbers?
+
+i.e. 	www.examples.com/albums/test_folder/4
+	www.examples.com/albums/test_folder/56
+
+If the last item in the URL is a integer (only an integer) that is the page number to fetch.  Please note, only an integer, so a composite (page-44, page44, 44page, folder2) do not count.
+
+Conventions - 
+

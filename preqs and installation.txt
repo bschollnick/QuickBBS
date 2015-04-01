@@ -1,8 +1,3 @@
-Setup pip
-
-1) Download EZ_Setup.py #http://www.pip-installer.org/en/latest/installing.html
-2) run ez_setup.py with administrator access
-
 Install PIP
 
 1) download get-pip.py securely # http://www.pip-installer.org/en/latest/installing.html
@@ -45,4 +40,4 @@ Should give:
     --- WEBP support available
     --- WEBPMUX support available
     
-5) Install Cheetah Template Engine, download https://pypi.python.org/pypi/Cheetah/2.4.4
+5) pip install jinja2 passlib pybonjour txbonjour unidecode
