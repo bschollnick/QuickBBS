@@ -91,9 +91,9 @@ function navigateTo(sel, target, newWindow) {
                             <img width="65%" height="65%" src="/images/gtk_media_empty.png"/></a>
                     {% endif %}
                     <hr>
-                    {{ sidebar["current_item"] }}
+                    {{ sidebar["current_item"]+1 }}
                     of
-                    {{ sidebar["item_count"] }}
+                    {{ sidebar["item_count"]+1 }}
                     <hr>
                         {% if sidebar["next_page_url"] != None %}
                         <a href="{{ sidebar['next_page_url'] }}">
@@ -110,7 +110,7 @@ function navigateTo(sel, target, newWindow) {
                         {% endif %}
                     <hr>
                     {% if sidebar["current_item"] != sidebar["item_count"] %}
-                        <a href="{{ web_path }}{{ sidebar['item_count'] - 1 }}">
+                        <a href="{{ web_path }}{{ sidebar['page_count'] }}/{{ sidebar['item_count'] - 1 }}">
                             <img width="65%" height="65%" src="/images/gtk_media_next_ltr.png"/></a>
                     {% else %}
                             <img width="65%" height="65%" src="/images/gtk_media_empty.png"/></a>

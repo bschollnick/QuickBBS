@@ -66,20 +66,12 @@ class Gallery(Resource):
         self.log = log
         config.load_config_data()
         self.ctx["filetypes"] = config.filetypes
-#        config.settings = config_test.load_settings(self.locations)
-        if not os.path.exists(config.locations["album_root"]):
+        if common.assure_path_exists(config.locations["album_root"]):
             print "Creating Albums Folder"
-            os.mkdir(config.locations["album_root"])
 
-        if not os.path.exists(config.locations["thumbnails_root"]):
+        if common.assure_path_exists(config.locations["thumbnails_root"]):
             print "Creating Thumbnails Folder"
-            os.mkdir(config.locations["thumbnails_root"])
 
-#        self.gallery_items_per_page = 30
-#        self.archive_items_per_page = 21
-#        self.defer_images_after = 9
-#        self.debug = False
-#        self.session_cookie_expiration = 604800  # 7 in seconds days
         self.cdl = directory_caching.Cache()
         self.cdl.files_to_ignore = self.ctx["filetypes"]["files_to_ignore"]
         self.cdl.acceptable_extensions = \
@@ -104,7 +96,7 @@ class Gallery(Resource):
                     yield chunk
                 else:
                     break
-
+##############################################################################
     def send_file(self, request, filename):
         """
     Send a file to the web browser
@@ -112,10 +104,12 @@ class Gallery(Resource):
 Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
         """
         mimetype = mimetypes.guess_type(filename)
+#        request_write = request.write
         if mimetype != (None, None):
             request.setHeader("content-type", mimetype[0])
             for xbytes in self.read_bytes_from_file(filename):
                 request.write(xbytes)
+#                request_write(xbytes)
         request.finish()
 ##############################################################################
     def return_directory_tnail_filename(self, directory_to_use):
@@ -139,7 +133,6 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
         services, since it needs file system access.
         """
         if dir_record.file_extension == "dir":
-
             #
             #   This is a folder
             self.cdl.smart_read(dir_record.fq_filename.lower().strip())
@@ -151,8 +144,7 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
                 tnail_target = os.path.split(tnail_sourcefile)[0:-1][0]
                 tnail_target = tnail_target.replace("/albums/", "/thumbnails/")
 
-                if not os.path.exists(os.path.dirname(tnail_target)):
-                    os.makedirs(os.path.dirname(tnail_target))
+                common.assure_path_exists(tnail_target)
 
                 threads.deferToThread(
                     tnail_services.create_thumbnail,
@@ -199,17 +191,23 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
         self.ctx["dir_nav"]["next_dir_url"],\
         self.ctx["dir_nav"]["next_dir_desc"] = (None, None)
 
-        self.ctx["dir_nav"]["prev_dir_url"],\
-        self.ctx["dir_nav"]["prev_dir_desc"] = self.get_directory_offset(\
+        prevdir = self.get_directory_offset(\
                 offset=-1,
                 scan_directory=self.ctx["fq_parent_directory"].lower(),
                 current_directory=self.ctx["current_directory"][1:])
 
-        self.ctx["dir_nav"]["next_dir_url"],\
-        self.ctx["dir_nav"]["next_dir_desc"] = self.get_directory_offset(\
+        self.ctx["dir_nav"]["prev_dir_url"],\
+        self.ctx["dir_nav"]["prev_dir_desc"] = (prevdir[1], prevdir[1])
+
+        nextdir = self.get_directory_offset(\
             offset=+1,
             scan_directory=self.ctx["fq_parent_directory"].lower(),
             current_directory=self.ctx["current_directory"][1:])
+
+        self.ctx["dir_nav"]["next_dir_url"],\
+        self.ctx["dir_nav"]["next_dir_desc"] = (nextdir[1], nextdir[1])
+
+
 ##############################################################################
     def calc_total_pages(self, gallery=True):
         """
@@ -255,8 +253,8 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
             self.ctx["gallery"]["current_page"] - 1) *\
                 config.settings["gallery_items_per_page"]
 
-        self.ctx["dlisting"] = catalog[
-            start_offset:start_offset + config.settings["gallery_items_per_page"]]
+        self.ctx["dlisting"] = catalog[start_offset:start_offset +\
+            config.settings["gallery_items_per_page"]]
 
         self.ctx["sidebar"]["page_count"] = self.calc_total_pages()
 
@@ -303,7 +301,7 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
         self.ctx["gallery"]["total_item_count"] = len(self.ctx["dlisting"])
         template = self.env.get_template("gallery_listing.html")
 
-        for index in range(0, len(self.ctx["dlisting"])):
+        for index in xrange(0, len(self.ctx["dlisting"])):
             dlist_item = self.ctx["dlisting"][index]
             if dlist_item[1].file_extension == "dir":
                 self.create_directory_tnail(dlist_item[1])
@@ -393,7 +391,7 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
 
         self.ctx["sidebar"]["item_list"] = []
 
-        for cat_item in range(0, len(catalog)):
+        for cat_item in xrange(0, len(catalog)):
             page_cnt = cat_item / config.settings["gallery_items_per_page"]
             file_cnt = (cat_item - (config.settings["gallery_items_per_page"]\
                 * page_cnt))
@@ -406,20 +404,16 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
                     (page_cnt + 1, file_cnt+1, catalog[cat_item][1].filename))
 
         # adjusting for 0 vs 1 indexs.
-#        self.ctx["gallery"]["total_item_count"] = len(catalog)
-#        self.ctx["sidebar"]["total_item_count"] = len(catalog)
-#        self.ctx["sidebar"]["item_count"] = len(catalog)
         self.ctx["gallery"]["total_item_count"] = \
             self.ctx["sidebar"]["total_item_count"] = \
-            self.ctx["sidebar"]["item_count"] = len(catalog)
+            self.ctx["sidebar"]["item_count"] = len(catalog)-1
+#            self.ctx["sidebar"]["item_count"] = len(catalog)
 
         self.ctx["sidebar"]["page_count"] = self.calc_total_pages()
         self.ctx["sidebar"]["parent_directory"] = \
             common.pre_slash((self.ctx["parent_directory"]))
         #   The sidebar parent directory needs a prepending / since we are
         #   using absolute web directories.
-
-#        self.ctx["sidebar"]["page_count"] = self.calc_total_pages()
 
         if self.semantic.change_item(offset=+1, nom=True,
                                      max_item_count=\
@@ -440,8 +434,6 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
 
         self.ctx["gallery"]["textwrap"] = 25 + (not self.ctx["mobile"])*25
         #   if mobile, add 25 to textwrap
-
-#        self.ctx["filetypes"] = ftypes_paths.filetype_dict
 
         self.set_ctx_tnail_sizes()
         self.ctx["gallery"]["body_color"] = 'CCCCFF'
@@ -511,12 +503,18 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
             "User-Agent").find("Mobile") != -1
         self.ctx['username'] = login.username
 
+        #
+        #   Web friendly parent
+        #
         self.ctx["parent_directory"] = "/".join(\
             request.postpath.split("/")[0:-1])
-        self.ctx["fq_parent_directory"] = \
-            os.sep.join([config.locations["album_root"],
-                         self.ctx["request_string"]][0:-1])
 
+        #
+        #   File system parent
+        #
+
+        self.ctx["fq_parent_directory"] = \
+            os.sep.join(([config.locations["album_root"]]+request_list)[0:-1])
         self.ctx["fq_directory"] = os.path.abspath(
             os.sep.join([config.locations["album_root"],
                          self.ctx["request_string"]]))
@@ -623,7 +621,7 @@ archive_items_per_page
                 self.semantic.current_spi_to_number() + \
                 config.settings["archive_items_per_page"]]
 
-        for archive_pages in range(0, len(comic_list)):
+        for archive_pages in xrange(0, len(comic_list)):
             if config.settings["defer_images_after"] > archive_pages:
                 tnail_services.create_thumbnail_for_file(\
                     config.locations["server_root"],
@@ -670,7 +668,7 @@ archive_items_per_page
             "gallery"]["current_page"]
 
         self.ctx["sidebar"]["parent_directory"] = common.pre_slash(\
-            self.semantic.return_current_uri_subpage())
+            self.semantic.return_current_uri_page_only())
 
         #   The sidebar parent directory needs a prepending / since we are
         #   using absolute web directories.
@@ -710,7 +708,6 @@ archive_items_per_page
         self.ctx["dir_nav"] = {}
         self.ctx["gallery"] = {}
         self.ctx["sidebar"] = {}
-        print "Displaying single item"
         self.set_breadcrumbs_and_title()
 
         self.ctx["thumbnail_path"] = self.ctx["web_path"].replace(
