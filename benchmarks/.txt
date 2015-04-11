@@ -1,0 +1,85 @@
+This is ApacheBench, Version 2.3 <$Revision: 1604373 $>
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
+Licensed to The Apache Software Foundation, http://www.apache.org/
+
+Benchmarking 127.0.0.1 (be patient)
+
+
+Server Software:        TwistedWeb/13.2.0
+Server Hostname:        127.0.0.1
+Server Port:            8888
+
+Document Path:          /albums/verification_suite/Batwoman%20016%20(2013)%20(digital)%20(2%20covers)%20(Megan-Empire)/Batwoman-16-pg-000a.jpg
+Document Length:        1454723 bytes
+
+Concurrency Level:      100
+Time taken for tests:   7.875 seconds
+Complete requests:      2000
+Failed requests:        0
+Total transferred:      2909804000 bytes
+HTML transferred:       2909446000 bytes
+Requests per second:    253.98 [#/sec] (mean)
+Time per request:       393.736 [ms] (mean)
+Time per request:       3.937 [ms] (mean, across all concurrent requests)
+Transfer rate:          360851.48 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        0    1   1.2      0       9
+Processing:   120  391  56.8    393     551
+Waiting:       51  152  78.2    126     449
+Total:        121  392  56.5    393     551
+
+Percentage of the requests served within a certain time (ms)
+  50%    393
+  66%    407
+  75%    417
+  80%    424
+  90%    446
+  95%    476
+  98%    503
+  99%    521
+ 100%    551 (longest request)
+This is ApacheBench, Version 2.3 <$Revision: 1604373 $>
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
+Licensed to The Apache Software Foundation, http://www.apache.org/
+
+Benchmarking 127.0.0.1 (be patient)
+
+
+Server Software:        TwistedWeb/13.2.0
+Server Hostname:        127.0.0.1
+Server Port:            8888
+
+Document Path:          /albums/verification_suite/Batwoman%20016%20(2013)%20-40items.zip
+Document Length:        88942948 bytes
+
+Concurrency Level:      100
+Time taken for tests:   57.130 seconds
+Complete requests:      250
+Failed requests:        249
+   (Connect: 0, Receive: 0, Length: 249, Exceptions: 0)
+Total transferred:      22243542800 bytes
+HTML transferred:       22243496800 bytes
+Requests per second:    4.38 [#/sec] (mean)
+Time per request:       22851.877 [ms] (mean)
+Time per request:       228.519 [ms] (mean, across all concurrent requests)
+Transfer rate:          380226.27 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        0    3   4.3      1      15
+Processing:  2638 18585 5955.5  21886   24447
+Waiting:       34 17333 6205.9  20638   23331
+Total:       2648 18589 5951.8  21891   24448
+
+Percentage of the requests served within a certain time (ms)
+  50%  21891
+  66%  22101
+  75%  22205
+  80%  22290
+  90%  22543
+  95%  22840
+  98%  24169
+  99%  24246
+ 100%  24448 (longest request)

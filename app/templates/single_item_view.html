@@ -1,0 +1,224 @@
+{% extends "gallery_base.html" %}
+
+{% block title %}
+{{ dlisting[0] }}
+{% endblock title %}
+
+{% block debug %}
+    generator.document.write('Debug Information<p>');
+    generator.document.write('<p>');
+    generator.document.write('Is Mobile - {{ mobile }}<p>' );
+    generator.document.write('fq_directory - {{ fq_directory }}<p>' );
+    generator.document.write('fq_filename - {{ fq_filename }}<p>' );
+    generator.document.write('thumbnail path - {{ thumbnail_path }}<p>' );
+    generator.document.write('web path - {{ web_path }}<p>' );
+    generator.document.write('current_url - {{ current_url }}<p>' );
+    generator.document.write('parent directory - {{ parent_directory }}<p>' );
+
+    generator.document.write('Directory Navigation');
+    generator.document.write('<ul>');
+    {% for x in dir_nav %}
+        generator.document.write('<li>{{ x }} - {{ dir_nav[x] | e}}</li>\n');
+    {% endfor %}
+    generator.document.write('</ul><hr>');
+
+    generator.document.write('Sidebar');
+    generator.document.write('<ul>');
+    {% for x in sidebar %}
+        generator.document.write('<li>{{ x }} - {{ sidebar[x] | e }}</li>\n');
+    {% endfor %}
+    generator.document.write('</ul><hr>');
+
+    generator.document.write('Gallery');
+    generator.document.write('<ul>');
+    {% for x in gallery %}
+        generator.document.write('<li>{{ x }} - {{ gallery[x] | e}}</li>\n');
+    {% endfor %}
+    generator.document.write('</ul><hr>');
+
+
+{% endblock debug %}
+
+{% block sidebar %}
+<script type="text/javascript">
+function navigateTo(sel, target, newWindow) {
+    var url = sel.options[sel.selectedIndex].value;
+    if (newWindow) {
+        window.open(url, target, '--- attributes here, see below ---');
+    } else {
+        window[target].location.href = url;
+    }
+}
+</script>
+
+<!-- Side Bar -->
+    <style>
+    .affix-top, .affix-bottom,.affix{
+        position: fixed;
+        left:5px;
+    }
+
+      #sidebar.affix {
+        position: fixed;
+        top:70px;
+        left:0px;
+        width:55px;
+      }
+    }
+    </style>
+    <div data-spy="affix" data-offset-top="25" data-offset-bottom="25" style="background:#CCCCFF;">
+        <div class="container" style="width:55px;padding:1px;border:1px solid #2266AA;">
+                    <center>
+                    {% if gallery['current_url'] != "albums/" %}
+                        <a href="{{ gallery['home_path'] }}">
+                            <img width="65%" height="65%" src="/images/go_up2.png">
+                        </a>
+                    {% else %}
+                        <img width="65%" height="65%" src="/images/gtk_media_empty.png"/></a>
+                    {% endif %}
+                    <hr>
+                    {% if gallery["current_item"] != 1 %}
+                        <a href="{{ web_path }}1/1">
+                            <img width="65%" height="65%" src="/images/gtk_media_next_rtl.png"/></a>
+                    {% else %}
+                            <img width="65%" height="65%" src="/images/gtk_media_empty.png"/></a>
+                    {% endif %}
+                    <hr>
+                    {% if sidebar['prev_page_url'] != None %}
+                        <a href="{{ sidebar['prev_page_url'] }}">
+                            <img width="65%" height="65%" src="/images/gtk_media_rev_ltr.png"/></a>
+                    {% else %}
+                            <img width="65%" height="65%" src="/images/gtk_media_empty.png"/></a>
+                    {% endif %}
+                    <hr>
+                    {{ sidebar["current_item"]+1 }}
+                    of
+                    {{ sidebar["item_count"]+1 }}
+                    <hr>
+                        {% if sidebar["next_page_url"] != None %}
+                        <a href="{{ sidebar['next_page_url'] }}">
+                            <img width="65%" height="65%" src="/images/gtk_media_play_ltr.png"/></a>
+                        {% else %}
+                            <img width="65%" height="65%" src="/images/gtk_media_empty.png"/></a>
+                        {% endif %}
+                    <hr>
+                        {% if sidebar["next_page_url"] != None %}
+                        <a href="{{ sidebar['next_page_url'] }}" target="_blank">
+                            <img width="65%" height="65%" src="/images/gtk_media_play+_ltr.png"/></a>
+                        {% else %}
+                            <img width="65%" height="65%" src="/images/gtk_media_empty.png"/></a>
+                        {% endif %}
+                    <hr>
+                    {% if sidebar["current_item"] != sidebar["item_count"] %}
+                        <a href="{{ web_path }}{{ sidebar['page_count'] }}/{{ sidebar['item_count'] - 1 }}">
+                            <img width="65%" height="65%" src="/images/gtk_media_next_ltr.png"/></a>
+                    {% else %}
+                            <img width="65%" height="65%" src="/images/gtk_media_empty.png"/></a>
+                    {% endif %}
+                    <hr>
+                    <P>
+                    Sorting<p>
+                    <form action="{{ gallery['current_url'] }}?gallery">
+                        <select name="sort" onchange='this.form.submit()'>
+                                {% if sort_order == 0 %}
+                                    <option value=0 selected>A..Z</option>
+                                {% else %}
+                                    <option value=0>A..Z</option>
+                                {% endif %}
+                                {% if sort_order == 1 %}
+                                    <option value=1 selected>LastM</option>
+                                {% else %}
+                                    <option value=1>LastM</option>
+                                {% endif %}
+                                {% if sort_order ==2 %}
+                                    <option value=2 selected>CTime</option>
+                                {% else %}
+                                    <option value=2>CTime</option>
+                                {% endif %}
+                        </select>
+                    </center>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+    $('#myAffix').affix({
+      offset: {
+        top: 100,
+        bottom: function () {
+          return (this.bottom = $('.footer').outerHeight(true))
+        }
+      }
+    })
+    </script>
+{% endblock sidebar %}
+
+{% block body %}
+bgcolor="#E6E6FA"
+{% endblock body %}
+
+<!-- Grid -->
+{% block grid %}
+<div class="container-fluid" style="margin-left: 65px;border: 0px solid;background:#CCCCFF;">
+    <table border=0 align=center width="100%" style="height:100%;" bgcolor='#00CCFF'>
+        <tr>
+            <td align=center width="100%" height="100%">
+                            {% for x in dir_nav["breadcrumbs"] %}
+                                {{ x }} &#8594;
+                            {% endfor %}
+            </td>
+        </TR>
+    </table>
+</div>
+<div class="container-fluid" style="margin-left: 55px;border: 1px solid;width=100%;">
+<center>
+    {% if dlisting[1].file_extension in filetypes %}
+        <div class="thumbnail" style="background:#{{ filetypes[dlisting[1].file_extension][0] }};border:1px solid black;">
+    {% else %}
+        <div class="thumbnail" style="background:#BBBBBB;border:1px solid red;width100%;height=100%;">
+    {% endif %}
+            <center>
+            <!-- hyperlink -->
+                <!-- DIR hyperlink -->
+                {% if dlisting[1].file_extension == "dir" %}
+                        {{ dlisting[0] | wordwrap(width=gallery['textwrap']+15    , wrapstring="<br>") }}
+                <!-- Everything else hyperlink -->
+                {% else %}
+                    {{ dlisting[0] | wordwrap(width=gallery['textwrap']+15, wrapstring='<br>') }}
+                {% endif %}
+                        <br>
+
+            <!-- thumbnail -->
+                <!-- ZIP file Thumbnail -->
+                {% if dlisting[1].file_extension in ["cbz", "cbr", "zip", "rar"] %}
+                        <img src="{{ thumbnail_path }}{{ dlisting[0] }}/Page_1_thumb.png" width="auto" height="100%"/>
+                {% else %}
+                        {% if mobile %}
+                            <img src="{{ thumbnail_path }}{{ dlisting[0] }}{{ gallery['mobile'] }}" style="max-width:auto;max-height:100%"/>
+                        {% else %}
+                            <img src="{{ thumbnail_path }}{{ dlisting[0] }}{{ gallery['large'] }}" style="max-width:auto;max-height:100%"/>
+                        {% endif %}
+                {% endif %}
+                <p>
+                File Size - {{ dlisting[1].st.st_size }}<BR>
+                Last Modified - {{ dlisting[1].human_st_mtime }}
+                <a href="{{ web_path }}{{ dlisting[0] }}">
+                    <img src="/images/down.png" align="right" height="5%" width="5%">
+                </a>                <br>
+            </center>
+                        <select onchange="navigateTo(this, 'window', false);">
+                            {% for page_cnt, file_cnt, name in sidebar["item_list"]: %}
+                                {% if dlisting[0] == name %}
+                                    <option selected="selected" value="{{ web_path }}{{ page_cnt }}/{{ file_cnt }}">{{ name | wordwrap(width=gallery['textwrap'], break_long_words=True, wrapstring="<br>") }}</option>
+                                {% else %}
+                                    <option value="{{ web_path }}{{ page_cnt }}/{{ file_cnt }}">{{ name | wordwrap(width=gallery['textwrap'], break_long_words=True, wrapstring="<br>") }}</option>
+                                {% endif %}
+
+                            {% endfor %}
+                        </select>
+    </noscript><input type="submit" value="Go"></noscript>
+    <p>
+                    </form>
+        </div>
+</div>
+{% endblock grid %}
+
