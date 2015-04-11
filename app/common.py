@@ -12,11 +12,12 @@ def is_int(value_to_test):
 
     If integer, returns True.
     If not integer, returns False.
+
+    note, exception tracking tests to be slower!
     """
-    try:
-        int(value_to_test)
+    if value_to_test.isdigit():
         return True
-    except ValueError:
+    else:
         return False
 
 def return_int(value_to_test):
@@ -26,10 +27,9 @@ def return_int(value_to_test):
     If integer, returns integer.
     If not integer, returns original value.
     """
-    try:
-        int(value_to_test)
+    if value_to_test.isdigit():
         return int(value_to_test)
-    except ValueError:
+    else:
         return value_to_test
 
 def fix_doubleslash(fullpathname):
@@ -44,10 +44,33 @@ def fix_doubleslash(fullpathname):
 def replace_all(text, dic):
     """
     Helper function for Clean Filename2
+
+    No significant difference in speed between
+    replace_all and multiple_replace.
     """
+#    return multiple_replace(dic, text):
     for i, j in dic.iteritems():
         text = text.replace(i, j)
     return text
+
+def multiple_replace(dict, text):
+  """ Replace in 'text' all occurences of any key in the given
+  dictionary by its corresponding value.  Returns the new string.
+  http://code.activestate.com/recipes/81330-single-pass-multiple-replace/
+  """
+
+  # Create a regular expression  from the dictionary keys
+  regex = re.compile("(%s)" % "|".join(map(re.escape, dict.keys())))
+
+  # For each match, look-up corresponding value in dictionary
+  return regex.sub(lambda mo: dict[mo.string[mo.start():mo.end()]], text)
+
+def assure_path_exists(path):
+    dir = os.path.dirname(os.path.abspath(path))
+    if not os.path.exists(dir):
+            os.makedirs(dir)
+            return True
+    return False
 
 def pre_slash(path):
     """

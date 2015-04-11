@@ -170,15 +170,12 @@ def create_thumbnail(fq_filename,
         msource = memory source
     """
     if gallery:
-        print "gallery thumbnail"
         create_small_thumbnail(fq_filename, fq_thumbnail, msource=msource)
         return  True
     if mobile:
-        print "mobile thumbnail"
         create_medium_thumbnail(fq_filename, fq_thumbnail, msource=msource)
         return  True
     else:
-        print "large thumbnail"
         create_large_thumbnail(fq_filename, fq_thumbnail, msource=msource)
         return  True
 
@@ -227,8 +224,9 @@ def create_thumbnail_for_pdf(fullpathname, filetype):
     timecheck_thumbnail_file(medium_thumbnail)
     timecheck_thumbnail_file(large_thumbnail)
 
-    if not os.path.exists(os.path.dirname(thumbnail_save_filename)):
-        os.makedirs(os.path.dirname(thumbnail_save_filename))
+    common.assure_path_exists(thumbnail_save_filename)
+#    if not os.path.exists(os.path.dirname(thumbnail_save_filename)):
+#        os.makedirs(os.path.dirname(thumbnail_save_filename))
 
     if not os.path.exists(small_thumbnail):
         #

@@ -13,13 +13,13 @@ sfsdf
 #
 """
 import cgi
+import common
 import config
 import gallery
 import os
 import os.path
-import pickle
 import random
-import signal
+#import signal
 
 from txbonjour import discovery
 from passlib.apache import HtpasswdFile
@@ -219,7 +219,7 @@ def main():
     """
     config.load_config_data()
 
-    ##############################################################################
+##############################################################################
     class ShortSession(Session):
         """
         Increase the session timeout
@@ -229,7 +229,6 @@ def main():
 #     def handler(signum, frame):
 #         print "Shutting down, due to kill request."
 #         print "Signal handler called with signal", signum
-#         pickle.dump(ctx, open(os.path.join(config.locations["config_root"], "session.data"), "wb"))
 #         reactor.stop()
 #
 #     signal.signal(signal.SIGHUP, handler)
@@ -243,19 +242,17 @@ def main():
     env = Environment(loader=FileSystemLoader(
         config.locations["templates_root"]))
 
-    log.startLogging(
-        DailyLogFile.fromFullPath(
-            config.locations["server_log"]), setStdout=False)
+
+    log_path = os.path.abspath(config.locations["server_log"])
+    if common.assure_path_exists(log_path):
+        print "Creating Log File Path"
+
+    log.startLogging(DailyLogFile.fromFullPath(log_path), setStdout=False)
 
     htpasswd = HtpasswdFile(
         os.path.join(config.locations["config_root"],
                      "gallery.passwdfile"))
 
-#     if os.path.exists(os.path.join(config.locations["config_root"], "session.data")):
-#         print "restoring old sessions"
-#         ctx = pickle.load(open(os.path.join(config.locations["config_root"], "session.data"), "rb"))
-# #        os.remove(os.path.join(config.locations["config_root"], "session.data"), "wb")
-#     else:
     ctx = {}
 
     root = Resource()
@@ -269,7 +266,8 @@ def main():
                               "application/javascript"))
     root.putChild("css", static.File(config.locations["css_root"]))
     root.putChild("fonts", static.File(config.locations["fonts_root"]))
-    root.putChild("thumbnails", static.File(config.locations["thumbnails_root"]))
+    root.putChild("thumbnails",
+                  static.File(config.locations["thumbnails_root"]))
     root.putChild("images", static.File(config.locations["images_root"]))
     root.putChild("albums", gallery.Gallery(ctx, env, log))
 
@@ -283,8 +281,8 @@ def main():
 
     factory = Site(root)
     factory.sessionFactory = ShortSession
-    # revise -
-    # http://twistedmatrix.com/documents/14.0.0/web/howto/web-in-60/session-endings.html
+# http://twistedmatrix.com/documents/14.0.0/web/
+#       howto/web-in-60/session-endings.html
     print "Listening on Port %s..." % config.settings["server_port"]
     reactor.suggestThreadPoolSize(5)
     reactor.listenTCP(config.settings["server_port"], factory)
