@@ -1,17 +1,40 @@
-QuickBBS
+QuickBBS Gallery
 ========
 
-A Modern re-interpretation of the QuickBBS Bulletin Board software
+This is the start of a Modern re-interpretation of the QuickBBS Bulletin Board software, for the modern era.
 
-I have considered revisiting the old QuickBBS Bulletin Board software, but with the rise of the internet,
-I have never been able to justify it.  I have never seen a advantage a telnet based BBS versus a modern
-web based forum.  Or a simple web server.
+Several times in the past, I have considered revisiting the old QuickBBS Bulletin Board software, but with the rise of the internet, I have never been able to justify it.
 
-But I have been working on some personal projects lately, which I am considering combining into a
-re-imagined version of QuickBBS, using modern web based technology.
+Yet I still occassionally get users asking about getting license keys, or copies of the software.  
 
-This is very beta, at this time.
+I have recently been working on some projects that I have considered combining into a re-imagined version of QuickBBS, using modern web based technology.
 
+This is the start of that.  Currently I am working on a Image Gallery / Viewer, which I will be expanding into a more fully featured package.  After I finish the gallery / viewer, I plan to next add a wiki or wiki equivalent.
+
+The gallery is a high performance, low resource, design.  It uses the file system as a flat database, thus preventing the
+for an SQL server, and a caching frontend.  Please note, this does not mean that you can't use a caching frontend, just that it is not strictly necessary.
+
+The gallery can automatically view the following file types:
+
+* Jpeg - supports automatic thumbnail creation
+* Png - supports automatic thumbnail creation
+* gif - supports automatic thumbnail creation
+* bmp - supports automatic thumbnail creation
+* pdf - supports automatic thumbnail creation
+* cbz, zip - supports automatic thumbnail creation
+* cbr, rar - supports automatic thumbnail creation
+* 
+
+The following formats, do not support automatic thumbnail creation, but can be viewed through the gallery.
+
+* txt 
+* webloc
+* epub
+* mp4
+* html
+
+Installation
+========
 This is not the formal install method, once I am finished there will be a much more streamlined install process.
 
 If you do not have PIP, Install PIP
@@ -20,7 +43,7 @@ If you do not have PIP, Install PIP
 2) run get-pip.py with administrator access
 
 Other requirements:
-
+========
 * Pillow - Used for Graphical conversions / Thumbnailing
    * libjpeg
    * zlib
@@ -38,7 +61,7 @@ Other requirements:
 * unidecode is used to in normalizing unicode filenames.
 
 Suggested methods for adding these requirements:
-
+========
 * install homebrew, if you do not have it installed.  (See http://brew.sh) 
    * ruby -e "$(curl -fsSL https://raw.github.com/mxcl/homebrew/go)"
    * brew doctor
@@ -61,7 +84,7 @@ When you install Pillow, you should receive the following messages:
 --- WEBPMUX support available
 
 * Other Python preqs:
-      
+  ========    
    * pip install jinja2 passlib pybonjour txbonjour unidecode
    * Download directory_caching, and semantic_url.
       * Both are available from my repository.  I am having issues with PIP downloading. They are searchable in pip, but install fails.
