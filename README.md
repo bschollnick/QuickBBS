@@ -12,7 +12,7 @@ I have recently been working on some projects that I have considered combining i
 This is the start of that.  Currently I am working on a Image Gallery / Viewer, which I will be expanding into a more fully featured package.  After I finish the gallery / viewer, I plan to next add a wiki or wiki equivalent.
 
 The gallery is a high performance, low resource, design.  It uses the file system as a flat database, thus preventing the
-for an SQL server, and a caching frontend.  Please note, this does not mean that you can't use a caching frontend, just that it is not strictly necessary.
+need for an database server, and a caching frontend.  Please note, this does not mean that you can't use a caching frontend, just that it is not strictly necessary.
 
 The gallery can automatically view the following file types:
 
@@ -23,7 +23,6 @@ The gallery can automatically view the following file types:
 * pdf - supports automatic thumbnail creation
 * cbz, zip - supports automatic thumbnail creation
 * cbr, rar - supports automatic thumbnail creation
-* 
 
 The following formats, do not support automatic thumbnail creation, but can be viewed through the gallery.
 
@@ -35,6 +34,7 @@ The following formats, do not support automatic thumbnail creation, but can be v
 
 Installation
 ========
+
 This is not the formal install method, once I am finished there will be a much more streamlined install process.
 
 If you do not have PIP, Install PIP
@@ -44,6 +44,7 @@ If you do not have PIP, Install PIP
 
 Other requirements:
 ========
+
 * Pillow - Used for Graphical conversions / Thumbnailing
    * libjpeg
    * zlib
@@ -62,6 +63,7 @@ Other requirements:
 
 Suggested methods for adding these requirements:
 ========
+
 * install homebrew, if you do not have it installed.  (See http://brew.sh) 
    * ruby -e "$(curl -fsSL https://raw.github.com/mxcl/homebrew/go)"
    * brew doctor
@@ -84,7 +86,6 @@ When you install Pillow, you should receive the following messages:
 --- WEBPMUX support available
 
 * Other Python preqs:
-  ========    
    * pip install jinja2 passlib pybonjour txbonjour unidecode
    * Download directory_caching, and semantic_url.
       * Both are available from my repository.  I am having issues with PIP downloading. They are searchable in pip, but install fails.
