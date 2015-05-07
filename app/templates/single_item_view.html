@@ -158,7 +158,7 @@ bgcolor="#E6E6FA"
 
 <!-- Grid -->
 {% block grid %}
-<div class="container-fluid" style="margin-left: 65px;border: 0px solid;background:#CCCCFF;">
+<div class="container-fluid" style="margin-left: 65px;border: 0px solid;background:#CCCCFF;max-width='98%'">
     <table border=0 align=center width="100%" style="height:100%;" bgcolor='#00CCFF'>
         <tr>
             <td align=center width="100%" height="100%">
@@ -172,9 +172,9 @@ bgcolor="#E6E6FA"
 <div class="container-fluid" style="margin-left: 55px;border: 1px solid;width=100%;">
 <center>
     {% if dlisting[1].file_extension in filetypes %}
-        <div class="thumbnail" style="background:#{{ filetypes[dlisting[1].file_extension][0] }};border:1px solid black;">
+        <div class="thumbnail" style="background:#{{ filetypes[dlisting[1].file_extension][0] }};border:1px solid black;max-width=99%">
     {% else %}
-        <div class="thumbnail" style="background:#BBBBBB;border:1px solid red;width100%;height=100%;">
+        <div class="thumbnail" style="background:#BBBBBB;border:1px solid red;width=100%;height=100%;">
     {% endif %}
             <center>
             <!-- hyperlink -->
@@ -190,12 +190,12 @@ bgcolor="#E6E6FA"
             <!-- thumbnail -->
                 <!-- ZIP file Thumbnail -->
                 {% if dlisting[1].file_extension in ["cbz", "cbr", "zip", "rar"] %}
-                        <img src="{{ thumbnail_path }}{{ dlisting[0] }}/Page_1_thumb.png" width="auto" height="100%"/>
+                        <img src="{{ thumbnail_path }}{{ dlisting[0] }}/Page_1_thumb.png" width="99%" height="auto" style="max-width:99%"/>
                 {% else %}
                         {% if mobile %}
-                            <img src="{{ thumbnail_path }}{{ dlisting[0] }}{{ gallery['mobile'] }}" style="max-width:auto;max-height:100%"/>
+                            <img src="{{ thumbnail_path }}{{ dlisting[0] }}{{ gallery['mobile'] }}" style="max-width:99%;"/>
                         {% else %}
-                            <img src="{{ thumbnail_path }}{{ dlisting[0] }}{{ gallery['large'] }}" style="max-width:auto;max-height:100%"/>
+                            <img src="{{ thumbnail_path }}{{ dlisting[0] }}{{ gallery['large'] }}" style="max-width:99%;"/>
                         {% endif %}
                 {% endif %}
                 <p>

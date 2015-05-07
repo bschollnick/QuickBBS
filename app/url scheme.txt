@@ -11,6 +11,9 @@ http://127.0.0.1:8888/thumbnails    -> static files from the /thumbnails folder 
     ?auto           -> Slide show, when in single viewing mode.
     ?archiveview    -> view a zip / rar / cbz / cbr in "archive gallery" mode
     ?index          -> The index of the file to view
+    ?ots=xyz	    -> One time sort.  Give internal validation to the sort method 
+			so if the client reloads the page, and the sort scheme has been
+			changed, it will use the original sort scheme
     
 ?offset         -> the starting offset for viewing in a gallery / archive gallery.
 ?gallery        -> Show a Gallery format

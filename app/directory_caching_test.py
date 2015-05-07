@@ -1,6 +1,7 @@
 import directory_caching
 import timeit
 
+
 test = """
 cdl = directory_caching.Cache()
 cdl.smart_read("/Users/Benjamin" )
@@ -26,21 +27,27 @@ cdl.smart_read("/Volumes/NewStorage/Gallery/Albums")
 dirs = cdl.return_sort_name(scan_directory="/Volumes/NewStorage/Gallery/Albums")[1]
 dirs = cdl.return_sort_name(scan_directory="/Volumes/NewStorage/Gallery/Albums/Hentai Idea")[1]
 cdl.smart_read("/Volumes/NewStorage/Gallery/Albums")
+cdl._return_filtered_dir_count("/Volumes/NewStorage/Gallery/Albums/Actresses")
 cdl.smart_read("/Volumes/NewStorage/Gallery/Albums")
 cdl.smart_read("/Volumes/NewStorage/Gallery/Albums")
 cdl.smart_read("/Volumes/NewStorage/Gallery/Albums/Actresses")
 cdl.smart_read("/Volumes/NewStorage/Gallery/Albums/Hentai Idea")
+cdl._return_filtered_dir_count("/Volumes/NewStorage/Gallery/Albums/Hentai Idea")
 cdl.smart_read("/Volumes/NewStorage/Gallery/Albums/Hentai Idea")
+cdl._return_filtered_dir_count("/Volumes/NewStorage/Gallery/Albums/Hentai Idea")
 """
 
 multiple_test = """
 #cdl.smart_read("/Volumes/NewStorage/Gallery/Albums")
 dirs = cdl.return_sort_name(scan_directory="/Volumes/NewStorage/Gallery/Albums")[1]
 dirs = cdl.return_sort_name(scan_directory="/Volumes/NewStorage/Gallery/Albums/Hentai Idea")[1]
+cdl._return_filtered_dir_count("/Volumes/NewStorage/Gallery/Albums/Hentai Idea")
 dirs = cdl.return_sort_name(scan_directory="/Volumes/NewStorage/Gallery/Albums")[1]
 dirs = cdl.return_sort_name(scan_directory="/Volumes/NewStorage/Gallery/Albums/Hentai Idea")[1]
+cdl._return_filtered_dir_count("/Volumes/NewStorage/Gallery/Albums/Hentai Idea")
 cdl.smart_read("/Volumes/NewStorage/Gallery/Albums")
 cdl.smart_read("/Volumes/NewStorage/Gallery/Albums/Actresses")
+cdl._return_filtered_dir_count("/Volumes/NewStorage/Gallery/Albums/Actresses")
 dirs = cdl.return_sort_name(scan_directory="/Users/Benjamin")[1]
 dirs = cdl.return_sort_name(scan_directory="/Users/Benjamin")[1]
 dirs = cdl.return_sort_name(scan_directory="/Users/Benjamin")[1]
@@ -60,16 +67,39 @@ dirs = cdl.return_sorted(scan_directory="/Volumes/NewStorage/Gallery/Albums/Hent
 """
 
 
-print "Single ",timeit.timeit(newsingle_test, setup=setup, number=25)
-print "Single ",timeit.timeit(newsingle_test, setup=setup, number=25)
-print "Single ",timeit.timeit(newsingle_test, setup=setup, number=25)
-print "Single ",timeit.timeit(newsingle_test, setup=setup, number=25)
-print "multiple ",timeit.timeit(multiple_test, setup=setup, number=25)
-print "multiple ",timeit.timeit(multiple_test, setup=setup, number=25)
-print "multiple ",timeit.timeit(multiple_test, setup=setup, number=25)
-#print "newmultiple ",timeit.timeit(newmultiple_test, setup=setup, number=25)
-#print timeit.timeit(test, setup=setup_no_ordered, number=10)
+#
+# Test archive intergration
+#
+import directory_caching
+#import nude
+
+cdl = directory_caching.Cache()
+#cdl.ed_collector = nude.is_nude
+dir_to_scan = "../albums"
+cdl.smart_read(dir_to_scan)
+dirs = cdl.return_sort_name(scan_directory=dir_to_scan)[0]
+for (x, y) in dirs:
+    print x
+    print "\tfilename - ",y.filename
+    print "\tdirectoryname - ",y.directoryname
+    print "\tis archive",y.is_archive
+    print "\ted data", y.extended_data
+    if y.is_archive:
+        for z in y.archive_listings:
+            print "\t\t",z
+    print
 sys.exit(1)
+
+# print "Single ",timeit.timeit(newsingle_test, setup=setup, number=25)
+# print "Single ",timeit.timeit(newsingle_test, setup=setup, number=25)
+# print "Single ",timeit.timeit(newsingle_test, setup=setup, number=25)
+# print "Single ",timeit.timeit(newsingle_test, setup=setup, number=25)
+# print "multiple ",timeit.timeit(multiple_test, setup=setup, number=25)
+# print "multiple ",timeit.timeit(multiple_test, setup=setup, number=25)
+# print "multiple ",timeit.timeit(multiple_test, setup=setup, number=25)
+# #print "newmultiple ",timeit.timeit(newmultiple_test, setup=setup, number=25)
+# #print timeit.timeit(test, setup=setup_no_ordered, number=10)
+# sys.exit(1)
 
 
 print "Counts"

@@ -1,5 +1,4 @@
 """
-sfsdf
 #
 # Login Page logic using Twisted sessions
 #
@@ -21,8 +20,9 @@ import os.path
 import random
 #import signal
 
-from txbonjour import discovery
-from passlib.apache import HtpasswdFile
+#from txbonjour import discovery            # Moved to be lazy loaded
+#from passlib.apache import HtpasswdFile    # Moved to be lazy loaded
+
 from twisted.web.server import Site, NOT_DONE_YET
 from twisted.web import static
 from twisted.web.resource import Resource
@@ -182,10 +182,11 @@ class IndexPage(Resource):
         session = request.getSession()
         login = gallery.ILoginSessionData(session)
 
-        if not login.username or login.username == "":
-            # this should store the current path, render the login page, and
-            # finally redirect back here
-            return require_login(request)
+        if config.SETTINGS["require_login"] != 0:
+            if not login.username or login.username == "":
+                # this should store the current path, render the login page, and
+                # finally redirect back here
+                return require_login(request)
 
         # add the user to the context
         #ctx = self.ctx.copy()
@@ -224,7 +225,7 @@ def main():
         """
         Increase the session timeout
         """
-        sessionTimeout = config.settings["session_logout_timeout"]
+        sessionTimeout = config.SETTINGS["session_logout_timeout"]
 
 #     def handler(signum, frame):
 #         print "Shutting down, due to kill request."
@@ -236,56 +237,63 @@ def main():
 #     signal.signal(signal.SIGINT, handler)
 #     signal.signal(signal.SIGQUIT, handler)
 #     signal.signal(signal.SIGABRT, handler)
-#     for location in config.locations.keys():
-#         print "%s Root : %s" % (location, config.locations[location])
+#     for location in config.LOCATIONS.keys():
+#         print "%s Root : %s" % (location, config.LOCATIONS[location])
 
     env = Environment(loader=FileSystemLoader(
-        config.locations["templates_root"]))
+        config.LOCATIONS["templates_root"]))
 
 
-    log_path = os.path.abspath(config.locations["server_log"])
+    log_path = os.path.abspath(config.LOCATIONS["server_log"])
     if common.assure_path_exists(log_path):
         print "Creating Log File Path"
 
     log.startLogging(DailyLogFile.fromFullPath(log_path), setStdout=False)
 
-    htpasswd = HtpasswdFile(
-        os.path.join(config.locations["config_root"],
-                     "gallery.passwdfile"))
-
     ctx = {}
 
     root = Resource()
+
+    if config.SETTINGS["require_login"] != 0:
+        from passlib.apache import HtpasswdFile
+        htpasswd = HtpasswdFile(
+            os.path.join(config.LOCATIONS["config_root"],
+                         "gallery.passwdfile"))
+        root.putChild("login", LoginPage(ctx, env, htpasswd))
+        root.putChild("logout", LogoutPage(ctx, env, htpasswd))
+    else:
+        root.putChild("login", RootPage())
+        root.putChild("logout", RootPage())
+
     root.putChild("", RootPage())
     root.putChild("index", IndexPage(ctx, env))
-    root.putChild("login", LoginPage(ctx, env, htpasswd))
-    root.putChild("logout", LogoutPage(ctx, env, htpasswd))
 
     root.putChild("javascript",
-                  static.File(config.locations["javascript_root"],
+                  static.File(config.LOCATIONS["javascript_root"],
                               "application/javascript"))
-    root.putChild("css", static.File(config.locations["css_root"]))
-    root.putChild("fonts", static.File(config.locations["fonts_root"]))
+    root.putChild("css", static.File(config.LOCATIONS["css_root"]))
+    root.putChild("fonts", static.File(config.LOCATIONS["fonts_root"]))
     root.putChild("thumbnails",
-                  static.File(config.locations["thumbnails_root"]))
-    root.putChild("images", static.File(config.locations["images_root"]))
+                  static.File(config.LOCATIONS["thumbnails_root"]))
+    root.putChild("images", static.File(config.LOCATIONS["images_root"]))
     root.putChild("albums", gallery.Gallery(ctx, env, log))
 
-    if config.settings["use_bonjour"]:
+    if config.SETTINGS["use_bonjour"]:
+        from txbonjour import discovery
         print "Starting Bonjour Services"
         proto = discovery.BroadcastProtocol()
         discovery.connectBonjour(proto,
                                  '_http._tcp',
-                                 config.settings["server_port"],
+                                 config.SETTINGS["server_port"],
                                  'DAAP Server')
 
     factory = Site(root)
     factory.sessionFactory = ShortSession
 # http://twistedmatrix.com/documents/14.0.0/web/
 #       howto/web-in-60/session-endings.html
-    print "Listening on Port %s..." % config.settings["server_port"]
+    print "Listening on Port %s..." % config.SETTINGS["server_port"]
     reactor.suggestThreadPoolSize(5)
-    reactor.listenTCP(config.settings["server_port"], factory)
+    reactor.listenTCP(config.SETTINGS["server_port"], factory)
     #reactor.run(installSignalHandlers=False)
     reactor.run()
 

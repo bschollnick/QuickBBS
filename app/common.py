@@ -2,6 +2,7 @@
 Downloader Plugin for acparadise.com.
 """
 import os
+import re
 import unidecode
 import urllib2
 
@@ -44,7 +45,6 @@ def fix_doubleslash(fullpathname):
 def replace_all(text, dic):
     """
     Helper function for Clean Filename2
-
     No significant difference in speed between
     replace_all and multiple_replace.
     """
@@ -53,23 +53,28 @@ def replace_all(text, dic):
         text = text.replace(i, j)
     return text
 
-def multiple_replace(dict, text):
-  """ Replace in 'text' all occurences of any key in the given
-  dictionary by its corresponding value.  Returns the new string.
-  http://code.activestate.com/recipes/81330-single-pass-multiple-replace/
-  """
+def multiple_replace(remapdict, text):
+    """ Replace in 'text' all occurences of any key in the given
+    dictionary by its corresponding value.  Returns the new string.
+    http://code.activestate.com/recipes/81330-single-pass-multiple-replace/
+    """
+    # Create a regular expression  from the dictionary keys
+    regex = re.compile("(%s)" % "|".join(map(re.escape, remapdict.keys())))
 
-  # Create a regular expression  from the dictionary keys
-  regex = re.compile("(%s)" % "|".join(map(re.escape, dict.keys())))
-
-  # For each match, look-up corresponding value in dictionary
-  return regex.sub(lambda mo: dict[mo.string[mo.start():mo.end()]], text)
+    # For each match, look-up corresponding value in dictionary
+    return regex.sub(lambda mo: remapdict[mo.string[mo.start():mo.end()]], text)
 
 def assure_path_exists(path):
-    dir = os.path.dirname(os.path.abspath(path))
-    if not os.path.exists(dir):
-            os.makedirs(dir)
-            return True
+    """
+    Assures that a path exists, and create if necessary.
+
+    returns - True if the path was created
+    returns - False, if the path already existed.
+    """
+    dir_path = os.path.dirname(os.path.abspath(path))
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
+        return True
     return False
 
 def pre_slash(path):

@@ -10,6 +10,7 @@ import common
 import config
 import directory_caching
 import natsort
+import subprocess
 import tnail_services
 import semantic_url
 import urllib2
@@ -65,11 +66,11 @@ class Gallery(Resource):
         self.env = env
         self.log = log
         config.load_config_data()
-        self.ctx["filetypes"] = config.filetypes
-        if common.assure_path_exists(config.locations["album_root"]):
+        self.ctx["filetypes"] = config.FILETYPES
+        if common.assure_path_exists(config.LOCATIONS["album_root"]):
             print "Creating Albums Folder"
 
-        if common.assure_path_exists(config.locations["thumbnails_root"]):
+        if common.assure_path_exists(config.LOCATIONS["thumbnails_root"]):
             print "Creating Thumbnails Folder"
 
         self.cdl = directory_caching.Cache()
@@ -78,13 +79,14 @@ class Gallery(Resource):
             self.ctx["filetypes"]["image_safe_files"]
         self.cdl.filter_filenames = common.clean_filename2
         print "Priming the cache for %s, please wait" %\
-            config.locations["album_root"].lower().strip()
+            config.LOCATIONS["album_root"].lower().strip()
         self.cdl.smart_read(
-            config.locations["album_root"].lower().strip())
+            config.LOCATIONS["album_root"].lower().strip())
         print "Pump primed."
         self.semantic = semantic_url.semantic_url(\
-            pageitems=config.settings["gallery_items_per_page"],
-            subpageitems=config.settings["archive_items_per_page"])
+            pageitems=config.SETTINGS["gallery_items_per_page"],
+            subpageitems=config.SETTINGS["archive_items_per_page"])
+        self.search = None
         Resource.__init__(self)
 ##############################################################################
     def read_bytes_from_file(self, filename, chunk_size=8100):
@@ -215,10 +217,10 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
         """
         if gallery:
             return (self.ctx["sidebar"]["total_item_count"] /
-                    config.settings["gallery_items_per_page"]) + 1
+                    config.SETTINGS["gallery_items_per_page"]) + 1
         else:
             return (self.ctx["sidebar"]["total_item_count"] /
-                    config.settings["archive_items_per_page"]) + 1
+                    config.SETTINGS["archive_items_per_page"]) + 1
 ##############################################################################
     def display_gallery_page(self):
         """
@@ -228,7 +230,7 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
         self.ctx["gallery"] = {}
         self.ctx["sidebar"] = {}
 
-        self.ctx["gallery"]["name"] = config.settings["gallery_name"]
+        self.ctx["gallery"]["name"] = config.SETTINGS["gallery_name"]
         self.set_breadcrumbs_and_title()
         self.cdl.smart_read(self.ctx["fq_directory"])
         self.set_prev_next_dir()
@@ -251,10 +253,10 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
 
         start_offset = (
             self.ctx["gallery"]["current_page"] - 1) *\
-                config.settings["gallery_items_per_page"]
+                config.SETTINGS["gallery_items_per_page"]
 
         self.ctx["dlisting"] = catalog[start_offset:start_offset +\
-            config.settings["gallery_items_per_page"]]
+            config.SETTINGS["gallery_items_per_page"]]
 
         self.ctx["sidebar"]["page_count"] = self.calc_total_pages()
 
@@ -305,10 +307,20 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
             dlist_item = self.ctx["dlisting"][index]
             if dlist_item[1].file_extension == "dir":
                 self.create_directory_tnail(dlist_item[1])
+            elif dlist_item[1].is_archive:
+                tnail_services.newcreate_thumbnail_for_archives(\
+                    archive_name=dlist_item[1].fq_filename,
+                    filetype=dlist_item[1].file_extension,
+                    cover=True,
+                    gallery=True,
+                    mobile=False,
+                    filename=None,
+                    archive_listing=dlist_item[1].archive_listings)
+
             else:
-                if config.settings["defer_images_after"] > index:
+                if config.SETTINGS["defer_images_after"] > index:
                     tnail_services.create_thumbnail_for_file(\
-                        config.locations["server_root"],
+                        config.LOCATIONS["server_root"],
                         dlist_item[1].fq_filename,
                         dlist_item[1].file_extension,
                         cover=True,
@@ -317,7 +329,7 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
                 else:
                     threads.deferToThread(
                         tnail_services.create_thumbnail_for_file,
-                        config.locations["server_root"],
+                        config.LOCATIONS["server_root"],
                         dlist_item[1].fq_filename,
                         dlist_item[1].file_extension,
                         cover=True,
@@ -382,8 +394,13 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
         #   Since the semantic URL is not decoded earlier, there is no way
         #   to identify if this is an archive, or not.  This will dispatch
         #   to archive viewers if necessary.
-        if self.ctx["dlisting"][1].file_extension in\
-                self.ctx["filetypes"]["archive_file_types"]:
+#        if self.ctx["dlisting"][1].file_extension in\
+#                self.ctx["filetypes"]["archive_file_types"]:
+#            if self.semantic.current_subitem() != None:
+#                return self.display_archive_single_item()
+#            else:
+#                return self.display_archive_page()
+        if self.ctx["dlisting"][1].is_archive:
             if self.semantic.current_subitem() != None:
                 return self.display_archive_single_item()
             else:
@@ -392,8 +409,8 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
         self.ctx["sidebar"]["item_list"] = []
 
         for cat_item in xrange(0, len(catalog)):
-            page_cnt = cat_item / config.settings["gallery_items_per_page"]
-            file_cnt = (cat_item - (config.settings["gallery_items_per_page"]\
+            page_cnt = cat_item / config.SETTINGS["gallery_items_per_page"]
+            file_cnt = (cat_item - (config.SETTINGS["gallery_items_per_page"]\
                 * page_cnt))
             if catalog[cat_item][1].filename == "":
                 self.ctx["sidebar"]["item_list"].append(
@@ -417,7 +434,7 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
 
         if self.semantic.change_item(offset=+1, nom=True,
                                      max_item_count=\
-                                     config.settings["gallery_items_per_page"]):
+                                     config.SETTINGS["gallery_items_per_page"]):
             self.ctx["sidebar"]["next_page_url"] = common.pre_slash(\
                 self.semantic.return_current_uri())
         else:
@@ -426,7 +443,7 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
         self.semantic.revert_to_parsed()
         if self.semantic.change_item(offset=-1, nom=True,
                                      max_item_count=\
-                                     config.settings["gallery_items_per_page"]):
+                                     config.SETTINGS["gallery_items_per_page"]):
             self.ctx["sidebar"]["prev_page_url"] = common.pre_slash(\
                 self.semantic.return_current_uri())
         else:
@@ -446,7 +463,7 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
 
         preview = catalog[self.ctx["sidebar"]["current_item"]]
         tnail_services.create_thumbnail_for_file(
-            config.locations["server_root"],
+            config.LOCATIONS["server_root"],
             preview[1].fq_filename,
             preview[1].file_extension,
             cover=False,
@@ -461,7 +478,7 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
         """
         session = request.getSession()
         login = ILoginSessionData(session)
-        if config.settings["require_login"]:
+        if config.SETTINGS["require_login"]:
             if not login.username or login.username == "":
                 # this should store the current path, render the login page, and
                 # finally redirect back here
@@ -470,13 +487,19 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
                 request.finish()
                 return NOT_DONE_YET
 
-        self.ctx['debug'] = config.settings["debug"]
+        self.ctx['debug'] = config.SETTINGS["debug"]
         request_list = request.prepath + request.postpath
         if request.args.has_key("sort"):
             self.ctx["sort_order"] = int(request.args["sort"][0])
             login.sort_order = int(request.args["sort"][0])
         else:
             self.ctx['sort_order'] = login.sort_order
+
+        if request.args.has_key("srch-term"):
+            self.search = request.args["srch-term"][0].strip()
+        else:
+            self.search = None
+
 
         self.semantic.parse_uri(request_list)
 
@@ -487,10 +510,10 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
             common.pre_slash(request_string))
 
         if os.path.isfile(os.path.abspath(
-                os.sep.join([config.locations["album_root"],
+                os.sep.join([config.LOCATIONS["album_root"],
                              self.ctx["request_string"]]))):
             self.ctx["fq_filename"] = os.path.abspath(
-                os.sep.join([config.locations["album_root"],
+                os.sep.join([config.LOCATIONS["album_root"],
                              self.ctx["request_string"]]))
             #
             #   It's a file to be sent
@@ -514,10 +537,19 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
         #
 
         self.ctx["fq_parent_directory"] = \
-            os.sep.join(([config.locations["album_root"]]+request_list)[0:-1])
+            os.sep.join(([config.LOCATIONS["album_root"]]+request_list)[0:-1])
         self.ctx["fq_directory"] = os.path.abspath(
-            os.sep.join([config.locations["album_root"],
+            os.sep.join([config.LOCATIONS["album_root"],
                          self.ctx["request_string"]]))
+
+        if self.search:
+            print "Searching for %s" % (self.search)
+            test = subprocess.check_output(["mdfind",
+                                            "-onlyin",
+                                            self.ctx["fq_directory"],
+                                            "-name",
+                                            self.search])
+            print test
 
         self.ctx["current_directory"] = common.pre_slash(\
             request.postpath.split("/")[-1])
@@ -533,7 +565,7 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
             #   We are displaying a single item view
             #
             self.ctx["fq_filename"] = os.path.abspath(
-                os.sep.join([config.locations["album_root"],
+                os.sep.join([config.LOCATIONS["album_root"],
                              self.ctx["request_string"]]))
 #            print "displaying single file - %s" % self.ctx["fq_filename"]
             return self.display_single_item()
@@ -584,11 +616,12 @@ archive_items_per_page
         self.ctx["dir_nav"]["next_dir_url"],\
             self.ctx["dir_nav"]["next_dir_desc"] = (None, None)
 
-        filelistings_ptr = tnail_services.setup_archive_processing(\
-            self.ctx["dlisting"][1].file_extension)[0]
+#        filelistings_ptr = tnail_services.setup_archive_processing(\
+#            self.ctx["dlisting"][1].file_extension)[0]
 
-        full_comic_list = filelistings_ptr(self.ctx["dlisting"][1].fq_filename)
-        full_comic_list = natsort.natsort(full_comic_list)
+#    full_comic_list = filelistings_ptr(self.ctx["dlisting"][1].fq_filename)
+        full_comic_list = natsort.natsort(\
+            self.ctx["dlisting"][1].archive_listings)
 
         self.ctx["gallery"]["total_item_count"] = len(full_comic_list)
         self.ctx["sidebar"]["total_item_count"] = len(full_comic_list)
@@ -599,7 +632,7 @@ archive_items_per_page
         self.semantic.revert_to_parsed()
         if self.semantic.change_subpage(offset=+1, nom=True,\
             max_page_count=\
-            config.settings["archive_items_per_page"]):
+            config.SETTINGS["archive_items_per_page"]):
             self.ctx["sidebar"]["next_page_url"] = \
                 common.pre_slash(self.semantic.return_current_uri())
         else:
@@ -609,7 +642,7 @@ archive_items_per_page
 
         if self.semantic.change_subpage(offset=-1, nom=True,\
             max_page_count=\
-            config.settings["archive_items_per_page"]):
+            config.SETTINGS["archive_items_per_page"]):
             self.ctx["sidebar"]["prev_page_url"] = \
                 common.pre_slash(self.semantic.return_current_uri())
         else:
@@ -619,28 +652,45 @@ archive_items_per_page
 
         comic_list = full_comic_list[self.semantic.current_spi_to_number():\
                 self.semantic.current_spi_to_number() + \
-                config.settings["archive_items_per_page"]]
+                config.SETTINGS["archive_items_per_page"]]
 
         for archive_pages in xrange(0, len(comic_list)):
-            if config.settings["defer_images_after"] > archive_pages:
-                tnail_services.create_thumbnail_for_file(\
-                    config.locations["server_root"],
-                    self.ctx["dlisting"][1].fq_filename,
-                    self.ctx["dlisting"][1].file_extension,
+            if config.SETTINGS["defer_images_after"] > archive_pages:
+                tnail_services.newcreate_thumbnail_for_archives(\
+                    archive_name=self.ctx["dlisting"][1].fq_filename,
+                    filetype=self.ctx["dlisting"][1].file_extension,
                     cover=False,
                     gallery=True,
                     mobile=False,
                     filename=comic_list[archive_pages])
             else:
                 threads.deferToThread(\
-                    tnail_services.create_thumbnail_for_file,
-                    config.locations["server_root"],
-                    self.ctx["dlisting"][1].fq_filename,
-                    self.ctx["dlisting"][1].file_extension,
-                    cover=False,
-                    gallery=True,
-                    mobile=False,
-                    filename=comic_list[archive_pages])
+                    tnail_services.newcreate_thumbnail_for_archives(\
+                        archive_name=self.ctx["dlisting"][1].fq_filename,
+                        filetype=self.ctx["dlisting"][1].file_extension,
+                        cover=False,
+                        gallery=True,
+                        mobile=False,
+                        filename=comic_list[archive_pages]))
+#             if config.SETTINGS["defer_images_after"] > archive_pages:
+#                 tnail_services.create_thumbnail_for_file(\
+#                     config.LOCATIONS["server_root"],
+#                     self.ctx["dlisting"][1].fq_filename,
+#                     self.ctx["dlisting"][1].file_extension,
+#                     cover=False,
+#                     gallery=True,
+#                     mobile=False,
+#                     filename=comic_list[archive_pages])
+#             else:
+#                 threads.deferToThread(\
+#                     tnail_services.create_thumbnail_for_file,
+#                     config.LOCATIONS["server_root"],
+#                     self.ctx["dlisting"][1].fq_filename,
+#                     self.ctx["dlisting"][1].file_extension,
+#                     cover=False,
+#                     gallery=True,
+#                     mobile=False,
+#                     filename=comic_list[archive_pages])
 
         self.ctx["sidebar"]["total_item_count"] = len(comic_list)
 
@@ -718,11 +768,13 @@ archive_items_per_page
         self.ctx["dir_nav"]["next_dir_url"],\
             self.ctx["dir_nav"]["next_dir_desc"] = (None, None)
 
-        filelistings_ptr = tnail_services.setup_archive_processing(\
-            self.ctx["dlisting"][1].file_extension)[0]
+#        filelistings_ptr = tnail_services.setup_archive_processing(\
+#            self.ctx["dlisting"][1].file_extension)[0]
 
-        full_comic_list = filelistings_ptr(self.ctx["dlisting"][1].fq_filename)
-        full_comic_list = natsort.natsort(full_comic_list)
+#        full_comic_list = filelistings_ptr(self.ctx["dlisting"][1].fq_filename)
+#        full_comic_list = natsort.natsort(full_comic_list)
+        full_comic_list = natsort.natsort(\
+            self.ctx["dlisting"][1].archive_listings)
 
         self.ctx["gallery"]["total_item_count"] = len(full_comic_list)
         self.ctx["sidebar"]["total_item_count"] = len(full_comic_list)
@@ -733,7 +785,7 @@ archive_items_per_page
         self.semantic.revert_to_parsed()
         if self.semantic.change_subitem(offset=+1, nom=True,\
             max_item_count=\
-            config.settings["archive_items_per_page"]):
+            config.SETTINGS["archive_items_per_page"]):
             self.ctx["sidebar"]["next_page_url"] = \
                 common.pre_slash(self.semantic.return_current_uri())
         else:
@@ -743,7 +795,7 @@ archive_items_per_page
 
         if self.semantic.change_subitem(offset=-1, nom=True,\
             max_item_count=\
-            config.settings["archive_items_per_page"]):
+            config.SETTINGS["archive_items_per_page"]):
             self.ctx["sidebar"]["prev_page_url"] = \
                 common.pre_slash(self.semantic.return_current_uri())
         else:
@@ -752,14 +804,23 @@ archive_items_per_page
         self.semantic.revert_to_parsed()
 
         comic_list = full_comic_list[self.semantic.current_spi_to_number()-1]
-        tnail_services.create_thumbnail_for_file(\
-            config.locations["server_root"],
-            self.ctx["dlisting"][1].fq_filename,
-            self.ctx["dlisting"][1].file_extension,
+
+        tnail_services.newcreate_thumbnail_for_archives(\
+            archive_name=self.ctx["dlisting"][1].fq_filename,
+            filetype=self.ctx["dlisting"][1].file_extension,
             cover=False,
             gallery=False,
-            mobile=self.ctx["mobile"],
+            mobile=False,
             filename=comic_list)
+
+#         tnail_services.create_thumbnail_for_file(\
+#             config.LOCATIONS["server_root"],
+#             self.ctx["dlisting"][1].fq_filename,
+#             self.ctx["dlisting"][1].file_extension,
+#             cover=False,
+#             gallery=False,
+#             mobile=self.ctx["mobile"],
+#             filename=comic_list)
 
         self.ctx["sidebar"]["total_item_count"] = len(comic_list)
 
