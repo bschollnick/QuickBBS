@@ -4,10 +4,8 @@ Thumbnail services for the gallery.
 This is the universal code for creating and manipulating the thumbnails
 used by the gallery.
 """
-import comics
 import common
 import config
-import natsort
 import os
 import os.path
 from PIL import Image
@@ -206,7 +204,7 @@ def create_thumbnail_for_pdf(fullpathname, filetype):
     if not GHOSTSCRIPT_INSTALLED:
         return ''
 
-    if filetype not in config.filetypes["pdf_file_types"]:
+    if filetype not in config.FILETYPES["pdf_file_types"]:
         return ''
 
     thumbnail_save_filename = fullpathname.replace(
@@ -283,17 +281,17 @@ def create_thumbnail_for_file(server_root,
             - page of 0 means all pages, otherwise just that file #
     """
 
-    if filetype in config.filetypes["pdf_file_types"]:
+    if filetype in config.FILETYPES["pdf_file_types"]:
         create_thumbnail_for_pdf(fullpathname, filetype)
-    elif filetype in config.filetypes["archive_file_types"]:
-        create_thumbnail_for_archives(server_root,
-                                      fullpathname,
-                                      filetype,
-                                      cover=cover,
-                                      gallery=gallery,
-                                      mobile=mobile,
-                                      filename=filename)
-    elif filetype not in config.filetypes["graphic_file_types"]:
+#     elif filetype in config.FILETYPES["archive_file_types"]:
+#         create_thumbnail_for_archives(server_root,
+#                                       fullpathname,
+#                                       filetype,
+#                                       cover=cover,
+#                                       gallery=gallery,
+#                                       mobile=mobile,
+#                                       filename=filename)
+    elif filetype not in config.FILETYPES["graphic_file_types"]:
         return False
 
     thumbnail_save_filename = fullpathname.replace("albums/", "thumbnails/")
@@ -305,78 +303,26 @@ def create_thumbnail_for_file(server_root,
                      gallery=gallery, mobile=mobile)
     return  True
 ##############################################################################
-def setup_archive_processing(file_extension):
-    """
-    Setup the "pointers" for filelistings_ptr, and fileextractor_ptr
-    """
-    filelistings_ptr = None
-    fileextractor_ptr = None
-    if file_extension in config.filetypes["rar_file_types"]:
-        filelistings_ptr = comics.return_rarfile_filelist
-        fileextractor_ptr = comics.return_rarfile_filecontents
-    elif file_extension in config.filetypes["zip_file_types"]:
-        filelistings_ptr = comics.return_zipfile_filelist
-        fileextractor_ptr = comics.return_zipfile_filecontents
-    return (filelistings_ptr, fileextractor_ptr)
-
-##############################################################################
-def return_archive_page(archive_filename,
-                        page=None,
-                        filext=None):
-    """
-    Return graphic file from an archive, for thumbnailing purposes.
-    """
-
-    filelistings_ptr, fileextractor_ptr = setup_archive_processing(filext)
-
-    data_to_thumbnail = None
-    comic_list = filelistings_ptr(archive_filename)
-    comic_list = natsort.natsort(comic_list)
-    if page == None:
-        for c_files in range(0, len(comic_list)):
-            if os.path.splitext(comic_list[c_files])[1][1:].lower()\
-                    in config.filetypes["graphic_file_types"]:
-                data_to_thumbnail = fileextractor_ptr(
-                    archive_filename, comic_list[c_files])
-                return data_to_thumbnail
-    else:
-        data_to_thumbnail = fileextractor_ptr(archive_filename,
-                                              comic_list[page])
-    return data_to_thumbnail
-##############################################################################
-def return_archive_filename_data(archive_filename,
-                                 filename=None,
-                                 filext=None):
-    """
-    Return graphic file from an archive, for thumbnailing purposes.
-    """
-    if filename == None:
-        return None
-
-    fileextractor_ptr = setup_archive_processing(filext)[1]
-    data_to_thumbnail = None
-    data_to_thumbnail = fileextractor_ptr(archive_filename, filename)
-    return data_to_thumbnail
-##############################################################################
-def create_thumbnail_for_archives(server_root,
-                                  fullpathname,
-                                  filetype,
-                                  cover=False,
-                                  gallery=False,
-                                  mobile=False,
-                                  filename=None):
+def newcreate_thumbnail_for_archives(archive_name,
+                                     filetype,
+                                     cover=False,
+                                     gallery=False,
+                                     mobile=False,
+                                     filename=None,
+                                     archive_listing=None):
     """
     Create thumbnails for archive files.
     """
-    if filetype not in config.filetypes["archive_file_types"]:
+    import directory_caching.archives as archives
+    if filetype not in config.FILETYPES["archive_file_types"]:
         return ''
 
     if cover == True:
         thumbnail_save_filename = common.fix_doubleslash(
-            fullpathname + os.sep + "cover")
+            archive_name + os.sep + "cover")
     else:
         thumbnail_save_filename = common.fix_doubleslash(
-            fullpathname + os.sep + os.path.split(filename)[1])
+            archive_name + os.sep + os.path.split(filename)[1])
 
     thumbnail_save_filename = thumbnail_save_filename.replace(
         "albums/", "thumbnails/")
@@ -392,13 +338,16 @@ def create_thumbnail_for_archives(server_root,
         #   Cache File doesn't exist
         #
         if cover:
-            data_thumbnail = return_archive_page(fullpathname,
-                                                 page=0,
-                                                 filext=filetype)
+            for afn in archive_listing:
+                extension = os.path.splitext(afn)[1][1:].lower().strip()
+                if extension in config.FILETYPES["graphic_file_types"]:
+                    data_thumbnail = archives.return_archive_contents(\
+                        archive_name,
+                        afn)
+                    break
         else:
-            data_thumbnail = return_archive_filename_data(fullpathname,
-                                                          filename=filename,
-                                                          filext=filetype)
+            data_thumbnail = archives.return_archive_contents(archive_name,
+                                                              filename)
 
 
         if not os.path.exists(os.path.dirname(thumbnail_save_filename)):
@@ -408,8 +357,8 @@ def create_thumbnail_for_archives(server_root,
             os.makedirs(os.path.dirname(thumbnail_save_filename))
 
         if data_thumbnail != None and\
-                os.path.isdir(fullpathname) != True:
-            create_thumbnail(fullpathname,
+                os.path.isdir(archive_name) != True:
+            create_thumbnail(archive_name,
                              thumbnail_save_filename,
                              msource=data_thumbnail,
                              gallery=gallery,

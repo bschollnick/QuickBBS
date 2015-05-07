@@ -107,6 +107,7 @@ code::
 """
 #####################################################
 #   Batteries Included imports
+import directory_caching.archives as archives
 import exceptions
 import os
 import os.path
@@ -120,6 +121,12 @@ import scandir  # https://github.com/benhoyt/scandir
 SORT_BY_NAME = 0
 SORT_BY_MODIFIED = 1
 SORT_BY_CREATION = 2
+
+RAR_FILE_TYPES = ["cbr", "rar"]
+ZIP_FILE_TYPES = ["cbz", "zip"]
+
+ARCHIVE_FILE_TYPES = RAR_FILE_TYPES + ZIP_FILE_TYPES
+
 #####################################################
 class DirEntry(object):
     """
@@ -191,6 +198,9 @@ class DirEntry(object):
         self.fq_filename = None
         self.st = None
         self.human_st_mtime = None
+        self.is_archive = None
+        self.archive_listings = None
+        self.extended_data = {}
 
 #####################################################
 class Cache(object):
@@ -237,6 +247,8 @@ class Cache(object):
             # This is the path in the OS that is being examined
             #    (e.g. /Volumes/Users/username/)
         self.d_cache = {}
+        self.ed_collector = None
+
 #####################################################
     def _scan_directory_list(self, scan_directory):
         """
@@ -305,11 +317,21 @@ class Cache(object):
                  data.number_dirs) = self._return_filtered_dir_count(\
                        data.fq_filename)
                 directories[clean_name] = data
+                data.is_archive = False
+                data.archive_listings = None
             else:
                 data.filename = clean_name
                 data.directoryname = scan_directory
                 data.dot_extension = os.path.splitext(clean_name)[1].lower()
                 data.file_extension = data.dot_extension[1:]
+                if data.file_extension in ARCHIVE_FILE_TYPES:
+                    data.is_archive = True
+                    data.archive_listings = natsort.natsort(\
+                        archives.return_archive_listing(data.fq_filename))
+
+                if self.ed_collector != None:
+                    data.extended_data = self.ed_collector(data.fq_filename)
+
                 if self.acceptable_extensions == []:
                     #
                     #   There are no non-acceptable files.
@@ -372,12 +394,8 @@ class Cache(object):
         The numbers will not necessarily match _return_total_fd_count, since
         this will reject files, where _return_total_fd_count will not.
         """
-        scan_directory = os.path.realpath(scan_directory).strip()
-        fcount = 0
         dcount = 0
-#         scan_directory = os.path.realpath(scan_directory).strip()
-#         path, dirs, files = scandir.walk(scan_directory).next()
-
+        fcount = 0
         for s_entry in scandir.scandir(scan_directory):
             if s_entry.is_dir():
                 dcount += 1
@@ -543,8 +561,8 @@ class Cache(object):
                     return True
 
             path, raw_dirc, raw_filec = scandir.walk(scan_directory).next()
-            if (self.d_cache[scan_directory]["raw_filec"] != len(raw_filec) or
-               self.d_cache[scan_directory]["raw_dirc"] != len(raw_dirc)):
+            if self.d_cache[scan_directory]["raw_filec"] != len(raw_filec) or \
+               self.d_cache[scan_directory]["raw_dirc"] != len(raw_dirc):
                 return True
             return False
         else:
@@ -676,13 +694,11 @@ class Cache(object):
             dirs = self.d_cache[scan_directory]["dirs"]
             if sort_by == SORT_BY_NAME:
                 files = natsort.natsort(files.items(),
-                                        key=lambda t:\
-#                                            string.lower(t[1].filename),
-                                            t[1].filename.lower(),
+                                        key=lambda t: t[1].filename.lower(),
                                         reverse=reverse)
                 dirs = natsort.natsort(dirs.items(),
-#                                       key=lambda t: string.lower(\
-                                       key=lambda t: t[1].directoryname.lower(),
+                                       key=lambda t:\
+                                       t[1].directoryname.lower(),
                                        reverse=reverse)
             elif sort_by == SORT_BY_MODIFIED:
                 files = sorted(files.items(),\

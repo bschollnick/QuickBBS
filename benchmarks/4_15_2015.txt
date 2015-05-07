@@ -1,0 +1,131 @@
+This is ApacheBench, Version 2.3 <$Revision: 1604373 $>
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
+Licensed to The Apache Software Foundation, http://www.apache.org/
+
+Benchmarking 127.0.0.1 (be patient)
+
+
+Server Software:        TwistedWeb/15.0.0
+Server Hostname:        127.0.0.1
+Server Port:            8888
+
+Document Path:          /albums/verification_suite/benchtests/test1.bin
+Document Length:        1048576 bytes
+
+Concurrency Level:      25
+Time taken for tests:   0.591 seconds
+Complete requests:      200
+Failed requests:        1
+   (Connect: 0, Receive: 0, Length: 1, Exceptions: 0)
+Total transferred:      209745700 bytes
+HTML transferred:       209707100 bytes
+Requests per second:    338.36 [#/sec] (mean)
+Time per request:       73.886 [ms] (mean)
+Time per request:       2.955 [ms] (mean, across all concurrent requests)
+Transfer rate:          346531.86 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        0    0   0.1      0       1
+Processing:    54   71  13.7     67     140
+Waiting:       14   45  13.8     50      87
+Total:         54   71  13.7     67     140
+
+This is ApacheBench, Version 2.3 <$Revision: 1604373 $>
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
+Licensed to The Apache Software Foundation, http://www.apache.org/
+
+Benchmarking 127.0.0.1 (be patient)
+
+
+Server Software:        TwistedWeb/15.0.0
+Server Hostname:        127.0.0.1
+Server Port:            8888
+
+Document Path:          /albums/verification_suite/benchtests/test30.bin
+Document Length:        31457280 bytes
+
+Concurrency Level:      25
+Time taken for tests:   12.434 seconds
+Complete requests:      200
+Failed requests:        78
+   (Connect: 0, Receive: 0, Length: 78, Exceptions: 0)
+Total transferred:      6290660300 bytes
+HTML transferred:       6290621700 bytes
+Requests per second:    16.08 [#/sec] (mean)
+Time per request:       1554.252 [ms] (mean)
+Time per request:       62.170 [ms] (mean, across all concurrent requests)
+Transfer rate:          494065.75 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        0    0   0.1      0       1
+Processing:   816 1476 164.4   1482    1929
+Waiting:       15 1154 240.8   1186    1594
+Total:        817 1477 164.3   1482    1930
+
+This is ApacheBench, Version 2.3 <$Revision: 1604373 $>
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
+Licensed to The Apache Software Foundation, http://www.apache.org/
+
+Benchmarking 127.0.0.1 (be patient)
+
+
+Server Software:        TwistedWeb/15.0.0
+Server Hostname:        127.0.0.1
+Server Port:            8888
+
+Document Path:          /albums/verification_suite/benchtests/test50.bin
+Document Length:        52404500 bytes
+
+Concurrency Level:      25
+Time taken for tests:   20.362 seconds
+Complete requests:      200
+Failed requests:        193
+   (Connect: 0, Receive: 0, Length: 193, Exceptions: 0)
+Total transferred:      10484348700 bytes
+HTML transferred:       10484310100 bytes
+Requests per second:    9.82 [#/sec] (mean)
+Time per request:       2545.224 [ms] (mean)
+Time per request:       101.809 [ms] (mean, across all concurrent requests)
+Transfer rate:          502834.93 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        0    0   0.1      0       1
+Processing:   525 2408 433.8   2428    3256
+Waiting:       18 1883 415.3   1942    2587
+Total:        525 2408 433.8   2428    3257
+
+This is ApacheBench, Version 2.3 <$Revision: 1604373 $>
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
+Licensed to The Apache Software Foundation, http://www.apache.org/
+
+Benchmarking 127.0.0.1 (be patient)
+
+
+Server Software:        TwistedWeb/15.0.0
+Server Hostname:        127.0.0.1
+Server Port:            8888
+
+Document Path:          /albums/verification_suite/benchtests/test100.bin
+Document Length:        104857600 bytes
+
+Concurrency Level:      25
+Time taken for tests:   40.371 seconds
+Complete requests:      200
+Failed requests:        161
+   (Connect: 0, Receive: 0, Length: 161, Exceptions: 0)
+Total transferred:      20968529200 bytes
+HTML transferred:       20968490600 bytes
+Requests per second:    4.95 [#/sec] (mean)
+Time per request:       5046.422 [ms] (mean)
+Time per request:       201.857 [ms] (mean, across all concurrent requests)
+Transfer rate:          507217.73 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        0    0   0.1      0       1
+Processing:  1111 4780 752.6   4936    5494
+Waiting:       18 3763 799.0   3933    4474
+Total:       1111 4780 752.5   4936    5494
