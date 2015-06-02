@@ -107,9 +107,10 @@ def clean_filename2(filename,
     Looking to clean up clean_filename, and make it more generic
     """
     replacements = {'"':"`", "'":"`",
-                    ",":"", "#":"",
+                    ",":"",
                     "*":"", "@":"",
-                    ":":"-", "|":""}
+                    ":":"-", "|":"",
+                    "?":""}
     filename = replace_all(urllib2.unquote(filename), replacements)
         # Un"quotify" the URL / Filename
     if unicode_filter:

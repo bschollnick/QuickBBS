@@ -237,17 +237,21 @@ bgcolor='#CCCCFF' border=4
                                 <br>
 
                     <!-- thumbnail -->
-                        {% if item[1].file_extension in ["cbz", "cbr", "zip", "rar"] %}
-                            <!-- ZIP file Thumbnail -->
+                        {% if item[1].file_extension in filetypes["archive_file_types"] %}
+                            <!-- Archive file Thumbnail -->
                                 <img class="lazy" src="/images/loading17.gif" data-src="{{ thumbnail_path }}{{ item[0] }}/cover{{ gallery['small'] }}" width="auto" height="200px"/>
                         {% else %}
                             {% if item[1].file_extension == "dir" and item[1].number_files in [None, 0] %}
                                 <!-- Directory Thumbnail w/o files in it -->
                                 <img src="/images/folder.png" width="auto" height="200px"/>
                             {% else %}
-                                <!-- Directory Thumbnail -->
-                                <!-- everything else Thumbnail -->
-                                <img class="lazy" src="/images/loading17.gif" data-src="{{ thumbnail_path }}{{ item[0] }}{{ gallery['small'] }}" width="auto" height="200px"/>
+                                <!-- Everything else -->
+                                {% if filetypes[item[1].file_extension][1] == '' %}
+                                    <!-- everything else Thumbnail -->
+                                    <img class="lazy" src="/images/loading17.gif" data-src="{{ thumbnail_path }}{{ item[0] }}{{ gallery['small'] }}" width="auto" height="200px"/>
+                                {% else %}
+                                    <img class="lazy" src="/images/loading17.gif" data-src="{{ filetypes[item[1].file_extension][1] }}" width="auto" height="200px"/>
+                                {% endif %}
                             {% endif %}
                         {% endif %}
                             </a>

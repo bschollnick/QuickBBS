@@ -54,3 +54,15 @@ docs/_build/
 
 # Log files
 *.log.*
+app/markdown/
+app/directory_caching/
+app/natsort/
+app/pybonjour.*
+app/scandir.*
+app/txbonjour/
+app/unidecode/
+
+
+app/directory_caching/__init__.py
+
+app/directory_caching/archives.py
