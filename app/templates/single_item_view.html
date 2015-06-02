@@ -177,34 +177,20 @@ bgcolor="#E6E6FA"
         <div class="thumbnail" style="background:#BBBBBB;border:1px solid red;width=100%;height=100%;">
     {% endif %}
             <center>
-            <!-- hyperlink -->
-                <!-- DIR hyperlink -->
-                {% if dlisting[1].file_extension == "dir" %}
-                        {{ dlisting[0] | wordwrap(width=gallery['textwrap']+15    , wrapstring="<br>") }}
-                <!-- Everything else hyperlink -->
-                {% else %}
-                    {{ dlisting[0] | wordwrap(width=gallery['textwrap']+15, wrapstring='<br>') }}
-                {% endif %}
-                        <br>
-
-            <!-- thumbnail -->
-                <!-- ZIP file Thumbnail -->
-                {% if dlisting[1].file_extension in ["cbz", "cbr", "zip", "rar"] %}
-                        <img src="{{ thumbnail_path }}{{ dlisting[0] }}/Page_1_thumb.png" width="99%" height="auto" style="max-width:99%"/>
-                {% else %}
-                        {% if mobile %}
-                            <img src="{{ thumbnail_path }}{{ dlisting[0] }}{{ gallery['mobile'] }}" style="max-width:99%;"/>
-                        {% else %}
-                            <img src="{{ thumbnail_path }}{{ dlisting[0] }}{{ gallery['large'] }}" style="max-width:99%;"/>
-                        {% endif %}
-                {% endif %}
-                <p>
-                File Size - {{ dlisting[1].st.st_size }}<BR>
-                Last Modified - {{ dlisting[1].human_st_mtime }}
                 <a href="{{ web_path }}{{ dlisting[0] }}">
                     <img src="/images/down.png" align="right" height="5%" width="5%">
-                </a>                <br>
-            </center>
+                </a>
+            <!-- Title -->
+                <!-- DIR hyperlink -->
+                {% if dlisting[1].file_extension == "dir" %}
+                        {{ dlisting[0] | wordwrap(width=gallery['textwrap']+30, wrapstring="<br>") }}
+                <!-- Everything else hyperlink -->
+                {% else %}
+                    {{ dlisting[0] | wordwrap(width=gallery['textwrap']+30, wrapstring='<br>') }}
+                {% endif %}<br>
+                File Size - {{ dlisting[1].st.st_size }}<BR>
+                Last Modified - {{ dlisting[1].human_st_mtime }}
+                <br>
                         <select onchange="navigateTo(this, 'window', false);">
                             {% for page_cnt, file_cnt, name in sidebar["item_list"]: %}
                                 {% if dlisting[0] == name %}
@@ -218,6 +204,29 @@ bgcolor="#E6E6FA"
     </noscript><input type="submit" value="Go"></noscript>
     <p>
                     </form>
+    </center>
+    </div>
+    {% if text_preview != None %}
+        </center>
+        {{ text_preview }}
+        </P>
+    {% else %}
+        <center>
+            <!-- thumbnail -->
+                <!-- ZIP file Thumbnail -->
+                {% if dlisting[1].file_extension in ["cbz", "cbr", "zip", "rar"] %}
+                        <img src="{{ thumbnail_path }}{{ dlisting[0] }}/Page_1_thumb.png" width="99%" height="auto" style="max-width:99%"/>
+                {% else %}
+                        {% if mobile %}
+                            <img src="{{ thumbnail_path }}{{ dlisting[0] }}{{ gallery['mobile'] }}" style="max-width:99%;"/>
+                        {% else %}
+                            <img src="{{ thumbnail_path }}{{ dlisting[0] }}{{ gallery['large'] }}" style="max-width:99%;"/>
+                        {% endif %}
+                {% endif %}
+        </center>
+    {% endif %}
+                <p>
+            </center>
         </div>
 </div>
 {% endblock grid %}

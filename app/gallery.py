@@ -6,9 +6,11 @@ import os
 import os.path
 
 import bread
+import codecs
 import common
 import config
 import directory_caching
+import markdown
 import natsort
 import subprocess
 import tnail_services
@@ -76,7 +78,7 @@ class Gallery(Resource):
         self.cdl = directory_caching.Cache()
         self.cdl.files_to_ignore = self.ctx["filetypes"]["files_to_ignore"]
         self.cdl.acceptable_extensions = \
-            self.ctx["filetypes"]["image_safe_files"]
+            self.ctx["filetypes"]["files_to_cache"]
         self.cdl.filter_filenames = common.clean_filename2
         print "Priming the cache for %s, please wait" %\
             config.LOCATIONS["album_root"].lower().strip()
@@ -394,12 +396,6 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
         #   Since the semantic URL is not decoded earlier, there is no way
         #   to identify if this is an archive, or not.  This will dispatch
         #   to archive viewers if necessary.
-#        if self.ctx["dlisting"][1].file_extension in\
-#                self.ctx["filetypes"]["archive_file_types"]:
-#            if self.semantic.current_subitem() != None:
-#                return self.display_archive_single_item()
-#            else:
-#                return self.display_archive_page()
         if self.ctx["dlisting"][1].is_archive:
             if self.semantic.current_subitem() != None:
                 return self.display_archive_single_item()
@@ -458,10 +454,15 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
         self.ctx["gallery"]["last_page"] = self.ctx["sidebar"]["item_count"]
         self.ctx["gallery"]["current_directory"] = self.ctx[
             "current_directory"]
-
-        template = self.env.get_template("single_item_view.html")
+        self.ctx["text_preview"] = None
 
         preview = catalog[self.ctx["sidebar"]["current_item"]]
+        if preview[1].file_extension in config.FILETYPES["text_file_types"]:
+            raw_markdown = codecs.open(preview[1].fq_filename, encoding='utf-8').readlines()
+            self.ctx["text_preview"] = markdown.markdown(''.join(raw_markdown))#.encode('utf-8')
+#            return processed_markdown.encode('utf-8')
+
+        template = self.env.get_template("single_item_view.html")
         tnail_services.create_thumbnail_for_file(
             config.LOCATIONS["server_root"],
             preview[1].fq_filename,
@@ -470,7 +471,7 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
             gallery=False,
             mobile=self.ctx['mobile'])
 
-        return str(template.render(self.ctx))
+        return template.render(self.ctx).encode('utf-8')
 ##############################################################################
     def render_GET(self, request):
         """
@@ -543,13 +544,7 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
                          self.ctx["request_string"]]))
 
         if self.search:
-            print "Searching for %s" % (self.search)
-            test = subprocess.check_output(["mdfind",
-                                            "-onlyin",
-                                            self.ctx["fq_directory"],
-                                            "-name",
-                                            self.search])
-            print test
+            return self.display_search_results(self.search)
 
         self.ctx["current_directory"] = common.pre_slash(\
             request.postpath.split("/")[-1])
@@ -575,6 +570,29 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
             #   We are displaying a gallery
             #
             return self.display_gallery_page()
+
+##############################################################################
+    def display_search_results(self, search_term):
+        """
+        """
+        display_results = []
+        print "Searching for %s" % (search_term)
+        results = subprocess.check_output(["mdfind",
+                                          "-onlyin",
+                                          self.ctx["fq_directory"],
+                                          "-name",
+                                          search_term]).split("\n")
+        print results
+        for search_result in results:
+            search_path, search_filename = os.path.split(search_result)
+            fileext = os.path.splitext(search_result)[1]
+            web_folder = search_path.replace(config.LOCATIONS["album_root"], "")
+            print search_filename,"  ", web_folder,"  ", search_path
+#            display_results.append([search_filename, fileext, search_path])
+        print display_results
+        template = self.env.get_template("archive_listing.html")
+        return str(template.render(self.ctx))
+
 
 ##############################################################################
     def display_archive_page(self):
@@ -672,25 +690,6 @@ archive_items_per_page
                         gallery=True,
                         mobile=False,
                         filename=comic_list[archive_pages]))
-#             if config.SETTINGS["defer_images_after"] > archive_pages:
-#                 tnail_services.create_thumbnail_for_file(\
-#                     config.LOCATIONS["server_root"],
-#                     self.ctx["dlisting"][1].fq_filename,
-#                     self.ctx["dlisting"][1].file_extension,
-#                     cover=False,
-#                     gallery=True,
-#                     mobile=False,
-#                     filename=comic_list[archive_pages])
-#             else:
-#                 threads.deferToThread(\
-#                     tnail_services.create_thumbnail_for_file,
-#                     config.LOCATIONS["server_root"],
-#                     self.ctx["dlisting"][1].fq_filename,
-#                     self.ctx["dlisting"][1].file_extension,
-#                     cover=False,
-#                     gallery=True,
-#                     mobile=False,
-#                     filename=comic_list[archive_pages])
 
         self.ctx["sidebar"]["total_item_count"] = len(comic_list)
 
