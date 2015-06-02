@@ -1,6 +1,6 @@
 """Semantic URL - A Parsing & Manipulation library for creating & using Semantic URLs
 """
-
+import os
 
 try:
     from setuptools import setup, find_packages
@@ -21,7 +21,21 @@ __github_url__ = 'https://github.com/bschollnick/Semantic_URL/tree/master'
 
 __pypi_keywords__ ='semantic', 'URL'
 
-dependencies = []
+
+dependencies = ['directory_caching',
+                'jinja',
+                'markdown',
+                'natsort',
+                'passlib',
+                'Pillow',
+                'pybonjour',
+                'rarfile'
+                'rarfile',
+                'scandir',
+                'twisted',
+                'txbonjour',
+                'unidecode',
+               ]
 
 doclines = __doc__.split("\n")
 
@@ -53,6 +67,7 @@ setup(
     package_data = __package_data__,
     packages = __packages__,
     requires = dependencies,
+    install_requires = dependencies,
     long_description = "\n".join(doclines[2:]),
     keywords = __pypi_keywords__
 
