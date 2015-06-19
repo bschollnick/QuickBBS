@@ -8,6 +8,7 @@ pip install --upgrade pybonjour
 pip install --upgrade rarfile
 pip install --upgrade rarfile
 pip install --upgrade scandir
+pip install --upgrade semantic_url
 pip install --upgrade twisted
 pip install --upgrade txbonjour
 pip install --upgrade unidecode

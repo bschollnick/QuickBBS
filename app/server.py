@@ -18,12 +18,7 @@ import gallery
 import os
 import os.path
 import random
-#import signal
 
-#from txbonjour import discovery            # Moved to be lazy loaded
-#from passlib.apache import HtpasswdFile    # Moved to be lazy loaded
-
-from twisted.python import log
 from twisted.web.server import Site, NOT_DONE_YET
 from twisted.web import static
 from twisted.web.resource import Resource
@@ -31,7 +26,6 @@ from twisted.internet import reactor
 
 from twisted.web.server import Session
 from twisted.python import log
-#from twisted.python.logfile import DailyLogFile
 from twisted.python.logfile import LogFile
 
 from jinja2 import Environment, FileSystemLoader
@@ -222,13 +216,13 @@ def main():
     """
     config.load_config_data()
 
-    ##############################################################################
+##############################################################################
     class ShortSession(Session):
         """
         Increase the session timeout
         """
         sessionTimeout = config.SETTINGS["session_logout_timeout"]
-    ##############################################################################
+##############################################################################
 
 #     def handler(signum, frame):
 #         print "Shutting down, due to kill request."
@@ -251,7 +245,9 @@ def main():
     if common.assure_path_exists(log_path):
         print "Creating Log File Path"
 
-    log.startLogging(LogFile.fromFullPath(log_path, maxRotatedFiles=10), setStdout=False)
+    log.startLogging(LogFile.fromFullPath(log_path,
+                                          maxRotatedFiles=10),
+                     setStdout=False)
 
     ctx = {}
 

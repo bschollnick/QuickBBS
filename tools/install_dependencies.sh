@@ -9,5 +9,6 @@ pip install  txbonjour
 pip install  rarfile
 pip install  rarfile
 pip install  scandir
+pip install  semantic_url
 pip install  twisted
 pip install  unidecode
