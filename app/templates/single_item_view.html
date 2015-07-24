@@ -183,14 +183,13 @@ bgcolor="#E6E6FA"
             <!-- Title -->
                 <!-- DIR hyperlink -->
                 {% if dlisting[1].file_extension == "dir" %}
-                        {{ dlisting[0] | wordwrap(width=gallery['textwrap']+30, wrapstring="<br>") }}
+                        {{ dlisting[0] | wordwrap(width=gallery['textwrap']+45, wrapstring="<br>") }}
                 <!-- Everything else hyperlink -->
                 {% else %}
-                    {{ dlisting[0] | wordwrap(width=gallery['textwrap']+30, wrapstring='<br>') }}
+                    {{ dlisting[0] | wordwrap(width=gallery['textwrap']+45, wrapstring='<br>') }}
                 {% endif %}<br>
-                File Size - {{ dlisting[1].st.st_size }}<BR>
-                Last Modified - {{ dlisting[1].human_st_mtime }}
-                <br>
+                <table><tr><TD>File Size - {{ dlisting[1].st.st_size }}</TD><TD></TD><TD>
+                Last Modified - {{ dlisting[1].human_st_mtime }}</TD></TR></TABLE>
                         <select onchange="navigateTo(this, 'window', false);">
                             {% for page_cnt, file_cnt, name in sidebar["item_list"]: %}
                                 {% if dlisting[0] == name %}
@@ -198,7 +197,6 @@ bgcolor="#E6E6FA"
                                 {% else %}
                                     <option value="{{ web_path }}{{ page_cnt }}/{{ file_cnt }}">{{ name | wordwrap(width=gallery['textwrap'], break_long_words=True, wrapstring="<br>") }}</option>
                                 {% endif %}
-
                             {% endfor %}
                         </select>
     </noscript><input type="submit" value="Go"></noscript>

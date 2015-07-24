@@ -26,6 +26,7 @@ from zope.interface import Interface, Attribute, implements
 from twisted.web.server import Session
 from twisted.python.components import registerAdapter
 
+from yapsy.PluginManager import PluginManager
 ##############################################################################
 class ILoginSessionData(Interface):
     """
@@ -58,6 +59,39 @@ class Gallery(Resource):
     """
     isLeaf = True
 ##############################################################################
+    def return_plugin(self, sourcefile):
+        extension = os.path.splitext(sourcefile.upper())[1]
+        return self.file_types_map[extension][1]
+
+
+    def load_plugins(self):
+        """
+            The file types map is structured as follows:
+
+            #0 - Uppercase, stripped, File Extension
+            #1 - The pointer to the plugin class
+            #2 - The description of the plugin
+
+        """
+        self.plugin_manager = PluginManager()
+        self.plugin_manager.setPluginPlaces([os.path.expanduser(os.path.abspath('.' + os.sep + "plugins"))])
+        self.plugin_manager.collectPlugins()
+        # Loop round the plugins and print their names.
+        self.file_types_map = {}
+        for plug in self.plugin_manager.getAllPlugins():
+            for ftype in plug.plugin_object.ACCEPTABLE_FILE_EXTENSIONS:
+                self.file_types_map[ftype.upper().strip()] = [ftype.upper().strip(),
+                                                 plug.plugin_object,
+                                                 plug.description
+                                                 ]
+        for x in sorted(self.file_types_map):
+            print "Loading FileType Plugin for %5s - %s" % (x, self.file_types_map[x][2])
+    #        for ftype in file_types_map[
+            #plugin_names[plug.name.lower().strip()] = plug
+            # plugin name contains pointer to module
+            #plugin_parser_adds(parser, plug.plugin_object)
+
+##############################################################################
     def __init__(self, ctx, env, log):
         """
             The gallery system.
@@ -69,6 +103,7 @@ class Gallery(Resource):
         self.log = log
         config.load_config_data()
         self.ctx["filetypes"] = config.FILETYPES
+        self.load_plugins()
         if common.assure_path_exists(config.LOCATIONS["album_root"]):
             print "Creating Albums Folder"
 
@@ -81,15 +116,16 @@ class Gallery(Resource):
             self.ctx["filetypes"]["files_to_cache"]
         self.cdl.filter_filenames = common.clean_filename2
         print "Priming the cache for %s, please wait" %\
-            config.LOCATIONS["album_root"].lower().strip()
+            (config.LOCATIONS["album_root"].lower().strip()+"/albums")
         self.cdl.smart_read(
-            config.LOCATIONS["album_root"].lower().strip())
+            config.LOCATIONS["album_root"].lower().strip()+"/albums")
         print "Pump primed."
         self.semantic = semantic_url.semantic_url(\
             pageitems=config.SETTINGS["gallery_items_per_page"],
             subpageitems=config.SETTINGS["archive_items_per_page"])
         self.search = None
         Resource.__init__(self)
+
 ##############################################################################
     def read_bytes_from_file(self, filename, chunk_size=8100):
         """ Read bytes from a file in chunks. """
@@ -145,17 +181,16 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
             if tnail_sourcefile != None:
                 #
                 #   tnail has been identified, create tnail
-                tnail_target = os.path.split(tnail_sourcefile)[0:-1][0]
+                tnail_target = os.path.split(tnail_sourcefile)[0:-1][0]+"_thumb300.PNG"
                 tnail_target = tnail_target.replace("/albums/", "/thumbnails/")
-
                 common.assure_path_exists(tnail_target)
-
-                threads.deferToThread(
-                    tnail_services.create_thumbnail,
-                    fq_filename=tnail_sourcefile,
-                    fq_thumbnail=tnail_target,
-                    gallery=True,
-                    mobile=False)
+                plugin_target = self.return_plugin(tnail_sourcefile)
+                if plugin_target.IMG_TAG:
+                    threads.deferToThread(
+                        plugin_target.create_thumbnail_from_file,
+                        src_filename = tnail_sourcefile,
+                        t_filename = tnail_target,
+                        t_size=300)
                 return server.NOT_DONE_YET
             else:
                 pass
@@ -309,34 +344,32 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
             dlist_item = self.ctx["dlisting"][index]
             if dlist_item[1].file_extension == "dir":
                 self.create_directory_tnail(dlist_item[1])
-            elif dlist_item[1].is_archive:
-                tnail_services.newcreate_thumbnail_for_archives(\
-                    archive_name=dlist_item[1].fq_filename,
-                    filetype=dlist_item[1].file_extension,
-                    cover=True,
-                    gallery=True,
-                    mobile=False,
-                    filename=None,
-                    archive_listing=dlist_item[1].archive_listings)
-
+#             elif dlist_item[1].is_archive:
+#                 tnail_services.newcreate_thumbnail_for_archives(\
+#                     archive_name=dlist_item[1].fq_filename,
+#                     filetype=dlist_item[1].file_extension,
+#                     cover=True,
+#                     gallery=True,
+#                     mobile=False,
+#                     filename=None,
+#                     archive_listing=dlist_item[1].archive_listings)
+#
             else:
-                if config.SETTINGS["defer_images_after"] > index:
-                    tnail_services.create_thumbnail_for_file(\
-                        config.LOCATIONS["server_root"],
-                        dlist_item[1].fq_filename,
-                        dlist_item[1].file_extension,
-                        cover=True,
-                        gallery=True,
-                        mobile=False)
-                else:
-                    threads.deferToThread(
-                        tnail_services.create_thumbnail_for_file,
-                        config.LOCATIONS["server_root"],
-                        dlist_item[1].fq_filename,
-                        dlist_item[1].file_extension,
-                        cover=True,
-                        gallery=True,
-                        mobile=False)
+                if self.file_types_map.has_key(dlist_item[1].dot_extension.upper().strip()):
+                    source_filename = dlist_item[1].fq_filename
+                    target_filename = common.return_thumbnail_name(source_filename, 300)
+#                    plugin_target = self.file_types_map[dlist_item[1].dot_extension.upper().strip()][1]
+                    plugin_target = self.return_plugin(dlist_item[1].fq_filename)
+                    if config.SETTINGS["defer_images_after"] > index:
+                        if plugin_target.IMG_TAG:
+                            plugin_target.create_thumbnail_from_file(src_filename = source_filename,
+                                               t_filename = target_filename,
+                                               t_size=300)
+                    else:
+                        threads.deferToThread(plugin_target.create_thumbnail_from_file,
+                                              src_filename = source_filename,
+                                              t_filename = target_filename,
+                                              t_size=300)
         return str(template.render(self.ctx))
 ##############################################################################
     def return_directory_sorted(self,
@@ -455,21 +488,40 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
         self.ctx["gallery"]["current_directory"] = self.ctx[
             "current_directory"]
         self.ctx["text_preview"] = None
-
         preview = catalog[self.ctx["sidebar"]["current_item"]]
-        if preview[1].file_extension in config.FILETYPES["text_file_types"]:
-            raw_markdown = codecs.open(preview[1].fq_filename, encoding='utf-8').readlines()
-            self.ctx["text_preview"] = markdown.markdown(''.join(raw_markdown))#.encode('utf-8')
-#            return processed_markdown.encode('utf-8')
+
+        if self.file_types_map.has_key(preview[1].dot_extension.upper().strip()):
+            source_filename = preview[1].fq_filename
+            target_filename = common.return_thumbnail_name(preview[1].fq_filename, 1024)
+            plugin_target = self.return_plugin(source_filename)
+            if plugin_target.IMG_TAG:
+                common.assure_path_exists(target_filename)
+                plugin_target.create_thumbnail_from_file(src_filename = source_filename,
+                                   t_filename = target_filename,
+                                   t_size=1024)
+#             elif plugin_target.FRAME_TAG:
+#                 self.ctx["text_preview"] = \
+#                     plugin_target.create_thumbnail_from_file(src_filename = source_filename,
+#                                    t_filename = target_filename,
+#                                    t_size=1024)
+#
 
         template = self.env.get_template("single_item_view.html")
-        tnail_services.create_thumbnail_for_file(
-            config.LOCATIONS["server_root"],
-            preview[1].fq_filename,
-            preview[1].file_extension,
-            cover=False,
-            gallery=False,
-            mobile=self.ctx['mobile'])
+
+#         preview = catalog[self.ctx["sidebar"]["current_item"]]
+#         if preview[1].file_extension in config.FILETYPES["text_file_types"]:
+#             raw_markdown = codecs.open(preview[1].fq_filename, encoding='utf-8').readlines()
+#             self.ctx["text_preview"] = markdown.markdown(''.join(raw_markdown))#.encode('utf-8')
+# #            return processed_markdown.encode('utf-8')
+#
+#         template = self.env.get_template("single_item_view.html")
+#         tnail_services.create_thumbnail_for_file(
+#             config.LOCATIONS["server_root"],
+#             preview[1].fq_filename,
+#             preview[1].file_extension,
+#             cover=False,
+#             gallery=False,
+#             mobile=self.ctx['mobile'])
 
         return template.render(self.ctx).encode('utf-8')
 ##############################################################################
