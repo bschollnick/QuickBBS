@@ -1,0 +1,9 @@
+[Core]
+Name = GIF Processor
+Module = GIF_Parser
+
+[Documentation]
+Description = GIF Processing for Gallery
+Author = Benjamin Schollnick
+Version = 1
+Website = http://bschollnick.github.com
