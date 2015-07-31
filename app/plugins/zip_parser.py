@@ -6,8 +6,7 @@ used by the gallery.
 """
 import core_plugin
 import codecs
-import markdown
-
+import zipfile
 
 class PluginOne(core_plugin.CorePlugin):
     """
@@ -36,26 +35,25 @@ class PluginOne(core_plugin.CorePlugin):
             this file format.
     """
 
-    ACCEPTABLE_FILE_EXTENSIONS = ['.MARKDOWN', '.MARK', '.MD']
+    ACCEPTABLE_FILE_EXTENSIONS = ['.ZIP', '.CBZ']
 
     IMG_TAG = False
 
-    FRAME_TAG = True
+    FRAME_TAG = False
 
-    DEFAULT_ICON = r"/images/markdown-mark.png"
+    CONTAINER = True
 
-    DEFAULT_BACKGROUND = "fef7df"
+#    DEFAULT_ICON = r"/images/1431973779.png"
 
-    def web_view(self, src_filename):
-        """
-        Create a web acceptable view of the file.
+    DEFAULT_BACKGROUND = "B2DECE"
 
-        In this case, read & process the src_filename, run through markdown,
-        and then return this as a string.
-        """
-        if src_filename == "" or src_filename == None:
+    def extract_from_container(cls,
+                               container_file=None,
+                               fn_to_extract=None,
+                               t_size=None):
+
+        try:
+            zfile = zipfile.ZipFile(container_file, 'r')
+            data = zfile.read(fn_to_extract)
+        except exceptions.IOError:
             return None
-
-        raw_text = codecs.open(src_filename, encoding='utf-8').readlines()
-        return markdown.markdown(''.join(raw_text))#.encode('utf-8')
-
