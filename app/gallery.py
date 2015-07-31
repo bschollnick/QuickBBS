@@ -12,6 +12,7 @@ import config
 import directory_caching
 import markdown
 import natsort
+import plugin_mgr
 import subprocess
 import tnail_services
 import semantic_url
@@ -69,6 +70,7 @@ class Gallery(Resource):
         self.log = log
         config.load_config_data()
         self.ctx["filetypes"] = config.FILETYPES
+        plugin_mgr.load_plugins()
         if common.assure_path_exists(config.LOCATIONS["album_root"]):
             print "Creating Albums Folder"
 
@@ -81,15 +83,16 @@ class Gallery(Resource):
             self.ctx["filetypes"]["files_to_cache"]
         self.cdl.filter_filenames = common.clean_filename2
         print "Priming the cache for %s, please wait" %\
-            config.LOCATIONS["album_root"].lower().strip()
+            (config.LOCATIONS["album_root"].lower().strip()+"/albums")
         self.cdl.smart_read(
-            config.LOCATIONS["album_root"].lower().strip())
+            config.LOCATIONS["album_root"].lower().strip()+"/albums")
         print "Pump primed."
         self.semantic = semantic_url.semantic_url(\
             pageitems=config.SETTINGS["gallery_items_per_page"],
             subpageitems=config.SETTINGS["archive_items_per_page"])
         self.search = None
         Resource.__init__(self)
+
 ##############################################################################
     def read_bytes_from_file(self, filename, chunk_size=8100):
         """ Read bytes from a file in chunks. """
@@ -131,6 +134,54 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
                 return os.sep.join([directory_to_use, thumbname[0]])
         return None
 ##############################################################################
+    def create_archive_tnail(self, dir_record, filename=None, tsize=None):
+        """
+        Create a tnail for the directory.  Not contained in tnail
+        services, since it needs file system access.
+        """
+        import directory_caching.archives as archives
+        archive_name = os.path.split(dir_record.fq_filename)[1]
+
+        thumbnail_save_filename = dir_record.fq_filename.replace("/albums", "/thumbnails")
+        if filename == None:
+            thumbnail_save_filename = os.path.join(thumbnail_save_filename,
+                                          archive_name + "_thumb%s.png" % tsize)
+        else:
+            #
+            #   Split will remove any embedded directories in the zip file.
+            #
+            thumbnail_save_filename = os.path.join(thumbnail_save_filename,
+                                          os.path.split(filename)[1] + "_thumb%s.png" % tsize)
+
+        if not os.path.exists(os.path.dirname(thumbnail_save_filename)):
+            os.makedirs(os.path.dirname(thumbnail_save_filename))
+
+        data_thumbnail = None
+        if not os.path.exists(thumbnail_save_filename):
+            #
+            #   Cache File doesn't exist
+            #
+            if filename==None:
+                for afn in dir_record.archive_listings:
+                    extension = os.path.splitext(afn)[1][1:].lower().strip()
+                    if extension in config.FILETYPES["graphic_file_types"]:
+                        data_thumbnail = archives.return_archive_contents(\
+                            dir_record.fq_filename,
+                            afn)
+                        break
+            else:
+                data_thumbnail = archives.return_archive_contents(dir_record.fq_filename,
+                                                                  filename)
+
+
+            common.assure_path_exists(thumbnail_save_filename)
+            plugin_target = plugin_mgr.return_plugin(thumbnail_save_filename)
+            if plugin_target != False and plugin_target.IMG_TAG:
+                plugin_target.create_thumbnail_from_memory(memory_image = data_thumbnail,
+                    t_filename = thumbnail_save_filename,
+                    t_size=tsize)
+            return server.NOT_DONE_YET
+    ##############################################################################
     def create_directory_tnail(self, dir_record):
         """
         Create a tnail for the directory.  Not contained in tnail
@@ -145,17 +196,16 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
             if tnail_sourcefile != None:
                 #
                 #   tnail has been identified, create tnail
-                tnail_target = os.path.split(tnail_sourcefile)[0:-1][0]
+                tnail_target = os.path.split(tnail_sourcefile)[0:-1][0]+"_thumb300.PNG"
                 tnail_target = tnail_target.replace("/albums/", "/thumbnails/")
-
                 common.assure_path_exists(tnail_target)
-
-                threads.deferToThread(
-                    tnail_services.create_thumbnail,
-                    fq_filename=tnail_sourcefile,
-                    fq_thumbnail=tnail_target,
-                    gallery=True,
-                    mobile=False)
+                plugin_target = plugin_mgr.return_plugin(tnail_sourcefile)
+                if plugin_target.IMG_TAG:
+                    threads.deferToThread(
+                        plugin_target.create_thumbnail_from_file,
+                        src_filename = tnail_sourcefile,
+                        t_filename = tnail_target,
+                        t_size=300)
                 return server.NOT_DONE_YET
             else:
                 pass
@@ -308,35 +358,37 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
         for index in xrange(0, len(self.ctx["dlisting"])):
             dlist_item = self.ctx["dlisting"][index]
             if dlist_item[1].file_extension == "dir":
+#                print dlist_item[1]
                 self.create_directory_tnail(dlist_item[1])
             elif dlist_item[1].is_archive:
-                tnail_services.newcreate_thumbnail_for_archives(\
-                    archive_name=dlist_item[1].fq_filename,
-                    filetype=dlist_item[1].file_extension,
-                    cover=True,
-                    gallery=True,
-                    mobile=False,
-                    filename=None,
-                    archive_listing=dlist_item[1].archive_listings)
-
+                self.create_archive_tnail(dlist_item[1], filename=None, tsize=300)
+#                 tnail_services.newcreate_thumbnail_for_archives(\
+#                     archive_name=dlist_item[1].fq_filename,
+#                     filetype=dlist_item[1].file_extension,
+#                     cover=True,
+#                     gallery=True,
+#                     mobile=False,
+#                     filename=None,
+#                     archive_listing=dlist_item[1].archive_listings)
+#
             else:
-                if config.SETTINGS["defer_images_after"] > index:
-                    tnail_services.create_thumbnail_for_file(\
-                        config.LOCATIONS["server_root"],
-                        dlist_item[1].fq_filename,
-                        dlist_item[1].file_extension,
-                        cover=True,
-                        gallery=True,
-                        mobile=False)
-                else:
-                    threads.deferToThread(
-                        tnail_services.create_thumbnail_for_file,
-                        config.LOCATIONS["server_root"],
-                        dlist_item[1].fq_filename,
-                        dlist_item[1].file_extension,
-                        cover=True,
-                        gallery=True,
-                        mobile=False)
+                if plugin_mgr.plugin_registered(dlist_item[1].fq_filename):
+#                    print "Source filename ", dlist_item[1].fq_filename
+                    source_filename = dlist_item[1].fq_filename
+                    target_filename = common.return_thumbnail_name(source_filename, 300)
+                    common.assure_path_exists(target_filename)
+#                    plugin_target = self.file_types_map[dlist_item[1].dot_extension.upper().strip()][1]
+                    plugin_target = plugin_mgr.return_plugin(dlist_item[1].fq_filename)
+                    if config.SETTINGS["defer_images_after"] > index:
+                        if plugin_target.IMG_TAG:
+                            plugin_target.create_thumbnail_from_file(src_filename = source_filename,
+                                               t_filename = target_filename,
+                                               t_size=300)
+                    else:
+                        threads.deferToThread(plugin_target.create_thumbnail_from_file,
+                                              src_filename = source_filename,
+                                              t_filename = target_filename,
+                                              t_size=300)
         return str(template.render(self.ctx))
 ##############################################################################
     def return_directory_sorted(self,
@@ -455,21 +507,20 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
         self.ctx["gallery"]["current_directory"] = self.ctx[
             "current_directory"]
         self.ctx["text_preview"] = None
-
-        preview = catalog[self.ctx["sidebar"]["current_item"]]
-        if preview[1].file_extension in config.FILETYPES["text_file_types"]:
-            raw_markdown = codecs.open(preview[1].fq_filename, encoding='utf-8').readlines()
-            self.ctx["text_preview"] = markdown.markdown(''.join(raw_markdown))#.encode('utf-8')
-#            return processed_markdown.encode('utf-8')
-
         template = self.env.get_template("single_item_view.html")
-        tnail_services.create_thumbnail_for_file(
-            config.LOCATIONS["server_root"],
-            preview[1].fq_filename,
-            preview[1].file_extension,
-            cover=False,
-            gallery=False,
-            mobile=self.ctx['mobile'])
+        preview = catalog[self.ctx["sidebar"]["current_item"]]
+        if self.file_types_map.has_key(preview[1].dot_extension.upper().strip()):
+            source_filename = preview[1].fq_filename
+            target_filename = common.return_thumbnail_name(preview[1].fq_filename, 1024)
+            plugin_target = plugin_mgr.return_plugin(source_filename)
+            if plugin_target.IMG_TAG:
+                common.assure_path_exists(target_filename)
+                plugin_target.create_thumbnail_from_file(src_filename = source_filename,
+                                   t_filename = target_filename,
+                                   t_size=1024)
+            elif plugin_target.FRAME_TAG:
+               self.ctx["text_preview"] = \
+                    plugin_target.web_view(src_filename = source_filename)
 
         return template.render(self.ctx).encode('utf-8')
 ##############################################################################
@@ -634,10 +685,6 @@ archive_items_per_page
         self.ctx["dir_nav"]["next_dir_url"],\
             self.ctx["dir_nav"]["next_dir_desc"] = (None, None)
 
-#        filelistings_ptr = tnail_services.setup_archive_processing(\
-#            self.ctx["dlisting"][1].file_extension)[0]
-
-#    full_comic_list = filelistings_ptr(self.ctx["dlisting"][1].fq_filename)
         full_comic_list = natsort.natsort(\
             self.ctx["dlisting"][1].archive_listings)
 
@@ -673,23 +720,25 @@ archive_items_per_page
                 config.SETTINGS["archive_items_per_page"]]
 
         for archive_pages in xrange(0, len(comic_list)):
-            if config.SETTINGS["defer_images_after"] > archive_pages:
-                tnail_services.newcreate_thumbnail_for_archives(\
-                    archive_name=self.ctx["dlisting"][1].fq_filename,
-                    filetype=self.ctx["dlisting"][1].file_extension,
-                    cover=False,
-                    gallery=True,
-                    mobile=False,
-                    filename=comic_list[archive_pages])
-            else:
-                threads.deferToThread(\
-                    tnail_services.newcreate_thumbnail_for_archives(\
-                        archive_name=self.ctx["dlisting"][1].fq_filename,
-                        filetype=self.ctx["dlisting"][1].file_extension,
-                        cover=False,
-                        gallery=True,
-                        mobile=False,
-                        filename=comic_list[archive_pages]))
+            self.create_archive_tnail(self.ctx["dlisting"][1], filename=comic_list[archive_pages], tsize=300)
+
+#             if config.SETTINGS["defer_images_after"] > archive_pages:
+#                 tnail_services.newcreate_thumbnail_for_archives(\
+#                     archive_name=self.ctx["dlisting"][1].fq_filename,
+#                     filetype=self.ctx["dlisting"][1].file_extension,
+#                     cover=False,
+#                     gallery=True,
+#                     mobile=False,
+#                     filename=comic_list[archive_pages])
+#             else:
+#                 threads.deferToThread(\
+#                     tnail_services.newcreate_thumbnail_for_archives(\
+#                         archive_name=self.ctx["dlisting"][1].fq_filename,
+#                         filetype=self.ctx["dlisting"][1].file_extension,
+#                         cover=False,
+#                         gallery=True,
+#                         mobile=False,
+#                         filename=comic_list[archive_pages]))
 
         self.ctx["sidebar"]["total_item_count"] = len(comic_list)
 
@@ -746,9 +795,12 @@ archive_items_per_page
         """
         Set the thumbnail size values for CTX / gallery
         """
-        self.ctx["gallery"]["small"] = tnail_services.thumbnails["small"][0]
-        self.ctx["gallery"]["mobile"] = tnail_services.thumbnails["mobile"][0]
-        self.ctx["gallery"]["large"] = tnail_services.thumbnails["large"][0]
+        self.ctx["gallery"]["small"] = "_thumb300.png"
+            #tnail_services.thumbnails["small"][0]
+        self.ctx["gallery"]["mobile"] = "_thumb750.png"
+            #tnail_services.thumbnails["mobile"][0]
+        self.ctx["gallery"]["large"] = "_thumb1024.png"
+            #tnail_services.thumbnails["large"][0]
 ##############################################################################
     def display_archive_single_item(self):
         """
@@ -804,13 +856,18 @@ archive_items_per_page
 
         comic_list = full_comic_list[self.semantic.current_spi_to_number()-1]
 
-        tnail_services.newcreate_thumbnail_for_archives(\
-            archive_name=self.ctx["dlisting"][1].fq_filename,
-            filetype=self.ctx["dlisting"][1].file_extension,
-            cover=False,
-            gallery=False,
-            mobile=False,
-            filename=comic_list)
+        if self.ctx["mobile"]:
+            self.create_archive_tnail(self.ctx["dlisting"][1], filename=comic_list, tsize=750)
+        else:
+            self.create_archive_tnail(self.ctx["dlisting"][1], filename=comic_list, tsize=1024)
+
+#        tnail_services.newcreate_thumbnail_for_archives(\
+#            archive_name=self.ctx["dlisting"][1].fq_filename,
+#            filetype=self.ctx["dlisting"][1].file_extension,
+#            cover=False,
+#            gallery=False,
+#            mobile=False,
+#            filename=comic_list)
 
 #         tnail_services.create_thumbnail_for_file(\
 #             config.LOCATIONS["server_root"],

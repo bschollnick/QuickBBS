@@ -1,7 +1,7 @@
 pip install  directory_caching
 pip install  jinja
 pip install  markdown
-pip install  natsort
+pip install  naturalsort
 pip install  passlib
 pip install  Pillow
 pip install --allow-external pybonjour --allow-unverified pybonjour pybonjour

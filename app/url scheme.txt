@@ -48,3 +48,29 @@ Consider adding -
 			so if the client reloads the page, and the sort scheme has been
 			changed, it will use the “proper” sort scheme
     
+
+plugins - 
+
+	Plugins are ATOMIC constructs.  They are the lowest level of support, for thumbnails.  
+
+	**They create the thumbnail**
+
+	They do not identify the thumbnail candidate, they just do the work.  
+
+	Containers (ZIP, RAR, etc) are going to be tricky with plugins.  
+
+	The container must be identified, but directory_caching already does this.  For the container,
+	we need to recognize that this will be *RECURSIVE*.
+
+	1) identify container (directory_caching)
+	2) Get File list of container (directory_caching)
+	3) Pick candidate from file list (gallery)
+	4) Ask for Thumbnail from container plugin (e.g. RAR), and supply target_size, save_to_thumbnail folder
+
+Containers are not plugins.
+
+Directory’s are not needed to be plugins.
+
+Thumbnails are
+
+<filename+dot_extension>_thumb<size>.png
