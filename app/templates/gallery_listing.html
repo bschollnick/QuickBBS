@@ -239,7 +239,7 @@ bgcolor='#CCCCFF' border=4
                     <!-- thumbnail -->
                         {% if item[1].file_extension in filetypes["archive_file_types"] %}
                             <!-- Archive file Thumbnail -->
-                                <img class="lazy" src="/images/loading17.gif" data-src="{{ thumbnail_path }}{{ item[0] }}/cover{{ gallery['small'] }}" width="auto" height="200px"/>
+                                <img class="lazy" src="/images/loading17.gif" data-src="{{ thumbnail_path }}{{ item[0] }}/{{ item[0] }}{{ gallery['small'] }}" width="auto" height="200px"/>
                         {% else %}
                             {% if item[1].file_extension == "dir" and item[1].number_files in [None, 0] %}
                                 <!-- Directory Thumbnail w/o files in it -->
