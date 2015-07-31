@@ -6,10 +6,33 @@ used by the gallery.
 """
 import core_plugin
 import codecs
-import markdown
-
 
 class PluginOne(core_plugin.CorePlugin):
+    """
+        Subclassed core plugin.
+
+
+        * ACCEPTABLE_FILE_EXTENSIONS is a list, that contains the (UPPERCASE),
+            File Extensions (DOTTED format, e.g. .GIF, not GIF) that this
+            plugin will manage.
+
+        * IMG_TAG - BOOLEAN - (e.g. .PNG, .GIF, .JPG)
+            * True - This plugin can make an IMAGE based thumbnail, for this
+                file type
+            * False - This plugin will not make an image thumbnail
+
+        * FRAME_TAG - BOOLEAN - (e.g. .TEXT, .MARKDOWN, etc)
+            * True - This plugin will return an TEXT based stream. That should
+                be displayed in the browser window.
+
+            * False - This plugin will not make an image thumbnail
+
+        * DEFAULT_ICON - String - The Default thumbnail image to use, if
+            IMG_TAG is False
+
+        * DEFAULT_BACKGROUND - String - The background of the table cell, for
+            this file format.
+    """
 
     ACCEPTABLE_FILE_EXTENSIONS = ['.TXT', '.TEXT']
 
@@ -21,19 +44,15 @@ class PluginOne(core_plugin.CorePlugin):
 
     DEFAULT_BACKGROUND = "FDEDB1"
 
-    def display_text_content(self, src_filename):
+    def web_view(self, src_filename):
+        """
+        Create a web acceptable view of the file.
+
+        In this case, read & process the src_filename,
+        and then return this as a string.
+        """
         if src_filename == "" or src_filename == None:
             return None
 
         raw_text = codecs.open(src_filename, encoding='utf-8').readlines()
         return ''.join(raw_text)#.encode('utf-8')
-
-    def create_thumbnail_from_file(self, src_filename,
-                                   t_filename,
-                                   t_size=None):
-        return None
-
-    def create_thumbnail_from_memory(self, memory_image=None,
-                                     t_filename=None,
-                                     t_size=None):
-        return None

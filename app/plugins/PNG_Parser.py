@@ -58,12 +58,15 @@ class PluginOne(core_plugin.CorePlugin):
                                      t_filename=None,
                                      t_size=None):
         if memory_image == None or t_filename == None:
+            print "Abort - Memory"
             return None
 
         if os.path.exists(t_filename):
+            print "Abort - File already exists"
             return None
 
         if t_size == None:
+            print "No size"
             return
 
         try:

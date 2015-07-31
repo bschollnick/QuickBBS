@@ -5,7 +5,6 @@ Core Plugin for Gallery
 ##############################################################################
 from yapsy.IPlugin import IPlugin
 
-
 class CorePlugin(IPlugin):
     """
         Subclassed core plugin.

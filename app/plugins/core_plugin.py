@@ -5,7 +5,6 @@ Core Plugin for Gallery
 ##############################################################################
 from yapsy.IPlugin import IPlugin
 
-
 class CorePlugin(IPlugin):
     """
         Subclassed core plugin.
@@ -31,6 +30,10 @@ class CorePlugin(IPlugin):
 
         * DEFAULT_BACKGROUND - String - The background of the table cell, for
             this file format.
+
+        * CONTAINER - BOOLEAN - (e.g. ZIP, RAR) - This plugin returns an
+            memory_image of the contents.
+
     """
     def __init__(self):
         """
@@ -44,6 +47,8 @@ class CorePlugin(IPlugin):
     IMG_TAG = False
 
     FRAME_TAG = False
+
+    CONTAINER = False
 
     @classmethod
     def display_text_content(cls, src_filename):
@@ -67,6 +72,16 @@ class CorePlugin(IPlugin):
     def create_thumbnail_from_memory(cls, memory_image=None,
                                      t_filename=None,
                                      t_size=None):
+        """
+        Initialization for Core Plugin.
+
+        """
+        raise NotImplementedError("Subclass must implement abstract method")
+
+    @classmethod
+    def extract_from_container(cls, container_file=None,
+                                    fn_to_extract=None,
+                                    t_size=None):
         """
         Initialization for Core Plugin.
 
