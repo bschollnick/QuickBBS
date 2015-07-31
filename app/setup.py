@@ -54,6 +54,27 @@ setup(
     packages = __packages__,
     requires = dependencies,
     long_description = "\n".join(doclines[2:]),
-    keywords = __pypi_keywords__
+    keywords = __pypi_keywords__,
+    options={
+            'app': {
+                'formal_name': 'Gallery',
+                'bundle': 'net.schollnick.gallery',
+            },
+            'osx': {
+                'app_requires': [
+                    'toga[osx]'
+                ]
+            },
+            'ios': {
+                'app_requires': [
+                    'toga[ios]'
+                ]
+            },
+            'android': {
+                'app_requires': [
+                    'toga[android]'
+                ]
+            },
+        }
 
 )
