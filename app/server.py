@@ -216,13 +216,13 @@ def main():
     """
     config.load_config_data()
 
-##############################################################################
+    ##############################################################################
     class ShortSession(Session):
         """
         Increase the session timeout
         """
         sessionTimeout = config.SETTINGS["session_logout_timeout"]
-##############################################################################
+    ##############################################################################
 
 #     def handler(signum, frame):
 #         print "Shutting down, due to kill request."
@@ -239,7 +239,6 @@ def main():
 
     env = Environment(loader=FileSystemLoader(
         config.LOCATIONS["templates_root"]))
-
 
     log_path = os.path.abspath(config.LOCATIONS["server_log"])
     if common.assure_path_exists(log_path):
@@ -277,7 +276,7 @@ def main():
     root.putChild("images", static.File(config.LOCATIONS["images_root"]))
     root.putChild("albums", gallery.Gallery(ctx, env, log))
 
-    if config.SETTINGS["use_bonjour"]:
+    if config.SETTINGS["use_bonjour"] == "1":
         from txbonjour import discovery
         print "Starting Bonjour Services"
         proto = discovery.BroadcastProtocol()

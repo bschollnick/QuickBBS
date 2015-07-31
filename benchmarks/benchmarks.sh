@@ -40,3 +40,13 @@ echo "Running 100 MB test file benchmarks"
 ab -n 200 -c 50 -d -l "http://127.0.0.1:8888/albums/verification_suite/benchtests/test100.bin" >> $1.txt
 echo "---------------------------------------------------------------------------------------" >> $1.txt
 
+
+echo "Running load testing"
+echo "---------------------------------------------------------------------------------------" >> $1_perf.txt
+httperf --server 127.0.0.1 --port 8888 --num-conns 200 --rate 50 --timeout 1 --uri "/albums/verification_suite/benchtests/test1.bin" >> $1_perf.txt
+echo "---------------------------------------------------------------------------------------" >> $1_perf.txt
+httperf --server 127.0.0.1 --port 8888 --num-conns 200 --rate 100 --timeout 1 --uri "/albums/verification_suite/benchtests/test1.bin" >> $1_perf.txt
+echo "---------------------------------------------------------------------------------------" >> $1_perf.txt
+httperf --server 127.0.0.1 --port 8888 --num-conns 200 --rate 125 --timeout 1 --uri "/albums/verification_suite/benchtests/test1.bin" >> $1_perf.txt
+echo "---------------------------------------------------------------------------------------" >> $1_perf.txt
+
