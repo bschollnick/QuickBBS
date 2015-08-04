@@ -39,14 +39,20 @@ class PluginOne(core_plugin.CorePlugin):
         -dNOPROMPT -dMaxBitmap=500000000 -dLastPage=1 -dAlignToPixels=0 \
         -dGridFitTT=0 -sDEVICE=jpeg -dTextAlphaBits=4 -dGraphicsAlphaBits=4\
         -g%ix%i -dPDFFitPage -sOutputFile="%s" -f"%s"'''
-        if src_filename == t_filename or t_filename == None:
-            return None
+        if  src_filename == None:
+            raise RuntimeError("No Source Filename was not specified")
+
+        if  t_filename == None:
+            raise RuntimeError("The Target is not specified")
+
+        if src_filename == t_filename:
+            raise RuntimeError("The source is the same as the target.")
 
         if os.path.exists(t_filename):
             return None
 
         if t_size == None:
-            return
+            raise RuntimeError("No Target size is defined")
 
         if not GHOSTSCRIPT_INSTALLED:
             return ''
