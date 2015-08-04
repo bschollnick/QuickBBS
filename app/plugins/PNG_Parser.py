@@ -26,14 +26,36 @@ class PluginOne(core_plugin.CorePlugin):
     def create_thumbnail_from_file(self, src_filename,
                                    t_filename,
                                    t_size=None):
-        if src_filename == t_filename or t_filename == None:
-            return None
+        """
+        Create a thumbnail from a source file.
+
+        inputs -
+
+            * src_filename - String - This is the fully qualified filepathname
+                of the file to be thumbnailed.
+
+            * t_filename - String - This is the fully qualified filepathname
+                of the thumbnail file to be created.
+
+            * t_size - integer - This is the maximum size of the thumbnail.
+                The thumbnail will be t_size x t_size (e.g. 300 x 300)
+
+        output -
+
+            * The thumbnail file that is created at the t_filename location.
+        """
+        if src_filename == t_filename:
+            raise RuntimeError("The source is the same as the target.")
+
+        if  t_filename == None:
+            raise RuntimeError("The Target is not specified")
 
         if os.path.exists(t_filename):
             return None
 
         if t_size == None:
-            return
+            raise RuntimeError("No Target size is defined")
+
 
         try:
             image_file = Image.open(src_filename)
@@ -54,20 +76,39 @@ class PluginOne(core_plugin.CorePlugin):
             print "save thumbnail ", t_filename
             print "The File [%s] (TypeError) is damaged." % (src_filename)
 
+##########################################################################
     def create_thumbnail_from_memory(self, memory_image=None,
                                      t_filename=None,
                                      t_size=None):
-        if memory_image == None or t_filename == None:
-            print "Abort - Memory"
-            return None
+        """
+        Create a thumbnail from a memory image of the file.
+
+        inputs -
+
+            * memory_image - blob - This is the blob of image data, typically
+                a blob that has been read from a file, or a zip, etc.
+
+            * t_filename - String - This is the fully qualified filepathname
+                of the thumbnail file to be created.
+
+            * t_size - integer - This is the maximum size of the thumbnail.
+                The thumbnail will be t_size x t_size (e.g. 300 x 300)
+
+        output -
+
+            * The thumbnail file that is created at the t_filename location.
+        """
+        if memory_image == None:
+            raise RuntimeError("No Memory Image is provided.")
+
+        if  t_filename == None:
+            raise RuntimeError("The Target is not specified")
 
         if os.path.exists(t_filename):
-            print "Abort - File already exists"
             return None
 
         if t_size == None:
-            print "No size"
-            return
+            raise RuntimeError("No Target size is defined")
 
         try:
             #
@@ -84,4 +125,3 @@ class PluginOne(core_plugin.CorePlugin):
             print detail
         except TypeError:
             print "save thumbnail ", t_filename
-

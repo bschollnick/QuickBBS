@@ -11,7 +11,31 @@ from PIL import Image
 import cStringIO
 
 class PluginOne(core_plugin.CorePlugin):
+    """
+        Subclassed core plugin.
 
+
+        * ACCEPTABLE_FILE_EXTENSIONS is a list, that contains the (UPPERCASE),
+            File Extensions (DOTTED format, e.g. .GIF, not GIF) that this
+            plugin will manage.
+
+        * IMG_TAG - BOOLEAN - (e.g. .PNG, .GIF, .JPG)
+            * True - This plugin can make an IMAGE based thumbnail, for this
+                file type
+            * False - This plugin will not make an image thumbnail
+
+        * FRAME_TAG - BOOLEAN - (e.g. .TEXT, .MARKDOWN, etc)
+            * True - This plugin will return an TEXT based stream. That should
+                be displayed in the browser window.
+
+            * False - This plugin will not make an image thumbnail
+
+        * DEFAULT_ICON - String - The Default thumbnail image to use, if
+            IMG_TAG is False
+
+        * DEFAULT_BACKGROUND - String - The background of the table cell, for
+            this file format.
+    """
     ACCEPTABLE_FILE_EXTENSIONS = ['.BMP', '.DIB']
 
     IMG_TAG = True
@@ -25,14 +49,17 @@ class PluginOne(core_plugin.CorePlugin):
     def create_thumbnail_from_file(self, src_filename,
                                    t_filename,
                                    t_size=None):
-        if src_filename == t_filename or t_filename == None:
-            return None
+        if src_filename == t_filename:
+            raise RuntimeError("The source is the same as the target.")
+
+        if  t_filename == None:
+            raise RuntimeError("The Target is not specified")
 
         if os.path.exists(t_filename):
             return None
 
         if t_size == None:
-            return
+            raise RuntimeError("No Target size is defined")
 
         try:
             image_file = Image.open(src_filename)
@@ -53,17 +80,39 @@ class PluginOne(core_plugin.CorePlugin):
             print "save thumbnail ", t_filename
             print "The File [%s] (TypeError) is damaged." % (src_filename)
 
+##########################################################################
     def create_thumbnail_from_memory(self, memory_image=None,
                                      t_filename=None,
                                      t_size=None):
-        if memory_image == None or t_filename == None:
-            return None
+        """
+        Create a thumbnail from a memory image of the file.
+
+        inputs -
+
+            * memory_image - blob - This is the blob of image data, typically
+                a blob that has been read from a file, or a zip, etc.
+
+            * t_filename - String - This is the fully qualified filepathname
+                of the thumbnail file to be created.
+
+            * t_size - integer - This is the maximum size of the thumbnail.
+                The thumbnail will be t_size x t_size (e.g. 300 x 300)
+
+        output -
+
+            * The thumbnail file that is created at the t_filename location.
+        """
+        if memory_image == None:
+            raise RuntimeError("No Memory Image is provided.")
+
+        if  t_filename == None:
+            raise RuntimeError("The Target is not specified")
 
         if os.path.exists(t_filename):
             return None
 
         if t_size == None:
-            return
+            raise RuntimeError("No Target size is defined")
 
         try:
             #

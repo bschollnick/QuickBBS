@@ -216,13 +216,13 @@ def main():
     """
     config.load_config_data()
 
-    ##############################################################################
+    ##########################################################################
     class ShortSession(Session):
         """
         Increase the session timeout
         """
         sessionTimeout = config.SETTINGS["session_logout_timeout"]
-    ##############################################################################
+    ##########################################################################
 
 #     def handler(signum, frame):
 #         print "Shutting down, due to kill request."

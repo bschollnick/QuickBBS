@@ -5,7 +5,7 @@ This is the universal code for creating and manipulating the thumbnails
 used by the gallery.
 """
 import core_plugin
-import codecs
+import exceptions
 import zipfile
 
 class PluginOne(core_plugin.CorePlugin):
@@ -47,11 +47,9 @@ class PluginOne(core_plugin.CorePlugin):
 
     DEFAULT_BACKGROUND = "B2DECE"
 
-    def extract_from_container(cls,
-                               container_file=None,
+    def extract_from_container(cls, container_file=None,
                                fn_to_extract=None,
                                t_size=None):
-
         try:
             zfile = zipfile.ZipFile(container_file, 'r')
             data = zfile.read(fn_to_extract)

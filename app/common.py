@@ -101,10 +101,11 @@ def post_slash(path):
         path = path +'/'
     return path
 
-def return_thumbnail_name(fq_filename, size):
-    fq_filename = clean_filename2(fq_filename).replace("albums/", "thumbnails/")
-    filename, ext = os.path.splitext(fq_filename)
-    return "%s_thumb%s.png" % (filename+ext, size)
+#def return_thumbnail_name(fq_filename, size):
+#    fq_filename = clean_filename2(fq_filename).replace("albums/",
+#        "thumbnails/")
+#    filename, ext = os.path.splitext(fq_filename)
+#    return "%s_thumb%s.png" % (filename+ext, size)
 
 
 def clean_filename2(filename,

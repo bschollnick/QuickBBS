@@ -4,6 +4,9 @@ Core Plugin for Gallery
 
 ##############################################################################
 from yapsy.IPlugin import IPlugin
+import config
+#import exceptions
+import os, os.path
 
 class CorePlugin(IPlugin):
     """
@@ -59,6 +62,41 @@ class CorePlugin(IPlugin):
         raise NotImplementedError("Subclass must implement abstract method")
 
     @classmethod
+    def generate_tnail_name(cls, src_filename=None, clean_filename=None):
+        """
+        Generate the thumbnail name for the source file.
+
+        input -
+                src_filename - The FQFN of the source file
+                clean_filename - Pointer to the filename cleaning function
+                                 that should be used.
+
+        output - A dictionary, of the small, medium, and large thumbnails for
+                 the thumbnail file.  The thumbnail will have the albums
+                 directory replaced with the thumbnails directory name.
+        """
+        if src_filename == None:
+            raise RuntimeError("No Source file given.")
+
+        if clean_filename != None:
+            pathname, filename = os.path.split(src_filename)
+            src_filename = os.path.join(pathname, clean_filename(filename))
+
+        tnail_name = {}
+        tnail_target = src_filename.replace("/albums/", "/thumbnails/")
+        tnail_name["small"] = tnail_target + "_thumb%s.png" %\
+                              config.SETTINGS["small_thumbnail"]
+                              # gallery view ~300
+        tnail_name["medium"] = tnail_target + "_thumb%s.png" %\
+                               config.SETTINGS["medium_thumbnail"]
+                               # mobile view ~740
+        tnail_name["large"] = tnail_target + "_thumb%s.png" %\
+                              config.SETTINGS["large_thumbnail"]
+                              # large view ~1024
+        return tnail_name
+
+
+    @classmethod
     def create_thumbnail_from_file(cls, src_filename,
                                    t_filename,
                                    t_size=None):
@@ -80,8 +118,8 @@ class CorePlugin(IPlugin):
 
     @classmethod
     def extract_from_container(cls, container_file=None,
-                                    fn_to_extract=None,
-                                    t_size=None):
+                               fn_to_extract=None,
+                               t_size=None):
         """
         Initialization for Core Plugin.
 

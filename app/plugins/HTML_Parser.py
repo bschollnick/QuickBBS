@@ -51,8 +51,8 @@ class PluginOne(core_plugin.CorePlugin):
         In this case, read & process the src_filename,
         and then return this as a string.
         """
-        if src_filename == "" or src_filename == None:
-            return None
+        if src_filename == None or src_filename == "":
+             raise RuntimeError("No Source Filename was provided.")
 
         raw_text = codecs.open(src_filename, encoding='utf-8').readlines()
         return ''.join(raw_text)#.encode('utf-8')
