@@ -86,6 +86,8 @@ class Gallery(Resource):
         self.cdl.acceptable_extensions = \
             self.ctx["filetypes"]["files_to_cache"]
         self.cdl.filter_filenames = common.clean_filename2
+#        self.cdl.filter_dirnames = common.clean_dir_paths
+
         print "Priming the cache for %s, please wait" %\
             (config.LOCATIONS["album_root"].lower().strip() + "/albums")
         self.cdl.smart_read(
@@ -140,7 +142,6 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
                 return os.sep.join([directory_to_use, thumbname[0]])
         return None
 ##############################################################################
-
     def create_archive_tnail(self, dir_record, filename=None, tsize=None):
         """
         Create a tnail for the directory.  Not contained in tnail
@@ -185,7 +186,7 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
 
             common.assure_path_exists(thumbnail_save_filename)
             plugin_target = plugin_mgr.return_plugin(thumbnail_save_filename)
-            if plugin_target != None and plugin_target.IMG_TAG:
+            if data_thumbnail != None and plugin_target != None and plugin_target.IMG_TAG:
                 plugin_target.create_thumbnail_from_memory(\
                     memory_image=data_thumbnail,
                     t_filename=thumbnail_save_filename,

@@ -83,9 +83,7 @@ def pre_slash(path):
     """
     if path == '':
         path = "/"
-        return path
-
-    if path[0] != '/':
+    elif path[0] != '/':
         path = '/' + path
     return path
 
@@ -95,11 +93,16 @@ def post_slash(path):
     """
     if path == '':
         path = "/"
-        return path
-
-    if path[-1] != '/':
+    elif path[-1] != '/':
         path = path +'/'
     return path
+
+def clean_dir_paths(pathname):
+    paths, tail = os.path.split(pathname)
+    if is_int(tail):
+        tail = "[%s]" % tail
+    return os.sep.join([paths, tail])
+
 
 #def return_thumbnail_name(fq_filename, size):
 #    fq_filename = clean_filename2(fq_filename).replace("albums/",
