@@ -110,7 +110,7 @@ function navigateTo(sel, target, newWindow) {
                         {% endif %}
                     <hr>
                     {% if sidebar["current_item"] != sidebar["item_count"] %}
-                        <a href="{{ web_path }}{{ sidebar['page_count'] }}/{{ sidebar['item_count'] - 1 }}">
+                        <a href="{{ web_path }}{{ sidebar['page_count'] }}/{{ sidebar["last_page_items"] }}">
                             <img width="65%" height="65%" src="/images/gtk_media_next_ltr.png"/></a>
                     {% else %}
                             <img width="65%" height="65%" src="/images/gtk_media_empty.png"/></a>
