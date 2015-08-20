@@ -38,7 +38,7 @@ class PluginOne(core_plugin.CorePlugin):
         -dBATCH -dNOPAUSE \
         -dNOPROMPT -dMaxBitmap=500000000 -dLastPage=1 -dAlignToPixels=0 \
         -dGridFitTT=0 -sDEVICE=jpeg -dTextAlphaBits=4 -dGraphicsAlphaBits=4\
-        -g%ix%i -dPDFFitPage -sOutputFile="%s" -f"%s"'''
+        -g%ix%i -dPDFFitPage -sOutputFile=$'%s' -f$'%s' '''
         if  src_filename == None:
             raise RuntimeError("No Source Filename was not specified")
 
