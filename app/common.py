@@ -120,11 +120,13 @@ def clean_filename2(filename,
                     ",":"",
                     "*":"", "@":"",
                     ":":"-", "|":"",
-                    "?":""}
+                    "?":"", ">":"",
+                    "<":"", "/":"_"}
     filename = replace_all(urllib2.unquote(filename), replacements)
         # Un"quotify" the URL / Filename
     if unicode_filter:
-        filename = unidecode.unidecode(filename)
+        filename = unidecode.unidecode(filename.decode("utf-8"))
+        filename = replace_all(urllib2.unquote(filename), replacements)
         # de-unicode the filename / url
     filename, fileext = os.path.splitext(filename)
     filename = filename.strip() + fileext.strip()
