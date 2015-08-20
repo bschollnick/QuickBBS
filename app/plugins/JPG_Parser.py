@@ -44,6 +44,8 @@ class PluginOne(core_plugin.CorePlugin):
 
     FRAME_TAG = False
 
+    CONTAINER = False
+
     #DEFAULT_ICON = r"/images/1431973815_text.png"
 
     DEFAULT_BACKGROUND = "FAEBF4"
@@ -84,13 +86,33 @@ class PluginOne(core_plugin.CorePlugin):
 
         try:
             image_file = Image.open(src_filename)
-            image_file.thumbnail((t_size, t_size), Image.ANTIALIAS)
-            image_file.save(t_filename, "PNG", optimize=True)
+        except IOError:
+            print "File thumbnail ", src_filename
+            print "save thumbnail ", t_filename
+            print "IOError opening the file[%s] ." % (src_filename)
+        except IndexError as detail:
+            print "File thumbnail ", src_filename
+            print "save thumbnail ", t_filename
+            print "The File [%s] generated an IndexError." % (src_filename)
+            print detail
+        except TypeError:
+            print "File thumbnail ", src_filename
+            print "save thumbnail ", t_filename
+            print "The File [%s] is not the proper type (TypeError)." % (src_filename)
+
+        image_file.thumbnail((t_size, t_size), Image.ANTIALIAS)
+
+        try:
+            if image_file.mode != "RGB":
+                new_image = image_file.convert('RGB')
+                new_image.save(t_filename, "PNG", optimize=True)
+            else:
+                image_file.save(t_filename, "PNG", optimize=True)
             return True
         except IOError:
             print "File thumbnail ", src_filename
             print "save thumbnail ", t_filename
-            print "The File [%s] (ioerror) is damaged." % (src_filename)
+            print "IOError writing the file[%s] ." % (src_filename)
         except IndexError as detail:
             print "File thumbnail ", src_filename
             print "save thumbnail ", t_filename
