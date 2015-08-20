@@ -100,11 +100,11 @@ function navigateTo(sel, target, newWindow) {
                     <hr>
                     Page<br>
                         <select onchange="navigateTo(this, 'window', false);">
-                            {% for page_number in sidebar["page_count_loop"]: %}
-                                {% if page_number == gallery["current_subpage"] %}
-                                    <option selected="selected" value="{{ web_path }}{{ page_number }}">{{ page_number }}</option>
+                            {% for page_number in range(1, 1 + sidebar["full_archive_list"]|count ): %}
+                                {% if page_number == gallery["current_subitem"] %}
+                                    <option selected="selected" value="{{ sidebar['full_archive_list'][page_number-1][0] }}">{{ page_number }}</option>
                                 {% else %}
-                                    <option value="{{ web_path }}{{ page_number }}">{{ page_number }}</option>
+                                    <option value="{{ sidebar['full_archive_list'][page_number-1][0] }}">{{ page_number }}</option>
                                 {% endif %}
 
                             {% endfor %}
@@ -132,7 +132,8 @@ function navigateTo(sel, target, newWindow) {
                         {% endif %}
                     <hr>
                     {% if gallery["current_subitem"] != sidebar["item_count"] %}
-                        <a href="{{ web_path }}{{ gallery["current_page"]}}/{{gallery["current_item"]}}/{{ sidebar['page_count'] }}/{{ sidebar['subpage'] }}{{ sidebar['item_count'] }}">
+                    b
+                        <a href="/{{ sidebar["last_item_uri"] }}">
                             <img width="65%" height="65%" src="/images/gtk_media_next_ltr.png"/></a>
                     {% else %}
                             <img width="65%" height="65%" src="/images/gtk_media_empty.png"/></a>
