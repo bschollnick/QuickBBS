@@ -5,8 +5,10 @@ Core Plugin for Gallery
 ##############################################################################
 from yapsy.IPlugin import IPlugin
 import config
-#import exceptions
 import os, os.path
+import sys
+import traceback
+import time
 
 class CorePlugin(IPlugin):
     """
@@ -53,6 +55,9 @@ class CorePlugin(IPlugin):
 
     CONTAINER = False
 
+    THUMBNAIL_REBUILD_TIME = (24 * 60 * 60) * 14  # 2 weeks
+
+
     @classmethod
     def display_text_content(cls, src_filename):
         """
@@ -95,6 +100,30 @@ class CorePlugin(IPlugin):
                               # large view ~1024
         return tnail_name
 
+    @classmethod
+    def does_thumbnail_already_exist(self, thumbfilename):
+        try:
+            return os.path.exists(thumbfilename)
+        except exceptions.IOError:
+            return False
+
+    @classmethod
+    def timecheck_thumbnail_file(self, thumbfilename):
+        """
+            Check the thumbnail file, and see if it is older than
+            the rebuild time.
+
+            If it is, it will be deleted, so that it can be regenerated.
+        """
+        if self.does_thumbnail_already_exist(thumbfilename):
+            # File exists
+            t_modified = os.path.getmtime(thumbfilename)
+            # Get modified time stamps in seconds
+            if time.time() - self.THUMBNAIL_REBUILD_TIME > t_modified:
+                # if the current timestamp minus 2 weeks, is greater then the
+                # file's
+                os.remove(thumbfilename)
+
 
     @classmethod
     def create_thumbnail_from_file(cls, src_filename,
@@ -104,7 +133,7 @@ class CorePlugin(IPlugin):
         Initialization for Core Plugin.
 
         """
-        raise NotImplementedError("Subclass must implement abstract method")
+        raise NotImplementedError("%s - create_thumbnail_from_file - Subclass must implement abstract method" % cls.ACCEPTABLE_FILE_EXTENSIONS)
 
     @classmethod
     def create_thumbnail_from_memory(cls, memory_image=None,
@@ -114,7 +143,7 @@ class CorePlugin(IPlugin):
         Initialization for Core Plugin.
 
         """
-        raise NotImplementedError("Subclass must implement abstract method")
+        raise NotImplementedError("%s - create_thumbnail_from_memory - Subclass must implement abstract method" % cls.ACCEPTABLE_FILE_EXTENSIONS)
 
     @classmethod
     def extract_from_container(cls, container_file=None,
@@ -124,4 +153,4 @@ class CorePlugin(IPlugin):
         Initialization for Core Plugin.
 
         """
-        raise NotImplementedError("Subclass must implement abstract method")
+        raise NotImplementedError("%s - extract from container - Subclass must implement abstract method" % cls.ACCEPTABLE_FILE_EXTENSIONS)
