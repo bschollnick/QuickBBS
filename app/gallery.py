@@ -380,7 +380,11 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
         self.ctx["gallery"]["total_item_count"] = len(self.ctx["dlisting"])
         template = self.env.get_template("gallery_listing.html")
 
-        tnailpath = self.ctx["dlisting"][0][1].fq_filename
+        if self.ctx["dlisting"] != []:
+            tnailpath = self.ctx["dlisting"][0][1].fq_filename
+        else:
+            tnailpath = ""
+
         if plugin_mgr.plugin_registered(tnailpath):
             plugin_target = plugin_mgr.return_plugin(tnailpath)
             tnailpath = plugin_target.generate_tnail_name(tnailpath)["small"]

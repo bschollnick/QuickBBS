@@ -13,13 +13,16 @@ Directory_Caching has been tested with Python 2 (>= 2.7).
 
 Directory_Caching should work with all operating systems and environments,
 
-.. _Required Libraries:
+.. _Required 3rd Party Libraries:
 
-Required Libraries
+Required 3rd Party Libraries
 ==================
 * `scandir <https://pypi.python.org/pypi/scandir>`_
 
 * `NaturalSort <https://pypi.python.org/pypi/naturalsort>`_
+
+* `rarfile <https://pypi.python.org/pypi/rarfile>`_
+
 
 Installation Instructions
 =========================
