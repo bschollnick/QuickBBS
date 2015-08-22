@@ -14,7 +14,7 @@ This is API documentation for my software:
    :maxdepth: 2
 
        Directory Caching <dir_caching/dir_caching_index>
-
+       Gallery (aka QuickBBS) <gallery/gallery_index>
        Semantic URL <semantic/semantic_url_index>
 
 Indices and tables
