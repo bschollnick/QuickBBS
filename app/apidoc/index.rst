@@ -16,14 +16,10 @@ Contents:
    comics
    common
    directory_caching
-   directory_caching_test
    filetypes
    natsort
    rarfile
    scandir
-   thumbnail_services
-   time_test
-   twist_server_2
    unidecode
 
 
