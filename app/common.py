@@ -122,17 +122,17 @@ def clean_filename2(filename,
                     ":":"-", "|":"",
                     "?":"", ">":"",
                     "<":"", "/":"_"}
-    filename = replace_all(urllib2.unquote(filename), replacements)
+#    filename = replace_all(urllib2.unquote(filename), replacements)
         # Un"quotify" the URL / Filename
     if unicode_filter:
         filename = unidecode.unidecode(filename.decode("utf-8"))
-        filename = replace_all(urllib2.unquote(filename), replacements)
+
+    filename = replace_all(urllib2.unquote(filename), replacements)
         # de-unicode the filename / url
     filename, fileext = os.path.splitext(filename)
-    filename = filename.strip() + fileext.strip()
         # remove extra spaces from filename and file extension.
         # e.g.  "this is the filename .txt" -> "this is the filename.txt"
-    return filename
+    return filename.strip() + fileext.strip()
 
 def norm_number(page, max_number):
     """
@@ -148,8 +148,3 @@ def norm_number(page, max_number):
     elif page > max_number:
         page = max_number
     return page
-
-#import timeit
-#test = timeit.timeit ("ensure_prepending_slash2(r'This is a test.txt')",
-#                       number=10000000, setup=setup)
-#print test
