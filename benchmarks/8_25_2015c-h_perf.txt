@@ -1,0 +1,73 @@
+---------------------------------------------------------------------------------------
+httperf --timeout=1 --client=0/1 --server=127.0.0.1 --port=8888 --uri=/albums/verification_suite/benchtests/test1.bin --rate=50 --send-buffer=4096 --recv-buffer=16384 --num-conns=200 --num-calls=1
+Maximum connect burst length: 1
+
+Total: connections 200 requests 200 replies 200 test-duration 3.984 s
+
+Connection rate: 50.2 conn/s (19.9 ms/conn, <=16 concurrent connections)
+Connection time [ms]: min 3.3 avg 18.3 max 314.9 median 3.5 stddev 53.3
+Connection time [ms]: connect 0.2
+Connection length [replies/conn]: 1.000
+
+Request rate: 50.2 req/s (19.9 ms/req)
+Request size [B]: 108.0
+
+Reply rate [replies/s]: min 0.0 avg 0.0 max 0.0 stddev 0.0 (0 samples)
+Reply time [ms]: response 15.4 transfer 2.7
+Reply size [B]: header 221.0 content 1048535.0 footer 2.0 (total 1048758.0)
+Reply status: 1xx=0 2xx=200 3xx=0 4xx=0 5xx=0
+
+CPU time [s]: user 1.01 system 2.96 (user 25.3% system 74.3% total 99.7%)
+Net I/O: 51416.6 KB/s (421.2*10^6 bps)
+
+Errors: total 0 client-timo 0 socket-timo 0 connrefused 0 connreset 0
+Errors: fd-unavail 0 addrunavail 0 ftab-full 0 other 0
+---------------------------------------------------------------------------------------
+httperf --timeout=1 --client=0/1 --server=127.0.0.1 --port=8888 --uri=/albums/verification_suite/benchtests/test1.bin --rate=100 --send-buffer=4096 --recv-buffer=16384 --num-conns=200 --num-calls=1
+Maximum connect burst length: 1
+
+Total: connections 200 requests 200 replies 200 test-duration 1.994 s
+
+Connection rate: 100.3 conn/s (10.0 ms/conn, <=1 concurrent connections)
+Connection time [ms]: min 3.3 avg 3.6 max 6.1 median 3.5 stddev 0.3
+Connection time [ms]: connect 0.2
+Connection length [replies/conn]: 1.000
+
+Request rate: 100.3 req/s (10.0 ms/req)
+Request size [B]: 108.0
+
+Reply rate [replies/s]: min 0.0 avg 0.0 max 0.0 stddev 0.0 (0 samples)
+Reply time [ms]: response 2.8 transfer 0.6
+Reply size [B]: header 221.0 content 1048576.0 footer 2.0 (total 1048799.0)
+Reply status: 1xx=0 2xx=200 3xx=0 4xx=0 5xx=0
+
+CPU time [s]: user 0.50 system 1.49 (user 25.1% system 74.6% total 99.8%)
+Net I/O: 102730.2 KB/s (841.6*10^6 bps)
+
+Errors: total 0 client-timo 0 socket-timo 0 connrefused 0 connreset 0
+Errors: fd-unavail 0 addrunavail 0 ftab-full 0 other 0
+---------------------------------------------------------------------------------------
+httperf --timeout=1 --client=0/1 --server=127.0.0.1 --port=8888 --uri=/albums/verification_suite/benchtests/test1.bin --rate=125 --send-buffer=4096 --recv-buffer=16384 --num-conns=200 --num-calls=1
+Maximum connect burst length: 1
+
+Total: connections 200 requests 200 replies 200 test-duration 1.596 s
+
+Connection rate: 125.3 conn/s (8.0 ms/conn, <=1 concurrent connections)
+Connection time [ms]: min 3.3 avg 3.5 max 6.3 median 3.5 stddev 0.3
+Connection time [ms]: connect 0.2
+Connection length [replies/conn]: 1.000
+
+Request rate: 125.3 req/s (8.0 ms/req)
+Request size [B]: 108.0
+
+Reply rate [replies/s]: min 0.0 avg 0.0 max 0.0 stddev 0.0 (0 samples)
+Reply time [ms]: response 2.7 transfer 0.6
+Reply size [B]: header 221.0 content 1048576.0 footer 2.0 (total 1048799.0)
+Reply status: 1xx=0 2xx=200 3xx=0 4xx=0 5xx=0
+
+CPU time [s]: user 0.39 system 1.21 (user 24.3% system 75.5% total 99.8%)
+Net I/O: 128329.2 KB/s (1051.3*10^6 bps)
+
+Errors: total 0 client-timo 0 socket-timo 0 connrefused 0 connreset 0
+Errors: fd-unavail 0 addrunavail 0 ftab-full 0 other 0
+---------------------------------------------------------------------------------------

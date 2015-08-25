@@ -11,6 +11,11 @@ echo "Please ensure these files exist"
 echo ""
 read -p "Press [Enter] key to start benchmarking or Ctrl-C to abort..."
 
+echo "Running Verification Suite Index Benchmarks"
+echo "---------------------------------------------------------------------------------------" >> $1.txt
+ab -n 200 -c 50  -d -l "http://127.0.0.1:8888/albums/verification_suite" >> $1.txt
+echo "---------------------------------------------------------------------------------------" >> $1.txt
+
 echo "Running 1 MB test file benchmarks"
 echo "---------------------------------------------------------------------------------------" >> $1.txt
 ab -n 200 -c 50  -d -l "http://127.0.0.1:8888/albums/verification_suite/benchtests/test1.bin" >> $1.txt
