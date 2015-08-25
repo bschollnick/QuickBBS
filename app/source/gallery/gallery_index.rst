@@ -15,6 +15,7 @@ Table of Contents
    Gallery - Supported File Types <gallery_supported_filetypes>
    Gallery - Included Plugins <gallery_plugins>
    Gallery - Plugin API <gallery_plugin_api>
+   Gallery - Benchmarks <gallery_benchmarks>
 
 
 What is the Gallery?
