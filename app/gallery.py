@@ -84,8 +84,7 @@ class Gallery(Resource):
         self.cdl.files_to_ignore = self.ctx["filetypes"]["files_to_ignore"]
         self.cdl.acceptable_extensions = \
             self.ctx["filetypes"]["files_to_cache"]
-        self.cdl.filter_filenames = common.clean_filename2
-#        self.cdl.filter_dirnames = common.clean_dir_paths
+#        self.cdl.filter_filenames = common.clean_filename2
 
         print "Priming the cache for %s, please wait" %\
             (config.LOCATIONS["album_root"].lower().strip() + "/albums")
@@ -676,7 +675,6 @@ Based off of https://github.com/Kami/python-twisted-binary-file-transfer-demo
             self.ctx["fq_filename"] = os.path.abspath(
                 os.sep.join([config.LOCATIONS["album_root"],
                              self.ctx["request_string"]]))
-#            print "displaying single file - %s" % self.ctx["fq_filename"]
             return self.display_single_item()
         else:
             #   We are displaying a gallery
@@ -748,8 +746,9 @@ archive_items_per_page
         self.ctx["dir_nav"]["next_dir_url"],\
             self.ctx["dir_nav"]["next_dir_desc"] = (None, None)
 
-        full_comic_list = natsort.natsort(
-            self.ctx["dlisting"][1].archive_listings)
+        if self.ctx["dlisting"][1].archive_listings != []:
+            full_comic_list = natsort.natsort(
+                self.ctx["dlisting"][1].archive_listings)
 
         self.ctx["gallery"]["total_item_count"] = len(full_comic_list)
         self.ctx["sidebar"]["total_item_count"] = self.ctx["gallery"]["total_item_count"]
