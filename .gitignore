@@ -71,3 +71,5 @@ app/directory_caching/archives.py
 app/rarfile.py
 
 app/semantic_url/__init__.py
+
+app/time_test.py
