@@ -35,7 +35,7 @@ class PluginOne(core_plugin.CorePlugin):
             this file format.
     """
 
-    ACCEPTABLE_FILE_EXTENSIONS = ['.ZIP', '.CBZ']
+    ACCEPTABLE_FILE_EXTENSIONS = ['.zip', '.cbz']
 
     IMG_TAG = False
 

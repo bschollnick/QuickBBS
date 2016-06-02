@@ -12,24 +12,32 @@
 #
 """
 import cgi
+import common
+import config
+import gallery
 import os
 import os.path
 import random
 
-from twisted.web.server import Site, NOT_DONE_YET, GzipEncoderFactory
-from twisted.web.resource import EncodingResourceWrapper
-from twisted.web import static
+from twisted.web.server import Site, NOT_DONE_YET
+from twisted.web import static, guard, server
 from twisted.web.resource import Resource
 from twisted.internet import reactor
+from twisted.cred.portal import Portal
+from twisted.cred.checkers import FilePasswordDB
+
+import crypt
 
 from twisted.web.server import Session
 from twisted.python import log
 from twisted.python.logfile import LogFile
 
 from jinja2 import Environment, FileSystemLoader
-import common
-import config
-import gallery
+
+def cmp_pass(uname, password, storedpass):
+    return crypt.crypt(password, storedpass[:2])
+    
+checkers = [FilePasswordDB(path_to_htpasswd, hash=cmp_pass)]
 
 ##############################################################################
 def require_login(request):
@@ -268,21 +276,14 @@ def main():
     root.putChild("index", IndexPage(ctx, env))
 
     root.putChild("javascript",
-                  EncodingResourceWrapper(static.File(config.LOCATIONS["javascript_root"],
-                              "application/javascript"), [GzipEncoderFactory()]))
-#    root.putChild("javascript",
-#                  static.File(config.LOCATIONS["javascript_root"],
-#                              "application/javascript"))
+                  static.File(config.LOCATIONS["javascript_root"],
+                              "application/javascript"))
     root.putChild("css", static.File(config.LOCATIONS["css_root"]))
     root.putChild("fonts", static.File(config.LOCATIONS["fonts_root"]))
-#    root.putChild("thumbnails",
-#                  static.File(config.LOCATIONS["thumbnails_root"]))
     root.putChild("thumbnails",
-                  EncodingResourceWrapper(static.File(config.LOCATIONS["thumbnails_root"]),
-                  [GzipEncoderFactory()]))
-    root.putChild("images", EncodingResourceWrapper(static.File(config.LOCATIONS["images_root"]), [GzipEncoderFactory()]))
-#    root.putChild("images", static.File(config.LOCATIONS["images_root"]))
-    root.putChild("albums", EncodingResourceWrapper(gallery.Gallery(ctx, env, log), [GzipEncoderFactory()]))
+                  static.File(config.LOCATIONS["thumbnails_root"]))
+    root.putChild("images", static.File(config.LOCATIONS["images_root"]))
+    root.putChild("albums", gallery.Gallery(ctx, env, log))
 
     if config.SETTINGS["use_bonjour"] == "1":
         from txbonjour import discovery
@@ -293,14 +294,12 @@ def main():
                                  config.SETTINGS["server_port"],
                                  'DAAP Server')
 
-#    wrapped = EncodingResourceWrapper(root, [GzipEncoderFactory()])
-#    factory = Site(root)
-    factory = Site(EncodingResourceWrapper(root, [GzipEncoderFactory()]))
+    factory = Site(root)
     factory.sessionFactory = ShortSession
 # http://twistedmatrix.com/documents/14.0.0/web/
 #       howto/web-in-60/session-endings.html
     print "Listening on Port %s..." % config.SETTINGS["server_port"]
-    reactor.suggestThreadPoolSize(10)
+    reactor.suggestThreadPoolSize(5)
     reactor.listenTCP(config.SETTINGS["server_port"], factory)
     #reactor.run(installSignalHandlers=False)
     reactor.run()

@@ -13,9 +13,11 @@ import cStringIO
 
 class PluginOne(core_plugin.CorePlugin):
 
-    ACCEPTABLE_FILE_EXTENSIONS = ['.PNG']
+    ACCEPTABLE_FILE_EXTENSIONS = ['.dir']
 
-    IMG_TAG = True
+    CONTAINER = TRUE
+
+    IMG_TAG = False
 
     FRAME_TAG = False
 
@@ -60,7 +62,8 @@ class PluginOne(core_plugin.CorePlugin):
         try:
             image_file = Image.open(src_filename)
             image_file.thumbnail((t_size, t_size), Image.ANTIALIAS)
-            image_file.save(t_filename, "PNG", optimize=True)
+#            image_file.save(t_filename, "PNG", optimize=True)
+            image_file.save(t_filename, "PNG", optimize=False)
             return True
         except IOError:
             print "File thumbnail ", src_filename

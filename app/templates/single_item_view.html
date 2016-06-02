@@ -190,12 +190,12 @@ bgcolor="#E6E6FA"
                 {% endif %}<br>
                 <table><tr><TD>File Size - {{ dlisting[1].st.st_size }}</TD><TD></TD><TD>
                 Last Modified - {{ dlisting[1].human_st_mtime }}</TD></TR></TABLE>
-                        <select onchange="navigateTo(this, 'window', false);">
+                        <select onchange="navigateTo(this, 'window', false);" style="width:600px">
                             {% for page_cnt, file_cnt, name in sidebar["item_list"]: %}
                                 {% if dlisting[0] == name %}
-                                    <option selected="selected" value="{{ web_path }}{{ page_cnt }}/{{ file_cnt }}">{{ name | wordwrap(width=gallery['textwrap'], break_long_words=True, wrapstring="<br>") }}</option>
+                                    <option selected="selected" value="{{ web_path }}{{ page_cnt }}/{{ file_cnt }}">{{ name | wordwrap(width=gallery['textwrap'], break_long_words=True, wrapstring="<p>") }}</option>
                                 {% else %}
-                                    <option value="{{ web_path }}{{ page_cnt }}/{{ file_cnt }}">{{ name | wordwrap(width=gallery['textwrap'], break_long_words=True, wrapstring="<br>") }}</option>
+                                    <option value="{{ web_path }}{{ page_cnt }}/{{ file_cnt }}">{{ name | wordwrap(width=gallery['textwrap'], break_long_words=True, wrapstring="<p>") }}</option>
                                 {% endif %}
                             {% endfor %}
                         </select>
@@ -213,12 +213,12 @@ bgcolor="#E6E6FA"
             <!-- thumbnail -->
                 <!-- ZIP file Thumbnail -->
                 {% if dlisting[1].file_extension in ["cbz", "cbr", "zip", "rar"] %}
-                        <img src="{{ thumbnail_path }}{{ dlisting[0] }}/Page_1_thumb.png" width="99%" height="auto" style="max-width:99%"/>
+                        <img class="lazy" src="/images/loading17.gif" data-src="{{ thumbnail_path }}{{ dlisting[0] }}/Page_1_thumb.png" width="99%" height="auto" style="max-width:99%"/>
                 {% else %}
                         {% if mobile %}
-                            <img src="{{ thumbnail_path }}{{ dlisting[0] }}{{ gallery['mobile'] }}" style="max-width:99%;"/>
+                            <img class="lazy" src="/images/loading17.gif" data-src="{{ thumbnail_path }}{{ dlisting[0] }}{{ gallery['mobile'] }}" style="max-width:99%;" style="max-width:99%;"/>
                         {% else %}
-                            <img src="{{ thumbnail_path }}{{ dlisting[0] }}{{ gallery['large'] }}" style="max-width:99%;"/>
+                            <img class="lazy" src="/images/loading17.gif" data-src="{{ thumbnail_path }}{{ dlisting[0] }}{{ gallery['large'] }}" style="max-width:99%;" style="max-width:99%;"/>
                         {% endif %}
                 {% endif %}
         </center>
@@ -227,5 +227,12 @@ bgcolor="#E6E6FA"
             </center>
         </div>
 </div>
+<script>
+  $(function() {
+        $('.lazy').lazy({
+            delay: 1000
+        });
+    });
+</script>
 {% endblock grid %}
 

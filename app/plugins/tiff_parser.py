@@ -13,7 +13,7 @@ import cStringIO
 
 class PluginOne(core_plugin.CorePlugin):
 
-    ACCEPTABLE_FILE_EXTENSIONS = ['.TIF', '.TIFF']
+    ACCEPTABLE_FILE_EXTENSIONS = ['.tif', '.tiff']
 
     IMG_TAG = True
 

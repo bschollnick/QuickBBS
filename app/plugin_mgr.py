@@ -8,7 +8,7 @@ from yapsy.PluginManager import PluginManager
 #from yapsy.IPlugin import IPlugin
 
 FILE_TYPES_MAP = {}
-#        #0 - Uppercase, stripped, File Extension
+#        #0 - lowercase, stripped, File Extension
 #        #1 - The pointer to the plugin class
 #        #2 - The description of the plugin
 
@@ -23,7 +23,7 @@ def return_plugin(sourcefile):
     Note: Cached Plugin Extension switching is barely faster than
           this method, it is not worth the complexity to implement.
     """
-    extension = os.path.splitext(sourcefile.upper().strip())[1]
+    extension = os.path.splitext(sourcefile.lower().strip())[1]
     if plugin_registered(sourcefile):
         return FILE_TYPES_MAP[extension][1]
     else:
@@ -34,21 +34,22 @@ def plugin_registered(sourcefile):
     Is there a plugin registered for this source file?
 
     Input - Filename / FQN, converted
-            to upper case file extension
+            to lower case file extension
 
     returns:
 
             - True, if the file extension is in the FILE_TYPES_MAP
             - False, if the file extension is not found
     """
-    extension = os.path.splitext(sourcefile.upper().strip())[1]
-    return FILE_TYPES_MAP.has_key(extension)
+    extension = os.path.splitext(sourcefile.lower().strip())[1]
+    return extension in FILE_TYPES_MAP
+    #return FILE_TYPES_MAP.has_key(extension)
 
 def load_plugins():
     """
         The file types map is structured as follows:
 
-        #0 - Uppercase, stripped, File Extension
+        #0 - lowercase, stripped, File Extension
         #1 - The pointer to the plugin class
         #2 - The description of the plugin
 
@@ -61,8 +62,8 @@ def load_plugins():
     for plug in plugin_manager.getAllPlugins():
         for ftype in plug.plugin_object.ACCEPTABLE_FILE_EXTENSIONS:
             if plug.plugin_object.IMG_TAG:
-                IMAGE_FILES.append(ftype.upper().strip())
-            FILE_TYPES_MAP[ftype.upper().strip()] = [ftype.upper().strip(),
+                IMAGE_FILES.append(ftype.lower().strip())
+            FILE_TYPES_MAP[ftype.lower().strip()] = [ftype.lower().strip(),
                                                      plug.plugin_object,
                                                      plug.description]
 

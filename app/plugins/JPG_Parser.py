@@ -16,7 +16,7 @@ class PluginOne(core_plugin.CorePlugin):
         Subclassed core plugin.
 
 
-        * ACCEPTABLE_FILE_EXTENSIONS is a list, that contains the (UPPERCASE),
+        * ACCEPTABLE_FILE_EXTENSIONS is a list, that contains the (lowerCASE),
             File Extensions (DOTTED format, e.g. .GIF, not GIF) that this
             plugin will manage.
 
@@ -37,8 +37,8 @@ class PluginOne(core_plugin.CorePlugin):
         * DEFAULT_BACKGROUND - String - The background of the table cell, for
             this file format.
     """
-    ACCEPTABLE_FILE_EXTENSIONS = ['.JPG', '.JPEG', '.JPE',
-                                  '.JIF', '.JFIF', '.JFI']
+    ACCEPTABLE_FILE_EXTENSIONS = ['.jpg', '.jpeg', '.jpe',
+                                  '.jif', '.jfif', '.jfi']
 
     IMG_TAG = True
 
@@ -86,23 +86,7 @@ class PluginOne(core_plugin.CorePlugin):
 
         try:
             image_file = Image.open(src_filename)
-        except IOError:
-            print "File thumbnail ", src_filename
-            print "save thumbnail ", t_filename
-            print "IOError opening the file[%s] ." % (src_filename)
-        except IndexError as detail:
-            print "File thumbnail ", src_filename
-            print "save thumbnail ", t_filename
-            print "The File [%s] generated an IndexError." % (src_filename)
-            print detail
-        except TypeError:
-            print "File thumbnail ", src_filename
-            print "save thumbnail ", t_filename
-            print "The File [%s] is not the proper type (TypeError)." % (src_filename)
-
-        image_file.thumbnail((t_size, t_size), Image.ANTIALIAS)
-
-        try:
+            image_file.thumbnail((t_size, t_size), Image.ANTIALIAS)
             if image_file.mode != "RGB":
                 new_image = image_file.convert('RGB')
                 new_image.save(t_filename, "PNG", optimize=True)
