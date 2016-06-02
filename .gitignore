@@ -81,6 +81,4 @@ app/testing/time_test.py
 app/time_test.py
 
 django/Albums/
-django/
-
 django/quickbbs/db.sqlite3

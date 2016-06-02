@@ -1,0 +1,9 @@
+[Core]
+Name = Tiff Processor
+Module = tiff_parser
+
+[Documentation]
+Description = Tiff Processing for Gallery
+Author = Benjamin Schollnick
+Version = 1
+Website = http://bschollnick.github.com
