@@ -41,6 +41,7 @@ code::
 #####################################################
 #   Batteries Included imports
 import common
+#import fastnumbers
 import ConfigParser
 import os
 import os.path
@@ -121,9 +122,13 @@ def load_settings(locations_data):
     config = ConfigParser.SafeConfigParser()
     config.read(os.path.join(locations_data["config_root"], "settings.ini"))
     for option_name in config.options("configuration"):
-        local_settings[option_name] = common.return_int(
-            config.get("configuration",\
-            option_name).strip())
+        local_settings[option_name] = config.get("configuration",\
+            option_name).strip()
+        try:
+            local_settings[option_name] = int(local_settings[option_name])
+        except:
+            print "failed - ", local_settings[option_name]
+            pass
     return local_settings
 
 

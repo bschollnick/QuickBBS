@@ -23,13 +23,41 @@ GHOSTSCRIPT_INSTALLED = check_for_ghostscript()
 
 class PluginOne(core_plugin.CorePlugin):
 
-    ACCEPTABLE_FILE_EXTENSIONS = ['.PDF']
+    ACCEPTABLE_FILE_EXTENSIONS = ['.pdf']
     IMG_TAG = True
     FRAME_TAG = False
 
 #    DEFAULT_ICON = r"/images/1431973815_text.png"
 
     DEFAULT_BACKGROUND = "FDEDB1"
+
+#     def create_thumbnail_from_file(self, src_filename,
+#                                    t_filename,
+#                                    t_size=None):
+#         """
+#         http://stackoverflow.com/questions/12759778/
+#             python-magickwand-pdf-to-image-converting-and-resize-the-image
+#         """
+#         if  src_filename == None:
+#             raise RuntimeError("No Source Filename was not specified")
+#
+#         if  t_filename == None:
+#             raise RuntimeError("The Target is not specified")
+#
+#         if src_filename == t_filename:
+#             raise RuntimeError("The source is the same as the target.")
+#
+#         if os.path.exists(t_filename):
+#             return None
+#
+#         if t_size == None:
+#             raise RuntimeError("No Target size is defined")
+#
+#         import magickwand
+#         img=magickwand.image.Image(filename=src_filename)
+#         img.format='png'
+#         img.resize(t_size)
+#         img.save(filename=t_filename)
 
     def create_thumbnail_from_file(self, src_filename,
                                    t_filename,

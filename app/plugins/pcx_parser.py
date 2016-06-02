@@ -36,7 +36,7 @@ class PluginOne(core_plugin.CorePlugin):
         * DEFAULT_BACKGROUND - String - The background of the table cell, for
             this file format.
     """
-    ACCEPTABLE_FILE_EXTENSIONS = ['.PCX']
+    ACCEPTABLE_FILE_EXTENSIONS = ['.pcx']
 
     IMG_TAG = True
 

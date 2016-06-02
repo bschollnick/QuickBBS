@@ -34,7 +34,7 @@ class PluginOne(core_plugin.CorePlugin):
             this file format.
     """
 
-    ACCEPTABLE_FILE_EXTENSIONS = ['.HTM', '.HTML']
+    ACCEPTABLE_FILE_EXTENSIONS = ['.htm', '.html']
 
     IMG_TAG = False
 

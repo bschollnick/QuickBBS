@@ -34,7 +34,7 @@ class PluginOne(core_plugin.CorePlugin):
             this file format.
     """
 
-    ACCEPTABLE_FILE_EXTENSIONS = ['.TXT', '.TEXT']
+    ACCEPTABLE_FILE_EXTENSIONS = ['.txt', '.text']
 
     IMG_TAG = False
 

@@ -1,0 +1,15 @@
+reload(archives2)
+test = "/Volumes/3TB_Drive/gallery/albums/hentai idea/Darth Ross - Star Rape (Star Wars).cbr"
+cf = archives2.id_cfile_by_sig(test)
+print cf.listings
+cf.get_listings()
+print cf.listings
+
+
+reload(archives2)
+test = "/Volumes/3TB_Drive/gallery/albums/hentai idea/Justice Hentai.rar"
+cf = archives2.id_cfile_by_sig(test)
+print cf.listings
+cf.get_listings()
+print cf.listings
+print cf.mime_type

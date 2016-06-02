@@ -3,12 +3,12 @@ Core Plugin for Gallery
 """
 
 ##############################################################################
+import exceptions
+import os
+import os.path
+import time
 from yapsy.IPlugin import IPlugin
 import config
-import os, os.path
-import sys
-import traceback
-import time
 
 class CorePlugin(IPlugin):
     """
@@ -80,7 +80,7 @@ class CorePlugin(IPlugin):
                  the thumbnail file.  The thumbnail will have the albums
                  directory replaced with the thumbnails directory name.
         """
-        if src_filename == None:
+        if src_filename is None:
             raise RuntimeError("No Source file given.")
 
         if clean_filename != None:

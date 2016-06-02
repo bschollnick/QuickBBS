@@ -3,35 +3,37 @@ Common utils for Gallery
 """
 import os
 import re
-import unidecode
 import urllib2
+import unidecode
+import fastnumbers
 
 ##############################################################################
 def is_int(value_to_test):
     """
     Test to see if string is an integer.
-
     If integer, returns True.
     If not integer, returns False.
-
     note, exception tracking tests to be slower!
     """
-    if value_to_test.isdigit():
-        return True
-    else:
-        return False
+    return fast_numbers.isint(value_to_test)
 
-def return_int(value_to_test):
-    """
-    Test to see if string is an integer.
-
-    If integer, returns integer.
-    If not integer, returns original value.
-    """
-    if value_to_test.isdigit():
-        return int(value_to_test)
-    else:
-        return value_to_test
+#    try:
+#        int(value_to_test)
+#        return True
+#    except ValueError:
+#        return False
+#
+# def return_int(value_to_test):
+#     """
+#     Test to see if string is an integer.
+#
+#     If integer, returns integer.
+#     If not integer, returns original value.
+#     """
+#     if value_to_test.isdigit():
+#         return int(value_to_test)
+#     else:
+#         return value_to_test
 
 def fix_doubleslash(fullpathname):
     """
@@ -81,34 +83,30 @@ def pre_slash(path):
     """
     Connivence function to ensure prepended slash to a path
     """
-    if path == '':
-        path = "/"
-    elif path[0] != '/':
-        path = '/' + path
-    return path
+    if path is not None and not path.startswith("/"):
+        return  '/' + path
+    else:
+        return path
+#     if path == '':
+#         path = "/"
+#     elif path[0] != '/':
+#         path = '/' + path
+#     return path
 
 def post_slash(path):
     """
     Connivence function to ensure postpended slash to a path
     """
-    if path == '':
-        path = "/"
-    elif path[-1] != '/':
-        path = path +'/'
-    return path
+    if not path.endswith("/"):
+        return path + "/"
+    else:
+        return path
 
 def clean_dir_paths(pathname):
     paths, tail = os.path.split(pathname)
     if is_int(tail):
         tail = "[%s]" % tail
     return os.sep.join([paths, tail])
-
-
-#def return_thumbnail_name(fq_filename, size):
-#    fq_filename = clean_filename2(fq_filename).replace("albums/",
-#        "thumbnails/")
-#    filename, ext = os.path.splitext(fq_filename)
-#    return "%s_thumb%s.png" % (filename+ext, size)
 
 
 def clean_filename2(filename,
@@ -122,8 +120,6 @@ def clean_filename2(filename,
                     ":":"-", "|":"",
                     "?":"", ">":"",
                     "<":"", "/":"_"}
-#    filename = replace_all(urllib2.unquote(filename), replacements)
-        # Un"quotify" the URL / Filename
     if unicode_filter:
         filename = unidecode.unidecode(filename.decode("utf-8"))
 
@@ -132,6 +128,7 @@ def clean_filename2(filename,
     filename, fileext = os.path.splitext(filename)
         # remove extra spaces from filename and file extension.
         # e.g.  "this is the filename .txt" -> "this is the filename.txt"
+#    print filename
     return filename.strip() + fileext.strip()
 
 def norm_number(page, max_number):

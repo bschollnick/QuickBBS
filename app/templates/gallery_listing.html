@@ -206,7 +206,7 @@ bgcolor='#CCCCFF' border=4
 <div class="container-fluid" style="margin-left: 55px;border: 1px solid;width=100%;background:#b0e2ff;">
 <center>
 </center>
-{% for item_row in dlisting | batch(3, ' &nbsp;') %}
+{% for item_row in listing | batch(3, ' &nbsp;') %}
 <div class="row">
     {% set outer_loop = loop %}
     {% for item in item_row %}
@@ -287,14 +287,11 @@ bgcolor='#CCCCFF' border=4
 {%endfor %}
 
 <script>
-jQuery(document).ready(function() {
-    jQuery("img.lazy").lazy({
-        delay: 1000,
-        threshold: 200,
-        combined: true
-
+  $(function() {
+        $('.lazy').lazy({
+            delay: 1000
+        });
     });
-});
 </script>
 {% endblock grid %}
 
