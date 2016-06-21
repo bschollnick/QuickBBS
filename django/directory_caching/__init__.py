@@ -36,8 +36,8 @@
         * Used for RAR File listings & extraction
 
 :Concept:
-    The Directory Caching module was the first step in speeding up processing of
-    **massive** directories (2K - 4K) files for the gallery.
+    The Directory Caching module was the first step in speeding up processing
+    of **massive** directories (2K - 4K) files for the gallery.
 
     The first speed up was derived from using Scandir.  The second speed up was
     due to caching the results, and monitoring for changes.
@@ -45,8 +45,8 @@
     The library uses two methods to expire the cache:
 
     1. The library will check for the Modified Times on the Directories.
-       If the directory's Last Modified time is newer than the last_scanned_time
-       then the directory will be rescanned.
+       If the directory's Last Modified time is newer than the
+       last_scanned_time then the directory will be rescanned.
     2.  If the Directory and/or File count in the directory is different from
         the last time the directory was scanned, it will be rescanned.
 
@@ -118,12 +118,13 @@ import stat
 import time
 import scandir  # https://github.com/benhoyt/scandir
 import utilities
-#import directory_caching.archives as archives
-#import archives2 as archives2
+# import directory_caching.archives as archives
+# import archives2 as archives2
 import archives3 as archives2
 
 #   Required third party
-import natsort  # https://github.com/xolox/python-naturalsort
+#import natsort  # https://github.com/xolox/python-naturalsort
+from natsort import humansorted
 
 SORT_BY_NAME = 0
 SORT_BY_MODIFIED = 1
@@ -135,6 +136,8 @@ ZIP_FILE_TYPES = ["cbz", "zip"]
 ARCHIVE_FILE_TYPES = RAR_FILE_TYPES + ZIP_FILE_TYPES
 
 #####################################################
+
+
 class DirEntry(object):
     """
     The is the template class for the cache objects.
@@ -201,6 +204,8 @@ class DirEntry(object):
         self.extended_data = {}
 
 #####################################################
+
+
 class Cache(object):
     """
     This is the mainstay of the Directory Caching engine.
@@ -242,8 +247,8 @@ class Cache(object):
         self.filter_filenames = None
         self.filter_dirnames = None
         self.root_path = None
-            # This is the path in the OS that is being examined
-            #    (e.g. /Volumes/Users/username/)
+        # This is the path in the OS that is being examined
+        #    (e.g. /Volumes/Users/username/)
         self.d_cache = {}
         self.ed_collector = None
 
@@ -270,17 +275,16 @@ class Cache(object):
         """
         directories = {}
         files = {}
-        if os.path.exists(scan_directory) != True:
+        if os.path.exists(scan_directory) is not True:
             return None
         norm_dir_name = scan_directory.strip()
         self.d_cache[norm_dir_name] = {}
         self.d_cache[norm_dir_name]["last_sort"] = None
         dirname = os.path.split(scan_directory)[0]
-        if self.filter_filenames != None:
+        if self.filter_filenames is not None:
             utilities.rename_path_to_clean(dirname)
             dirname = utilities.clean_path(dirname)
             utilities.check_files_in_directory(dirname)
-
 
         for s_entry in scandir.scandir(scan_directory):
             data = DirEntry()
@@ -304,11 +308,11 @@ class Cache(object):
                 data.file_extension = "dir"
 
                 (data.number_files,
-                 data.number_dirs) = self._return_filtered_dir_count(\
+                 data.number_dirs) = self._return_filtered_dir_count(
                        data.fq_filename)
                 directories[s_entry.name] = data
                 data.is_archive = False
-                data.archive_listings = None
+#                data.archive_listings = None
             else:
                 data.filename = s_entry.name
                 data.directoryname = scan_directory
@@ -318,24 +322,24 @@ class Cache(object):
                     data.is_archive = True
                     data.archive_file = \
                         archives2.id_cfile_by_sig(data.fq_filename)
-                    if not data.archive_file is None:
+                    if data.archive_file is not None:
                         data.archive_file.get_listings()
 
-                        if data.archive_file.listings != None:
+                        if data.archive_file.listings is not None:
                             try:
-                                data.archive_file.listings = natsort.natsort(
-                                    data.archive_file.listings)
+                                data.archive_file.listings = \
+                                    humansorted(data.archive_file.listings)
                             except exceptions.UnicodeEncodeError:
-                                pass
+                                print "Unable to access %s" % data.fq_filename
+                            except exceptions.UnicodeDecodeError:
+                                print "Unable to access %s" % data.fq_filename
 
-                if self.ed_collector != None:
+                if self.ed_collector is not None:
                     data.extended_data = self.ed_collector(data.fq_filename)
 
                 if self.acceptable_extensions == [] or \
                     data.file_extension.lower() in self.acceptable_extensions:
-                    #
                     files[s_entry.name] = data
-
 
         self.d_cache[norm_dir_name]["files"] = files
         self.d_cache[norm_dir_name]["dirs"] = directories
@@ -344,7 +348,7 @@ class Cache(object):
         self.d_cache[norm_dir_name]["last_sort"] = None
         (self.d_cache[norm_dir_name]["raw_filec"],
          self.d_cache[norm_dir_name]["raw_dirc"]) = \
-                            self._return_total_fd_count(scan_directory)
+                                 self._return_total_fd_count(scan_directory)
         return
 
 #####################################################
@@ -370,7 +374,6 @@ class Cache(object):
         path, dirs, files = scandir.walk(scan_directory).next()
         return (len(files), len(dirs))
 
-
     def _return_filtered_dir_count(self, scan_directory):
         """
         Args:
@@ -392,28 +395,42 @@ class Cache(object):
         """
         def remove_it(name_to_check):
             if name_to_check in self.files_to_ignore:
-                #
-                #   There are no non-acceptable files.
-                #
-                return True
-
-            if not os.path.splitext(name_to_check)[1][1:] in\
-                self.acceptable_extensions:
-                    #
+                return False
+            elif self.acceptable_extensions == [] or\
+                os.path.splitext(name_to_check)[1][1:] in\
+                    self.acceptable_extensions:
+                    #   There are no non-acceptable files.
                     #   Filter by extensions
-                    #
                 return True
-            return False
+            else:
+                return False
+
+
+#            if name_to_check in self.files_to_ignore:
+#                #
+#                #   There are no non-acceptable files.
+#                #
+#                return True
+#
+#            if not os.path.splitext(name_to_check)[1][1:] in\
+#                self.acceptable_extensions:
+#                    #
+#                    #   Filter by extensions
+#                    #
+#                return True
+#            return False
 
         scan_directory = os.path.realpath(scan_directory).strip()
         path, dirs, files = scandir.walk(scan_directory).next()
+#        print scan_directory, files
 
         for filename in files:
             if remove_it(filename.lower().strip()):
-#                print "Removing - %s" % filename
                 files.remove(filename)
+#        print scan_directory, (len(files), len(dirs)), files
         return (len(files), len(dirs))
 #####################################################
+
     def directory_in_cache(self, scan_directory):
         """
         Args:
@@ -431,7 +448,8 @@ class Cache(object):
         present in the cache.
         """
         scan_directory = os.path.realpath(scan_directory).strip()
-        return scan_directory in self.d_cache  #.keys()  - Increase performance
+        return scan_directory in self.d_cache
+        # .keys()  - Increase performance
 
 #####################################################
     def return_current_directory_offset(self,
@@ -493,10 +511,10 @@ class Cache(object):
         current_offset = None
         cdir = current_directory.lower().strip()
         for count, dir_entry in enumerate(dirs):
-            if dirs[0].lower().strip() == cdir:
+            if dir_entry[0].lower().strip() == cdir:
                 current_offset = count
                 break
-        #for dir_entry in xrange(0, len(dirs)):
+        # for dir_entry in xrange(0, len(dirs)):
         #    if dirs[dir_entry][0].lower().strip() == cdir:
         #        current_offset = dir_entry
         #        break
@@ -519,7 +537,8 @@ class Cache(object):
             #
             if current_offset + offset >= 0:
                 # offset is negative X
-                return (current_offset + offset, dirs[current_offset+offset][0])
+                return (current_offset + offset,
+                        dirs[current_offset+offset][0])
             else:
                 return (None, None)
         else:
@@ -527,7 +546,8 @@ class Cache(object):
                 #   len is 1 based, current_offset is 0 based.
                 return (None, None)
             else:
-                return (current_offset + offset, dirs[current_offset+offset][0])
+                return (current_offset + offset,
+                        dirs[current_offset+offset][0])
 
 
 #####################################################
@@ -554,24 +574,32 @@ class Cache(object):
        differences.
 
         """
+        #
+        #   Convert to use .get()
+        #
         scan_directory = os.path.realpath(scan_directory).strip()
         if self.directory_in_cache(scan_directory):
             #   Is in cache
-            st = os.stat(scan_directory)
+            # st = os.stat(scan_directory)
             #   Return true if modified time on directory is newer Cached Time.
-            if "last_scanned_time" in self.d_cache[scan_directory]:
-                if st[stat.ST_MTIME] > self.d_cache[scan_directory]\
-                    ["last_scanned_time"]:
-                    return True
+            # if st[stat.ST_MTIME] > self.d_cache[scan_directory].get(
+                # "last_scanned_time", 0) :
+            if os.path.getmtime(scan_directory) > \
+                self.d_cache[scan_directory].get("last_scanned_time", 0):
+                return True
+#            if "last_scanned_time" in self.d_cache[scan_directory]:
+#                if st[stat.ST_MTIME] > self.d_cache[scan_directory]\
+#                    ["last_scanned_time"]:
+#                    return True
 
-            #path, raw_dirc, raw_filec = scandir.walk(scan_directory).next()
+            # path, raw_dirc, raw_filec = scandir.walk(scan_directory).next()
             raw_filec, raw_dirc = self._return_total_fd_count(scan_directory)
             try:
                 if self.d_cache[scan_directory]["raw_filec"] != raw_filec \
                   or self.d_cache[scan_directory]["raw_dirc"] != raw_dirc:
                     return True
-#                if self.d_cache[scan_directory]["raw_filec"] != len(raw_filec)\
-#                  or self.d_cache[scan_directory]["raw_dirc"] != len(raw_dirc):
+#              if self.d_cache[scan_directory]["raw_filec"] != len(raw_filec)\
+#                or self.d_cache[scan_directory]["raw_dirc"] != len(raw_dirc):
 #                    return True
             except exceptions.KeyError:
                 pass
@@ -670,7 +698,7 @@ class Cache(object):
 
         """
         scan_directory = os.path.realpath(scan_directory).strip()
-        if os.path.exists(scan_directory) != False:
+        if os.path.exists(scan_directory) is not False:
             if self.directory_changed(scan_directory):
                 self._scan_directory_list(scan_directory)
             return True
@@ -717,23 +745,28 @@ class Cache(object):
             files = self.d_cache[scan_directory]["files"]
             dirs = self.d_cache[scan_directory]["dirs"]
             if sort_by == SORT_BY_NAME:
-                files = natsort.natsort(files.items(),
+
+                files = humansorted(files.items(),
                                         key=lambda t: t[1].filename.lower(),
                                         reverse=reverse)
-                dirs = natsort.natsort(dirs.items(),
-                                       key=lambda t:\
+                dirs = humansorted(dirs.items(),
+                                       key=lambda t:
                                        t[1].directoryname.lower(),
                                        reverse=reverse)
             elif sort_by == SORT_BY_MODIFIED:
-                files = sorted(files.items(),\
-                               key=lambda t: t[1].st.st_mtime, reverse=reverse)
-                dirs = sorted(dirs.items(),\
-                               key=lambda t: t[1].st.st_mtime, reverse=reverse)
+                files = humansorted(files.items(),
+                               key=lambda t: t[1].st.st_mtime,
+                               reverse=reverse)
+                dirs = humansorted(dirs.items(),
+                              key=lambda t: t[1].st.st_mtime,
+                              reverse=reverse)
             elif sort_by == SORT_BY_CREATION:
-                files = sorted(files.items(),\
-                               key=lambda t: t[1].st.st_ctime, reverse=reverse)
-                dirs = sorted(dirs.items(),\
-                               key=lambda t: t[1].st.st_ctime, reverse=reverse)
+                files = humansorted(files.items(),
+                               key=lambda t: t[1].st.st_ctime,
+                               reverse=reverse)
+                dirs = humansorted(dirs.items(),
+                              key=lambda t: t[1].st.st_ctime,
+                              reverse=reverse)
 
             self.d_cache[scan_directory]["sort_index"] = files, dirs
 
@@ -743,13 +776,12 @@ class Cache(object):
 #####################################################
     def sanity_check(self, scan_directory):
         scan_directory = os.path.realpath(scan_directory).strip()
-        if not 'files' in self.d_cache[scan_directory]:
+        if 'files' not in self.d_cache[scan_directory]:
             self.d_cache[scan_directory] = {}
             self.d_cache[scan_directory]["last_sort"] = None
-        elif not 'dirs' in  self.d_cache[scan_directory]:
+        elif 'dirs' not in self.d_cache[scan_directory]:
             self.d_cache[scan_directory] = {}
             self.d_cache[scan_directory]["last_sort"] = None
-
 
     def return_sort_name(self, scan_directory, reverse=False):
         """

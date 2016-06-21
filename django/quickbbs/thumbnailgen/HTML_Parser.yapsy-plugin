@@ -1,9 +1,0 @@
-[Core]
-Name = HTML Processor
-Module = html_parser
-
-[Documentation]
-Description = HTML Processing for Gallery
-Author = Benjamin Schollnick
-Version = 1
-Website = http://bschollnick.github.com

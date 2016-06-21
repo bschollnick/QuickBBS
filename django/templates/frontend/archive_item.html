@@ -89,12 +89,12 @@
             <div class="pagination">
                 <a href="{{ up_uri }}"><img src="/resources/images/Go_Up2.png" width="75%"></a>
                 <hr>
-                <a href="?page=1">
+                <a href="?a_item=1">
                     <img width="75%" height="75%" src="/resources/images/gtk_media_next_rtl.png"/></a>
                 <hr>
                 <span class="step-links">
                     {% if pagelist.has_previous %}
-                        <a href="?page={{ pagelist.previous_page_number }}">
+                        <a href="?a_item={{ pagelist.previous_page_number }}">
                             <img width="75%" height="75%" src="/resources/images/gtk_media_rev_ltr.png"/></a>
                     {% else %}
                             <img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/>
@@ -107,7 +107,7 @@
                 <hr>
 
                     {% if pagelist.has_next %}
-                        <a href="?page={{ pagelist.next_page_number }}">
+                        <a href="?a_item={{ pagelist.next_page_number }}">
                             <img width="75%" height="75%" src="/resources/images/gtk_media_play_ltr.png"/></a>
 
                     {% else %}
@@ -115,19 +115,19 @@
                     {% endif %}
                 <hr>
                 {% if pagelist.has_next %}
-                    <a href="?page={{ pagelist.next_page_number }}" target="_blank">
+                    <a href="?a_item={{ pagelist.next_page_number }}" target="_blank">
                     <img src="/resources/images/stock_new_window.png" height="75%" width="75%"/></a>
                 {% endif %}
 
                 <hr>
 
-                <a href="?page={{ pagelist.paginator.num_pages }}">
+                <a href="?a_item={{ pagelist.paginator.num_pages }}">
                     <img width="75%" height="75%" src="/resources/images/gtk_media_next_ltr.png"/></a>
                 <hr>
-                <a href="?page={{ current_page }}&download"><img width="75%" height="75%" src="/resources/images/down.png"/></a>
+                <a href="?a_item={{ current_page }}&download"><img width="75%" height="75%" src="/resources/images/down.png"/></a>
                 </span>
                 <hr>
-                    <form action="?page={{ current_page }}" method="GET">
+                    <form action="?a_item={{ current_page }}" method="GET">
                     {% csrf_token %}
                         <select name="sort" onchange='this.form.submit()'>
                             <option value="0" {% if sort_order == 0 %}selected{% endif %}>A..Z</option>
@@ -144,7 +144,7 @@
                 <div class="row">
                         <div class="thumbnail" style="background:{{ pagelist.0.4 }};">
                             <center>
-                                    <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ pagelist.0.2.1 }}" style="max-width:100%"/>
+                                    <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ pagelist.0.2.1 }}" style="width:auto;max-width:100%"/>
                                     <br>
                                 {% if pagelist.0.1.number_dirs != None and pagelist.0.1.number_dirs != 0%}
                                     <b># of Dirs: </b>{{ pagelist.0.1.number_dirs }}<br>
@@ -172,7 +172,7 @@
 <script>
   $(function() {
         $('.lazy').lazy({
-            delay: 300
+            delay: 500
         });
     });
 </script>
