@@ -7,66 +7,84 @@ import cStringIO
 import exceptions
 import os
 import os.path
-import time
-from PIL import Image
-import config
-from functools import partial
-from multiprocessing.dummy import Pool
+import stat
 from subprocess import call
+# import time
+from functools import partial
+from PIL import Image
+import warnings
+import workerpool
+import config
+# from multiprocessing.dummy import Pool
+# pool = Pool(8) # two concurrent commands at a time
 
-pool = Pool(5) # two concurrent commands at a time
+pool = workerpool.WorkerPool(size=15)
 
 THUMBNAIL_DB = {}
-THUMBNAIL_DB.update({'BMP':{'IMG_TAG':True, 'FRAME_TAG':False,
-                            'CONTAINER':False, 'BACKGROUND': '#FAEBF4',
-                            'ICON':""}})
-THUMBNAIL_DB.update({'DIB':{'IMG_TAG':True, 'FRAME_TAG':False,
-                            'CONTAINER':False, 'BACKGROUND': '#FAEBF4',
-                            'ICON':""}})
-THUMBNAIL_DB.update({'EPS':{'IMG_TAG':True, 'FRAME_TAG':False,
-                            'CONTAINER':False, 'BACKGROUND': '#FAEBF4',
-                            'ICON':""}})
-THUMBNAIL_DB.update({'GIF':{'IMG_TAG':True, 'FRAME_TAG':False,
-                            'CONTAINER':False, 'BACKGROUND': '#FAEBF4',
-                            'ICON':""}})
-THUMBNAIL_DB.update({'MSP':{'IMG_TAG':True, 'FRAME_TAG':False,
-                            'CONTAINER':False, 'BACKGROUND': '#FAEBF4',
-                            'ICON':""}})
-THUMBNAIL_DB.update({'TIF':{'IMG_TAG':True, 'FRAME_TAG':False,
-                            'CONTAINER':False, 'BACKGROUND': '#FAEBF4',
-                            'ICON':""}})
-THUMBNAIL_DB.update({'TIFF':{'IMG_TAG':True, 'FRAME_TAG':False,
-                             'CONTAINER':False, 'BACKGROUND': '#FAEBF4',
-                             'ICON':""}})
-THUMBNAIL_DB.update({'JPG':{'IMG_TAG':True, 'FRAME_TAG':False,
-                            'CONTAINER':False, 'BACKGROUND': '#FAEBF4',
-                            'ICON':""}})
-THUMBNAIL_DB.update({'JPEG':{'IMG_TAG':True, 'FRAME_TAG':False,
-                             'CONTAINER':False, 'BACKGROUND': '#FAEBF4',
-                             'ICON':""}})
-THUMBNAIL_DB.update({'JPE':{'IMG_TAG':True, 'FRAME_TAG':False,
-                            'CONTAINER':False, 'BACKGROUND': '#FAEBF4',
-                            'ICON':""}})
-THUMBNAIL_DB.update({'JIF':{'IMG_TAG':True, 'FRAME_TAG':False,
-                            'CONTAINER':False, 'BACKGROUND': '#FAEBF4',
-                            'ICON':""}})
-THUMBNAIL_DB.update({'JFIF':{'IMG_TAG':True, 'FRAME_TAG':False,
-                             'CONTAINER':False, 'BACKGROUND': '#FAEBF4',
-                             'ICON':""}})
-THUMBNAIL_DB.update({'JFI':{'IMG_TAG':True, 'FRAME_TAG':False,
-                            'CONTAINER':False, 'BACKGROUND': '#FAEBF4',
-                            'ICON':""}})
-THUMBNAIL_DB.update({'PNG':{'IMG_TAG':True, 'FRAME_TAG':False,
-                            'CONTAINER':False, 'BACKGROUND': '#FAEBF4',
-                            'ICON':""}})
-THUMBNAIL_DB.update({'PCX':{'IMG_TAG':True, 'FRAME_TAG':False,
-                            'CONTAINER':False, 'BACKGROUND': '#FAEBF4',
-                            'ICON':""}})
-THUMBNAIL_DB.update({'PDF':{'IMG_TAG':True, 'FRAME_TAG':False,
-                            'CONTAINER':False, 'BACKGROUND': '#FDEDB1',
-                            'ICON':""}})
+THUMBNAIL_DB.update({'bmp': {'IMG_TAG': True, 'FRAME_TAG': False,
+                             'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
+                             'ICON': ""}})
+THUMBNAIL_DB.update({'dib': {'IMG_TAG': True, 'FRAME_TAG': False,
+                             'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
+                             'ICON': ""}})
+THUMBNAIL_DB.update({'eps': {'IMG_TAG': True, 'FRAME_TAG': False,
+                             'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
+                             'ICON': ""}})
+THUMBNAIL_DB.update({'gif': {'IMG_TAG': True, 'FRAME_TAG': False,
+                             'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
+                             'ICON': ""}})
+THUMBNAIL_DB.update({'msp': {'IMG_TAG': True, 'FRAME_TAG': False,
+                             'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
+                             'ICON': ""}})
+THUMBNAIL_DB.update({'tif': {'IMG_TAG': True, 'FRAME_TAG': False,
+                             'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
+                             'ICON': ""}})
+THUMBNAIL_DB.update({'tiff': {'IMG_TAG': True, 'FRAME_TAG': False,
+                              'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
+                              'ICON': ""}})
+THUMBNAIL_DB.update({'jpg': {'IMG_TAG': True, 'FRAME_TAG': False,
+                             'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
+                             'ICON': ""}})
+THUMBNAIL_DB.update({'jpeg': {'IMG_TAG': True, 'FRAME_TAG': False,
+                              'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
+                              'ICON': ""}})
+THUMBNAIL_DB.update({'jpe': {'IMG_TAG': True, 'FRAME_TAG': False,
+                             'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
+                             'ICON': ""}})
+THUMBNAIL_DB.update({'jif': {'IMG_TAG': True, 'FRAME_TAG': False,
+                             'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
+                             'ICON': ""}})
+THUMBNAIL_DB.update({'jfif': {'IMG_TAG': True, 'FRAME_TAG': False,
+                              'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
+                              'ICON': ""}})
+THUMBNAIL_DB.update({'jfi': {'IMG_TAG': True, 'FRAME_TAG': False,
+                             'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
+                             'ICON': ""}})
+THUMBNAIL_DB.update({'png': {'IMG_TAG': True, 'FRAME_TAG': False,
+                             'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
+                             'ICON': ""}})
+THUMBNAIL_DB.update({'pcx': {'IMG_TAG': True, 'FRAME_TAG': False,
+                             'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
+                             'ICON': ""}})
+THUMBNAIL_DB.update({'pdf': {'IMG_TAG': True, 'FRAME_TAG': False,
+                             'ARCHIVE': False, 'BACKGROUND': '#FDEDB1',
+                             'ICON': ""}})
+THUMBNAIL_DB.update({'zip': {'IMG_TAG': False, 'FRAME_TAG': False,
+                             'ARCHIVE': True, 'BACKGROUND': '#FDEDB1',
+                             'ICON': ""}})
+THUMBNAIL_DB.update({'cbz': {'IMG_TAG': False, 'FRAME_TAG': False,
+                             'ARCHIVE': True, 'BACKGROUND': '#FDEDB1',
+                             'ICON': ""}})
+THUMBNAIL_DB.update({'cbr': {'IMG_TAG': False, 'FRAME_TAG': False,
+                             'ARCHIVE': True, 'BACKGROUND': '#FDEDB1',
+                             'ICON': ""}})
+THUMBNAIL_DB.update({'rar': {'IMG_TAG': False, 'FRAME_TAG': False,
+                             'ARCHIVE': True, 'BACKGROUND': '#FDEDB1',
+                             'ICON': ""}})
 
 THUMBNAIL_REBUILD_TIME = (24 * 60 * 60) * 14  # 2 weeks
+
+warnings.simplefilter('ignore', Image.DecompressionBombWarning)
 
 def check_for_ghostscript():
     """
@@ -82,13 +100,14 @@ def check_for_ghostscript():
 GHOSTSCRIPT_INSTALLED = check_for_ghostscript()
 THUMBNAIL_REBUILD_TIME = (24 * 60 * 60) * 14  # 2 weeks
 
+
 class Thumbnails(object):
     """
         Subclassed core plugin.
 
 
-        * ACCEPTABLE_FILE_EXTENSIONS is a list, that contains the (UPPERCASE),
-            File Extensions (DOTTED format, e.g. .GIF, not GIF) that this
+        * ACCEPTABLE_FILE_EXTENSIONS is a list, that contains the (lowerCASE),
+            File Extensions (DOTTED format, e.g. .gif, not gif) that this
             plugin will manage.
 
         * IMG_TAG - BOOLEAN - (e.g. .PNG, .GIF, .JPG)
@@ -128,14 +147,14 @@ class Thumbnails(object):
     def make_tnail_name(self, filename=None):
         tnail_name = {}
         tnail_name["small"] = filename + "_thumb%s.png" %\
-                              config.configdata["configuration"]["sm_thumb"]
-                              # gallery view ~300
+            config.configdata["configuration"]["sm_thumb"]
+# gallery view ~300
         tnail_name["medium"] = filename + "_thumb%s.png" %\
-                              config.configdata["configuration"]["med_thumb"]
-                               # mobile view ~740
+            config.configdata["configuration"]["med_thumb"]
+# mobile view ~740
         tnail_name["large"] = filename + "_thumb%s.png" %\
-                              config.configdata["configuration"]["lg_thumb"]
-                              # large view ~1024
+            config.configdata["configuration"]["lg_thumb"]
+# large view ~1024
         return tnail_name
 
     def make_tnail_fsname(self, src_filename=None):
@@ -154,7 +173,9 @@ class Thumbnails(object):
         if src_filename is None:
             raise RuntimeError("No Source file given.")
 
-        tnail_target = src_filename.replace("%salbums%s" % (os.sep, os.sep), "%sthumbnails%s" % (os.sep, os.sep))
+        tnail_target = src_filename.replace("%salbums%s" % (os.sep, os.sep),
+                                            "%sthumbnails%s" % (os.sep,
+                                                                os.sep))
         tnail_name = self.make_tnail_name(tnail_target)
         tnail_name["small"] = os.path.join(tnail_target, tnail_name["small"])
         tnail_name["medium"] = os.path.join(tnail_target, tnail_name["medium"])
@@ -167,22 +188,44 @@ class Thumbnails(object):
         except exceptions.IOError:
             return False
 
-    def timecheck_thumbnail_file(self, thumbfilename):
+    def validate_thumbnail_file(self, thumbfilename, src_file):
         """
-            Check the thumbnail file, and see if it is older than
-            the rebuild time.
-
-            If it is, it will be deleted, so that it can be regenerated.
+        validate thumbnail file existence.
         """
         if self.does_thumbnail_already_exist(thumbfilename):
-            # File exists
             t_modified = os.path.getmtime(thumbfilename)
-            # Get modified time stamps in seconds
-            if time.time() - THUMBNAIL_REBUILD_TIME > t_modified:
-                # if the current timestamp minus 2 weeks, is greater then the
-                # file's
+            t_size = os.path.getsize(thumbfilename)
+            if not os.path.exists(src_file.fq_filename):
                 os.remove(thumbfilename)
+                return False
+            else:
+                #o_modified = os.path.getmtime(original_fn)
+                #o_size = os.path.getsize(original_fn)
+                if src_file.st[stat.ST_MTIME] > t_modified or\
+                    (src_file.file_extension is not "dir"
+                     and t_size > src_file.st[stat.ST_SIZE]):
+#                    print src_file.st
+#                    print src_file.st[stat.ST_SIZE], " - ", t_size
+                    print "removing %s" % thumbfilename
+                    os.remove(thumbfilename)
+                    return False
+        return True
 
+#    def timecheck_thumbnail_file(self, thumbfilename):
+#        """
+#            Check the thumbnail file, and see if it is older than
+#            the rebuild time.
+#
+#            If it is, it will be deleted, so that it can be regenerated.
+#        """
+#        if self.does_thumbnail_already_exist(thumbfilename):
+#            # File exists
+#            t_modified = os.path.getmtime(thumbfilename)
+#            # Get modified time stamps in seconds
+#            if time.time() - THUMBNAIL_REBUILD_TIME > t_modified:
+#                # if the current timestamp minus 2 weeks, is greater then the
+#                # file's
+#                os.remove(thumbfilename)
 
     def create_pdf_thumbnail(self, src_filename,
                              t_filename,
@@ -192,30 +235,37 @@ class Thumbnails(object):
         -dNOPROMPT -dMaxBitmap=500000000 -dLastPage=1 -dAlignToPixels=0 \
         -dGridFitTT=0 -sDEVICE=jpeg -dTextAlphaBits=4 -dGraphicsAlphaBits=4\
         -g%ix%i -dPDFFitPage -dORIENT1=false -sOutputFile=$'%s' -f$'%s' '''
-        if  src_filename == None:
+        if src_filename is None:
             raise RuntimeError("No Source Filename was not specified")
-
-        if  t_filename == None:
-            raise RuntimeError("The Target is not specified")
-
-        if src_filename == t_filename:
+        elif src_filename == t_filename:
             raise RuntimeError("The source is the same as the target.")
+
+        if t_filename is None:
+            raise RuntimeError("The Target is not specified")
 
         if os.path.exists(t_filename):
             return None
 
-        if t_size == None:
+        if t_size is None:
             raise RuntimeError("No Target size is defined")
 
         if not GHOSTSCRIPT_INSTALLED:
             return ''
 
-        pool.imap(partial(call, shell=True), [gs_command % (t_size, t_size, t_filename, src_filename)])
+#        pool.map(subprocess.call(t_filename, "PNG", optimize=True))
+
+#        pool.imap(partial(call, shell=True), [gs_command % (t_size, t_size,
+#                                                            t_filename,
+#                                                            src_filename)])
+        pool.map(partial(call, shell=True), [gs_command % (t_size, t_size,
+                                                           t_filename,
+                                                           src_filename)])
 
     def create_thumbnail_from_file(self, src_filename,
                                    t_filename=None,
                                    t_size=None):
         if os.path.exists(t_filename):
+            print t_filename, "already exists"
             return False
         elif src_filename == t_filename:
             raise RuntimeError("The source is the same as the target.")
@@ -224,12 +274,11 @@ class Thumbnails(object):
         elif t_size is None:
             raise RuntimeError("No Target size is defined")
 
-        if src_filename.lower().endswith(".pdf"):
-            print "trying to pdf convert"
-            self.create_pdf_thumbnail(src_filename,
-                                      t_filename,
-                                      t_size)
-
+        extension = os.path.splitext(src_filename)[1].lower()[1:]
+        if extension is 'pdf':
+            return self.create_pdf_thumbnail(src_filename,
+                                             t_filename,
+                                             t_size)
         try:
             image_file = Image.open(src_filename)
         except IOError:
@@ -248,20 +297,24 @@ class Thumbnails(object):
             print "save thumbnail ", t_filename
             print "The File [%s] (TypeError) is damaged." % (src_filename)
             return False
+        except:
+            print "Generic error on open"
+            return False
 
         try:
             if image_file.mode != "RGB":
-                new_image = image_file.convert('RGB')
+                image_file = image_file.convert('RGB')
             image_file.thumbnail([int(t_size), int(t_size)], Image.ANTIALIAS)
+            pool.map(image_file.save(t_filename, "PNG", optimize=True))
         except IOError:
             print "File thumbnail ", src_filename
             print "save thumbnail ", t_filename
-            print "The thumbnail for %s could not be created (IO Error)." % (src_filename)
+            print "The thumbnail for %s could not be created (IO Error)." %\
+                (src_filename)
             return False
-
-        image_file.save(t_filename, "PNG", optimize=True)
-        pool.imap(image_file.save, [t_filename, "PNG", True])
-
+#        except:
+#            print "Generic error on save"
+#            return False
         return True
 
 ##########################################################################
@@ -301,7 +354,10 @@ class Thumbnails(object):
             #
             image_file = Image.open(cStringIO.StringIO(memory_image))
             image_file.thumbnail((t_size, t_size), Image.ANTIALIAS)
-            image_file.save(t_filename, "PNG", optimize=True)
+            if image_file.mode != "RGB":
+                image_file = image_file.convert('RGB')
+#            image_file.save(t_filename, "PNG", optimize=True)
+            pool.map(image_file.save(t_filename, "PNG", optimize=True))
             return True
         except IOError:
             print "save thumbnail ", t_filename

@@ -82,3 +82,7 @@ app/time_test.py
 
 django/Albums/
 django/quickbbs/db.sqlite3
+
+Albums/
+Thumbnails/
+/Django/Thumbnails/

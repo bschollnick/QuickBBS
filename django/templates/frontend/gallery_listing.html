@@ -4,6 +4,7 @@
 {% endblock %}
 
 {% block content %}
+<script src="/resources/javascript/jquery.lazy.min.js"></script>
     <!-- sidebar -->
     <div class="container" style="width:99%">
       <div class="row">
@@ -75,8 +76,8 @@
                                         <a href="{{ webpath }}/{{ name }}" class="thumbnail" style="background:{{backgroundclr}};">
                                             {{ name|truncatechars:26|linebreaksbr }}
                                             <br>
-                                            <img src="{{ thumbnail_web }}" style="max-height:250px;max-width:200px;" class="img-responsive" style="background:#0002ff;">
-                                        </a>
+                                            <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ thumbnail_web }}" class="img-responsive" style="background:#0002ff;width:auto;max-width:100%"/>
+                   </a>
                                         {% if data.number_dirs != None and data.number_dirs != 0%}
                                             <b># of Dirs: </b>{{ data.number_dirs }}<br>
                                         {% endif %}
@@ -84,7 +85,7 @@
                                         {% if data.number_files != None and data.number_files != 0 %}
                                             <b># of Files: </b>{{ data.number_files }}<br>
                                         {% endif %}
-                                        {% if data.st.st_size != None and data.st.st_size != 0 %}
+                                        {% if data.file_extension != "dir" and data.st.st_size != None and data.st.st_size != 0 %}
                                             <b>File Size: </b>{{ data.st.st_size }}<br>
                                         {% endif %}
                                         <b>Last Modified: </b><br>{{ data.human_st_mtime }}
@@ -107,4 +108,11 @@
     </div><!--/.row-->
   </div><!--/.container-->
  </center>
+<script>
+  $(function() {
+        $('.lazy').lazy({
+            delay: 150
+        });
+    });
+</script>
 {% endblock %}
