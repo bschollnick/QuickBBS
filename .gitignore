@@ -85,4 +85,4 @@ django/quickbbs/db.sqlite3
 
 Albums/
 Thumbnails/
-/Django/Thumbnails/
+django/Thumbnails/
