@@ -117,6 +117,7 @@ import os.path
 import stat
 import time
 import scandir  # https://github.com/benhoyt/scandir
+from natsort import humansorted
 import utilities
 # import directory_caching.archives as archives
 # import archives2 as archives2
@@ -124,7 +125,6 @@ import archives3 as archives2
 
 #   Required third party
 #import natsort  # https://github.com/xolox/python-naturalsort
-from natsort import humansorted
 
 SORT_BY_NAME = 0
 SORT_BY_MODIFIED = 1
@@ -308,8 +308,8 @@ class Cache(object):
                 data.file_extension = "dir"
 
                 (data.number_files,
-                 data.number_dirs) = self._return_filtered_dir_count(
-                       data.fq_filename)
+                 data.number_dirs) = \
+                 self._return_filtered_dir_count(data.fq_filename)
                 directories[s_entry.name] = data
                 data.is_archive = False
 #                data.archive_listings = None
@@ -395,15 +395,15 @@ class Cache(object):
         """
         def remove_it(name_to_check):
             if name_to_check in self.files_to_ignore:
-                return False
+                return True
             elif self.acceptable_extensions == [] or\
                 os.path.splitext(name_to_check)[1][1:] in\
                     self.acceptable_extensions:
                     #   There are no non-acceptable files.
                     #   Filter by extensions
-                return True
-            else:
                 return False
+            else:
+                return True
 
 
 #            if name_to_check in self.files_to_ignore:
@@ -747,26 +747,26 @@ class Cache(object):
             if sort_by == SORT_BY_NAME:
 
                 files = humansorted(files.items(),
-                                        key=lambda t: t[1].filename.lower(),
-                                        reverse=reverse)
+                                    key=lambda t: t[1].filename.lower(),
+                                    reverse=reverse)
                 dirs = humansorted(dirs.items(),
-                                       key=lambda t:
-                                       t[1].directoryname.lower(),
-                                       reverse=reverse)
+                                   key=lambda t:
+                                   t[1].directoryname.lower(),
+                                   reverse=reverse)
             elif sort_by == SORT_BY_MODIFIED:
                 files = humansorted(files.items(),
-                               key=lambda t: t[1].st.st_mtime,
-                               reverse=reverse)
+                                    key=lambda t: t[1].st.st_mtime,
+                                    reverse=reverse)
                 dirs = humansorted(dirs.items(),
-                              key=lambda t: t[1].st.st_mtime,
-                              reverse=reverse)
+                                   key=lambda t: t[1].st.st_mtime,
+                                   reverse=reverse)
             elif sort_by == SORT_BY_CREATION:
                 files = humansorted(files.items(),
-                               key=lambda t: t[1].st.st_ctime,
-                               reverse=reverse)
+                                    key=lambda t: t[1].st.st_ctime,
+                                    reverse=reverse)
                 dirs = humansorted(dirs.items(),
-                              key=lambda t: t[1].st.st_ctime,
-                              reverse=reverse)
+                                   key=lambda t: t[1].st.st_ctime,
+                                   reverse=reverse)
 
             self.d_cache[scan_directory]["sort_index"] = files, dirs
 
