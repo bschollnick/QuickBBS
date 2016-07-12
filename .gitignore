@@ -87,3 +87,5 @@ Albums/
 Thumbnails/
 django/Thumbnails/
 django/db.sqlite3
+
+django/db.sqlite3
