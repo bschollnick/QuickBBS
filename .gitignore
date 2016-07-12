@@ -86,3 +86,4 @@ django/quickbbs/db.sqlite3
 Albums/
 Thumbnails/
 django/Thumbnails/
+django/db.sqlite3
