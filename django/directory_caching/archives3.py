@@ -50,8 +50,9 @@ Zip, RAR are supported, what other formats might be useful?
 import exceptions
 import os
 import os.path
-import rarfile
 import zipfile
+import rarfile
+
 
 class NotInitializedYet(exceptions.Exception):
     """
@@ -62,6 +63,7 @@ class NotInitializedYet(exceptions.Exception):
     compressed file.
     """
     pass
+
 
 class CompressedFile(object):
     r"""
@@ -124,7 +126,7 @@ print filename, 'is a', cf.mime_type, 'file'
     handler = None
     signature = None
 
-    def __init__(self, filename):
+    def __init__(self, fname):
         """
         filename (str): The Fully Qualified Filename to the archive file
 
@@ -138,7 +140,7 @@ print filename, 'is a', cf.mime_type, 'file'
 
         Returns - None
         """
-        self.filename = os.path.realpath(filename)
+        self.filename = os.path.realpath(fname)
         self.listings = []
 
     @classmethod
@@ -168,6 +170,8 @@ print filename, 'is a', cf.mime_type, 'file'
             try:
                 return self.handler(self.filename, 'r')
             except rarfile.NeedFirstVolume:
+                return None
+            except rarfile.TypeError:
                 return None
 # pylint: enable=E1102
         else:
@@ -208,7 +212,7 @@ print filename, 'is a', cf.mime_type, 'file'
 
         return False
 
-    def extract_mem_file(self, filename):
+    def extract_mem_file(self, fname):
         """
         Extract filename out of the archive, and return it as a blob.
 
@@ -220,15 +224,22 @@ print filename, 'is a', cf.mime_type, 'file'
             return None
 
         with handle() as cfile:
-            return cfile.read(filename)
+            try:
+                return cfile.read(fname)
+            except TypeError:
+                return None
 
-signatures = {'\x50\x4b\x03\x04':(['zip', 'cbz'], 'compressed/zip', zipfile.ZipFile),
-              '\x52\x61\x72\x21':(['rar', 'cbr'], 'application/x-rar-compressed', rarfile.RarFile)}
+signatures = {'\x50\x4b\x03\x04':(['zip', 'cbz'],
+                                  'compressed/zip',
+                                  zipfile.ZipFile),
+              '\x52\x61\x72\x21':(['rar', 'cbr'],
+                                  'application/x-rar-compressed',
+                                  rarfile.RarFile)}
 
 sign_byte_count = 4
 
 # factory function to create a suitable instance for accessing files
-def id_cfile_by_sig(filename):
+def id_cfile_by_sig(fname):
     """
     Effectively the core function of the module.
 
@@ -255,12 +266,12 @@ archive_file.get_listings()
 print archive_file.listings
 print filename, 'is a', cf.mime_type, 'file'
     """
-    if os.path.isfile(filename):
-        with file(filename, 'rb') as cfile:
-            start_of_file = cfile.read(sign_byte_count )#128)
+    if os.path.isfile(fname):
+        with file(fname, 'rb') as cfile:
+            start_of_file = cfile.read(sign_byte_count)
             cfile.seek(0)
             if start_of_file in signatures:
-                identified = CompressedFile(filename)
+                identified = CompressedFile(fname)
                 identified.extensions = signatures[start_of_file][0]
                 identified.mime_type = signatures[start_of_file][1]
                 identified.handler = signatures[start_of_file][2]
@@ -269,7 +280,7 @@ print filename, 'is a', cf.mime_type, 'file'
 
 
 if __name__ == "__main__":
-    filename='test.zip'
+    filename = 'test.zip'
     cf = id_cfile_by_sig(filename)
     if cf is not None:
         print filename, 'is a', cf.mime_type, 'file'

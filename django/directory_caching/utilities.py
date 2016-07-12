@@ -14,17 +14,17 @@ import unidecode
 #import unicodedata
 
 
-file_whitelist = (' ','.','_','-', '(', ')', '[', ']')
+file_whitelist = (' ', '.', '_', '-', '(', ')', '[', ']')
 
 blacklist = ['CON', 'PRN', 'AUX', 'NUL']
 for count in range(0, 9):
     blacklist.append("LPT%s" % count)
     blacklist.append("COM%s" % count)
 
-def make_unicode(input):
-    if type(input) != unicode:
-        input =  unidecode.unidecode(input.decode("utf-8"))
-    return input
+def make_unicode(st_input):
+    if type(st_input) != unicode:
+        st_input =  unidecode.unidecode(st_input.decode("utf-8"))
+    return st_input
 
 
 def clean_filename(filename):
@@ -33,7 +33,7 @@ def clean_filename(filename):
                        c in file_whitelist).strip()
     return filename
 
-path_whitelist = (' ','.','_','-', '(', ')', '[', ']', os.sep)
+path_whitelist = (' ', '.', '_', '-', '(', ')', '[', ']', os.sep)
 
 def clean_path(pathname):
     pathname = unidecode.unidecode(pathname)
@@ -47,7 +47,6 @@ def check_filename(filename):
     Return True if the filename is clean
     Return False if the filename is not clean
     """
-#    return filename.decode("utf-8").lower().strip() == clean_filename(filename).lower()
     return filename.lower().strip() == clean_filename(filename).lower()
 
 def check_pathname(pathname):
