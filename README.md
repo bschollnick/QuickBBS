@@ -12,7 +12,7 @@ I have recently been working on some projects that I have considered combining i
 This is the start of that.  Currently I am working on a Image Gallery / Viewer, which I will be expanding into a more fully featured package.  After I finish the gallery / viewer, I plan to next add a wiki or wiki equivalent.
 
 The gallery is a high performance, low resource, design.  It uses the file system as a flat database, thus preventing the
-need for an database server, and a caching frontend.  Please note, this does not mean that you can't use a caching frontend, just that it is not strictly necessary.
+need for a database server, and a caching frontend.  Please note, this does not mean that you can't use a caching frontend, just that it is not strictly necessary.
 
 The gallery can automatically view the following file types:
 
