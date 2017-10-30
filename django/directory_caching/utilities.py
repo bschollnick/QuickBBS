@@ -6,11 +6,15 @@ Created on Wed May 04 07:57:22 2016
 """
 from __future__ import unicode_literals
 
+from __future__ import absolute_import
+from __future__ import print_function
 import exceptions
 import os
 import os.path
 import scandir
 import unidecode
+import six
+from six.moves import range
 #import unicodedata
 
 
@@ -22,7 +26,7 @@ for count in range(0, 9):
     blacklist.append("COM%s" % count)
 
 def make_unicode(st_input):
-    if type(st_input) != unicode:
+    if type(st_input) != six.text_type:
         st_input =  unidecode.unidecode(st_input.decode("utf-8"))
     return st_input
 
@@ -78,23 +82,23 @@ def check_files_in_directory(fqdn):
     files = scandir.walk(realpath).next()[2]
     for filename in files:
         if check_filename(filename) is False:
-            print "bad fn - ", filename
-            print "good fn - ", clean_filename(filename)
+            print("bad fn - ", filename)
+            print("good fn - ", clean_filename(filename))
             rename_file_to_clean(os.path.join(realpath,filename))
 
 def rename_file_to_clean(fqfn):
     cur_dir, cur_filename = os.path.split(os.path.realpath(fqfn))
     try:
-        print (fqfn, os.path.join(cur_dir, clean_filename(cur_filename)))
+        print((fqfn, os.path.join(cur_dir, clean_filename(cur_filename))))
         os.rename(fqfn, os.path.join(cur_dir, clean_filename(cur_filename)))
     except exceptions.OSError:
-        print "os error resolving - %s" % cur_dir
-        print "original - ", fqfn
-        print "new - ", os.path.join(cur_dir, clean_filename(cur_filename))
+        print("os error resolving - %s" % cur_dir)
+        print("original - ", fqfn)
+        print("new - ", os.path.join(cur_dir, clean_filename(cur_filename)))
         return False
 
     except exceptions.AttributeError:
-        print "Error with Directory, %s" % (cur_dir)
+        print("Error with Directory, %s" % (cur_dir))
         return False
     finally:
         return True

@@ -3,6 +3,8 @@ Core Plugin for Gallery
 """
 
 ##############################################################################
+from __future__ import absolute_import
+from __future__ import print_function
 import cStringIO
 import exceptions
 import os
@@ -12,11 +14,17 @@ from subprocess import call
 # import time
 from functools import partial
 from PIL import Image
+import wand
+import wand.image
+from wand.api import library
+from ctypes import c_void_p, c_size_t
+
 import warnings
 import workerpool
-import config
-# from multiprocessing.dummy import Pool
-# pool = Pool(8) # two concurrent commands at a time
+from . import config
+
+# Tell Python's wand library about the MagickWand Compression Quality (not Image's Compression Quality)
+library.MagickSetCompressionQuality.argtypes = [c_void_p, c_size_t]
 
 pool = workerpool.WorkerPool(size=15)
 
@@ -93,7 +101,7 @@ def check_for_ghostscript():
     """
     from twisted.python.procutils import which
     if which("gs") == []:
-        print "Ghostscript is not installed."
+        print("Ghostscript is not installed.")
         return None
     return which("gs")[0]
 
@@ -193,20 +201,18 @@ class Thumbnails(object):
         validate thumbnail file existence.
         """
         if self.does_thumbnail_already_exist(thumbfilename):
-            t_modified = os.path.getmtime(thumbfilename)
-            t_size = os.path.getsize(thumbfilename)
             if not os.path.exists(src_file.fq_filename):
                 os.remove(thumbfilename)
                 return False
             else:
-                #o_modified = os.path.getmtime(original_fn)
-                #o_size = os.path.getsize(original_fn)
+                t_modified = os.path.getmtime(thumbfilename)
+                t_size = os.path.getsize(thumbfilename)
+                # o_modified = os.path.getmtime(original_fn)
+                # o_size = os.path.getsize(original_fn)
                 if src_file.st[stat.ST_MTIME] > t_modified or\
                     (src_file.file_extension is not "dir"
                      and t_size > src_file.st[stat.ST_SIZE]):
-#                    print src_file.st
-#                    print src_file.st[stat.ST_SIZE], " - ", t_size
-                    print "removing %s" % thumbfilename
+                    print("removing %s" % thumbfilename)
                     os.remove(thumbfilename)
                     return False
         return True
@@ -230,11 +236,26 @@ class Thumbnails(object):
     def create_pdf_thumbnail(self, src_filename,
                              t_filename,
                              t_size=None):
-        gs_command = '''gs -q -dQUIET -dPARANOIDSAFER \
-        -dBATCH -dNOPAUSE \
-        -dNOPROMPT -dMaxBitmap=500000000 -dLastPage=1 -dAlignToPixels=0 \
-        -dGridFitTT=0 -sDEVICE=jpeg -dTextAlphaBits=4 -dGraphicsAlphaBits=4\
-        -g%ix%i -dPDFFitPage -dORIENT1=false -sOutputFile=$'%s' -f$'%s' '''
+        """
+        http://stackoverflow.com/questions/12759778/python-magickwand-pdf-to-image-converting-and-resize-the-image
+
+
+        ImageMagick just uses Ghostscript under the hood, with less customizablity.
+        (I can't seem to get compression to work properly with IM.)
+        """
+#        def process(src, target, size):
+            #img = wand.image.Image(filename="%s[0]" % src)
+            #img.resize(size, size)
+            #img.save(filename=target)
+#            img = wand.image.Image(filename="%s[0]" % src)
+#            library.MagickSetCompressionQuality(img.wand, 70)
+#            with img.convert('png') as converted:
+#                converted.format="png"
+#                converted.sample(size, size)
+#                #converted.resize(size, size)
+#                converted.compression_quality = 70
+#                converted.save(filename=t_filename)
+
         if src_filename is None:
             raise RuntimeError("No Source Filename was not specified")
         elif src_filename == t_filename:
@@ -248,24 +269,32 @@ class Thumbnails(object):
 
         if t_size is None:
             raise RuntimeError("No Target size is defined")
+#        pool.map(process, [src_filename], [t_filename], [t_size])
 
-        if not GHOSTSCRIPT_INSTALLED:
-            return ''
+        gs_command = '''gs -q -dQUIET -dPARANOIDSAFER \
+         -dBATCH -dNOPAUSE \
+         -dNOPROMPT -dMaxBitmap=500000000 -dLastPage=1 -dAlignToPixels=0 \
+         -dGridFitTT=0 -sDEVICE=jpeg -dTextAlphaBits=4 -dGraphicsAlphaBits=4\
+         -g%ix%i -dPDFFitPage -dFitPage \
+         -dPrinted=false -sOutputFile=$'%s' -f$'%s' '''
 
-#        pool.map(subprocess.call(t_filename, "PNG", optimize=True))
-
-#        pool.imap(partial(call, shell=True), [gs_command % (t_size, t_size,
-#                                                            t_filename,
-#                                                            src_filename)])
+#        gs_command = '''gs -sDEVICE=png16m -dTextAlphaBits=4 -r300 -o a.png a.pdf'''
+#        gs_command = '''gs -sDEVICE=png16m -dTextAlphaBits=4 -r150 -dPDFFitPage -g%ix%i -o "%s" "%s"'''
         pool.map(partial(call, shell=True), [gs_command % (t_size, t_size,
                                                            t_filename,
                                                            src_filename)])
+
+# #        pool.map(subprocess.call(t_filename, "PNG", optimize=True))
+#
+# #        pool.imap(partial(call, shell=True), [gs_command % (t_size, t_size,
+# #                                                            t_filename,
+# #                                                            src_filename)])
 
     def create_thumbnail_from_file(self, src_filename,
                                    t_filename=None,
                                    t_size=None):
         if os.path.exists(t_filename):
-            print t_filename, "already exists"
+            print(t_filename, "already exists")
             return False
         elif src_filename == t_filename:
             raise RuntimeError("The source is the same as the target.")
@@ -275,30 +304,30 @@ class Thumbnails(object):
             raise RuntimeError("No Target size is defined")
 
         extension = os.path.splitext(src_filename)[1].lower()[1:]
-        if extension is 'pdf':
+        if extension == 'pdf':
             return self.create_pdf_thumbnail(src_filename,
                                              t_filename,
                                              t_size)
         try:
             image_file = Image.open(src_filename)
         except IOError:
-            print "File thumbnail ", src_filename
-            print "save thumbnail ", t_filename
-            print "The File [%s] (ioerror) is damaged." % (src_filename)
+            print("File thumbnail ", src_filename)
+            print("save thumbnail ", t_filename)
+            print("The File [%s] (ioerror) is damaged." % (src_filename))
             return False
         except IndexError as detail:
-            print "File thumbnail ", src_filename
-            print "save thumbnail ", t_filename
-            print "The File [%s] (IndexError) is damaged." % (src_filename)
-            print detail
+            print("File thumbnail ", src_filename)
+            print("save thumbnail ", t_filename)
+            print("The File [%s] (IndexError) is damaged." % (src_filename))
+            print(detail)
             return False
         except TypeError:
-            print "File thumbnail ", src_filename
-            print "save thumbnail ", t_filename
-            print "The File [%s] (TypeError) is damaged." % (src_filename)
+            print("File thumbnail ", src_filename)
+            print("save thumbnail ", t_filename)
+            print("The File [%s] (TypeError) is damaged." % (src_filename))
             return False
         except:
-            print "Generic error on open"
+            print("Generic error on open")
             return False
 
         try:
@@ -307,10 +336,10 @@ class Thumbnails(object):
             image_file.thumbnail([int(t_size), int(t_size)], Image.ANTIALIAS)
             pool.map(image_file.save(t_filename, "PNG", optimize=True))
         except IOError:
-            print "File thumbnail ", src_filename
-            print "save thumbnail ", t_filename
-            print "The thumbnail for %s could not be created (IO Error)." %\
-                (src_filename)
+            print("File thumbnail ", src_filename)
+            print("save thumbnail ", t_filename)
+            print("The thumbnail for %s could not be created (IO Error)." %\
+                (src_filename))
             return False
 #        except:
 #            print "Generic error on save"
@@ -360,12 +389,12 @@ class Thumbnails(object):
             pool.map(image_file.save(t_filename, "PNG", optimize=True))
             return True
         except IOError:
-            print "save thumbnail ", t_filename
+            print("save thumbnail ", t_filename)
         except IndexError as detail:
-            print "save thumbnail ", t_filename
-            print detail
+            print("save thumbnail ", t_filename)
+            print(detail)
         except TypeError:
-            print "save thumbnail ", t_filename
+            print("save thumbnail ", t_filename)
         return False
 
     def extract_from_container(self, container_file=None,
