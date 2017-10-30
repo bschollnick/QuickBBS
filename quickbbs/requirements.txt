@@ -1,0 +1,6 @@
+django
+django-bootstrap3
+django-allauth
+pillow
+fastnumbers
+#directory_caching

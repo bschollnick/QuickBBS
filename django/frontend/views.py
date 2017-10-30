@@ -2,6 +2,8 @@
 Django views for QuickBBS Gallery
 """
 # from django.shortcuts import render
+from __future__ import absolute_import
+from __future__ import print_function
 import time
 import os
 import os.path
@@ -19,6 +21,7 @@ import directory_caching.archives3 as archives
 from frontend.config import configdata as configdata
 import frontend.thumbnail as thumbnail
 import frontend.tools as tools
+from six.moves import range
 
 #
 #   Need to be able to set root path for albums directory
@@ -101,10 +104,10 @@ def verify_login_status(request, force_login=False):
             login(request, user)
             # Redirect to a success page.
         else:
-            print "disabled account"
+            print("disabled account")
             # Return a 'disabled account' error message
     else:
-        print "Invalid login"
+        print("Invalid login")
         # Return an 'invalid login' error message.
 
 
@@ -272,16 +275,9 @@ def viewgallery(request):
                                  ["BACKGROUND"]))
 
             elif dcache[1].file_extension == "dir":
-                CDL.smart_read(dcache[1].fq_filename.lower())
-                dcache[1].dir_thumb = return_directory_tnail_filename(
-                    dcache[1].fq_filename.lower())
-                if dcache[1].dir_thumb is not None:
-                    tfile = os.path.join(
-                        os.path.split(dcache[1].fq_filename.lower())[0],
-                        os.path.split(dcache[1].fq_filename.lower())[1])
-                    cr_thumbs.append((dcache[1],
-                                      THUMBNAIL.make_tnail_fsname(tfile)["small"],
-                                      configdata["configuration"]["sm_thumb"]))
+                if os.path.exists(paths["thumbpath"] +\
+                             os.path.split(thumbnail_listings[count])[1]):
+                    print("skipping, thumbnail already exists for dir")
                     listings.append(
                         (dcache[0], dcache[1],
                          paths["thumbpath"] +\
@@ -289,19 +285,36 @@ def viewgallery(request):
                          thumbnail_listings[count],
                          "#DAEFF5"))
                 else:
-                    cr_thumbs.append((None,
-                                      None,
-                                      None))
-
-                    listings.append(
-                        (dcache[0], dcache[1],
-                         r"/resources/images/folder-close-icon.png",
-                         thumbnail_listings[count],
-                         "#DAEFF5"))
+                    CDL.smart_read(dcache[1].fq_filename.lower())
+                    dcache[1].dir_thumb = return_directory_tnail_filename(
+                        dcache[1].fq_filename.lower())
+                    if dcache[1].dir_thumb is not None:
+                        tfile = os.path.join(
+                            os.path.split(dcache[1].fq_filename.lower())[0],
+                            os.path.split(dcache[1].fq_filename.lower())[1])
+                        cr_thumbs.append((dcache[1],
+                                          THUMBNAIL.make_tnail_fsname(tfile)["small"],
+                                          configdata["configuration"]["sm_thumb"]))
+                        listings.append(
+                            (dcache[0], dcache[1],
+                             paths["thumbpath"] +\
+                                 os.path.split(thumbnail_listings[count])[1],
+                             thumbnail_listings[count],
+                             "#DAEFF5"))
+#                else:
+#                    cr_thumbs.append((None,
+#                                      None,
+#                                      None))
+#
+#                    listings.append(
+#                        (dcache[0], dcache[1],
+#                         r"/resources/images/folder-close-icon.png",
+#                         thumbnail_listings[count],
+#                         "#DAEFF5"))
         context["current_page"] = request.GET.get("page")
         chk_list = Paginator(listings, 30)
         template = loader.get_template('frontend/gallery_listing.html')
-        context["page_cnt"] = range(1, chk_list.num_pages+1)
+        context["page_cnt"] = list(range(1, chk_list.num_pages+1))
         context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
         context["gallery_name"] = os.path.split(request.path_info)[-1]
         try:
@@ -327,9 +340,9 @@ def viewgallery(request):
         context["webpath"] = paths["webpath"]
 #        thumbnail.pool.shutdown()
         thumbnail.pool.wait()
-        print "\r-------------\r"
-        print "Gallery page, elapsed - %s\r" % (time.time() - start_time)
-        print "\r-------------\r"
+        print("\r-------------\r")
+        print("Gallery page, elapsed - %s\r" % (time.time() - start_time))
+        print("\r-------------\r")
         return HttpResponse(template.render(context, request))
 
 
@@ -454,7 +467,7 @@ def viewarchive(request, viewitem):
     paths = {}
     request, context = sort_order(request, context)
     if "a_item" in request.GET:
-        print "Forwarding to archive_item"
+        print("Forwarding to archive_item")
         return archive_item(request, viewitem)
     paths["item_fs"] = configdata["locations"]["albums_path"]\
         + urllib.unquote(request.path.replace("/", os.sep))
@@ -501,7 +514,7 @@ def viewarchive(request, viewitem):
 
     context["current_page"] = request.GET.get("page")
     chk_list = Paginator(listings, 30)
-    context["page_cnt"] = range(1, chk_list.num_pages+1)
+    context["page_cnt"] = list(range(1, chk_list.num_pages+1))
     context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
     context["gallery_name"] = os.path.split(request.path_info)[-1]
     try:
@@ -587,7 +600,7 @@ def archive_item(request, viewitem):
 
     context["current_page"] = request.GET.get("a_item")
     chk_list = Paginator(listings, 1)
-    context["page_cnt"] = range(1, chk_list.num_pages+1)
+    context["page_cnt"] = list(range(1, chk_list.num_pages+1))
     context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
     context["gallery_name"] = os.path.split(request.path_info)[-1]
     try:

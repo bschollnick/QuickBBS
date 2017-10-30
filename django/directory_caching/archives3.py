@@ -47,6 +47,8 @@ Zip, RAR are supported, what other formats might be useful?
 #		Gallery Comic Support
 #
 #
+from __future__ import absolute_import
+from __future__ import print_function
 import exceptions
 import os
 import os.path
@@ -267,7 +269,7 @@ print archive_file.listings
 print filename, 'is a', cf.mime_type, 'file'
     """
     if os.path.isfile(fname):
-        with file(fname, 'rb') as cfile:
+        with open(fname, 'rb') as cfile:
             start_of_file = cfile.read(sign_byte_count)
             cfile.seek(0)
             if start_of_file in signatures:
@@ -283,4 +285,4 @@ if __name__ == "__main__":
     filename = 'test.zip'
     cf = id_cfile_by_sig(filename)
     if cf is not None:
-        print filename, 'is a', cf.mime_type, 'file'
+        print(filename, 'is a', cf.mime_type, 'file')

@@ -111,6 +111,8 @@ code::
 """
 #####################################################
 #   Batteries Included imports
+from __future__ import absolute_import
+from __future__ import print_function
 import exceptions
 import os
 import os.path
@@ -118,10 +120,10 @@ import stat
 import time
 import scandir  # https://github.com/benhoyt/scandir
 from natsort import humansorted
-import utilities
+from . import utilities
 # import directory_caching.archives as archives
 # import archives2 as archives2
-import archives3 as archives2
+from . import archives3 as archives2
 
 #   Required third party
 #import natsort  # https://github.com/xolox/python-naturalsort
@@ -330,9 +332,9 @@ class Cache(object):
                                 data.archive_file.listings = \
                                     humansorted(data.archive_file.listings)
                             except exceptions.UnicodeEncodeError:
-                                print "Unable to access %s" % data.fq_filename
+                                print("Unable to access %s" % data.fq_filename)
                             except exceptions.UnicodeDecodeError:
-                                print "Unable to access %s" % data.fq_filename
+                                print("Unable to access %s" % data.fq_filename)
 
                 if self.ed_collector is not None:
                     data.extended_data = self.ed_collector(data.fq_filename)
@@ -371,7 +373,7 @@ class Cache(object):
           count of files / dirs.
         """
         scan_directory = os.path.realpath(scan_directory).strip()
-        path, dirs, files = scandir.walk(scan_directory).next()
+        path, dirs, files = next(scandir.walk(scan_directory))
         return (len(files), len(dirs))
 
     def _return_filtered_dir_count(self, scan_directory):
@@ -421,7 +423,7 @@ class Cache(object):
 #            return False
 
         scan_directory = os.path.realpath(scan_directory).strip()
-        path, dirs, files = scandir.walk(scan_directory).next()
+        path, dirs, files = next(scandir.walk(scan_directory))
 #        print scan_directory, files
 
         for filename in files:
@@ -746,25 +748,25 @@ class Cache(object):
             dirs = self.d_cache[scan_directory]["dirs"]
             if sort_by == SORT_BY_NAME:
 
-                files = humansorted(files.items(),
+                files = humansorted(list(files.items()),
                                     key=lambda t: t[1].filename.lower(),
                                     reverse=reverse)
-                dirs = humansorted(dirs.items(),
+                dirs = humansorted(list(dirs.items()),
                                    key=lambda t:
                                    t[1].directoryname.lower(),
                                    reverse=reverse)
             elif sort_by == SORT_BY_MODIFIED:
-                files = humansorted(files.items(),
+                files = humansorted(list(files.items()),
                                     key=lambda t: t[1].st.st_mtime,
                                     reverse=reverse)
-                dirs = humansorted(dirs.items(),
+                dirs = humansorted(list(dirs.items()),
                                    key=lambda t: t[1].st.st_mtime,
                                    reverse=reverse)
             elif sort_by == SORT_BY_CREATION:
-                files = humansorted(files.items(),
+                files = humansorted(list(files.items()),
                                     key=lambda t: t[1].st.st_ctime,
                                     reverse=reverse)
-                dirs = humansorted(dirs.items(),
+                dirs = humansorted(list(dirs.items()),
                                    key=lambda t: t[1].st.st_ctime,
                                    reverse=reverse)
 

@@ -1,0 +1,9 @@
+[Core]
+Name = PCX Processor
+Module = pcx_parser
+
+[Documentation]
+Description = PCX Processing for Gallery
+Author = Benjamin Schollnick
+Version = 1
+Website = http://bschollnick.github.com
