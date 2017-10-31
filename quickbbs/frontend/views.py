@@ -9,7 +9,8 @@ import time
 import os
 import os.path
 import urllib
-import concurrent.futures as futures
+import sys
+# import concurrent.futures as futures
 from thumbnails import get_thumbnail
 
 from django.http import HttpResponse, HttpResponseNotFound
@@ -34,8 +35,8 @@ import fitz
 #
 # Sending File or zipfile - https://djangosnippets.org/snippets/365/
 # thumbnails - https://djangosnippets.org/snippets/20/
-executor = futures.ThreadPoolExecutor (max_workers=10)
-workers = []
+# EXECUTOR = futures.ThreadPoolExecutor(max_workers=10)
+# workers = []
 
 CDL = directory_caching.Cache()
 for prepath in configdata["locations"]["preload"]:
@@ -43,7 +44,7 @@ for prepath in configdata["locations"]["preload"]:
     CDL.smart_read(prepath)
 
 SIZES = ["sm_thumb", "med_thumb", "lg_thumb"]
-THUMBNAIL = thumbnail.Thumbnails()
+#THUMBNAIL = thumbnail.Thumbnails()
 
 
 def is_folder(fqfn):
@@ -59,13 +60,14 @@ def is_file(fqfn):
     """
     return os.path.isfile(fqfn)
 
-def is_image(fqfn):
-    # None = not an archive.
-    """
-    Is it an archive?
-    """
-    ext = os.path.splitext(fqfn)[1]
-    return is_file(fqfn) and THUMBNAIL[ext]['IMG_TAG'] == True
+
+# def is_image(fqfn):
+#     # None = not an archive.
+#     """
+#     Is it an archive?
+#     """
+#     ext = os.path.splitext(fqfn)[1]
+#     return is_file(fqfn) and THUMBNAIL[ext]['IMG_TAG']
 
 
 def is_archive(fqfn):
@@ -73,7 +75,8 @@ def is_archive(fqfn):
     """
     Is it an archive?
     """
-    return is_file(fqfn) and not directory_caching.archives3.id_cfile_by_sig(fqfn) is None
+    return is_file(fqfn) and not directory_caching.archives3.id_cfile_by_sig(
+        fqfn) is None
 
 
 def return_directory_tnail_filename(directory_to_use):
@@ -101,10 +104,8 @@ def make_thumbnail_fqfns(list_fqfn, size, start=0, end=None):
     """
     if end is None:
         end = len(list_fqfn)
-#    thumbnail_obj = thumbnail.Thumbnails()
     thumbnail_list = []
     for fqfn in list_fqfn[start:end]:
-    #    thumbnail_list.append(THUMBNAIL.make_tnail_fsname(fqfn[1].fq_filename)[size])
         thumbnail_list.append(fqfn[1].fq_filename)
 
     return thumbnail_list
@@ -185,8 +186,7 @@ def return_prev_next(fqfn, webpath, sortorder):
 
         if temp is not None:
             return (os.path.join(scan_directory, temp), temp)
-        else:
-            return ("", "")
+        return ("", "")
 
     nextd = get_directory_offset(+1,
                                  scan_directory=os.sep.join(
@@ -214,39 +214,39 @@ def read_from_cdl(dir_path, sort_by):
     return cached_dirs + cached_files
 
 
-def create_validate_thumb(src_file, t_file, t_size, archive_item=0):
-    """
-    Create the thumbnail & validate the thumbnail's modification date
-    """
-    if THUMBNAIL.validate_thumbnail_file(t_file, src_file):
-        return
+# def create_validate_thumb(src_file, t_file, t_size, archiveitem=0):
+#     """
+#     Create the thumbnail & validate the thumbnail's modification date
+#     """
+#     if THUMBNAIL.validate_thumbnail_file(t_file, src_file):
+#         return
+#
+#     if src_file is None:
+#         return
+#     elif src_file.file_extension == "dir":
+#         #    if src_file.file_extension == "dir":
+#         #        print (dir(src_file))
+#         print ("*", src_file.filename)
+#         THUMBNAIL.create_thumbnail_from_file(src_filename=src_file.dir_thumb,
+#                                              t_filename=t_file,
+#                                              t_size=t_size)
+#     elif src_file.file_extension in directory_caching.ARCHIVE_FILE_TYPES:
+#         mem_file = src_file.archive_file.extract_mem_file(
+#             src_file.archive_file.listings[archiveitem])
+#         if mem_file is not None:
+#             THUMBNAIL.create_thumbnail_from_memory(memory_image=mem_file,
+#                                                    t_filename=t_file,
+#                                                    t_size=t_size)
+#
+#     else:
+#         #        print ("creating - ", src_file)
+#         THUMBNAIL.create_thumbnail_from_file(src_filename=src_file.fq_filename,
+#                                              t_filename=t_file,
+#                                              t_size=t_size)
 
-    if src_file is None:
-        return
-    elif src_file.file_extension == "dir":
-#    if src_file.file_extension == "dir":
-#        print (dir(src_file))
-        print ("*",src_file.filename)
-        THUMBNAIL.create_thumbnail_from_file(src_filename=src_file.dir_thumb,
-                                             t_filename=t_file,
-                                             t_size=t_size)
-    elif src_file.file_extension in directory_caching.ARCHIVE_FILE_TYPES:
-        mem_file = src_file.archive_file.extract_mem_file(
-            src_file.archive_file.listings[archive_item])
-        if mem_file is not None:
-            THUMBNAIL.create_thumbnail_from_memory(memory_image=mem_file,
-                                                   t_filename=t_file,
-                                                   t_size=t_size)
 
-    else:
-#        print ("creating - ", src_file)
-        THUMBNAIL.create_thumbnail_from_file(src_filename=src_file.fq_filename,
-                                             t_filename=t_file,
-                                             t_size=t_size)
-
-
-def return_archive_icon_fn(cdl_entry):
-    pass
+# def return_archive_icon_fn(cdl_entry):
+#    pass
 
 
 def viewgallery(request):
@@ -268,20 +268,22 @@ def viewgallery(request):
     if not paths["thumbpath"].endswith("/"):
         paths["thumbpath"] += "/"
 #    tnails = THUMBNAIL.Thumbnails()
-    cr_thumbs = []
+#    cr_thumbs = []
     if not os.path.exists(paths["album_viewing"]):
         #
         #   Albums doesn't exist
         return HttpResponseNotFound('<h1>Page not found</h1>')
     elif is_archive(paths["album_viewing"]):
-        return viewarchive(request, paths["album_viewing"])
+        return viewarchive(request)
     elif is_file(paths["album_viewing"]):
         return galleryitem(request, paths["album_viewing"])
     elif is_folder(paths["album_viewing"]):
         global_listing = read_from_cdl(paths["album_viewing"],
                                        context["sort_order"])
         thumbnail_listings = make_thumbnail_fqfns(global_listing, size="small")
-        print("after make_thumbnail fqfns, elapsed after enumerate - %s\r" % (time.time() - start_time))
+        print(
+            "after make_thumbnail fqfns, elapsed after enumerate - %s\r" %
+            (time.time() - start_time))
         listings = []
         tools.assure_path_exists(paths["fs_thumbpath"])
         for count, dcache in enumerate(global_listing):
@@ -293,21 +295,21 @@ def viewgallery(request):
                                  os.path.split(thumbnail_listings[count])[1],
                                  thumbnail_listings[count],
                                  thumbnail.THUMBNAIL_DB[
-                                     dcache[1].file_extension]\
+                                     dcache[1].file_extension]
                                  ["BACKGROUND"]))
             elif dcache[1].file_extension == "dir":
-                 listings.append(
-                                (dcache[0], dcache[1],
-                                paths["thumbpath"] +
+                listings.append((dcache[0], dcache[1],
+                                 paths["thumbpath"] +
                                  os.path.split(thumbnail_listings[count])[1],
-                                 #r"/resources/images/folder-close-icon.png",
                                  thumbnail_listings[count],
                                  "#DAEFF5"))
-        print("Gallery page, elapsed after enumerate - %s\r" % (time.time() - start_time))
+        print(
+            "Gallery page, elapsed after enumerate - %s\r" %
+            (time.time() - start_time))
         context["current_page"] = request.GET.get("page")
         chk_list = Paginator(listings, 30)
         template = loader.get_template('frontend/gallery_listing.html')
-        context["page_cnt"] = list(range(1, chk_list.num_pages+1))
+        context["page_cnt"] = list(range(1, chk_list.num_pages + 1))
         context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
         context["gallery_name"] = os.path.split(request.path_info)[-1]
         try:
@@ -318,73 +320,81 @@ def viewgallery(request):
         except EmptyPage:
             context["pagelist"] = chk_list.page(chk_list.num_pages)
         context["all_listings"] = global_listing
-        print("Gallery page, elapsed before thumbnails - %s\r" % (time.time() - start_time))
+        print(
+            "Gallery page, elapsed before thumbnails - %s\r" %
+            (time.time() - start_time))
 
         context["prev_uri"], context["next_uri"] = return_prev_next(
             paths["album_viewing"], paths["webpath"], context["sort_order"])
         context["webpath"] = paths["webpath"]
 #        thumbnail.pool.shutdown()
-        #thumbnail.pool.wait()
+        # thumbnail.pool.wait()
 #        time.sleep(.25)
         print("\r-------------\r")
-        print("Gallery page, elapsed after thumbnails - %s\r" % (time.time() - start_time))
+        print(
+            "Gallery page, elapsed after thumbnails - %s\r" %
+            (time.time() - start_time))
         print("\r-------------\r")
         return HttpResponse(template.render(context, request))
 
 
-def thumbnails(request, T_Url_Name = None):
+def thumbnails(request, T_Url_Name=None):
     """
     Serve the thumbnail resources
 
     URL -> thumbnails/(?P<T_Url_Name>.*)
     """
-    translate = {'JPG' : 'JPEG',    'JPEG' : 'JPEG',
-                 'PNG' : 'PNG',     'GIF' : 'GIF',
-                 'BMP' : 'BMP',     'EPS' : 'EPS',
-                 'MSP' : 'MSP',     'PCX' : 'PCX',
-                 'PPM' : 'PPM',     'TIF' : 'TIF',
+    translate = {'JPG': 'JPEG', 'JPEG': 'JPEG',
+                 'PNG': 'PNG', 'GIF': 'GIF',
+                 'BMP': 'BMP', 'EPS': 'EPS',
+                 'MSP': 'MSP', 'PCX': 'PCX',
+                 'PPM': 'PPM', 'TIF': 'TIF',
                  'TIFF': 'TIF'}
 
-    import frontend.thumbnail as thumbnail
-    #print ("T_URL : ", T_Url_Name)
-    context = {}
-    missing_folder = configdata["locations"]["resources_path"] + os.sep + "images" + os.sep + "folder-close-icon.png"
-    thumb_size = fastnumbers.fast_int(get_option_value(request, "size", configdata["configuration"]["small"]))
-    webpath = request.path_info
-    album_viewing = configdata["locations"]["albums_path"] +  \
-        webpath.replace("/", os.sep).replace(r"%sthumbnails%s" % (os.sep, os.sep), r"%salbums%s" % (os.sep, os.sep))
-    fs_path = album_viewing.replace(r"%sthumbnails%s" % (os.sep, os.sep), r"%salbums%s" % (os.sep, os.sep))
-    if "dir" in request.GET:
+    def make_thumbnail(thumb_file, thumb_size, mode=""):
+        thumbnailfile = None
+        if thumb_file is not None:
+            fext = translate[os.path.splitext(thumb_file)[1][1:].upper()]
+            if mode != "":
+                fext = mode
+            thumbnailfile = get_thumbnail(
+                thumb_file, "%sx%s" %
+                (thumb_size, thumb_size), format="%s" %
+                fext, crop=None, force=False)
+        return thumbnailfile
+
+    def process_dir(album_viewing, thumb_size, mode=""):
         CDL.smart_read(album_viewing.lower().strip())
         thumb_file = return_directory_tnail_filename(album_viewing)
+        thumbnailfile = make_thumbnail(thumb_file, thumb_size, mode)
+        return thumbnailfile
 
-        if thumb_file != None:
-            fext = translate[os.path.splitext(thumb_file)[1][1:].upper()]
-            thumbnailfile = get_thumbnail(thumb_file, "%sx%s" % (thumb_size, thumb_size), format="%s" % fext, crop=None, force=False)
-        else:
-            print ("Can't find preview image file")
-            print ("Missing - ", missing_folder)
-            thumbnailfile = get_thumbnail(missing_folder, "%sx%s" % (thumb_size, thumb_size), crop=None, format="JPEG", force=False)
-    elif "pdf" in request.GET:
-        print ("PDF detected")
+    def process_pdf(fs_path, thumb_size):
         target_path, target_filename = os.path.split(fs_path)
         target_filename = os.path.join(target_path,
-                                       os.path.splitext(target_filename)[0] + ".pdf_png_preview")
-            # No page # is needed, since this is only the first page preview
-            #
+                                       os.path.splitext(target_filename)[0] +
+                                       ".pdf_png_preview")
+        # No page # is needed, since this is only the first page preview
+        #
         if not os.path.exists(target_filename):
             pdf_file = fitz.open(fs_path)
             pdf_page = pdf_file.loadPage(0)
-            pix = pdf_page.getPixmap(matrix = fitz.Identity, colorspace="rgb", alpha=True)
+            pix = pdf_page.getPixmap(
+                matrix=fitz.Identity,
+                colorspace="rgb",
+                alpha=True)
             pix.writePNG(target_filename)
-        thumbnailfile = get_thumbnail(target_filename, "%sx%s" % (thumb_size, thumb_size),
-                                      format="PNG", crop=None, force=False)
-    elif "arch" in request.GET:
+        thumbnailfile = get_thumbnail(
+            target_filename, "%sx%s" %
+            (thumb_size, thumb_size), format="PNG", crop=None, force=False)
+        return thumbnailfile
+
+    def process_archive(fs_path, thumb_size, request, context, mode=""):
         source_folder, arch_filename = os.path.split(fs_path.lower().strip())
         CDL.smart_read(source_folder)
         request, context = sort_order(request, context)
-        folder_listing  = read_from_cdl(source_folder,
-                                        sort_by=context["sort_order"])
+        folder_listing = read_from_cdl(source_folder,
+                                       sort_by=context["sort_order"])
         page = fastnumbers.fast_int(get_option_value(request, "arch", 0))
         if page == "":
             page = 0
@@ -392,34 +402,82 @@ def thumbnails(request, T_Url_Name = None):
         for entry in folder_listing:
             if entry[0].lower() == arch_filename:
                 thumb_file = entry[1].archive_file.listings[page]
-                file_data = entry[1].archive_file.extract_mem_file64(thumb_file)
+                file_data = entry[1].archive_file.extract_mem_file64(
+                    thumb_file)
                 if file_data is not None:
                     fileext = file_data[11:file_data.find(";")]
                     fileext = translate[fileext.upper()]
-                    thumbnailfile = get_thumbnail(file_data,
-                                                  "%sx%s" % (thumb_size, thumb_size),
-                                                  format="%s" % fileext, crop=None, force=False)
+                    if mode != "":
+                        fileext = mode
+                    thumbnailfile = get_thumbnail(
+                        file_data, "%sx%s" %
+                        (thumb_size, thumb_size), format="%s" %
+                        fileext, crop=None, force=False)
                 else:
                     return HttpResponseNotFound('<h1>Image not found</h1>')
-    else:
-        if not(os.path.exists(fs_path)):
+        return (thumbnailfile, request, context)
+
+    def process_images(fs_path, thumb_size, mode=""):
+        if not os.path.exists(fs_path):
             print ("Original File (for Thumbnail) Not Found - %s" % fs_path)
 
         fext = translate[os.path.splitext(fs_path)[1][1:].upper()]
+        if mode != "":
+            fext = mode
         if fext.lower() in thumbnail.THUMBNAIL_DB:
             if thumbnail.THUMBNAIL_DB[fext.lower()]["IMG_TAG"]:
-                fext = translate[os.path.splitext(fs_path)[1][1:].upper()]
-                thumbnailfile = get_thumbnail(fs_path, "%sx%s" % (thumb_size, thumb_size), format="%s" % fext, crop=None, force=False)
-            elif thumbnail.THUMBNAIL_DB[fs_ext.lower()]["FRAME_TAG"]:
+                thumbnailfile = get_thumbnail(
+                    fs_path, "%sx%s" %
+                    (thumb_size, thumb_size), format="%s" %
+                    fext, crop=None, force=False)
+            elif thumbnail.THUMBNAIL_DB[fext.lower()]["FRAME_TAG"]:
                 return HttpResponseNotFound('<h1>Image not found</h1>')
         elif fext is '':
             return HttpResponseNotFound('<h1>Image not found</h1>')
-   # print (dir(thumbnail))
-   # print ("thumbnail path - ", thumbnail.path)
-   # print ("thumbnail format - ", thumbnail.extension)
-   # print ("thumbnail colorspace - ", thumbnail.colormode)
+        return thumbnailfile
+
+    context = {}
+    missing_folder = configdata["locations"]["resources_path"] + \
+        os.sep + "images" + os.sep + "folder-close-icon.png"
+    thumb_size = fastnumbers.fast_int(get_option_value(
+        request, "size", configdata["configuration"]["small"]))
+    webpath = request.path_info
+    album_viewing = configdata["locations"]["albums_path"] + webpath.replace(
+        "/",
+        os.sep).replace(r"%sthumbnails%s" % (os.sep,
+                                             os.sep),
+                        r"%salbums%s" % (os.sep,
+                                         os.sep))
+    fs_path = album_viewing.replace(r"%sthumbnails%s" % (os.sep, os.sep),
+                                    r"%salbums%s" % (os.sep, os.sep))
+    if "dir" in request.GET:
+        thumbnailfile = None
+        try:
+            thumbnailfile = process_dir(album_viewing, thumb_size)
+        except IOError:
+            thumbnailfile = process_dir(album_viewing, thumb_size, mode="PNG")
+        if thumbnailfile == None:
+            print ("Can't find preview image file")
+            thumbnailfile = make_thumbnail(missing_folder,
+                                           thumb_size,
+                                           mode="PNG")
+
+    elif "pdf" in request.GET:
+        thumbnailfile = process_pdf(fs_path, thumb_size)
+    elif "arch" in request.GET:
+        thumbnailfile, request, context = process_archive(fs_path,
+                                                          thumb_size,
+                                                          request,
+                                                          context)
+    else:
+        try:
+            thumbnailfile = process_images(fs_path, thumb_size)
+        except IOError:
+            thumbnailfile = process_images(fs_path, thumb_size, mode="PNG")
+
     return serve(request, os.path.basename(thumbnailfile.path),
                  os.path.dirname(thumbnailfile.path))
+
 
 def resources(request):
     """
@@ -428,7 +486,7 @@ def resources(request):
     webpath = request.path_info
     album_viewing = configdata["locations"]["resources_path"] +  \
         webpath.replace(r"/resources/", r"/").replace("/", os.sep)
-    if not(os.path.exists(album_viewing)):
+    if not os.path.exists(album_viewing):
         print ("File Not Found - %s" % album_viewing)
     return serve(request, os.path.basename(album_viewing),
                  os.path.dirname(album_viewing))
@@ -443,13 +501,17 @@ def galleryitem(request, viewitem):
     paths["webpath"] = request.path.lower()
     context["mobile"] = detect_mobile(request)
     paths["thumbpath"] = paths["webpath"].replace(r"/albums/", r"/thumbnails/")
-    context["small"] = get_option_value(request, "size", configdata["configuration"]["small"])
-    context["medium"] = get_option_value(request, "size", configdata["configuration"]["medium"])
-    context["large"] = get_option_value(request, "size", configdata["configuration"]["large"])
+    context["small"] = get_option_value(
+        request, "size", configdata["configuration"]["small"])
+    context["medium"] = get_option_value(
+        request, "size", configdata["configuration"]["medium"])
+    context["large"] = get_option_value(
+        request, "size", configdata["configuration"]["large"])
     request, context = sort_order(request, context)
     paths["item_fs"] = configdata["locations"]["albums_path"]\
         + urllib.unquote(request.path.replace("/", os.sep))
-    paths["item_path"], paths["item_name"] = os.path.split(paths["item_fs"].lower())
+    paths["item_path"], paths["item_name"] = os.path.split(
+        paths["item_fs"].lower())
     if "download" in request.GET and "page" not in request.GET:
         return serve(request, os.path.basename(paths["item_fs"]),
                      paths["item_path"])
@@ -474,25 +536,30 @@ def galleryitem(request, viewitem):
         #
         #   4
         #  web path to original
-        listings.append((dcache[0].split("/")[0], dcache[1],
-                         (paths["web_path"] + r"/%s" % os.path.basename(dcache[1].fq_filename),
-                          paths["web_path"] + r"/%s" % os.path.basename(dcache[1].fq_filename)),
-                         (THUMBNAIL.make_tnail_fsname(
-                             dcache[1].fq_filename)["medium"],
-                          THUMBNAIL.make_tnail_fsname(
-                              dcache[1].fq_filename)["large"]),
-                         thumbnail.THUMBNAIL_DB.get(
-                             dcache[1].file_extension, "#FFFFFF")))
+        listings.append(
+            (dcache[0].split("/")[0],
+             dcache[1],
+             (paths["web_path"] + r"/%s" % os.path.basename(
+                 dcache[1].fq_filename),
+              paths["web_path"] + r"/%s" % os.path.basename(
+                  dcache[1].fq_filename)),
+             (paths["web_path"] + r"/%s" % os.path.basename(
+                 dcache[1].fq_filename),
+              paths["web_path"] + r"/%s" % os.path.basename(
+                  dcache[1].fq_filename)),
+             thumbnail.THUMBNAIL_DB.get(dcache[1].file_extension, "#FFFFFF")))
+#             (THUMBNAIL.make_tnail_fsname(dcache[1].fq_filename)["medium"],
+#              THUMBNAIL.make_tnail_fsname(dcache[1].fq_filename)["large"]),
     chk_list = Paginator(listings, 1)
     template = loader.get_template('frontend/gallery_item.html')
     context["gallery_name"] = os.path.split(request.path_info)[-1]
     try:
-       context["pagelist"] = chk_list.page(request.GET.get("page"))
-       context["page"] = request.GET.get("page")
+        context["pagelist"] = chk_list.page(request.GET.get("page"))
+        context["page"] = request.GET.get("page")
     except PageNotAnInteger:
         for count, fentry in enumerate(cached_files):
             if fentry[1].filename.lower() == paths["item_name"].lower():
-                context["page"] = 1+count+len(cached_dirs)
+                context["page"] = 1 + count + len(cached_dirs)
                 context["pagelist"] = chk_list.page(context["page"])
             else:
                 context["pagelist"] = chk_list.page(1)
@@ -510,18 +577,6 @@ def galleryitem(request, viewitem):
     context["current_page"] = context["page"]
     context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
 
-#    for entry in listings[fastnumbers.fast_int(context["page"])-1-(context["pagelist"].has_previous() is True):
-#            fastnumbers.fast_int(context["page"])+(context["pagelist"].has_next() is True)]:
-            # context["pagelist"]:
-#        create_validate_thumb(src_file=entry[1],
-#                              t_file=entry[3][1-(context["mobile"] is True)],
-#                              t_size=configdata["configuration"][SIZES[2-(context["mobile"] is True)]])
-#        workers.append(executor.submit (create_validate_thumb, entry[1],
-#                                        entry[3][1-(context["mobile"] is True)],
-#                                        configdata["configuration"][SIZES[2-(context["mobile"] is True)]]))
-
-#    futures.wait(workers)
-#    thumbnail.pool.wait()
     return HttpResponse(template.render(context, request))
 
 
@@ -534,7 +589,7 @@ def return_cdl_index(cdl_data, filename):
             return count
 
 
-def viewarchive(request, viewitem):
+def viewarchive(request):
     """
     Serve archive files
     """
@@ -543,7 +598,7 @@ def viewarchive(request, viewitem):
     request, context = sort_order(request, context)
     if "a_item" in request.GET:
         print("Forwarding to archive_item")
-        return archive_item(request, viewitem)
+        return archive_item(request)
     paths["item_fs"] = configdata["locations"]["albums_path"]\
         + urllib.unquote(request.path.replace("/", os.sep))
     paths["item_path"], paths["item_name"] = os.path.split(
@@ -553,7 +608,7 @@ def viewarchive(request, viewitem):
     paths["web_path"] = paths["item_path"].replace(
         configdata["locations"]["albums_path"].lower(), "")
     paths["web_thumbpath"] = paths["web_path"].replace("/albums",
-                                                       "/thumbnails")+r"/"
+                                                       "/thumbnails") + r"/"
     global_listings = read_from_cdl(paths["item_path"],
                                     sort_by=context["sort_order"])
     archive_index = return_cdl_index(global_listings, paths["item_name"])
@@ -570,41 +625,25 @@ def viewarchive(request, viewitem):
 
         listings.append((filename,
                          global_listings[archive_index][1].fq_filename,
-                         paths["web_thumbpath"] + paths["item_name"] ,
-                         paths["web_thumbpath"] + paths["item_name"] ,
+                         paths["web_thumbpath"] + paths["item_name"],
+                         paths["web_thumbpath"] + paths["item_name"],
                          thumbnail.THUMBNAIL_DB.get(
                              global_listings[archive_index][1].
                              file_extension, "#FFFFFF")['BACKGROUND'],
-                         count+1))
+                         count + 1))
 
-#         listings.append((filename,
-#                          global_listings[archive_index][1].fq_filename,
-#                          paths["web_thumbpath"] + paths["item_name"] + "/" +
-#                          THUMBNAIL.make_tnail_name(filename=os.path.basename(filename))["small"],
-#                          THUMBNAIL.make_tnail_fsname(
-#                              paths["thumb_path"] + "%s%s%s%s" % (
-#                                  os.sep, paths["item_name"],
-#                                  os.sep, os.path.basename(filename)))["small"],
-#                          thumbnail.THUMBNAIL_DB.get(
-#                              global_listings[archive_index][1].
-#                              file_extension, "#FFFFFF")['BACKGROUND'],
-#                          count+1))
-        if os.path.splitext(filename)[1][1:].lower() in thumbnail.THUMBNAIL_DB:
-            file_data = archive_file.extract_mem_file(filename)
-            if file_data is not None:
-                print (listings[-1][3])
-#                THUMBNAIL.create_thumbnail_from_memory(memory_image=file_data,
-#                    t_filename=listings[-1][3],
-#                    t_size=configdata["configuration"]["sm_thumb"])
-                workers.append(executor.submit (THUMBNAIL.create_thumbnail_from_memory, file_data,
-                                        listings[-1][3],
-                                        configdata["configuration"]["sm_thumb"]))
-
-    futures.wait(workers)
+#         if os.path.splitext(filename)[1][1:].lower() in thumbnail.THUMBNAIL_DB:
+#             file_data = archive_file.extract_mem_file(filename)
+#             if file_data is not None:
+#                 workers.append(EXECUTOR.submit(THUMBNAIL.create_thumbnail_from_memory, file_data,
+#                                                listings[-1][3],
+#                                                configdata["configuration"]["sm_thumb"]))
+#
+#     futures.wait(workers)
 
     context["current_page"] = request.GET.get("page")
     chk_list = Paginator(listings, 30)
-    context["page_cnt"] = list(range(1, chk_list.num_pages+1))
+    context["page_cnt"] = list(range(1, chk_list.num_pages + 1))
     context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
     context["gallery_name"] = os.path.split(request.path_info)[-1]
     try:
@@ -623,7 +662,7 @@ def viewarchive(request, viewitem):
     return HttpResponse(template.render(context, request))
 
 
-def archive_item(request, viewitem):
+def archive_item(request):
     """
     Serve the gallery items
     """
@@ -631,11 +670,14 @@ def archive_item(request, viewitem):
     paths = {}
     context["mobile"] = detect_mobile(request)
     request, context = sort_order(request, context)
-    context["small"] = get_option_value(request, "size", configdata["configuration"]["small"])
-    context["medium"] = get_option_value(request, "size", configdata["configuration"]["medium"])
-    context["large"] = get_option_value(request, "size", configdata["configuration"]["large"])
-    paths["archive_item"] = fastnumbers.fast_int(get_option_value(request,
-        "a_item", 1))-1
+    context["small"] = get_option_value(
+        request, "size", configdata["configuration"]["small"])
+    context["medium"] = get_option_value(
+        request, "size", configdata["configuration"]["medium"])
+    context["large"] = get_option_value(
+        request, "size", configdata["configuration"]["large"])
+    paths["archive_item"] = fastnumbers.fast_int(
+        get_option_value(request, "a_item", 1)) - 1
     paths["item_fs"] = configdata["locations"]["albums_path"]\
         + urllib.unquote(request.path.replace("/",
                                               os.sep))
@@ -647,7 +689,7 @@ def archive_item(request, viewitem):
     paths["web_path"] = paths["item_path"].replace(
         configdata["locations"]["albums_path"].lower(), "")
     paths["web_thumbpath"] = paths["web_path"].replace("/albums",
-                                                       "/thumbnails")+r"/"
+                                                       "/thumbnails") + r"/"
     global_listings = read_from_cdl(paths["item_path"],
                                     sort_by=context["sort_order"])
     archive_index = return_cdl_index(global_listings, paths["item_name"])
@@ -670,42 +712,24 @@ def archive_item(request, viewitem):
                          (paths["web_thumbpath"] + paths["item_name"],
                           paths["web_thumbpath"] + paths["item_name"]),
                          thumbnail.THUMBNAIL_DB.get(
-                                     global_listings[archive_index][1].
-                                     file_extension, "#FFFFFF")['BACKGROUND'],
-                         count+1))
+                             global_listings[archive_index][1].
+                             file_extension, "#FFFFFF")['BACKGROUND'],
+                         count + 1))
 
-#         listings.append((filename,
-#                          global_listings[archive_index][1].fq_filename,
-#                          (paths["web_thumbpath"] + paths["item_name"] + "/" +
-#                           THUMBNAIL.make_tnail_name(filename=os.path.basename(filename))["medium"],
-#                           paths["web_thumbpath"] + paths["item_name"] + "/" +
-#                           THUMBNAIL.make_tnail_name(filename=os.path.basename(filename))["large"]),
-#                          (THUMBNAIL.make_tnail_fsname(
-#                              paths["thumb_path"] + "%s%s%s%s" % (
-#                                  os.sep, paths["item_name"],
-#                                  os.sep, os.path.basename(filename)))["medium"],
-#                           THUMBNAIL.make_tnail_fsname(
-#                               paths["thumb_path"] + "%s%s%s%s" % (
-#                                   os.sep, paths["item_name"],
-#                                   os.sep, os.path.basename(filename)))["large"]),
-#                          thumbnail.THUMBNAIL_DB.get(
-#                                      global_listings[archive_index][1].
-#                                      file_extension, "#FFFFFF")['BACKGROUND'],
-#                          count+1))
-    if os.path.splitext(listings[paths["archive_item"]][0])[1][1:].lower()\
-            in thumbnail.THUMBNAIL_DB:
-        file_data = archive_file.extract_mem_file(\
-            listings[paths["archive_item"]][0])
-        if file_data is not None:
-            THUMBNAIL.create_thumbnail_from_memory(memory_image=file_data,
-                t_filename=listings[paths["archive_item"]][3][1-(context["mobile"] is True)],\
-                t_size=configdata["configuration"][SIZES[1-(context["mobile"] is True)]])
-
-    futures.wait(workers)
+#     if os.path.splitext(listings[paths["archive_item"]][0])[1][1:].lower()\
+#             in thumbnail.THUMBNAIL_DB:
+#         file_data = archive_file.extract_mem_file(
+#             listings[paths["archive_item"]][0])
+#         if file_data is not None:
+#             THUMBNAIL.create_thumbnail_from_memory(memory_image=file_data,
+#                                                    t_filename=listings[paths["archive_item"]][3][1 - (context["mobile"] is True)],
+#                                                    t_size=configdata["configuration"][SIZES[1 - (context["mobile"] is True)]])
+#
+#     futures.wait(workers)
 
     context["current_page"] = request.GET.get("a_item")
     chk_list = Paginator(listings, 1)
-    context["page_cnt"] = list(range(1, chk_list.num_pages+1))
+    context["page_cnt"] = list(range(1, chk_list.num_pages + 1))
     context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
     context["gallery_name"] = os.path.split(request.path_info)[-1]
     try:

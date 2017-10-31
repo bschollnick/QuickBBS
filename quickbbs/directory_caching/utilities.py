@@ -27,7 +27,7 @@ for count in range(0, 9):
 
 def make_unicode(st_input):
     if type(st_input) != six.text_type:
-        st_input =  unidecode.unidecode(st_input.decode("utf-8"))
+        st_input = unidecode.unidecode(st_input.decode("utf-8"))
     return st_input
 
 
@@ -82,14 +82,11 @@ def check_files_in_directory(fqdn):
     files = scandir.walk(realpath).next()[2]
     for filename in files:
         if check_filename(filename) is False:
-            #print("bad fn - ", filename)
-            #print("good fn - ", clean_filename(filename))
-            rename_file_to_clean(os.path.join(realpath,filename))
+            rename_file_to_clean(os.path.join(realpath, filename))
 
 def rename_file_to_clean(fqfn):
     cur_dir, cur_filename = os.path.split(os.path.realpath(fqfn))
     try:
-        #print((fqfn, os.path.join(cur_dir, clean_filename(cur_filename))))
         os.rename(fqfn, os.path.join(cur_dir, clean_filename(cur_filename)))
     except exceptions.OSError:
         print("os error resolving - %s" % cur_dir)
@@ -102,4 +99,3 @@ def rename_file_to_clean(fqfn):
         return False
     finally:
         return True
-

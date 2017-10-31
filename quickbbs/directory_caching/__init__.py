@@ -127,7 +127,7 @@ from . import utilities
 from . import archives3 as archives2
 
 #   Required third party
-#import natsort  # https://github.com/xolox/python-naturalsort
+# import natsort  # https://github.com/xolox/python-naturalsort
 
 SORT_BY_NAME = 0
 SORT_BY_MODIFIED = 1
@@ -249,7 +249,7 @@ class Cache(object):
         self.files_to_ignore = ['.ds_store', '.htaccess']
         self.hidden_dot_files = True
         self.acceptable_extensions = []
-        self.ignore_extensions = ['.pdf_png_preview', '.zip_png_preview',]
+        self.ignore_extensions = ['.pdf_png_preview', '.zip_png_preview']
         self.filter_filenames = None
         self.filter_dirnames = None
         self.root_path = None
@@ -344,12 +344,14 @@ class Cache(object):
                 if self.ed_collector is not None:
                     data.extended_data = self.ed_collector(data.fq_filename)
 
-                if self.ignore_extensions != [] and data.file_extension.lower() in\
+                if self.ignore_extensions != [] and \
+                    data.file_extension.lower() in \
                     self.ignore_extensions:
-                        continue
+                    continue
 
                 if self.acceptable_extensions == [] or \
-                    data.file_extension.lower() in self.acceptable_extensions:
+                    data.file_extension.lower() \
+                    in self.acceptable_extensions:
                     files[s_entry.name] = data
 
         self.d_cache[norm_dir_name]["files"] = files
@@ -413,8 +415,7 @@ class Cache(object):
                     #   There are no non-acceptable files.
                     #   Filter by extensions
                 return False
-            else:
-                return True
+            return True
 
         scan_directory = os.path.realpath(scan_directory).strip()
         try:
@@ -538,15 +539,12 @@ class Cache(object):
                 # offset is negative X
                 return (current_offset + offset,
                         dirs[current_offset+offset][0])
-            else:
-                return (None, None)
-        else:
-            if current_offset + offset > len(dirs)-1:
-                #   len is 1 based, current_offset is 0 based.
-                return (None, None)
-            else:
-                return (current_offset + offset,
-                        dirs[current_offset+offset][0])
+            return (None, None)
+        if current_offset + offset > len(dirs)-1:
+            #   len is 1 based, current_offset is 0 based.
+            return (None, None)
+
+        return (current_offset + offset, dirs[current_offset+offset][0])
 
 
 #####################################################
@@ -837,4 +835,3 @@ class Cache(object):
         return self.return_sorted(scan_directory,
                                   sort_by=SORT_BY_CREATION,
                                   reverse=reverse)
-

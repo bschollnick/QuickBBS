@@ -16,13 +16,15 @@ Including another URLconf
 from django.conf.urls import include, url
 from django.contrib import admin
 from django.views.generic import RedirectView
-#import django.contrib.auth.views
-import frontend, frontend.views
+import frontend
+import frontend.views
 
 urlpatterns = [
     url(r'^admin/', admin.site.urls),
     url(r'^(?i)albums/', frontend.views.viewgallery),
-    url(r'^thumbnails/(?P<T_Url_Name>.+)/', frontend.views.thumbnails, name="raw thumbnails"),
+    url(r'^thumbnails/(?P<T_Url_Name>.+)/',
+        frontend.views.thumbnails,
+        name="raw thumbnails"),
     url(r'^(?i)resources/', frontend.views.resources),
     url(r'^accounts/', include('allauth.urls')),
     url(r'^$', RedirectView.as_view(url="/albums")),
