@@ -1,6 +1,7 @@
 from django.http import HttpResponseForbidden
 from django.conf import settings
 
+
 class FilterHostMiddleware(object):
 
     def process_request(self, request):
@@ -16,6 +17,5 @@ class FilterHostMiddleware(object):
         else:
             if host not in settings.ALLOWED_HOSTS:
                 raise HttpResponseForbidden
-        #print "hosts: %s\n" % settings.ALLOWED_HOSTS
+        # print "hosts: %s\n" % settings.ALLOWED_HOSTS
         return None
-

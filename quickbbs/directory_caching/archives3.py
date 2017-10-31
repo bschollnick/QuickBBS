@@ -49,12 +49,12 @@ Zip, RAR are supported, what other formats might be useful?
 #
 from __future__ import absolute_import
 from __future__ import print_function
+import base64
 import exceptions
 import os
 import os.path
 import zipfile
 import rarfile
-import base64
 
 class NotInitializedYet(exceptions.Exception):
     """
@@ -241,11 +241,16 @@ print filename, 'is a', cf.mime_type, 'file'
         inputs - filename to extract
         returns - blob from the archive.
         """
-        translate = {'JPG' : 'JPEG',    'JPEG' : 'JPEG',
-                     'PNG' : 'PNG',     'GIF' : 'GIF',
-                     'BMP' : 'BMP',     'EPS' : 'EPS',
-                     'MSP' : 'MSP',     'PCX' : 'PCX',
-                     'PPM' : 'PPM',     'TIF' : 'TIF',
+        translate = {'JPG' : 'JPEG',
+                     'JPEG' : 'JPEG',
+                     'PNG' : 'PNG',
+                     'GIF' : 'GIF',
+                     'BMP' : 'BMP',
+                     'EPS' : 'EPS',
+                     'MSP' : 'MSP',
+                     'PCX' : 'PCX',
+                     'PPM' : 'PPM',
+                     'TIF' : 'TIF',
                      'TIFF' : 'TIF'}
 
         handle = self._open

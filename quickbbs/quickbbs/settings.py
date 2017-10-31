@@ -18,7 +18,7 @@ TEMPLATE_PATH = os.path.join(BASE_DIR, 'templates')
 
 MEDIA_ROOT = os.sep.join((BASE_DIR.split(os.sep)[0:-1]))
 print (MEDIA_ROOT)
-#MEDIA_ROOT =
+# MEDIA_ROOT =
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/1.9/howto/deployment/checklist/
 
@@ -34,7 +34,7 @@ ALLOWED_HOSTS = ['localhost', '127.0.0.1']
 # Application definition
 
 INSTALLED_APPS = [
-#    'devserver',
+    #    'devserver',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -108,16 +108,16 @@ AUTHENTICATION_BACKENDS = (
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+    'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+    'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+    'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+    'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
 ]
 
@@ -153,15 +153,19 @@ BOOTSTRAP3 = {
     'jquery_url': '//code.jquery.com/jquery.min.js',
     # The Bootstrap base URL
     'base_url': '//maxcdn.bootstrapcdn.com/bootstrap/3.3.6/',
-    # The complete URL to the Bootstrap CSS file (None means derive it from base_url)
+    # The complete URL to the Bootstrap CSS file (None means derive it from
+    # base_url)
     'css_url': None,
     # The complete URL to the Bootstrap CSS file (None means no theme)
     'theme_url': None,
-    # The complete URL to the Bootstrap JavaScript file (None means derive it from base_url)
+    # The complete URL to the Bootstrap JavaScript file (None means derive it
+    # from base_url)
     'javascript_url': None,
-    # Put JavaScript in the HEAD section of the HTML document (only relevant if you use bootstrap3.html)
+    # Put JavaScript in the HEAD section of the HTML document (only relevant
+    # if you use bootstrap3.html)
     'javascript_in_head': False,
-    # Include jQuery with Bootstrap JavaScript (affects django-bootstrap3 template tags)
+    # Include jQuery with Bootstrap JavaScript (affects django-bootstrap3
+    # template tags)
     'include_jquery': True,
     # Label class to use in horizontal forms
     'horizontal_label_class': 'col-md-3',
@@ -177,10 +181,12 @@ BOOTSTRAP3 = {
     'required_css_class': '',
     # Class to indicate error (better to set this in your Django form)
     'error_css_class': 'has-error',
-    # Class to indicate success, meaning the field has valid input (better to set this in your Django form)
+    # Class to indicate success, meaning the field has valid input (better to
+    # set this in your Django form)
     'success_css_class': 'has-success',
-    # Renderers (only set these if you have studied the source and understand the inner workings)
-    'formset_renderers':{
+    # Renderers (only set these if you have studied the source and understand
+    # the inner workings)
+    'formset_renderers': {
         'default': 'bootstrap3.renderers.FormsetRenderer',
     },
     'form_renderers': {
@@ -196,9 +202,10 @@ THUMBNAIL_PATH = os.path.join(os.getcwd(), 'thumbnails-cache')
 THUMBNAIL_URL = '/thumbnails/'
 THUMBNAIL_ENGINE = 'thumbnails.engines.PillowEngine'
 THUMBNAIL_CACHE_BACKEND = 'thumbnails.cache_backends.SimpleCacheBackend'
-THUMBNAIL_CACHE_TIMEOUT = 180#60 * 60 * 24 * 365
+THUMBNAIL_CACHE_TIMEOUT = 180  # 60 * 60 * 24 * 365
 THUMBNAIL_CACHE_CONNECTION_URI = None
-THUMBNAIL_STORAGE_BACKEND = 'thumbnails.storage_backends.FilesystemStorageBackend'
+THUMBNAIL_STORAGE_BACKEND =\
+    'thumbnails.storage_backends.FilesystemStorageBackend'
 
 THUMBNAIL_SCALE_UP = False
 THUMBNAIL_QUALITY = 90
