@@ -1,6 +1,8 @@
 QuickBBS Gallery
 ========
 
+* Please note, I have started on v2 of the Gallery application.  See below.
+
 This is the start of a Modern re-interpretation of the QuickBBS Bulletin Board software, for the modern era.
 
 Several times in the past, I have considered revisiting the old QuickBBS Bulletin Board software, but with the rise of the internet, I have never been able to justify it.
@@ -89,3 +91,18 @@ When you install Pillow, you should receive the following messages:
    * pip install jinja2 passlib pybonjour txbonjour unidecode
    * Download directory_caching, and semantic_url.
       * Both are available from my repository.  I am having issues with PIP downloading. They are searchable in pip, but install fails.
+
+Version 2
+==========
+
+Version two is a significant rewrite of the gallery.
+
+While Version one was successful, there were significant issues that impacted the speed of the software.
+
+1) Creating the thumbnails in the webpage view was significantly impacting the speed, and delaying the rendering of the page
+  * v2 resolves this by having the thumbnail view contain the code for the thumbnail creation.
+  * v2 is using python-thumbnails,  https://github.com/python-thumbnails/python-thumbnails, while there are issues, it appears to be faster, and handles the cache management.  Currently, I am using the straight python code, but I may incorporate the Django code (later).
+  
+2) I will be looking into converting Directory_Caching into a Django based package, and using the Database.
+  * This will be the largest hurdle to overcome, but I believe this is the right step to make this maintainable, and optimize performance.
+  
