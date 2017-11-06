@@ -1,0 +1,9 @@
+[Core]
+Name = BMP Processor
+Module = BMP_Parser
+
+[Documentation]
+Description = BMP Processing for Gallery
+Author = Benjamin Schollnick
+Version = 1
+Website = http://bschollnick.github.com
