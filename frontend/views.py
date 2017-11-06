@@ -348,7 +348,7 @@ def thumbnails(request, T_Url_Name=None):
     URL -> thumbnails/(?P<T_Url_Name>.*)
     """
     translate = {'JPG': 'JPEG', 'JPEG': 'JPEG',
-                 'PNG': 'PNG', 'GIF': 'GIF',
+                 'PNG': 'PNG', 'GIF': 'JPEG',
                  'BMP': 'BMP', 'EPS': 'EPS',
                  'MSP': 'MSP', 'PCX': 'PCX',
                  'PPM': 'PPM', 'TIF': 'TIF',
