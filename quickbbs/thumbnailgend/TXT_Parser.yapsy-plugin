@@ -1,9 +1,0 @@
-[Core]
-Name = TextFile Processor
-Module = txt_parser
-
-[Documentation]
-Description = Text File Processing for Gallery
-Author = Benjamin Schollnick
-Version = 1
-Website = http://bschollnick.github.com

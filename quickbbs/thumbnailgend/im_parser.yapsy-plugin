@@ -1,9 +1,0 @@
-[Core]
-Name = im Processor
-Module = im_parser
-
-[Documentation]
-Description = im Processing for Gallery
-Author = Benjamin Schollnick
-Version = 1
-Website = http://bschollnick.github.com

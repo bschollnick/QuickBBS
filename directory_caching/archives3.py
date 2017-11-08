@@ -261,16 +261,7 @@ print filename, 'is a', cf.mime_type, 'file'
         with handle() as cfile:
             data = "data:image/%s;base64," % translate[fileext.upper()].lower()
             try:
-                filedata = base64.b64encode(cfile.read(fname))
-                testfile = open ("test.b64", "wb")
-                testfile.write(filedata)
-                testfile.close()
- #               if len(filedata) % 4:
-    # not a multiple of 4, add padding:
- #                   filedata += '=' * (4 - len(filedata) % 4)
                 data += filedata
-#                print (data[0:25])
-#                data += b64data
                 return data
             except TypeError:
                 print ("Type error")
