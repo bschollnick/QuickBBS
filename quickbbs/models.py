@@ -2,15 +2,12 @@ from __future__ import unicode_literals
 
 from django.db import models
 from datetime import datetime
-
+#from naturalsortfield import NaturalSortField
 
 class DirData(models.Model):
     id = models.AutoField(primary_key=True)
-    LastScan = models.IntegerField(db_index=True)   # Stored as Unix TimeStamp (ms)
-
-#    LastScan = models.DateTimeField(db_index=True)
-#                                    default=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))#data.st[stat.ST_MTIME]default=time.time())  # Directory was last scanned on
-    LastMod = models.IntegerField(db_index=True)   # Stored as Unix TimeStamp (ms)
+    LastScan = models.FloatField(db_index=True)  # Stored as Unix TimeStamp (ms)
+    LastMod = models.FloatField(db_index=True)   # Stored as Unix TimeStamp (ms)
     DirPN = models.CharField(db_index=True,
                              max_length=512,
                              default=None,
@@ -38,17 +35,21 @@ class DirData(models.Model):
 
 class FileData(models.Model):
     id = models.AutoField(primary_key=True)
-    LastScan = models.IntegerField(db_index=True)   # Stored as Unix TimeStamp (ms)
-    LastMod = models.IntegerField(db_index=True)   # Stored as Unix TimeStamp (ms)
-#    LastScan = models.DateTimeField(db_index=True)
-#    LastMod = models.DateTimeField(db_index=True)
+    LastScan = models.FloatField(db_index=True)   # Stored as Unix TimeStamp (ms)
+    LastMod = models.FloatField(db_index=True)   # Stored as Unix TimeStamp (ms)
     FileName = models.CharField(db_index=True,
                                 max_length=512,
                                 default=None,
                                 unique=False,
                                 blank=False)   # FQFN of the file itself
+    SortFileName = models.CharField(db_index=True,
+                                    editable=False,
+                                    max_length=512,
+                                    default="",
+                                    unique=False)   # FQFN of the file itself
+    #FileName_Sort = NaturalSortField(for_field='FileName')     - django-naturalsortfield is giving odd error about max_length.
     FileSize = models.IntegerField(default=0)     # File size
-    FQPNDirectory = models.IntegerField(default=0)  # The actual Fully Qualified Path Name of the directory that it is contained in
+    FQPNDirectory = models.CharField(default=0, db_index=True, max_length=512)  # The actual Fully Qualified Path Name of the directory that it is contained in
     ParentDirID = models.IntegerField(default=0)  # Directory that it is contained in
     is_pdf = models.BooleanField(default=False, db_index=True)
     is_archive = models.BooleanField(default=False, db_index=True)

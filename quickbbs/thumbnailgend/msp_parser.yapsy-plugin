@@ -1,9 +1,0 @@
-[Core]
-Name = msp Processor
-Module = msp_parser
-
-[Documentation]
-Description = MSP Processing for Gallery
-Author = Benjamin Schollnick
-Version = 1
-Website = http://bschollnick.github.com

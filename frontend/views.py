@@ -29,6 +29,8 @@ from six.moves import range
 import fitz
 from quickbbs.models import *
 import scandir
+import scandir
+import stat
 
 #
 #
@@ -272,6 +274,7 @@ def viewgallery(request):
         paths["thumbpath"] += "/"
 #    tnails = THUMBNAIL.Thumbnails()
 #    cr_thumbs = []
+    read_from_disk(paths["album_viewing"])
     if not os.path.exists(paths["album_viewing"]):
         #
         #   Albums doesn't exist
@@ -500,40 +503,112 @@ def resources(request):
     return serve(request, os.path.basename(album_viewing),
                  os.path.dirname(album_viewing))
 
+def test_extension ( name, ext_list ):
+    return os.path.splitext(name)[1].lower() in ext_list
 
 def read_from_disk ( dir_to_scan):
+
     dir_to_scan = dir_to_scan.strip()
     fqpn = os.path.join(configdata["locations"]["albums_path"], dir_to_scan)
-    print ("fqpn - ", fqpn)
+    webpath = fqpn.replace(configdata["locations"]["albums_path"], "")
 
     if os.path.exists(fqpn) is not True:
         return None
 
     for entry in scandir.scandir(fqpn):
+        print(configdata)
+        if os.path.splitext(entry.name.lower().strip())[1] in configdata["filetypes"]["extensions_to_ignore"]:#(".pdf_png_preview"):
+            continue
+        if entry.name.lower().strip() in configdata["filetypes"]["files_to_ignore"]:
+            continue
+
         entry_fqfn = os.path.join(os.path.realpath(dir_to_scan), entry.name)
         entry_parentdir = os.path.split(dir_to_scan)[0:-1][0]
-        path, raw_dirc, raw_filec = scandir.walk(entry_fqfn).next()
+        if entry.is_file():
+            if not FileData.objects.filter(FileName = webpath + entry.name, ParentDirID = 0).exists():
+                #
+                #   File does not exist
+                #
+                FileData.objects.create(LastMod = entry.stat()[stat.ST_MTIME],
+                                        LastScan = time.time(),
+                                        FileName = webpath + entry.name,
+                                        SortFileName = webpath + entry.name.title(),
+                                        FileSize = entry.stat()[stat.ST_SIZE],
+                                        FQPNDirectory = webpath,
+                                        ParentDirID = 0,
+                                        is_pdf = test_extension(entry.name, ['.pdf']),
+                                        is_archive = test_extension(entry.name, ['.cbz', '.cbr', '.zip', '.rar']),
+                                        Ignore = False,
+                                        DeletePending = False)
+            else:
+                #
+                #   Directory does exist, but may need updating
+                #
+                changed = False
+                Filetemp = FileData.objects.get(FileName = webpath + entry.name, ParentDirID = 0)
+                if Filetemp.FileSize != entry.stat()[stat.ST_SIZE]:
+                    Filetemp = entry.stat()[stat.ST_SIZE]
+                    changed = True
+                if Filetemp.LastMod != entry.stat()[stat.ST_MTIME]:
+                    Filetemp.LastMod = entry.stat()[stat.ST_MTIME]
+                    changed = True
+                is_pdf = test_extension(entry.name, ['.pdf'])
+                is_archive = test_extension(entry.name, ['.cbz', '.cbr', '.zip', '.rar'])
+                if Filetemp.is_pdf != is_pdf:
+                    Filetemp.is_pdf = is_pdf
+                    Filetemp.is_archive = False
+                    changed = True
 
-        if entry.is_dir():
+                if Filetemp.is_archive != is_archive:
+                    Filetemp.is_pdf = False
+                    Filetemp.is_archive = is_archive
+                    changed = True
+
+                if changed:
+                    Filetemp.LastMod = entry.stat()[stat.ST_MTIME]
+                    Filetemp.LastScan = time.time()
+                    Filetemp.save()
+
+        elif entry.is_dir():
             #
             #   The Fully Qualified Pathnames are from the gallery root.  Not from Root
             #   of the drive.
             #
             #   This allows the gallery to be moved, and not have to regenerate all the
             #   paths.
-            records = DirData.objects.filter(DirFQPN = dir_to_scan, ParentDirID = 0).exists()
-            return (True,  records.count(), records)
+            path, raw_dirc, raw_filec = scandir.walk(entry_fqfn).next() # get directory count, and file count for subdirectory
+            if not DirData.objects.filter(DirURL = webpath + entry.name, ParentDirID = 0).exists():
+                #
+                #   Directory Does not exist
+                #
+                DirData.objects.create(LastMod = entry.stat()[stat.ST_MTIME], #datetime.datetime.fromtimestamp(entry.stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                                       LastScan = time.time(),#datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                       DirPN = "",
+                                       DirURL = webpath + entry.name,
+                                       NumFiles = len(raw_filec),
+                                       NumDirs = len(raw_dirc),
+                                       ParentDirID = 0,
+                                       ThumbFQFN = "",
+                                       Ignore = False)
+            else:
+                #
+                #   Directory does exist, but may need updating
+                #
+                changed = False
+                Dirtemp = DirData.objects.get(DirURL = webpath + entry.name, ParentDirID = 0)
+                if len(raw_dirc) != Dirtemp.NumDirs or len(raw_filec) !=  Dirtemp.NumFiles:
+                    Dirtemp.NumDirs = len(raw_dirc)
+                    Dirtemp.NumFiles = len(raw_filec)
+                    changed = True
 
-#         if entry.is_dir():
-#                     DirData.objects.create(LastMod = datetime.datetime.fromtimestamp(entry.stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),#data.st[stat.ST_MTIME],
-#                                            LastScan = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-#                                            DirFQPN = ,
-#                                            DirURL = webpath,
-#                                            NumFiles = data.number_files,
-#                                            NumDirs = data.number_dirs,
-#                                            ParentDirID = 0,
-#                                            ThumbFQFN = "",
-#                                            Ignore = False)
+                if Dirtemp.LastMod != entry.stat()[stat.ST_MTIME]:
+                    Dirtemp.LastMod = entry.stat()[stat.ST_MTIME]
+                    changed = True
+
+                if changed:
+                    Dirtemp.LastMod = entry.stat()[stat.ST_MTIME]
+                    Dirtemp.LastScan = time.time()
+                    Dirtemp.save()
 
 
 def galleryitem(request, viewitem):

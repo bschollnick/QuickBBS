@@ -9,3 +9,4 @@ import config
 cfg_path = os.path.abspath(r"../cfg")
 config.load_data(os.path.join(cfg_path, "paths.ini"))
 config.load_data(os.path.join(cfg_path, "settings.ini"))
+config.load_data(os.path.join(cfg_path, "filetypes.ini"))
