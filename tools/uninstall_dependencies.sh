@@ -12,3 +12,10 @@ pip uninstall  scandir
 pip uninstall  twisted
 pip uninstall  txbonjour
 pip uninstall  unidecode
+pip uninstall  fastnumbers
+pip uninstall  natsort
+pip uninstall  django-bootstrap3
+pip uninstall  python-thumbnails
+pip uninstall  django-allauth
+pip uninstall  django-debug-toolbar
+pip uninstall  django-jinja
