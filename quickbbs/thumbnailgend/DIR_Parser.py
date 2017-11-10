@@ -1,0 +1,130 @@
+"""
+Thumbnail services for the gallery.
+
+This is the universal code for creating and manipulating the thumbnails
+used by the gallery.
+"""
+import core_plugin
+import os
+import os.path
+from PIL import Image
+import cStringIO
+
+
+class PluginOne(core_plugin.CorePlugin):
+
+    ACCEPTABLE_FILE_EXTENSIONS = ['.dir']
+
+    CONTAINER = TRUE
+
+    IMG_TAG = False
+
+    FRAME_TAG = False
+
+    #DEFAULT_ICON = r"/images/1431973815_text.png"
+
+    DEFAULT_BACKGROUND = "FAEBF4"
+
+    def create_thumbnail_from_file(self, src_filename,
+                                   t_filename,
+                                   t_size=None):
+        """
+        Create a thumbnail from a source file.
+
+        inputs -
+
+            * src_filename - String - This is the fully qualified filepathname
+                of the file to be thumbnailed.
+
+            * t_filename - String - This is the fully qualified filepathname
+                of the thumbnail file to be created.
+
+            * t_size - integer - This is the maximum size of the thumbnail.
+                The thumbnail will be t_size x t_size (e.g. 300 x 300)
+
+        output -
+
+            * The thumbnail file that is created at the t_filename location.
+        """
+        if src_filename == t_filename:
+            raise RuntimeError("The source is the same as the target.")
+
+        if  t_filename == None:
+            raise RuntimeError("The Target is not specified")
+
+        if os.path.exists(t_filename):
+            return None
+
+        if t_size == None:
+            raise RuntimeError("No Target size is defined")
+
+
+        try:
+            image_file = Image.open(src_filename)
+            image_file.thumbnail((t_size, t_size), Image.ANTIALIAS)
+#            image_file.save(t_filename, "PNG", optimize=True)
+            image_file.save(t_filename, "PNG", optimize=False)
+            return True
+        except IOError:
+            print "File thumbnail ", src_filename
+            print "save thumbnail ", t_filename
+            print "The File [%s] (ioerror) is damaged." % (src_filename)
+        except IndexError as detail:
+            print "File thumbnail ", src_filename
+            print "save thumbnail ", t_filename
+            print "The File [%s] (IndexError) is damaged." % (src_filename)
+            print detail
+        except TypeError:
+            print "File thumbnail ", src_filename
+            print "save thumbnail ", t_filename
+            print "The File [%s] (TypeError) is damaged." % (src_filename)
+
+##########################################################################
+    def create_thumbnail_from_memory(self, memory_image=None,
+                                     t_filename=None,
+                                     t_size=None):
+        """
+        Create a thumbnail from a memory image of the file.
+
+        inputs -
+
+            * memory_image - blob - This is the blob of image data, typically
+                a blob that has been read from a file, or a zip, etc.
+
+            * t_filename - String - This is the fully qualified filepathname
+                of the thumbnail file to be created.
+
+            * t_size - integer - This is the maximum size of the thumbnail.
+                The thumbnail will be t_size x t_size (e.g. 300 x 300)
+
+        output -
+
+            * The thumbnail file that is created at the t_filename location.
+        """
+        if memory_image == None:
+            raise RuntimeError("No Memory Image is provided.")
+
+        if  t_filename == None:
+            raise RuntimeError("The Target is not specified")
+
+        if os.path.exists(t_filename):
+            return None
+
+        if t_size == None:
+            raise RuntimeError("No Target size is defined")
+
+        try:
+            #
+            #   Convert this to bytes io?
+            #
+            image_file = Image.open(cStringIO.StringIO(memory_image))
+            image_file.thumbnail((t_size, t_size), Image.ANTIALIAS)
+            image_file.save(t_filename, "PNG", optimize=True)
+            return True
+        except IOError:
+            print "save thumbnail ", t_filename
+        except IndexError as detail:
+            print "save thumbnail ", t_filename
+            print detail
+        except TypeError:
+            print "save thumbnail ", t_filename

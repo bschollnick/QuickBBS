@@ -11,14 +11,9 @@ echo "Please ensure these files exist"
 echo ""
 read -p "Press [Enter] key to start benchmarking or Ctrl-C to abort..."
 
-echo "Running Verification Suite Index Benchmarks"
-echo "---------------------------------------------------------------------------------------" >> $1.txt
-ab -n 200 -c 50  -d -l "http://127.0.0.1:8888/albums/verification_suite" >> $1.txt
-echo "---------------------------------------------------------------------------------------" >> $1.txt
-
 echo "Running 1 MB test file benchmarks"
 echo "---------------------------------------------------------------------------------------" >> $1.txt
-ab -n 200 -c 50  -d -l "http://127.0.0.1:8888/albums/verification_suite/benchtests/test1.bin" >> $1.txt
+ab -n 200 -c 50  -d -l "http://127.0.0.1:8888/albums/verification_suite/benchtests/test1.bin?download" >> $1.txt
 echo "---------------------------------------------------------------------------------------" >> $1.txt
 sleep 5
 echo "Running 2 MB test file benchmarks"
@@ -50,8 +45,8 @@ echo "Running load testing"
 echo "---------------------------------------------------------------------------------------" >> $1_perf.txt
 httperf --server 127.0.0.1 --port 8888 --num-conns 200 --rate 50 --timeout 1 --uri "/albums/verification_suite/benchtests/test1.bin" >> $1_perf.txt
 echo "---------------------------------------------------------------------------------------" >> $1_perf.txt
-httperf --server 127.0.0.1 --port 8888 --num-conns 200 --rate 100 --timeout 1 --uri "/albums/verification_suite/benchtests/test1.bin" >> $1_perf.txt
+httperf --server 127.0.0.1 --port 8888 --num-conns 200 --rate 100 --timeout 1 --uri "/albums/verification_suite/benchtests/test2.bin" >> $1_perf.txt
 echo "---------------------------------------------------------------------------------------" >> $1_perf.txt
-httperf --server 127.0.0.1 --port 8888 --num-conns 200 --rate 125 --timeout 1 --uri "/albums/verification_suite/benchtests/test1.bin" >> $1_perf.txt
+httperf --server 127.0.0.1 --port 8888 --num-conns 200 --rate 100 --timeout 1 --uri "/albums/verification_suite/benchtests/test5.bin" >> $1_perf.txt
 echo "---------------------------------------------------------------------------------------" >> $1_perf.txt
 

@@ -1,9 +1,0 @@
-[Core]
-Name = PPM Processor
-Module = ppm_parser
-
-[Documentation]
-Description = PPM Processing for Gallery
-Author = Benjamin Schollnick
-Version = 1
-Website = http://bschollnick.github.com
