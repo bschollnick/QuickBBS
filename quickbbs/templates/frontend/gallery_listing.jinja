@@ -1,9 +1,10 @@
-{% extends 'frontend/gallery_base.html' %}
+{% extends 'frontend/gallery_base.jinja' %}
 
 {% block title%}
 {% endblock %}
 
 {% block content %}
+<script src="/resources/javascript/jquery.lazy.min.js"></script>
     <!-- sidebar -->
     <div class="container" style="width:99%">
       <div class="row">
@@ -15,8 +16,8 @@
                     <img width="75%" height="75%" src="/resources/images/gtk_media_next_rtl.png"/></a>
                 <hr>
                 <span class="step-links">
-                    {% if pagelist.has_previous %}
-                        <a href="?page={{ pagelist.previous_page_number }}">
+                    {% if pagelist.has_previous() %}
+                        <a href="?page={{ pagelist.previous_page_number() }}">
                             <img width="75%" height="75%" src="/resources/images/gtk_media_rev_ltr.png"/></a>
                     {% else %}
                             <img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/>
@@ -35,8 +36,8 @@
                     </span>
                 <hr>
 
-                    {% if pagelist.has_next %}
-                        <a href="?page={{ pagelist.next_page_number }}">
+                    {% if pagelist.has_next() %}
+                        <a href="?page={{ pagelist.next_page_number() }}">
                             <img width="75%" height="75%" src="/resources/images/gtk_media_play_ltr.png"/></a>
                     {% else %}
                             <img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/>
@@ -59,53 +60,53 @@
             </div>
         </div>
 <!-- main area -->
-         <div class="container-fluid" width="95%" style="margin-left: 45px;margin-right:1px;border: 0px solid;padding-left:2px;padding-right:2px;background:#b0e2ff;">
-             <table border=0 width="99%">
+         <div class="container-fluid" style="margin-left: 45px;margin-right:1px;border: 0px solid;padding-left:2px;padding-right:2px;background:#b0e2ff;">
+             <table border=0 width="97%">
                 <tr>
                 <td width="25%" align=left> <a href="{{ prev_uri }}">{{ prev_uri }}</a></td>
                 <td width="50%" align=center><b>{{ gallery_name }}</b></td>
                 <td width="25%" align=right> <a href="{{ next_uri }}">{{ next_uri }}</a></td>
                 </tr>
              </table>
-                    <div class="row" style="margin-left: 0px;margin-right:0px;border: 0px solid;padding-left:2px;padding-right:2px;background:#b0e2ff;">
+                    <div class="row" width="auto" style="margin-left: 0px;margin-right:0px;border: 0px solid;padding-left:2px;padding-right:2px;background:#b0e2ff;">
                     {% for item in pagelist %}
                                 <div class="col-xs-6 col-sm-4">
                                     <center>
-                                        {{ forloop.counter }} <br>
+                                        {{ loop.index }} <br>
                                         <a href="{{ webpath }}/{{ item.Name }}" class="thumbnail" style="background:{{backgroundclr}};">
-                                                {{ item.Name|truncatechars:26|linebreaksbr }}
+                                                {{ item.Name | wordwrap(width=25, break_long_words=True)}}
                                                 <br>
                                             {% if item.is_dir %}
-                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ thumbpath }}/{{ item.Name }}?dir" class="img-responsive" style="width:auto;max-width:100%"/>
+                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ thumbpath }}/{{ item.Name }}?dir&size={{small}}" class="img-responsive" style="width:auto;max-width:100%"/>
                                             {% elif item.is_pdf %}
-                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ thumbpath }}/{{ item.Name}}?pdf" class="img-responsive" style="width:auto;max-width:100%"/>
+                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ thumbpath }}/{{ item.Name}}?pdf&size={{small}}" class="img-responsive" style="width:auto;max-width:100%"/>
                                             {% elif item.is_archive %}
-                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ thumbpath }}/{{ item.Name}}?arch=0" class="img-responsive" style="width:auto;max-width:100%"/>
+                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ thumbpath }}/{{ item.Name}}?arch=0&size={{small}}" class="img-responsive" style="width:auto;max-width:100%"/>
                                             {% else %}
-                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ thumbpath }}/{{ item.Name}}" class="img-responsive" style="width:auto;max-width:100%"/>
+                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ thumbpath }}/{{ item.Name}}?size={{small}}" class="img-responsive" style="width:auto;max-width:100%"/>
                                             {% endif %}
 
                                         </a>
                                         {% if item.NumDirs != None and item.NumDirs != 0%}
-                                            <b># of Dirs: </b>{{ item.NumDirs }}<br>
+                                            <b># of Dirs: </b>{{ item.NumDirs | intcomma }}<br>
                                         {% endif %}
 
                                         {% if item.NumFiles != None and item.NumFiles != 0 %}
-                                            <b># of Files: </b>{{ item.NumFiles }}<br>
+                                            <b># of Files: </b>{{ item.NumFiles | intcomma }}<br>
                                         {% endif %}
                                         {% if item.is_dir != True and item.Size != None and item.Size != 0 %}
-                                            <b>File Size: </b>{{ item.Size }}<br>
+                                            <b>File Size: </b>{{ item.Size | intcomma}}<br>
                                         {% endif %}
 
-                                        <b>Last Modified: </b><br>{{ item.LastMod}}
-                                                                    <a href="{{ webpath }}/{{ Name }}" target="_blank">
+                                        <b>Last Modified: </b>{{ fromtimestamp( item.LastMod).strftime("%m/%d/%y %H:%M:%S") }}<br>
+                                                                    <a href="{{ webpath }}/{{ item.Name }}" target="_blank">
                                 <img src="/resources/images/stock_new_window.png" align=right height="15%" width="15%"></a>
 
                                     </center>
                                 </div>
 
                             <!-- if last column in row -->
-                            {% if forloop.counter|divisibleby:"3" %}
+                            {% if loop.index is divisibleby 3 %}
                                 </div> <div class="row" style="margin-left: 0px;margin-right:0px;border: 0px solid;padding-left:2px;padding-right:2px;background:#b0e2ff;">
                             {% endif %}
 

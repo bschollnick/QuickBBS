@@ -21,7 +21,7 @@ if machine_name in ["bschollnicklt", u"nerv.local"]:
 else:
     DEBUG = False
 
-DEBUG = False
+DEBUG = True
 
 DEBUG_TOOLBAR = False
 #DEBUG_TOOLBAR = True
@@ -31,14 +31,19 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if not DEBUG:
     CACHES = {
         'default': {
-            'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
-            'LOCATION': os.path.join(BASE_DIR, "CACHE"),
+            #'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+            'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+            #'LOCATION': os.path.join(BASE_DIR, "CACHE"),
+            'LOCATION': 'cache_data_db_table',
             'TIMEOUT': 90,
             'OPTIONS': {
-                'MAX_ENTRIES': 100
+                'MAX_ENTRIES': 5000
             }
         }
     }
+# Before using the database cache, you must create the cache table with this command:
+# python manage.py createcachetable
+
 
 TEMPLATE_PATH = os.path.join(BASE_DIR, 'templates')
 print (TEMPLATE_PATH)
@@ -52,7 +57,6 @@ MEDIA_ROOT = os.sep.join((BASE_DIR.split(os.sep)[0:-1]))
 SECRET_KEY = 'isk^$ye4rx0m!p#0147tcmmmtcz1u&suzp2+z+6#gpjx^1lz4t'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
 
 INSTALLED_APPS = []
 
@@ -61,16 +65,17 @@ if DEBUG_TOOLBAR:
     INSTALLED_APPS += ('debug_toolbar',)
 
 INSTALLED_APPS += [
-    #    'devserver',
-    'sslserver',
+    # 'sslserver',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'bootstrap3',
     'django.contrib.sites',
+    'django_jinja',
+    'django_jinja.contrib._humanize',
+    'django.contrib.humanize',
     'allauth',
     'allauth.account',
     'allauth.socialaccount',
@@ -78,10 +83,20 @@ INSTALLED_APPS += [
     'frontend',
     'thumbnails',
 ]
+INSTALLED_APPS += ('bootstrap3',)
+#INSTALLED_APPS += ('django_jinja',)
+#INSTALLED_APPS += ('django_jinja.contrib._humanize',)
 
 SITE_ID = 1
 
 MIDDLEWARE = []
+
+#SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
+
+# Now this assumes you can safely lose any data you store in your user sessions.
+# If thats not the case, you can still get some benefit from using:
+
+SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
 
 if DEBUG_TOOLBAR:
     MIDDLEWARE += ('debug_toolbar.middleware.DebugToolbarMiddleware',)
@@ -122,22 +137,35 @@ TEMPLATES = [
         },
     },
 
-{
-        'NAME': "Jinja2",
-        "BACKEND": "django_jinja.backend.Jinja2",#'django.template.backends.jinja2.Jinja2',
+    {   'NAME': "Jinja2",
+        "BACKEND": "django_jinja.backend.Jinja2",
+        "APP_DIRS": True,
         'DIRS': [TEMPLATE_PATH,],
-        'APP_DIRS': True,
-        'OPTIONS': {"match_extension":".jijna",
-                    'extensions' : [
-                'jinja2.ext.i18n',
-                #'jinja2.ext.with_',
-                #'jinja2.ext.autoescape',
-                #'django_jinja.builtins.extensions.CsrfExtension',
-                'django_jinja.builtins.extensions.UrlsExtension',
-                'django_jinja.builtins.extensions.StaticFilesExtension',
-                'django_jinja.builtins.extensions.DjangoFiltersExtension',
-                #'compressor.contrib.jinja2ext.CompressorExtension',
-                   ]},
+        "OPTIONS": {
+            # Match the template names ending in .html but not the ones in the admin folder.
+            "match_extension": ".jinja",
+            "extensions": [
+                "jinja2.ext.do",
+                "jinja2.ext.loopcontrols",
+                "jinja2.ext.with_",
+                "jinja2.ext.i18n",
+                "jinja2.ext.autoescape",
+                "django_jinja.builtins.extensions.CsrfExtension",
+#                "django_jinja.builtins.extensions.CacheExtension",
+#                "django_jinja.builtins.extensions.TimezoneExtension",
+                "django_jinja.builtins.extensions.UrlsExtension",
+                "django_jinja.builtins.extensions.StaticFilesExtension",
+                "django_jinja.builtins.extensions.DjangoFiltersExtension",
+            ],
+#             "bytecode_cache": {
+#                 "name": "default",
+#                 "backend": "django_jinja.cache.BytecodeCache",
+#                 "enabled": False,
+#             },
+#             "autoescape": True,
+#             "auto_reload": True,
+#             "translation_engine": "django.utils.translation",
+         }
     },
 ]
 
@@ -146,14 +174,24 @@ WSGI_APPLICATION = 'quickbbs.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/1.9/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
-        'OPTIONS':{'timeout': 90},
-        'CONN_MAX_AGE':600,
-    }
-}
+#if DEBUG:
+# DATABASES = {'default': {'ENGINE': 'django.db.backends.sqlite3',
+#                         'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
+#                         'OPTIONS':{'timeout': 90},
+#                         'CONN_MAX_AGE':300,
+#                        }
+#            }
+#else:
+DATABASES = {'default': {'ENGINE': 'django.db.backends.postgresql',
+                         'NAME': 'quickbbs',
+                         'USER': 'quickbbs',
+                         'PASSWORD': 'quickie123',
+                         'HOST': 'localhost',
+                         'PORT': '',
+                        #'OPTIONS':{'timeout': 90},
+                         'CONN_MAX_AGE':300,
+                        }
+            }
 
 AUTHENTICATION_BACKENDS = (
     # Needed to login by username in Django admin, regardless of `allauth`
@@ -211,44 +249,54 @@ LOGIN_REDIRECT_URL = '/albums'
 
 # Default settings
 BOOTSTRAP3 = {
+
     # The URL to the jQuery JavaScript file
     'jquery_url': '//code.jquery.com/jquery.min.js',
+
     # The Bootstrap base URL
-    'base_url': '//maxcdn.bootstrapcdn.com/bootstrap/3.3.6/',
-    # The complete URL to the Bootstrap CSS file (None means derive it from
-    # base_url)
+    'base_url': '//maxcdn.bootstrapcdn.com/bootstrap/3.3.7/',
+
+    # The complete URL to the Bootstrap CSS file (None means derive it from base_url)
     'css_url': None,
+
     # The complete URL to the Bootstrap CSS file (None means no theme)
     'theme_url': None,
-    # The complete URL to the Bootstrap JavaScript file (None means derive it
-    # from base_url)
+
+    # The complete URL to the Bootstrap JavaScript file (None means derive it from base_url)
     'javascript_url': None,
-    # Put JavaScript in the HEAD section of the HTML document (only relevant
-    # if you use bootstrap3.html)
+
+    # Put JavaScript in the HEAD section of the HTML document (only relevant if you use bootstrap3.html)
     'javascript_in_head': False,
-    # Include jQuery with Bootstrap JavaScript (affects django-bootstrap3
-    # template tags)
-    'include_jquery': True,
+
+    # Include jQuery with Bootstrap JavaScript (affects django-bootstrap3 template tags)
+    'include_jquery': False,
+
     # Label class to use in horizontal forms
     'horizontal_label_class': 'col-md-3',
+
     # Field class to use in horizontal forms
     'horizontal_field_class': 'col-md-9',
-    # Set HTML required attribute on required fields
+
+    # Set HTML required attribute on required fields, for Django <= 1.8 only
     'set_required': True,
-    # Set HTML disabled attribute on disabled fields
+
+    # Set HTML disabled attribute on disabled fields, for Django <= 1.8 only
     'set_disabled': False,
+
     # Set placeholder attributes to label if no placeholder is provided
     'set_placeholder': True,
+
     # Class to indicate required (better to set this in your Django form)
     'required_css_class': '',
+
     # Class to indicate error (better to set this in your Django form)
     'error_css_class': 'has-error',
-    # Class to indicate success, meaning the field has valid input (better to
-    # set this in your Django form)
+
+    # Class to indicate success, meaning the field has valid input (better to set this in your Django form)
     'success_css_class': 'has-success',
-    # Renderers (only set these if you have studied the source and understand
-    # the inner workings)
-    'formset_renderers': {
+
+    # Renderers (only set these if you have studied the source and understand the inner workings)
+    'formset_renderers':{
         'default': 'bootstrap3.renderers.FormsetRenderer',
     },
     'form_renderers': {
@@ -263,7 +311,8 @@ BOOTSTRAP3 = {
 THUMBNAIL_PATH = os.path.join(os.getcwd(), 'thumbnails-cache')
 THUMBNAIL_URL = '/thumbnails/'
 THUMBNAIL_ENGINE = 'thumbnails.engines.PillowEngine'
-THUMBNAIL_CACHE_BACKEND = 'thumbnails.cache_backends.SimpleCacheBackend'
+THUMBNAIL_CACHE_BACKEND = 'thumbnails.cache_backends.DjangoCacheBackend'
+#THUMBNAIL_CACHE_BACKEND = 'thumbnails.cache_backends.SimpleCacheBackend'
 THUMBNAIL_CACHE_TIMEOUT = 60*60*24*4 #180  # 60 * 60 * 24 * 365
 THUMBNAIL_CACHE_CONNECTION_URI = None
 THUMBNAIL_STORAGE_BACKEND =\

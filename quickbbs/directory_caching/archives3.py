@@ -257,6 +257,8 @@ print filename, 'is a', cf.mime_type, 'file'
         if handle is None:
             return None
         fileext = os.path.splitext(fname.lower())[1][1:]
+        if fileext.upper() not in translate:
+            return None
 
         with handle() as cfile:
             data = "data:image/%s;base64," % translate[fileext.upper()].lower()
