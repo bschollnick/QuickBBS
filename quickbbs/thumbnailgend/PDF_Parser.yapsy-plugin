@@ -1,9 +1,0 @@
-[Core]
-Name = PDF Processor
-Module = PDF_Parser
-
-[Documentation]
-Description = PDF Processing for Gallery
-Author = Benjamin Schollnick
-Version = 1
-Website = http://bschollnick.github.com

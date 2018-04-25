@@ -22,22 +22,26 @@ from django.conf import settings
 from django.conf.urls import include, url
 
 urlpatterns = []
-if settings.DEBUG:
-    import debug_toolbar
-    urlpatterns += [
-        url(r'^__debug__/', include(debug_toolbar.urls)),
-    ]
+# if settings.DEBUG_TOOLBAR:
+#     import debug_toolbar
+#     urlpatterns += [
+#         url(r'^__debug__/', include(debug_toolbar.urls)),
+#     ]
 
 urlpatterns += [
-    url(r'^admin/', admin.site.urls),
-#    url(r'^(?i)albums/', frontend.views.viewgallery),
+    url(r'^(?i)admin/', admin.site.urls),
+    url(r'^(?i)download/(?P<uuid>.+)/',
+        frontend.views.new_download,
+        name="downloads"),
     url(r'^(?i)albums/', frontend.views.new_viewgallery),
-    url(r'^thumbnails/(?P<T_Url_Name>.+)/',
+    url(r'^(?i)thumbnails/(?P<t_url_name>.+)/',
         frontend.views.thumbnails,
         name="raw thumbnails"),
     url(r'^(?i)resources/', frontend.views.resources),
     url(r'^accounts/', include('allauth.urls')),
     url(r'^$', RedirectView.as_view(url="/albums")),
 ]
+
+#urlpatterns += [url(r'^silk/', include('silk.urls', namespace='silk'))]
 
 REGISTRATION_OPEN = True

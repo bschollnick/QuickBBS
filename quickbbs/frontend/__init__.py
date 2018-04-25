@@ -1,6 +1,6 @@
 import os
 import os.path
-import config
+import frontend.config
 
 
 #

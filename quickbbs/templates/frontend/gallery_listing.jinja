@@ -60,7 +60,7 @@
             </div>
         </div>
 <!-- main area -->
-         <div class="container-fluid" style="margin-left: 45px;margin-right:1px;border: 0px solid;padding-left:2px;padding-right:2px;background:#b0e2ff;">
+         <div class="container-fluid" style="margin-left: 45px;margin-right:1px;border: 0px solid;padding-left:2px;padding-right:2px;">
              <table border=0 width="97%">
                 <tr>
                 <td width="25%" align=left> <a href="{{ prev_uri }}">{{ prev_uri }}</a></td>
@@ -68,38 +68,48 @@
                 <td width="25%" align=right> <a href="{{ next_uri }}">{{ next_uri }}</a></td>
                 </tr>
              </table>
-                    <div class="row" width="auto" style="margin-left: 0px;margin-right:0px;border: 0px solid;padding-left:2px;padding-right:2px;background:#b0e2ff;">
+                    <div class="row" width="auto" style="margin-left: 0px;margin-right:0px;border: 0px solid;padding-left:2px;padding-right:2px;">
                     {% for item in pagelist %}
                                 <div class="col-xs-6 col-sm-4">
                                     <center>
                                         {{ loop.index }} <br>
-                                        <a href="{{ webpath }}/{{ item.Name }}" class="thumbnail" style="background:{{backgroundclr}};">
-                                                {{ item.Name | wordwrap(width=25, break_long_words=True)}}
+                                        {% if item.is_dir %}
+                                            {% set bgcolor = filetypes["dir"][0] %}
+                                        {% elif item.is_image %}
+                                            {% set bgcolor = filetypes["jpeg"][0] %}
+                                        {% elif item.is_pdf %}
+                                            {% set bgcolor = filetypes["pdf"][0] %}
+                                        {% elif item.is_archive %}
+                                            {% set bgcolor = filetypes["zip"][0] %}
+                                        {% endif %}
+
+                                        <a href="{{ webpath }}/{{ item.name }}" class="thumbnail" style="bgcolor:{{bgcolor}};">
+                                                {{ item.name | wordwrap(width=25, break_long_words=True)}}
                                                 <br>
                                             {% if item.is_dir %}
-                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ thumbpath }}/{{ item.Name }}?dir&size={{small}}" class="img-responsive" style="width:auto;max-width:100%"/>
+                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ thumbpath }}/{{ item.name }}?dir&size=small" class="img-responsive" style="width:auto;max-width:100%"/>
                                             {% elif item.is_pdf %}
-                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ thumbpath }}/{{ item.Name}}?pdf&size={{small}}" class="img-responsive" style="width:auto;max-width:100%"/>
+                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ thumbpath }}/{{ item.name}}?pdf&size=small" class="img-responsive" style="width:auto;max-width:100%"/>
                                             {% elif item.is_archive %}
-                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ thumbpath }}/{{ item.Name}}?arch=0&size={{small}}" class="img-responsive" style="width:auto;max-width:100%"/>
+                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ thumbpath }}/{{ item.name}}?arch=0&size=small" class="img-responsive" style="width:auto;max-width:100%"/>
                                             {% else %}
-                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ thumbpath }}/{{ item.Name}}?size={{small}}" class="img-responsive" style="width:auto;max-width:100%"/>
+                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ thumbpath }}/{{ item.name}}?size=small" class="img-responsive" style="width:auto;max-width:100%"/>
                                             {% endif %}
 
                                         </a>
-                                        {% if item.NumDirs != None and item.NumDirs != 0%}
-                                            <b># of Dirs: </b>{{ item.NumDirs | intcomma }}<br>
+                                        {% if item.numdirs != None and item.numdirs != 0%}
+                                            <b># of Dirs: </b>{{ item.numdirs | intcomma }}<br>
                                         {% endif %}
 
-                                        {% if item.NumFiles != None and item.NumFiles != 0 %}
-                                            <b># of Files: </b>{{ item.NumFiles | intcomma }}<br>
+                                        {% if item.numfiles != None and item.numfiles != 0 %}
+                                            <b># of Files: </b>{{ item.numfiles | intcomma }}<br>
                                         {% endif %}
                                         {% if item.is_dir != True and item.Size != None and item.Size != 0 %}
-                                            <b>File Size: </b>{{ item.Size | intcomma}}<br>
+                                            <b>File Size: </b>{{ item.size | intcomma}}<br>
                                         {% endif %}
 
-                                        <b>Last Modified: </b>{{ fromtimestamp( item.LastMod).strftime("%m/%d/%y %H:%M:%S") }}<br>
-                                                                    <a href="{{ webpath }}/{{ item.Name }}" target="_blank">
+                                        <b>Last Modified: </b>{{ fromtimestamp( item.lastmod).strftime("%m/%d/%y %H:%M:%S") }}<br>
+                                                                    <a href="{{ webpath }}/{{ item.name }}" target="_blank">
                                 <img src="/resources/images/stock_new_window.png" align=right height="15%" width="15%"></a>
 
                                     </center>
@@ -107,7 +117,7 @@
 
                             <!-- if last column in row -->
                             {% if loop.index is divisibleby 3 %}
-                                </div> <div class="row" style="margin-left: 0px;margin-right:0px;border: 0px solid;padding-left:2px;padding-right:2px;background:#b0e2ff;">
+                                </div> <div class="row" style="margin-left: 0px;margin-right:0px;border: 0px solid;padding-left:2px;padding-right:2px;">
                             {% endif %}
 
                     {% endfor %}
