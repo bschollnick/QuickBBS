@@ -1,0 +1,26 @@
+pip uninstall  directory_caching
+pip uninstall  jinja
+pip uninstall  markdown
+pip uninstall  naturalsort
+pip uninstall  passlib
+pip uninstall  Pillow
+pip uninstall  pybonjour
+pip uninstall  rarfile
+pip uninstall  rarfile
+pip uninstall  semantic_url
+pip uninstall  scandir
+pip uninstall  twisted
+pip uninstall  txbonjour
+pip uninstall  unidecode
+pip uninstall  fastnumbers
+pip uninstall  natsort
+pip uninstall  django-bootstrap3
+pip uninstall  python-thumbnails
+pip uninstall  django-allauth
+pip uninstall  django-debug-toolbar
+pip uninstall  django-jinja
+pip uninstall  django-jinja
+pip uninstall  pathlib2
+pip uninstall  configparser
+pip uninstall  psycopg2-binary #psycopg2
+pip uninstall  PyMuPDF

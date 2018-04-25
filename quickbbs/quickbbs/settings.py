@@ -10,20 +10,24 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/1.9/ref/settings/
 """
 
+from __future__ import absolute_import
+from __future__ import print_function
 import os
 import socket
 ALLOWED_HOSTS = [u'nerv.local', u'localhost', u'127.0.0.1']
 INTERNAL_IPS = [u'localhost', '127.0.0.1', u'nerv.local']
 machine_name = socket.gethostname().lower()
-print "Running on %s" % machine_name
+print ("Running on %s" % machine_name)
 if machine_name in ["bschollnicklt", u"nerv.local"]:
     DEBUG = True
 else:
     DEBUG = False
 
 DEBUG = True
+#DEBUG = False
 
-DEBUG_TOOLBAR = False
+ALLOWED_HOSTS = ['192.168.1.19', 'NERV.LOCAL', 'LOCALHOST', '127.0.0.1']
+#DEBUG_TOOLBAR = False
 #DEBUG_TOOLBAR = True
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -35,7 +39,7 @@ if not DEBUG:
             'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
             #'LOCATION': os.path.join(BASE_DIR, "CACHE"),
             'LOCATION': 'cache_data_db_table',
-            'TIMEOUT': 90,
+            'TIMEOUT': 18000,
             'OPTIONS': {
                 'MAX_ENTRIES': 5000
             }
@@ -46,7 +50,6 @@ if not DEBUG:
 
 
 TEMPLATE_PATH = os.path.join(BASE_DIR, 'templates')
-print (TEMPLATE_PATH)
 MEDIA_ROOT = os.sep.join((BASE_DIR.split(os.sep)[0:-1]))
 
 # MEDIA_ROOT =
@@ -61,17 +64,18 @@ SECRET_KEY = 'isk^$ye4rx0m!p#0147tcmmmtcz1u&suzp2+z+6#gpjx^1lz4t'
 INSTALLED_APPS = []
 
 # Application definition
-if DEBUG_TOOLBAR:
-    INSTALLED_APPS += ('debug_toolbar',)
+
+#if DEBUG_TOOLBAR:
+#    INSTALLED_APPS += ('debug_toolbar',)
 
 INSTALLED_APPS += [
     # 'sslserver',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
+    'django.contrib.staticfiles',
     'django.contrib.sessions',
     'django.contrib.messages',
-    'django.contrib.staticfiles',
     'django.contrib.sites',
     'django_jinja',
     'django_jinja.contrib._humanize',
@@ -81,7 +85,8 @@ INSTALLED_APPS += [
     'allauth.socialaccount',
     'quickbbs',
     'frontend',
-    'thumbnails',
+#    'silk'
+#    'thumbnails',
 ]
 INSTALLED_APPS += ('bootstrap3',)
 #INSTALLED_APPS += ('django_jinja',)
@@ -90,7 +95,6 @@ INSTALLED_APPS += ('bootstrap3',)
 SITE_ID = 1
 
 MIDDLEWARE = []
-
 #SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 
 # Now this assumes you can safely lose any data you store in your user sessions.
@@ -98,8 +102,8 @@ MIDDLEWARE = []
 
 SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
 
-if DEBUG_TOOLBAR:
-    MIDDLEWARE += ('debug_toolbar.middleware.DebugToolbarMiddleware',)
+##if DEBUG_TOOLBAR:
+#    MIDDLEWARE += ('debug_toolbar.middleware.DebugToolbarMiddleware',)
 
 MIDDLEWARE += [
 #    'quickbbs.middleware.filter_ips.FilterHostMiddleware',
@@ -108,15 +112,19 @@ MIDDLEWARE += [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.auth.middleware.SessionAuthenticationMiddleware',
+#    'django.contrib.auth.middleware.SessionAuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+#    'silk.middleware.SilkyMiddleware',
 ]
 if not DEBUG:
     MIDDLEWARE += (
         'django.middleware.cache.UpdateCacheMiddleware',
         'django.middleware.common.CommonMiddleware',
         'django.middleware.cache.FetchFromCacheMiddleware',)
+
+
+SILKY_PYTHON_PROFILER = True
 
 ROOT_URLCONF = 'quickbbs.urls'
 
@@ -151,25 +159,26 @@ TEMPLATES = [
                 "jinja2.ext.i18n",
                 "jinja2.ext.autoescape",
                 "django_jinja.builtins.extensions.CsrfExtension",
-#                "django_jinja.builtins.extensions.CacheExtension",
-#                "django_jinja.builtins.extensions.TimezoneExtension",
+                "django_jinja.builtins.extensions.CacheExtension",
+                "django_jinja.builtins.extensions.TimezoneExtension",
                 "django_jinja.builtins.extensions.UrlsExtension",
                 "django_jinja.builtins.extensions.StaticFilesExtension",
                 "django_jinja.builtins.extensions.DjangoFiltersExtension",
             ],
-#             "bytecode_cache": {
-#                 "name": "default",
-#                 "backend": "django_jinja.cache.BytecodeCache",
-#                 "enabled": False,
-#             },
-#             "autoescape": True,
-#             "auto_reload": True,
-#             "translation_engine": "django.utils.translation",
+             "bytecode_cache": {
+                 "name": "default",
+                 "backend": "django_jinja.cache.BytecodeCache",
+                 "enabled": False,
+             },
+             "autoescape": True,
+             "auto_reload": True,
+             "translation_engine": "django.utils.translation",
          }
     },
 ]
 
-WSGI_APPLICATION = 'quickbbs.wsgi.application'
+#WSGI_APPLICATION = 'quickbbs.wsgi.application'
+#WSGI_APPLICATION = 'wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/1.9/ref/settings/#databases
@@ -182,17 +191,21 @@ WSGI_APPLICATION = 'quickbbs.wsgi.application'
 #                        }
 #            }
 #else:
-DATABASES = {'default': {'ENGINE': 'django.db.backends.postgresql',
-                         'NAME': 'quickbbs',
-                         'USER': 'quickbbs',
-                         'PASSWORD': 'quickie123',
-                         'HOST': 'localhost',
-                         'PORT': '',
-                        #'OPTIONS':{'timeout': 90},
-                         'CONN_MAX_AGE':300,
-                        }
-            }
 
+ DATABASES = {'default': {'ENGINE': 'django.db.backends.postgresql',
+                          'NAME': 'quickbbs',
+                          'USER': 'quickbbs',
+                          'PASSWORD': 'quickie123',
+                          'HOST': 'localhost',
+                          'PORT': '',
+                          'CONN_MAX_AGE':300,
+                         }
+             }
+
+
+SOUTH_DATABASE_ADAPTERS = {
+'default': 'south.db.postgresql_psycopg2',
+}
 AUTHENTICATION_BACKENDS = (
     # Needed to login by username in Django admin, regardless of `allauth`
     'django.contrib.auth.backends.ModelBackend',
@@ -240,7 +253,7 @@ STATICFILES_DIRS = [
     os.path.join(BASE_DIR, "static", "javascript"),
     os.path.join(BASE_DIR, "static", "css"),
     os.path.join(BASE_DIR, "static", "fonts"),
-    os.path.join(BASE_DIR, "static", "thumbnails"),
+#    os.path.join(BASE_DIR, "static", "thumbnails"),
 ]
 
 ACCOUNT_AUTHENTICATED_LOGIN_REDIRECTS = True
@@ -307,20 +320,3 @@ BOOTSTRAP3 = {
         'inline': 'bootstrap3.renderers.InlineFieldRenderer',
     },
 }
-
-THUMBNAIL_PATH = os.path.join(os.getcwd(), 'thumbnails-cache')
-THUMBNAIL_URL = '/thumbnails/'
-THUMBNAIL_ENGINE = 'thumbnails.engines.PillowEngine'
-THUMBNAIL_CACHE_BACKEND = 'thumbnails.cache_backends.DjangoCacheBackend'
-#THUMBNAIL_CACHE_BACKEND = 'thumbnails.cache_backends.SimpleCacheBackend'
-THUMBNAIL_CACHE_TIMEOUT = 60*60*24*4 #180  # 60 * 60 * 24 * 365
-THUMBNAIL_CACHE_CONNECTION_URI = None
-THUMBNAIL_STORAGE_BACKEND =\
-    'thumbnails.storage_backends.FilesystemStorageBackend'
-
-THUMBNAIL_SCALE_UP = False
-THUMBNAIL_QUALITY = 90
-THUMBNAIL_COLORMODE = 'RGB'
-THUMBNAIL_FALLBACK_FORMAT = 'JPEG'
-THUMBNAIL_FORCE_FORMAT = 'JPEG'
-THUMBNAIL_ALTERNATIVE_RESOLUTIONS = []

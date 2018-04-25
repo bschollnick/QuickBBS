@@ -6,17 +6,16 @@ Core Plugin for Gallery
 ##############################################################################
 from __future__ import absolute_import
 from __future__ import print_function
-import cStringIO
-import exceptions
 import os
 import os.path
 import stat
 import time
 import subprocess
-#from subprocess import call
+import shutil
 from functools import partial
 from PIL import Image
 from ctypes import c_void_p, c_size_t
+import six
 
 import warnings
 from . import config
@@ -90,18 +89,19 @@ THUMBNAIL_REBUILD_TIME = (24 * 60 * 60) * 14  # 2 weeks
 
 warnings.simplefilter('ignore', Image.DecompressionBombWarning)
 
-def check_for_ghostscript():
-    """
-    Check and return path to ghostscript, returns None
-    if is not installed.
-    """
-    from twisted.python.procutils import which
-    if which("gs") == []:
-        print("Ghostscript is not installed.")
-        return None
-    return which("gs")[0]
+##def check_for_ghostscript():
+#    """
+#    Check and return path to ghostscript, returns None
+#    if is not installed.
+#    """
+#    from twisted.python.procutils import which
+#    results = shutil.which("gs")
+#    if results == None:
+#        print("Ghostscript is not installed.")
+#        return None
+#    return results
 
-GHOSTSCRIPT_INSTALLED = check_for_ghostscript()
+#GHOSTSCRIPT_INSTALLED = check_for_ghostscript()
 THUMBNAIL_REBUILD_TIME = (24 * 60 * 60) * 14  # 2 weeks
 
 #

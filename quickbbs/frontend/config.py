@@ -38,7 +38,9 @@ code::
 #   Batteries Included imports
 from __future__ import absolute_import
 from __future__ import print_function
-import six.moves.configparser
+#import six.moves.configparser
+import configparser
+from configparser import ConfigParser
 import os
 import os.path
 import sys
@@ -76,10 +78,11 @@ code::
         filename = "settings.ini"
 
     try:
-        config = six.moves.configparser.SafeConfigParser()
+#        config = six.moves.configparser.SafeConfigParser()
+        config = configparser.SafeConfigParser()
         config.read(filename)
         for section in config.sections():
-            print("Section : ",section)
+            #print("Section : ",section)
             sname = section.strip()
             configdata[sname]={}
             for option_name in config.options(section.strip()):
@@ -87,6 +90,7 @@ code::
                 if len(value) == 1:
                     if (option_name.endswith("_path") or
                         option_name.endswith("_filename")):
+#                        print (option_name)
                         value[0] = os.path.abspath(value[0])
                     configdata[sname][option_name] = fastnumbers.fast_int(value[0])
                 else:
@@ -96,7 +100,8 @@ code::
                             option_name.endswith("_filename")):
                             cleanvalue = os.path.abspath(cleanvalue)
                         configdata[sname][option_name].append(cleanvalue.strip())
-    except six.moves.configparser.NoSectionError:
+#    except six.moves.configparser.NoSectionError:
+    except configparser.NoSectionError:
         print("Error reading %s" % filename)
 
 if __name__ == "__main__":

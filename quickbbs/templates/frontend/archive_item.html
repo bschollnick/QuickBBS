@@ -14,6 +14,11 @@
 
 {# Display django.contrib.messages as Bootstrap alerts #}
 {% bootstrap_messages %}
+<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+<script src="//maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+<link href="//maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" rel="stylesheet"/>
+
+<script src="/resources/javascript/jquery.lazy.min.js"></script>
 
         <!-- CSS code from Bootply.com editor -->
 
@@ -145,9 +150,9 @@
                         <div class="thumbnail" style="background:{{ pagelist.0.4 }};">
                             <center>
                                     {% if mobile == True %}
-                                        <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ pagelist.0.2.1 }}?arch={{ pagelist.number }}&size={{ medium }}" style="width:auto;max-width:100%"/>
+                                        <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ pagelist.0.2 }}?arch={{ pagelist.number }}&size=medium" style="width:auto;max-width:100%"/>
                                     {% else %}
-                                        <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ pagelist.0.2.1 }}?arch={{ pagelist.number }}&size={{ large }}" style="width:auto;max-width:100%"/>
+                                        <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ pagelist.0.2 }}?arch={{ pagelist.number }}&size=large" style="width:auto;max-width:100%"/>
                                     {% endif %}
                                     <br>
                                 {% if pagelist.0.1.number_dirs != None and pagelist.0.1.number_dirs != 0%}
