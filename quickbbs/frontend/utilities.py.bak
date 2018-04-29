@@ -1,0 +1,209 @@
+"""
+Utilities for QuickBBS, the python edition
+"""
+import uuid
+import os
+import os.path
+from io import BytesIO
+import fitz
+from PIL import Image
+from django.http import HttpResponse
+
+def is_valid_uuid(uuid_to_test, version=4):
+    """
+    https://stackoverflow.com/questions/19989481
+    Check if uuid_to_test is a valid UUID.
+
+    Parameters
+    ----------
+    uuid_to_test : str
+        UUID code to validate
+    version : int
+        {1, 2, 3, 4}
+
+    Returns
+    -------
+    boolean
+        `True` if uuid_to_test is a valid UUID, otherwise `False`.
+
+    Examples
+    --------
+    >>> is_valid_uuid('c9bf9e57-1685-4c89-bafb-ff5af830be8a')
+    True
+    >>> is_valid_uuid('c9bf9e58')
+    False
+    """
+    try:
+        uuid_obj = uuid.UUID(uuid_to_test, version=version)
+    except:
+        return False
+
+    return str(uuid_obj) == uuid_to_test
+
+
+def test_extension(name, ext_list):
+    """
+    Check if filename has an file extension that is in passed list.
+
+    Parameters
+    ----------
+    name : str
+    ext_list : ['zip', 'rar', etc] # list of file extensions (w/o .), lowercase.
+
+    Returns
+    -------
+    `True` if name does match an extension passed, otherwise `False`.
+
+    Examples
+    --------
+    >>> test_extension("test.zip", ['zip', 'cbz'])
+    True
+    >>> test_extension("test.rar", ['zip', 'cbz'])
+    False
+
+    """
+    return os.path.splitext(name)[1][1:].lower().strip() in ext_list
+
+def is_archive(fqfn):
+    # None = not an archive.
+    """
+    Check if filename has an file extension that in the archive file types list
+
+    Parameters
+    ----------
+    fqfn : filename of file
+
+    Returns
+    -------
+    `True` if name does match an extension in the archive_fts
+    (archive filetypes) list.  Otherwise return none.
+
+    Examples
+    --------
+    >>> is_archive("test.zip")
+    True
+    >>> is_archive("test.jpg")
+    False
+
+    """
+    return test_extension(fqfn, configdata["filetypes"]["archive_fts"])
+#                                           ['cbz',
+#                                            'cbr',
+#                                            'zip',
+#                                            'rar'])
+
+def return_img_attach(filename, binaryblog):
+    """
+    Output a http response header, for an image attachment.
+
+
+    Parameters
+    ----------
+    filename : str
+    binaryblog : The binary blog, that is the http response (eg. Image)
+
+    Returns
+    -------
+    Response header
+
+    Examples
+    --------
+    return_img_attach("test.png", img_data)
+
+    """
+    response = HttpResponse()
+    response.write(binaryblog)
+    response['Content-Disposition'] = 'attachment; filename={%s}' % filename
+    return response
+
+def get_xth_image(database, positional=0, filters=[]):
+    """
+    Return the xth image from the database, using the passed filters
+
+    Parameters
+    ----------
+
+    database : object - The django database handle
+
+    positional : int - 0 is first, if positional is greater than the # of
+                 records, then it is reset to the count of records
+
+    filters : dictionary of filters
+
+    Returns
+    -------
+    If successful the database record in question, otherwise returns None
+
+    Examples
+    --------
+    return_img_attach("test.png", img_data)
+"""
+    files = database.objects.filter(**filters)
+    if files:
+        if positional > files.count():
+            positional = files.count()
+        elif positional < 0:
+            positional = 0
+        return files[positional]
+    else:
+        return None
+
+def return_image_obj(fs_path, memory=False):
+    """
+    Given a Fully Qualified FileName/Pathname, open the image
+    (or PDF) and return the PILLOW object for the image
+    Fitz == py
+    """
+    if os.path.splitext(fs_path)[1][1:].lower() == u"pdf":
+        pdf_file = fitz.open(fs_path)
+        pdf_page = pdf_file.loadPage(0)
+        pix = pdf_page.getPixmap(matrix=fitz.Identity,
+                                 alpha=True)
+
+        source_image = Image.open(BytesIO(pix.getPNGData()))
+    else:
+        if not memory:
+            source_image = Image.open(fs_path)
+        else:
+            # fs_path is a byte stream
+            source_image = Image.open(BytesIO(fs_path))
+#        if source_image.mode != "RGB":
+#            source_image = source_image.convert('RGB')
+    return source_image
+
+def cr_tnail_img(source_image, size, fext):
+    """
+    Given the PILLOW object, resize the image to <SIZE>
+    and return the saved version of the file (using FEXT
+    as the format to save as [eg. PNG])
+
+    Return the binary representation of the file that
+    was saved to memory
+    """
+    image_data = BytesIO()
+    source_image.thumbnail((size, size), Image.ANTIALIAS)
+    try:
+        source_image.save(fp=image_data,
+                          format=configdata["filetypes"][fext][2].strip(),
+                          optimize=True)
+    except IOError:
+        source_image = source_image.convert('RGB')
+        source_image.save(fp=image_data,
+                          format=configdata["filetypes"][fext][2].strip(),
+                          optimize=True)
+
+    image_data.seek(0)
+    return image_data.getvalue()
+
+
+if __name__ == '__main__':
+    from config import configdata
+    import config
+    cfg_path = os.path.abspath(r"../cfg")
+    config.load_data(os.path.join(cfg_path, "paths.ini"))
+    config.load_data(os.path.join(cfg_path, "settings.ini"))
+    config.load_data(os.path.join(cfg_path, "filetypes.ini"))
+    import doctest
+    doctest.testmod()
+else:
+    from frontend.config import configdata

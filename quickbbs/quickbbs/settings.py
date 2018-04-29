@@ -26,7 +26,6 @@ else:
 DEBUG = True
 #DEBUG = False
 
-ALLOWED_HOSTS = ['192.168.1.19', 'NERV.LOCAL', 'LOCALHOST', '127.0.0.1']
 #DEBUG_TOOLBAR = False
 #DEBUG_TOOLBAR = True
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
@@ -192,14 +191,14 @@ TEMPLATES = [
 #            }
 #else:
 
- DATABASES = {'default': {'ENGINE': 'django.db.backends.postgresql',
-                          'NAME': 'quickbbs',
-                          'USER': 'quickbbs',
-                          'PASSWORD': 'quickie123',
-                          'HOST': 'localhost',
-                          'PORT': '',
-                          'CONN_MAX_AGE':300,
-                         }
+DATABASES = {'default': {'ENGINE': 'django.db.backends.postgresql',
+                         'NAME': 'quickbbs',
+                         'USER': 'quickbbs',
+                         'PASSWORD': 'quickie123',
+                         'HOST': 'localhost',
+                         'PORT': '',
+                         'CONN_MAX_AGE':300,
+                        }
              }
 
 
