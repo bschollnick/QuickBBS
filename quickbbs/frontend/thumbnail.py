@@ -1,352 +1,306 @@
-# -*- coding: utf-8 -*-
 """
-Core Plugin for Gallery
+Thumbnail routines for QuickBBS
 """
-
-##############################################################################
-from __future__ import absolute_import
-from __future__ import print_function
 import os
-import os.path
-import stat
-import time
-import subprocess
-import shutil
-from functools import partial
-from PIL import Image
-from ctypes import c_void_p, c_size_t
-import six
+#import sys
 
-import warnings
-from . import config
+import frontend.archives3 as archives
+from frontend.config import configdata as configdata
+#from frontend.serve_up import resources
+from frontend.utilities import (cr_tnail_img, get_xth_image,
+                                return_image_obj, return_img_attach,
+                                g_option)
+#import utilities
+from utilities import read_from_disk
+from quickbbs.models import (index_data,
+                             Thumbnails_Dirs,
+                             Thumbnails_Files,
+                             Thumbnails_Archives)
 
+sizes = {
+    "small":configdata["configuration"]["small"],
+    "medium":configdata["configuration"]["medium"],
+    "large":configdata["configuration"]["large"],
+    "unknown":configdata["configuration"]["small"]
+}
 
-#pool = workerpool.WorkerPool(size=15)
+def images_in_dir(database, webpath):
+    files = None
+    prefilters = {'fqpndirectory':webpath.lower(), 'is_dir':False,
+                  'ignore':False, 'delete_pending':False}
+    filters = {'fqpndirectory':webpath.lower(), 'is_dir':False,
+               'is_image':True, 'is_archive':False,
+               'ignore':False, 'delete_pending':False}
 
-THUMBNAIL_DB = {}
-THUMBNAIL_DB.update({'bmp': {'IMG_TAG': True, 'FRAME_TAG': False,
-                             'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
-                             'ICON': ""}})
-THUMBNAIL_DB.update({'dib': {'IMG_TAG': True, 'FRAME_TAG': False,
-                             'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
-                             'ICON': ""}})
-THUMBNAIL_DB.update({'eps': {'IMG_TAG': True, 'FRAME_TAG': False,
-                             'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
-                             'ICON': ""}})
-THUMBNAIL_DB.update({'gif': {'IMG_TAG': True, 'FRAME_TAG': False,
-                             'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
-                             'ICON': ""}})
-THUMBNAIL_DB.update({'msp': {'IMG_TAG': True, 'FRAME_TAG': False,
-                             'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
-                             'ICON': ""}})
-THUMBNAIL_DB.update({'tif': {'IMG_TAG': True, 'FRAME_TAG': False,
-                             'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
-                             'ICON': ""}})
-THUMBNAIL_DB.update({'tiff': {'IMG_TAG': True, 'FRAME_TAG': False,
-                              'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
-                              'ICON': ""}})
-THUMBNAIL_DB.update({'jpg': {'IMG_TAG': True, 'FRAME_TAG': False,
-                             'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
-                             'ICON': ""}})
-THUMBNAIL_DB.update({'jpeg': {'IMG_TAG': True, 'FRAME_TAG': False,
-                              'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
-                              'ICON': ""}})
-THUMBNAIL_DB.update({'jpe': {'IMG_TAG': True, 'FRAME_TAG': False,
-                             'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
-                             'ICON': ""}})
-THUMBNAIL_DB.update({'jif': {'IMG_TAG': True, 'FRAME_TAG': False,
-                             'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
-                             'ICON': ""}})
-THUMBNAIL_DB.update({'jfif': {'IMG_TAG': True, 'FRAME_TAG': False,
-                              'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
-                              'ICON': ""}})
-THUMBNAIL_DB.update({'jfi': {'IMG_TAG': True, 'FRAME_TAG': False,
-                             'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
-                             'ICON': ""}})
-THUMBNAIL_DB.update({'png': {'IMG_TAG': True, 'FRAME_TAG': False,
-                             'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
-                             'ICON': ""}})
-THUMBNAIL_DB.update({'pcx': {'IMG_TAG': True, 'FRAME_TAG': False,
-                             'ARCHIVE': False, 'BACKGROUND': '#FAEBF4',
-                             'ICON': ""}})
-THUMBNAIL_DB.update({'pdf': {'IMG_TAG': False, 'FRAME_TAG': False,
-                             'ARCHIVE': False, 'BACKGROUND': '#FDEDB1',
-                             'ICON': ""}})
-THUMBNAIL_DB.update({'zip': {'IMG_TAG': False, 'FRAME_TAG': False,
-                             'ARCHIVE': True, 'BACKGROUND': '#FDEDB1',
-                             'ICON': ""}})
-THUMBNAIL_DB.update({'cbz': {'IMG_TAG': False, 'FRAME_TAG': False,
-                             'ARCHIVE': True, 'BACKGROUND': '#FDEDB1',
-                             'ICON': ""}})
-THUMBNAIL_DB.update({'cbr': {'IMG_TAG': False, 'FRAME_TAG': False,
-                             'ARCHIVE': True, 'BACKGROUND': '#FDEDB1',
-                             'ICON': ""}})
-THUMBNAIL_DB.update({'rar': {'IMG_TAG': False, 'FRAME_TAG': False,
-                             'ARCHIVE': True, 'BACKGROUND': '#FDEDB1',
-                             'ICON': ""}})
+    #   What files exist in this directory?
+    files = get_xth_image(database, 0, prefilters)
+    if files is None:
+        # No files exist in the database for this directory
+        print("* No files exist, %s" % webpath)
+        read_from_disk(configdata["locations"]["albums_path"] + webpath)
+        # process_dir
+    files = get_xth_image(database, 0, filters)
+    return files
 
-THUMBNAIL_REBUILD_TIME = (24 * 60 * 60) * 14  # 2 weeks
+def new_process_dir(entry):
+    """
+    input:
+        entry - The index_data entry
 
-warnings.simplefilter('ignore', Image.DecompressionBombWarning)
+    Read directory, and identify the first thumbnailable file.
+    Make thumbnail of that file
+    Return thumbnail results
 
-##def check_for_ghostscript():
-#    """
-#    Check and return path to ghostscript, returns None
-#    if is not installed.
-#    """
-#    from twisted.python.procutils import which
-#    results = shutil.which("gs")
-#    if results == None:
-#        print("Ghostscript is not installed.")
-#        return None
-#    return results
+    Since we are just looking for a thumbnailable image, it doesn't have
+    to be the most up to date, nor the most current.  Cached is fine.
+    """
+    #
+    # webpath contains the URL equivalent to the file system path (fs_path)
+    #
+    files = images_in_dir(index_data,
+                          os.path.join(entry.fqpndirectory.lower(),
+                                       entry.name))
+    if files: # found an file in the directory to use for thumbnail purposes
+        if entry.directory is None:
+            # The directory entry does not exist
+            entry.directory = Thumbnails_Dirs.objects.create(
+                uuid=entry.uuid, FilePath=entry.fqpndirectory.lower())
+            entry.directory.save()
+            entry.save()
 
-#GHOSTSCRIPT_INSTALLED = check_for_ghostscript()
-THUMBNAIL_REBUILD_TIME = (24 * 60 * 60) * 14  # 2 weeks
+        fs_d_fname = configdata["locations"]["albums_path"] +\
+                    os.path.join(entry.fqpndirectory.lower(),
+                                 entry.name, files.name)
+                 # file system location of directory
 
-#
-# class Thumbnails(object):
-#     """
-#         Subclassed core plugin.
-#
-#
-#         * ACCEPTABLE_FILE_EXTENSIONS is a list, that contains the (lowerCASE),
-#             File Extensions (DOTTED format, e.g. .gif, not gif) that this
-#             plugin will manage.
-#
-#         * IMG_TAG - BOOLEAN - (e.g. .PNG, .GIF, .JPG)
-#             * True - This plugin can make an IMAGE based thumbnail, for this
-#                 file type
-#             * False - This plugin will not make an image thumbnail
-#
-#         * FRAME_TAG - BOOLEAN - (e.g. .TEXT, .MARKDOWN, etc)
-#             * True - This plugin will return an TEXT based stream. That should
-#                 be displayed in the browser window.
-#
-#             * False - This plugin will not make an image thumbnail
-#
-#         * DEFAULT_ICON - String - The Default thumbnail image to use, if
-#             IMG_TAG is False
-#
-#         * DEFAULT_BACKGROUND - String - The background of the table cell, for
-#             this file format.
-#
-#         * CONTAINER - BOOLEAN - (e.g. ZIP, RAR) - This plugin returns an
-#             memory_image of the contents.
-#
-#     """
-#     def __init__(self):
-#         """
-#         Initialization for Core Plugin.
-#
-#         """
-#
-#     def display_text_content(self, src_filename):
-#         """
-#         Initialization for Core Plugin.
-#
-#         """
-#         raise NotImplementedError("Subclass must implement abstract method")
-#
-#     def make_tnail_name(self, filename=None):
-#         tnail_name = {}
-#         tnail_name["small"] = filename + "_thumb%s.png" %\
-#             config.configdata["configuration"]["sm_thumb"]
-# # gallery view ~300
-#         tnail_name["medium"] = filename + "_thumb%s.png" %\
-#             config.configdata["configuration"]["med_thumb"]
-# # mobile view ~740
-#         tnail_name["large"] = filename + "_thumb%s.png" %\
-#             config.configdata["configuration"]["lg_thumb"]
-# # large view ~1024
-#         return tnail_name
-#
-#     def make_tnail_fsname(self, src_filename=None):
-#         """
-#         Generate the thumbnail name for the source file.
-#
-#         input -
-#                 src_filename - The FQFN of the source file
-#                 clean_filename - Pointer to the filename cleaning function
-#                                  that should be used.
-#
-#         output - A dictionary, of the small, medium, and large thumbnails for
-#                  the thumbnail file.  The thumbnail will have the albums
-#                  directory replaced with the thumbnails directory name.
-#         """
-#         if src_filename is None:
-#             raise RuntimeError("No Source file given.")
-#
-#         tnail_target = src_filename.replace("%salbums%s" % (os.sep, os.sep),
-#                                             "%sthumbnails%s" % (os.sep,
-#                                                                 os.sep))
-#         tnail_name = self.make_tnail_name(tnail_target)
-#         tnail_name["small"] = os.path.join(tnail_target, tnail_name["small"])
-#         tnail_name["medium"] = os.path.join(tnail_target, tnail_name["medium"])
-#         tnail_name["large"] = os.path.join(tnail_target, tnail_name["large"])
-#         return tnail_name
+        fext = os.path.splitext(files.name)[1][1:].lower()
 
-#     def does_thumbnail_already_exist(self, thumbfilename):
-# #        if thumbfilename == None:
-# #            return False
-#         try:
-#             return os.path.exists(thumbfilename)
-#         except exceptions.IOError:
-#             return False
-#
-#     def validate_thumbnail_file(self, thumbfilename, src_file):
-#         """
-#         validate thumbnail file existence.
-#         """
-#         if thumbfilename == None:
-#             return False
-#         elif self.does_thumbnail_already_exist(thumbfilename):
-#             return True
-#         return False
+#            if fext in configdata["filetypes"]:
+#                if configdata["filetypes"][fext][1].strip() != "None":
+#                    fs_path = os.path.join(
+#                        configdata["locations"]["resources_path"],
+#                        "images", configdata["filetypes"][fext][1])
 
+        if entry.directory.FileSize != os.path.getsize(fs_d_fname):
+            #
+            #   The cached data is invalidated since the filesize is
+            #   inaccurate.
+            #   Reset the existing thumbnails to ensure that they will be
+            #   regenerated
+            #
+            print("size mismatch, %s - %s - %s" % (entry.directory.FileSize,
+                                                   entry.name, fs_d_fname))
+            entry.directory.FileSize = -1
+            entry.directory.SmallThumb = b""
+            entry.directory.save()
+            entry.save()
 
-#     def create_pdf_thumbnail(self, src_filename,
-#                              t_filename,
-#                              t_size=None):
-#         """
-#         http://stackoverflow.com/questions/12759778/python-magickwand-pdf-to-image-converting-and-resize-the-image
-#
-#
-#         ImageMagick just uses Ghostscript under the hood, with less customizablity.
-#         (I can't seem to get compression to work properly with IM.)
-#         """
-#         if src_filename is None:
-#             raise RuntimeError("No Source Filename was not specified")
-#         elif src_filename == t_filename:
-#             raise RuntimeError("The source is the same as the target.")
-#
-#         if t_filename is None:
-#             raise RuntimeError("The Target is not specified")
-#
-#         if os.path.exists(t_filename):
-#             return None
-#
-#         if t_size is None:
-#             raise RuntimeError("No Target size is defined")
-# #        pool.map(process, [src_filename], [t_filename], [t_size])
-#
-#         gs_command = '''gs -q -dQUIET -dPARANOIDSAFER \
-#          -dBATCH -dNOPAUSE \
-#          -dNOPROMPT -dMaxBitmap=500000000 -dLastPage=1 -dAlignToPixels=0 \
-#          -dGridFitTT=0 -sDEVICE=jpeg -dTextAlphaBits=4 -dGraphicsAlphaBits=4\
-#          -g%ix%i -dPDFFitPage -dFitPage \
-#          -dPrinted=false -sOutputFile=$'%s' -f$'%s' '''
-#
-#         p = subprocess.call(gs_command % (t_size, t_size,
-#                                           t_filename,
-#                                           src_filename), shell=True)
+        if not entry.directory.SmallThumb or entry.directory.FileSize == -1:
+            print("No existing SmallThumb")
+            temp = return_image_obj(fs_d_fname)
+            entry.directory.SmallThumb = cr_tnail_img(temp,
+                                                      sizes["small"],
+                                                      fext=fext)
+            entry.directory.FileSize = os.path.getsize(fs_d_fname)
+            print("Set size to %s for %s" % (entry.directory.FileSize,
+                                             fs_d_fname))
+            entry.directory.save()
+            entry.save()
+    else:
+        temp = return_image_obj(configdata["locations"]["images_path"]+\
+            os.sep + configdata["filetypes"]["dir"][1])
+        img_icon = cr_tnail_img(temp, sizes["small"],
+                                configdata["filetypes"]["dir"][2])
+        return return_img_attach(os.path.basename(
+            configdata["filetypes"]["dir"][1]), img_icon)
 
-#
-#     def create_thumbnail_from_file(self, src_filename,
-#                                    t_filename=None,
-#                                    t_size=None):
-#         #if os.path.exists(t_filename):
-#             #print(t_filename, "already exists")
-#         #    return False
-#         #elif src_filename == t_filename:
-#         if src_filename == t_filename:
-#             raise RuntimeError("The source is the same as the target.")
-#         elif t_filename is None:
-#             raise RuntimeError("The Target is not specified")
-#         elif t_size is None:
-#             raise RuntimeError("No Target size is defined")
-#         #print ("\n\n",src_filename)
-#         extension = os.path.splitext(src_filename)[1].lower()[1:]
-#         if extension == 'pdf':
-#             return self.create_pdf_thumbnail(src_filename,
-#                                              t_filename,
-#                                              t_size)
-#         try:
-#             print ("Error, trying to convert to RGB")
-#             image_file = Image.open(src_filename)
-#             if image_file.mode != "RGB":
-#                 image_file = image_file.convert('RGB')
-#
-#             image_file.thumbnail((t_size, t_size), Image.ANTIALIAS)
-#             image_file.save(t_filename, "PNG", optimize=True)
-#
-#         except IOError:
-#             print("File thumbnail ", src_filename)
-#             print("save thumbnail ", t_filename)
-#             print("The File [%s] (ioerror) is damaged." % (src_filename))
-#             return False
-#         except IndexError as detail:
-#             print("File thumbnail ", src_filename)
-#             print("save thumbnail ", t_filename)
-#             print("The File [%s] (IndexError) is damaged." % (src_filename))
-#             print(detail)
-#             return False
-#         except TypeError:
-#             print("File thumbnail ", src_filename)
-#             print("save thumbnail ", t_filename)
-#             print("The File [%s] (TypeError) is damaged." % (src_filename))
-#             return False
-#         except:
-#             print("Generic error on open")
-#             return False
-#
-#         return True
+    return return_img_attach(entry.name, entry.directory.SmallThumb)
 
-##########################################################################
-#     def create_thumbnail_from_memory(self, memory_image=None,
-#                                      t_filename=None,
-#                                      t_size=None):
-#         """
-#         Create a thumbnail from a memory image of the file.
-#
-#         inputs -
-#
-#             * memory_image - blob - This is the blob of image data, typically
-#                 a blob that has been read from a file, or a zip, etc.
-#
-#             * t_filename - String - This is the fully qualified filepathname
-#                 of the thumbnail file to be created.
-#
-#             * t_size - integer - This is the maximum size of the thumbnail.
-#                 The thumbnail will be t_size x t_size (e.g. 300 x 300)
-#
-#         output -
-#
-#             * The thumbnail file that is created at the t_filename location.
-#         """
-#         if memory_image is None:
-#             raise RuntimeError("No Memory Image is provided.")
-#         elif t_filename is None:
-#             raise RuntimeError("The Target is not specified")
-#         elif os.path.exists(t_filename):
-#             return False
-#         elif t_size is None:
-#             raise RuntimeError("No Target size is defined")
-#
-#         try:
-#             #
-#             #   Convert this to bytes io?
-#             #
-#             image_file = Image.open(cStringIO.StringIO(memory_image))
-#             image_file.thumbnail((t_size, t_size), Image.ANTIALIAS)
-#             if image_file.mode != "RGB":
-#                 image_file = image_file.convert('RGB')
-#             image_file.save(t_filename, "PNG", optimize=True)
-#             return True
-#         except IOError:
-#             print("save thumbnail ", t_filename)
-#         except IndexError as detail:
-#             print("save thumbnail ", t_filename)
-#             print(detail)
-#         except TypeError:
-#             print("save thumbnail ", t_filename)
-#         return False
-#
-#     def extract_from_container(self, container_file=None,
-#                                fn_to_extract=None,
-#                                t_size=None):
-#         """
-#         Initialization for Core Plugin.
-#
-#         """
-#         pass
+def new_process_img(entry, request):
+    """
+    input:
+        entry - The index_data entry
+
+    Read directory, and identify the first thumbnailable file.
+    Make thumbnail of that file
+    Return thumbnail results
+
+    Since we are just looking for a thumbnailable image, it doesn't have
+    to be the most up to date, nor the most current.  Cached is fine.
+    """
+    thumb_size = g_option(request, "size", "small").lower().strip()
+
+    fs_fname = configdata["locations"]["albums_path"] +\
+                os.path.join(entry.fqpndirectory.lower(),
+                             entry.name)
+    fs_fname = fs_fname.replace("//", "/")
+             # file system location of directory
+
+    fext = os.path.splitext(fs_fname)[1][1:].lower()
+
+    if not entry.file_tnail:
+        # The file thumbnail entry does not exist
+#            print("Creating tnail record")
+        entry.file_tnail = Thumbnails_Files.objects.create(
+            uuid=entry.uuid, FilePath=entry.fqpndirectory.lower(),
+            FileName=entry.name)
+        entry.save()
+
+    if entry.file_tnail.FileSize != os.path.getsize(fs_fname):
+        #   The cached data is invalidated since the filesize is
+        #   inaccurate.
+        #   Reset the existing thumbnails to ensure that they will be
+        #   regenerated
+        print("size mismatch, %s - %s - %s" % (entry.size,
+                                               entry.name, fs_fname))
+        entry.file_tnail.FileSize = -1
+        entry.file_tnail.SmallThumb = b""
+        entry.file_tnail.MediumThumb = b""
+        entry.file_tnail.LargeThumb = b""
+        entry.file_tnail.save()
+    if thumb_size == "small":
+        if entry.file_tnail.SmallThumb == b"":
+            print("No existing SmallThumb")
+            temp = return_image_obj(fs_fname)
+            entry.file_tnail.SmallThumb = cr_tnail_img(temp, sizes["small"],
+                                                       fext=fext)
+            entry.file_tnail.FileSize = os.path.getsize(fs_fname)
+            entry.file_tnail.save()
+            print("Set size to %s for %s" % (entry.file_tnail.FileSize,
+                                             fs_fname))
+            entry.save()
+        return return_img_attach(entry.name, entry.file_tnail.SmallThumb)
+    elif thumb_size == "medium":
+        if not entry.file_tnail.MediumThumb:
+            print("No existing MediumThumb")
+            temp = return_image_obj(fs_fname)
+            entry.file_tnail.MediumThumb = cr_tnail_img(temp,
+                                                        sizes["medium"],
+                                                        fext=fext)
+            entry.file_tnail.FileSize = os.path.getsize(fs_fname)
+            entry.file_tnail.save()
+            print("Set size to %s for %s" % (entry.file_tnail.FileSize,
+                                             fs_fname))
+            entry.save()
+        return return_img_attach(entry.name, entry.file_tnail.MediumThumb)
+    elif thumb_size == "large":
+        if not entry.file_tnail.LargeThumb:
+            print("No existing LargeThumb")
+            temp = return_image_obj(fs_fname)
+            entry.file_tnail.LargeThumb = cr_tnail_img(temp, sizes["large"],
+                                                       fext=fext)
+            entry.file_tnail.FileSize = os.path.getsize(fs_fname)
+            print("Set size to %s for %s" % (entry.file_tnail.FileSize,
+                                             fs_fname))
+            entry.file_tnail.save()
+            entry.save()
+        return return_img_attach(entry.name, entry.file_tnail.LargeThumb)
+    return return_img_attach(entry.name, entry.file_tnail.SmallThumb)
+
+def new_process_archive(entry, request):
+    """
+    Process an archive, and return the thumbnail
+    """
+#        compressed_file = configdata["locations"]["resources_path"] + \
+#            os.sep + "images" + os.sep + "1431973824_compressed.png"
+
+    thumbsize = g_option(request, "size", "small").lower().strip()
+    fs_archname = configdata["locations"]["albums_path"] +\
+                os.path.join(entry.fqpndirectory.lower(),
+                             entry.name)
+    fs_archname = fs_archname.replace("//", "/")
+#        print("archive - %s" % fs_fname)
+
+             # file system location of directory
+
+    archive_file = archives.id_cfile_by_sig(fs_archname)
+    archive_file.get_listings()
+    page = int(g_option(request, "arch", 0))
+    if page == "":
+        page = 0
+    fn_to_extract = archive_file.listings[page]
+    data = archive_file.extract_mem_file(fn_to_extract)
+    if not entry.archives:
+        # The file thumbnail entry does not exist
+        entry.archives = Thumbnails_Archives.objects.create(
+            uuid=entry.uuid, FilePath=entry.fqpndirectory.lower(),
+            FileName=entry.name, page=page)
+        entry.archives.save()
+
+    if entry.archives.FileSize != os.path.getsize(fs_archname):
+        #
+        #   The cached data is invalidated since the filesize is inaccurate
+        #   Reset the existing thumbnails to ensure that they will be
+        #   regenerated
+        #
+        entry.archives.SmallThumb = b""
+        entry.archives.MediumThumb = b""
+        entry.archives.LargeThumb = b""
+        entry.archives.FileSize = os.path.getsize(fs_archname)
+        entry.archives.save()
+        #
+        #  Clear the django cache here
+
+    fext = os.path.splitext(archive_file.listings[page])[1][1:].lower()
+                                   # ".pdf_png_preview")
+
+#        if fext in configdata["filetypes"]:
+#            if configdata["filetypes"][fext][1].strip() != "None":
+#                fs_path = os.path.join(
+#                    configdata["locations"]["resources_path"],
+#                    "images",
+#                    configdata["filetypes"][fext][1])
+
+    if thumbsize == "large":
+        if not entry.archives.LargeThumb:
+            try:
+                im_data = return_image_obj(data, memory=True)
+            except IOError:
+                im_data = return_image_obj(os.path.join(
+                    configdata["locations"]["resources_path"],
+                    "images", configdata["filetypes"]["archive"][1]),
+                                           memory=True)
+
+            entry.archives.LargeThumb = cr_tnail_img(im_data,
+                                                     sizes[thumbsize],
+                                                     fext=fext)
+            entry.archives.save()
+        return return_img_attach(os.path.basename(fs_archname),
+                                 entry.archives.LargeThumb)
+    elif thumbsize == "medium":
+        if not entry.archives.MediumThumb:
+#                print("Creating Med Thumb for %s" % os.path.basename(fs_path))
+            try:
+                im_data = return_image_obj(data, memory=True)
+            except IOError:
+                im_data = return_image_obj(os.path.join(
+                    configdata["locations"]["resources_path"],
+                    "images",
+                    configdata["filetypes"]["archive"][1]),
+                                           memory=True)
+            entry.archives.MediumThumb = cr_tnail_img(im_data,
+                                                      sizes[thumbsize],
+                                                      fext=fext)
+            entry.archives.save()
+        return return_img_attach(os.path.basename(fs_archname),
+                                 entry.archives.MediumThumb)
+    elif thumbsize == "small":
+        if not entry.archives.SmallThumb:
+#                print("Creating Small Thumb for %s" %
+#                        os.path.basename(fs_path))
+            try:
+                im_data = return_image_obj(data, memory=True)
+            except IOError:
+                im_data = return_image_obj(os.path.join(
+                    configdata["locations"]["resources_path"],
+                    "images",
+                    configdata["filetypes"]["archive"][1]),
+                                           memory=True)
+            entry.archives.SmallThumb = cr_tnail_img(im_data,
+                                                     sizes[thumbsize],
+                                                     fext=fext)
+            entry.archives.save()
+        return return_img_attach(os.path.basename(fs_archname),
+                                 entry.archives.SmallThumb)
+
+    return return_img_attach(os.path.basename(fs_archname), None)

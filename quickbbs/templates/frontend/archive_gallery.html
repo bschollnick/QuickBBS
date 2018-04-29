@@ -80,7 +80,7 @@
                                         <a href="{{ webpath }}?a_item={{ a_item_count }}" class="thumbnail" style="background:{{backgroundclr}};">
                                             {{ name|truncatechars:26|linebreaksbr }}
                                             <br>
-                                            <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ thumbnail_web }}?arch={{a_item_count}}" style="width:200px;max-width:250px"/>
+                                            <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{data.uuid}}?arch={{a_item_count}}" data-src2="{{ thumbnail_web }}?arch={{a_item_count}}" style="width:200px;max-width:250px"/>
 
                                         </a>
                                         {% if data.number_dirs != None and data.number_dirs != 0%}

@@ -18,6 +18,7 @@ from django.contrib import admin
 from django.views.generic import RedirectView
 import frontend
 import frontend.views
+import frontend.serve_up
 from django.conf import settings
 from django.conf.urls import include, url
 
@@ -30,14 +31,14 @@ urlpatterns = []
 
 urlpatterns += [
     url(r'^(?i)admin/', admin.site.urls),
-    url(r'^(?i)download/(?P<uuid>.+)/',
+    url(r'^(?i)download/(?P<d_uuid>.+)/',
         frontend.views.new_download,
         name="downloads"),
     url(r'^(?i)albums/', frontend.views.new_viewgallery),
-    url(r'^(?i)thumbnails/(?P<t_url_name>.+)/',
+    url(r'^(?i)thumbnails/(?P<t_url_name>.+)',
         frontend.views.thumbnails,
         name="raw thumbnails"),
-    url(r'^(?i)resources/', frontend.views.resources),
+    url(r'^(?i)resources/', frontend.serve_up.resources),
     url(r'^accounts/', include('allauth.urls')),
     url(r'^$', RedirectView.as_view(url="/albums")),
 ]

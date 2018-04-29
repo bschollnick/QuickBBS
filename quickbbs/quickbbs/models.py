@@ -1,7 +1,6 @@
 from __future__ import unicode_literals
-from uuid import uuid4
+#from uuid import uuid4
 from django.contrib.auth.models import User
-
 from django.db import models
 
 class owners(models.Model):
@@ -109,12 +108,23 @@ class index_data(models.Model):
     ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
     delete_pending = models.BooleanField(default=False, db_index=True)  # File is to be deleted,
 # select * from public.quickbbs_indexdata where "Ignore" is True;
+    file_tnail = models.OneToOneField(Thumbnails_Files,
+                                      on_delete = models.CASCADE,
+                                      db_index = True,
+                                      default=None,
+                                      null = True)
+
     directory = models.OneToOneField(Thumbnails_Dirs,
                                      on_delete = models.CASCADE,
                                      db_index = True,
                                      default=None,
                                      null = True)
                                 # https://stackoverflow.com/questions/38388423
+    archives = models.OneToOneField(Thumbnails_Archives,
+                                    on_delete = models.CASCADE,
+                                    db_index = True,
+                                    default=None,
+                                    null = True)
 
     ownership = models.OneToOneField(owners,
                                      on_delete = models.CASCADE,
