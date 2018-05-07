@@ -34,6 +34,13 @@ urlpatterns += [
     url(r'^(?i)download/(?P<d_uuid>.+)/',
         frontend.views.new_download,
         name="downloads"),
+    url(r'^(?i)view_item/(?P<i_uuid>.+)/',
+        frontend.views.new_viewitem,
+        name="new_viewitem"),
+    url(r'^(?i)view_archive/(?P<i_uuid>.+)/',
+        frontend.views.new_view_archive,
+        name="new_view_archive"),
+
     url(r'^(?i)albums/', frontend.views.new_viewgallery),
     url(r'^(?i)thumbnails/(?P<t_url_name>.+)',
         frontend.views.thumbnails,

@@ -1,9 +1,9 @@
+# coding: utf-8
 """
 Utilities for QuickBBS, the python edition.
 """
 from __future__ import absolute_import, print_function, unicode_literals
 
-import mimetypes
 import os
 import os.path
 from io import BytesIO
@@ -16,22 +16,24 @@ import time
 
 from PIL import Image
 import fitz
-from django.http import HttpResponse
 import scandir
-from frontend.database import get_filtered, get_defered, check_for_deletes
-from quickbbs.models import index_data
+
+from frontend.database import check_dup_thumbs
+from frontend.database import (validate_database)
+from quickbbs.models import (index_data, Thumbnails_Files, Thumbnails_Archives,
+                             Thumbnails_Dirs)
+from django.core.exceptions import MultipleObjectsReturned
 
 PY2 = sys.version_info[0] < 3
 
 if PY2:
     from exceptions import IOError
 
-def g_option(request, option_name, def_value):
-    """
-    Return the option from the request.get?
-    """
-    return request.GET.get(option_name, def_value)
 
+def ensures_endswith(string_to_check, value):
+    if not string_to_check.endswith(value):
+        string_to_check = "%s%s" % (string_to_check, value)
+    return string_to_check
 
 def sort_order(request, context):
     """
@@ -47,23 +49,6 @@ def sort_order(request, context):
         context["sort_order"] = request.session.get("sort_order", 0)
     return request, context
 
-
-def detect_mobile(request):
-    """
-    Is this a mobile browser?
-
-    Args:
-        request (obj) - Django Request object
-
-    Returns:
-        boolean::
-            `True` if Mobile is found in the request's META headers
-            specifically in HTTP USER AGENT.  If not found, returns False.
-
-    Raises:
-        None
-    """
-    return "Mobile" in request.META["HTTP_USER_AGENT"]
 
 def is_valid_uuid(uuid_to_test, version=4):
     """
@@ -89,7 +74,7 @@ def is_valid_uuid(uuid_to_test, version=4):
     False
     """
     try:
-        uuid_obj = uuid.UUID(uuid_to_test, version=version)
+        uuid_obj = uuid.UUID(uuid_to_test.strip(), version=version)
     except:
         return False
 
@@ -151,122 +136,6 @@ def is_archive(fqfn):
 #                                            'cbr',
 #                                            'zip',
 #                                            'rar'])
-def return_inline_attach(filename, binaryblob):
-    """
-    Output a http response header, for an image attachment.
-
-   Args:
-        filename (str): Filename of the file to be sent as the attachment name
-        binaryblob (bin): The blob of data that is the image file
-
-    Returns:
-        object::
-            The Django response object that contains the attachment and header
-
-    Raises:
-        None
-
-    Examples
-    --------
-    return_img_attach("test.png", img_data)
-
-
-    """
-    response = HttpResponse()
-    response.write(binaryblob)
-    response['Content-Disposition'] = 'inline;filename={%s}' % filename
-    return response
-
-def return_img_attach(filename, binaryblob):
-    """
-    Output a http response header, for an image attachment.
-
-   Args:
-        filename (str): Filename of the file to be sent as the attachment name
-        binaryblob (bin): The blob of data that is the image file
-
-    Returns:
-        object::
-            The Django response object that contains the attachment and header
-
-    Raises:
-        None
-
-    Examples
-    --------
-    return_img_attach("test.png", img_data)
-
-
-    """
-    response = HttpResponse()
-    response.write(binaryblob)
-    response['Content-Disposition'] = 'attachment; filename={%s}' % filename
-    return response
-
-def respond_as_attachment(request, file_path, original_filename):
-#   https://www.djangosnippets.org/snippets/1710/
-#   print ("original filename: ", original_filename)
-    filename = os.path.join(file_path, original_filename)
-    fp = open(filename, 'rb')
-    response = HttpResponse(fp.read())
-    fp.close()
-    type, encoding = mimetypes.guess_type(original_filename)
-    if type is None:
-        type = 'application/octet-stream'
-    response['Content-Type'] = type
-    print(response['Content-Type'])
-    response['Content-Length'] = str(os.stat(filename).st_size)
-    if encoding is not None:
-        response['Content-Encoding'] = encoding
-    filename_header = 'filename="%s"' % original_filename
-# To inspect details for the below code, see http://greenbytes.de/tech/tc2231/
-#     if u'WebKit' in request.META['HTTP_USER_AGENT']:
-#         # Safari 3.0 and Chrome 2.0 accepts UTF-8 encoded string directly.
-#         filename_header = 'filename=%s' % original_filename.encode('utf-8')
-#     elif u'MSIE' in request.META['HTTP_USER_AGENT']:
-#         # IE does not support internationalized filename at all.
-#         # It can only recognize internationalized URL, so we do the trick
-#           via routing rules.
-#         filename_header = ''
-#     else:
-#         # For others like Firefox, we follow RFC2231 (encoding extension
-#           in HTTP headers).
-#         filename_header = 'filename*=UTF-8\'\'%s' %
-#              urllib.quote(original_filename.encode('utf-8'))
-    response['Content-Disposition'] = 'attachment; ' + filename_header
-    return response
-
-def get_xth_image(database, positional=0, filters=[]):
-    """
-    Return the xth image from the database, using the passed filters
-
-    Parameters
-    ----------
-
-    database : object - The django database handle
-
-    positional : int - 0 is first, if positional is greater than the # of
-                 records, then it is reset to the count of records
-
-    filters : dictionary of filters
-
-    Returns
-    -------
-    If successful the database record in question, otherwise returns None
-
-    Examples
-    --------
-    return_img_attach("test.png", img_data)
-"""
-    files = database.objects.filter(**filters)
-    if files:
-        if positional > files.count():
-            positional = files.count()
-        elif positional < 0:
-            positional = 0
-        return files[positional]
-    else:
-        return None
 
 def return_image_obj(fs_path, memory=False):
     """
@@ -343,26 +212,92 @@ def read_from_disk(dir_to_scan):
         return string
 
 
-    def add_entry(entry, webpath):
+    def link_arc_rec(fs_name, webpath, uuid_entry, page=0):
+        if test_extension(fs_name,
+                          configdata["filetypes"]["archive_fts"]):
+            fname = os.path.basename(fs_name).title().replace("#", "").\
+                replace("?", "").strip()
+            try:
+                db_entry = Thumbnails_Archives.objects.update_or_create(
+                    uuid=uuid_entry,
+                    FilePath=webpath,
+                    FileName=fname,
+                    page=page,
+                    defaults={"uuid":uuid_entry, "FilePath":webpath,
+                              "FileName":fname, "page":page})[0]
+            except MultipleObjectsReturned:
+                check_dup_thumbs(uuid_entry, page)
+                db_entry = Thumbnails_Archives.objects.update_or_create(
+                    uuid=uuid_entry,
+                    FilePath=webpath,
+                    FileName=fname,
+                    page=page,
+                    defaults={"uuid":uuid_entry, "FilePath":webpath,
+                              "FileName":fname, "page":page})[0]
+            return db_entry
+        return None
+
+    def link_dir_rec(sd_entry, webpath, uuid_entry):
+        fs_name = os.path.join(configdata["locations"]["albums_path"],
+                               webpath[1:],
+                               sd_entry.name)
+        if sd_entry.is_dir():
+            fname = os.path.basename(fs_name).title().replace("#", "").\
+                replace("?", "").strip()
+            db_entry = Thumbnails_Dirs.objects.update_or_create(
+                uuid=uuid_entry, FilePath=webpath, DirName=fname,
+                defaults={"uuid":uuid_entry,
+                          "FilePath":webpath,
+                          "DirName":fname})[0]
+            return db_entry
+        return None
+
+    def link_file_rec(sd_entry, webpath, uuid_entry):
+        fs_name = os.path.join(configdata["locations"]["albums_path"],
+                               webpath[1:],
+                               sd_entry.name)
+        if (test_extension(fs_name,
+                           configdata["filetypes"]["graphic_fts"]) or\
+                           test_extension(fs_name,
+                                          configdata["filetypes"]["pdf_fts"])\
+                                          and sd_entry.is_file() and not\
+                                          sd_entry.is_dir()):
+            fname = os.path.basename(fs_name).title().replace("#", "").\
+                replace("?", "").strip()
+            db_entry = Thumbnails_Files.objects.update_or_create(
+                uuid=uuid_entry,
+                FilePath=webpath,
+                FileName=fname,
+                defaults={"uuid":uuid_entry, "FilePath":webpath,
+                          "FileName":fname})[0]
+            return db_entry
+        return None
+
+    def add_entry(disk_entry, webpath):
         """
         Add entry to the database
         """
-        if entry.is_dir():
+#        print ("Add Entry, %s" % entry.name)
+        if disk_entry.is_dir():
             # dir[0] = Path, dir[1] = dirs, dir[2] = files
             if PY2:
-                dirdata = scandir.walk(entry.path).next()
+                dirdata = scandir.walk(disk_entry.path).next()
             else:
-                dirdata = next(os.walk(entry.path))
+                dirdata = next(os.walk(disk_entry.path))
             # get directory count, and file count for subdirectory
         else:
             dirdata = ("", [], [])
-
+        new_uuid = uuid.uuid4()
+        webpath = webpath.replace(os.sep, r"/").lower()
+#        fs_item = os.path.join(configdata["locations"]["albums_path"],
+#                               webpath[1:],
+#                               entry.name)
         index_data.objects.create(
-            lastmod=entry.stat()[stat.ST_MTIME],
+            lastmod=disk_entry.stat()[stat.ST_MTIME],
             lastscan=time.time(),
-            name=entry.name.title().replace("#", "").replace("?", "").strip(),
-            sortname=naturalize(entry.name.title()),
-            size=entry.stat()[stat.ST_SIZE],
+            name=disk_entry.name.title().replace("#", "").replace("?", "").strip(),
+            sortname=naturalize(disk_entry.name.title()),
+            size=disk_entry.stat()[stat.ST_SIZE],
             fqpndirectory=webpath.replace(os.sep, r"/").lower(),
             parent_dir_id=0,
             numfiles=len(dirdata[2]),
@@ -370,122 +305,163 @@ def read_from_disk(dir_to_scan):
             numdirs=len(dirdata[1]),
             # The # of Children Directories in
             # this directory
-            is_dir=entry.is_dir(),
-            is_pdf=test_extension(entry.name, ['pdf']),
-            is_image=test_extension(entry.name,
+            is_dir=disk_entry.is_dir(),
+            is_pdf=test_extension(disk_entry.name.lower(), ['pdf']),
+            is_image=test_extension(disk_entry.name.lower(),
                                     configdata["filetypes"]["graphic_fts"]),
-            is_archive=test_extension(entry.name,
+            is_archive=test_extension(disk_entry.name.lower(),
                                       ['cbz', 'cbr', 'zip', 'rar']),
-            uuid=uuid.uuid4(),
+            uuid=new_uuid,
             ignore=False,
             delete_pending=False,
+            file_tnail=link_file_rec(disk_entry, webpath, new_uuid),
+            directory=link_dir_rec(disk_entry, webpath, new_uuid),
+            archives=link_arc_rec(disk_entry.name, webpath, new_uuid)
             )
 
+    def verify_value(original, new, change_dict, key):
+        if original != new:
+            change_dict[key] = new
+        return change_dict
 
-    def update_entry(entry, webpath):
+    def update_entry(disk_entry, webpath):
         """
         Update the existing entry in the database
         """
         #entry_fqfn = os.path.join(os.path.realpath(dir_to_scan), uname)
-        changed = False
-        if index_data.objects.filter(name__iexact=entry.name.title(),
+        #changed = False
+        if index_data.objects.filter(name__iexact=disk_entry.name.title(),
                                      fqpndirectory=webpath,
                                      ignore=False).count() > 1:
-            print("Recovery from Multiple starting for %s" % entry.name)
-            recovery_from_multiple(webpath, entry.name)
-            add_entry(entry, webpath)
+            print("Recovery from Multiple starting for %s" % disk_entry.name)
+            recovery_from_multiple(webpath, disk_entry.name)
+            add_entry(disk_entry, webpath)
             return
 
+        # temp = index_data.objects.get_or_create()
         temp = index_data.objects.filter(
-            name__iexact=entry.name.title(),
+            name__iexact=disk_entry.name.title(),
             fqpndirectory=webpath.replace(os.sep, r"/").lower(),
             ignore=False)
         orig = temp[0]
 
+        fs_item = os.path.join(configdata["locations"]["albums_path"],
+                               webpath[1:],
+                               disk_entry.name)
+
         changed = {}
         #pkey = id
 
-        if orig.name != entry.name.title() or orig.sortname == '':
-            changed["name"] = entry.name.title()
-            changed["sortname"] = naturalize(entry.name.title())
+        # verify_value(original, new, change_dict, key):
+        changed = verify_value(orig.name, disk_entry.name.title(), changed, "name")
+        changed = verify_value(orig.sortname,
+                               naturalize(disk_entry.name.title()),
+                               changed,
+                               "sortname")
 
         if orig.uuid is None:
             changed["uuid"] = uuid.uuid4()
+            orig.uuid = changed["uuid"]
 
-        if not os.path.exists(entry.path):
+        if not os.path.exists(disk_entry.path):
             changed["delete_pending"] = True
             changed["ignore"] = True
 
-        if orig.size != entry.stat()[stat.ST_SIZE]:
-            changed["size"] = entry.stat()[stat.ST_SIZE]
+        changed = verify_value(orig.size, disk_entry.stat()[stat.ST_SIZE],
+                               changed, "size")
 
-        if entry.stat()[stat.ST_MTIME] != orig.lastmod:
-            changed["lastmod"] = entry.stat()[stat.ST_MTIME]
-            changed["lastscan"] = entry.stat()[stat.ST_MTIME]
+        changed = verify_value(orig.lastmod, disk_entry.stat()[stat.ST_MTIME], changed, "lastmod")
+        changed = verify_value(orig.lastmod, disk_entry.stat()[stat.ST_MTIME], changed, "lastscan")
 
         t_ext = test_extension(
-            entry.name, configdata["filetypes"]["graphic_fts"])
+            disk_entry.name, configdata["filetypes"]["graphic_fts"])
 
-        if orig.is_image != t_ext:
-            changed["is_image"] = t_ext
+        changed = verify_value(orig.is_image, t_ext, changed, "is_image")
 
-        archive = test_extension(entry.name,
+        archive = test_extension(disk_entry.name.lower(),
                                  ['cbz',
                                   'cbr',
                                   'zip',
                                   'rar'])
-        if orig.is_archive != archive:
-            changed["is_archive"] = archive
+        changed = verify_value(orig.is_archive, archive, changed, "is_archive")
 
-        if entry.is_dir():
+        if disk_entry.is_dir():
             # dir[0] = Path, dir[1] = dirs, dir[2] = files
             if PY2:
-                dirdata = scandir.walk(entry.path).next()
+                dirdata = scandir.walk(disk_entry.path).next()
             else:
-                dirdata = next(os.walk(entry.path))
+                dirdata = next(os.walk(disk_entry.path))
                 # get directory count, and file count for subdirectory
-            if (len(dirdata[1]) != orig.numdirs or
-                    len(dirdata[2]) != orig.numfiles):
-                changed["numdirs"] = len(dirdata[1])
-                changed["numfiles"] = len(dirdata[2])
 
-        if changed:
-#            print("Updating - %s" % entry.name)
-            changed["lastmod"] = entry.stat()[stat.ST_MTIME]
-            changed["lastscan"] = entry.stat()[stat.ST_MTIME]
-#           temp.save()
+            changed = verify_value(orig.numdirs, len(dirdata[1]), changed, "numdirs")
+            changed = verify_value(orig.numfiles, len(dirdata[2]), changed, "numfiles")
+
+
+        if not orig.file_tnail:
+            changed["file_tnail"] = link_file_rec(disk_entry, webpath, orig.uuid)
+
+        if not orig.directory:
+            changed["directory"] = link_dir_rec(disk_entry, webpath, orig.uuid)
+
+        if not orig.archives:
+            changed["archives"] = link_arc_rec(fs_item, webpath, orig.uuid)
+
+        if changed != {}:
+            changed["lastmod"] = disk_entry.stat()[stat.ST_MTIME]
+            changed["lastscan"] = disk_entry.stat()[stat.ST_MTIME]
             temp.update(**changed)
-
 
 ###############################
     # Read_from_disk - main
     #
-    #
-    dir_to_scan = dir_to_scan.strip()
+    # rewrite to use update_or_create? - No the logic doesn't work.
 
+    # Get_or_create, could work for the read_from_disk main.
+
+    # if .count() > 1:
+        # validate_database
+    # entry = get_or_create(defaults)
+    # update_entry(entry)
+
+    # Would reduce the # of database searches / retrievals.
+    dir_to_scan = dir_to_scan.strip()
     fqpn = os.path.join(configdata["locations"]["albums_path"], dir_to_scan)
     fqpn = fqpn.replace("//", "/")
     webpath = fqpn.lower().replace(
         configdata["locations"]["albums_path"].lower(),
         "")
     if not os.path.exists(fqpn):
+        print ("%s does not exist" % fqpn)
         return None
 
     count = 0  # Used as sanity check for Validate
-    for entry in scandir.scandir(fqpn):
+    for disk_data in scandir.scandir(fqpn):
 
-        if (os.path.splitext(entry.name)[1] in\
+        if (os.path.splitext(disk_data.name)[1] in\
             configdata["filetypes"]["extensions_to_ignore"]) or\
-           (entry.name.lower() in configdata["filetypes"]["files_to_ignore"]):
+           (disk_data.name.lower() in configdata["filetypes"]["files_to_ignore"]):
             continue
 
-        if not index_data.objects.filter(name__iexact=entry.name.title(),
-                                         fqpndirectory=webpath.lower(),
-                                         ignore=False).exists():
-                #   Item does not exist
-            add_entry(entry, webpath)
+        index_qs = index_data.objects.filter(name__iexact=disk_data.name.title(),
+                                             fqpndirectory=webpath.lower(),
+                                             ignore=False)
+#         if not index_data.objects.filter(name__iexact=entry.name.title(),
+#                                          fqpndirectory=webpath.lower(),
+#                                          ignore=False).exists():
+        if not index_qs:
+            #   Item does not exist
+            add_entry(disk_data, webpath)
         else:
-            update_entry(entry, webpath)
+            try:
+                update_entry(disk_data, webpath)
+            except MultipleObjectsReturned:
+                if index_qs[0].archives != None:
+                    print ("\nMultiples detected--A\n")
+                    check_dup_thumbs(index_qs[0].uuid, 0)
+                else:
+                    print ("\nMultiples detected--B\n")
+                    check_dup_thumbs(index_qs[0].uuid, 0)
+                update_entry(disk_data, webpath)
 
         count += 1
 
@@ -495,28 +471,6 @@ def read_from_disk(dir_to_scan):
         validate_database(dir_to_scan)
     return webpath.replace(os.sep, r"/")
 
-DF_VDBASE = ["sortname", "lastscan", "lastmod", "size"]
-def validate_database(dir_to_scan):
-    """
-    validate the data base
-    """
-    dir_to_scan = dir_to_scan.strip()
-    fqpn = os.path.join(configdata["locations"]["albums_path"], dir_to_scan)
-    fqpn = fqpn.replace("//", "/")
-    webpath = fqpn.replace(configdata["locations"]["albums_path"], "")
-    temp = get_filtered(get_defered(index_data, DF_VDBASE),
-                        {'fqpndirectory':webpath, 'ignore':False})
-    print("validate triggered :", dir_to_scan)
-    for entry in temp:
-        if not os.path.exists(os.path.join(fqpn, entry.name)) or \
-            os.path.splitext(entry.name.lower().strip())[1] in\
-                configdata["filetypes"]["extensions_to_ignore"] or \
-                entry.name.lower().strip() in\
-                configdata["filetypes"]["files_to_ignore"]:
-            entry.ignore = True
-            entry.delete_pending = True
-            entry.save()
-    check_for_deletes()
 
 if __name__ == '__main__':
     from config import configdata

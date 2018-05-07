@@ -18,6 +18,11 @@ class Favorites(models.Model):
 class Thumbnails_Dirs(models.Model):
     id = models.AutoField(primary_key=True, db_index=True)
     uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True)
+    DirName = models.CharField(db_index=True,
+                                max_length=512,
+                                default=None,
+                                unique=False,
+                                null=True)   # FQFN of the file itself
     FileSize = models.BigIntegerField(default=-1)
     FilePath = models.CharField(db_index=True,
                                 max_length=512,
