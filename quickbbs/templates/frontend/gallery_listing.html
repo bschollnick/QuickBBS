@@ -71,8 +71,11 @@
                     {% for item in pagelist %}
                                 <div class="col-xs-6 col-sm-4">
                                     <center>
-                                        {{ forloop.counter }} <br>
-                                        <a href="{{ webpath }}/{{ item.Name }}" class="thumbnail" style="background:{{backgroundclr}};">
+                                        {{ forloop.counter }} <br> item file_tnail{{ item.file_tnail }}
+                                        {% if item.directory %}<a href="{{ webpath }}/{{ item.Name }}" class="thumbnail" style="background:{{backgroundclr}};">
+                                        {% elif item.archives %}<a href="/view_item/{{item.uuid}}" class="thumbnail" style="background:{{backgroundclr}};">
+                                        {% elif item.file_tnail %}<a href="/view_item/{{ item.uuid }}" class="thumbnail" style="background:{{backgroundclr}};">
+                                        {% endif %}
                                                 {{ item.Name|truncatechars:26|linebreaksbr }}
                                                 <br>
                                             {% if item.is_dir %}

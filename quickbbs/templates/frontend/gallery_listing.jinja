@@ -82,8 +82,9 @@
                                         {% elif item.is_archive %}
                                             {% set bgcolor = filetypes["zip"][0] %}
                                         {% endif %}
-
-                                        <a href="{{ webpath }}{{ item.name }}" class="thumbnail" style="bgcolor:{{bgcolor}};">
+                                            {% if item.directory != None or item.is_dir %}<a href="{{ webpath }}{{ item.name }}" class="thumbnail" style="bgcolor:{{bgcolor}};"> {% endif %}
+                                            {% if item.archives != None  or item.is_archive %}<a href="/view_archive/{{ item.uuid}}" class="thumbnail" style="bgcolor:{{bgcolor}};"> {% endif %}
+                                            {% if item.file_tnail != None %}<a href="/view_item/{{ item.uuid }}" class="thumbnail" style="bgcolor:{{bgcolor}};"> {% endif %}
                                                 {{ item.name | wordwrap(width=25, break_long_words=True)}}
                                                 <br>
                                             {% if item.is_dir %}
@@ -113,7 +114,9 @@
                                         {% endif %}
 
                                         <b>Last Modified: </b>{{ fromtimestamp( item.lastmod).strftime("%m/%d/%y %H:%M:%S") }}<br>
-                                                                    <a href="{{ webpath }}/{{ item.name }}" target="_blank">
+                                            {% if item.directory != None or item.is_dir %}<a href="{{ webpath }}{{ item.name }}" target="_blank"> {% endif %}
+                                            {% if item.archives != None or item.is_archive %}<a href="{{ webpath }}{{ item.name }}" target="_blank"> {% endif %}
+                                            {% if item.file_tnail != None %}<a href="/view_item/{{ item.uuid }}" target="_blank"> {% endif %}
                                 <img src="/resources/images/stock_new_window.png" align=right height="15%" width="15%"></a>
 
                                     </center>

@@ -1,20 +1,21 @@
+# coding: utf-8
 """
 Thumbnail routines for QuickBBS
 """
+from __future__ import absolute_import, print_function, unicode_literals
+
 import os
 #import sys
 
 import frontend.archives3 as archives
 from frontend.config import configdata as configdata
-#from frontend.serve_up import resources
-from frontend.utilities import (cr_tnail_img, get_xth_image,
-                                return_image_obj, return_img_attach,
-                                g_option)
-#import utilities
-from utilities import read_from_disk
+from frontend.database import get_xth_image
+from frontend.utilities import (cr_tnail_img, return_image_obj,
+                                read_from_disk)
+from frontend.web import return_img_attach, g_option
 from quickbbs.models import (index_data,
-                             Thumbnails_Dirs,
-                             Thumbnails_Files,
+                             #Thumbnails_Dirs,
+                             #Thumbnails_Files,
                              Thumbnails_Archives)
 
 sizes = {
@@ -25,6 +26,30 @@ sizes = {
 }
 
 def images_in_dir(database, webpath):
+    """
+    Check for images in the directory.
+    If they do not exist, try to load the directory, and test again.
+    If they do exist, grab the 1st image from the file list.
+
+    Args:
+        database (obj) - Django Database
+        webpath (str) - The directory to examine
+
+    Returns:
+        object::
+            The thumbnail (in memory) of the first image
+
+    Raises:
+        None
+
+    Examples
+    --------
+    #>>> is_valid_uuid('c9bf9e57-1685-4c89-bafb-ff5af830be8a')
+    #True
+    #>>> is_valid_uuid('c9bf9e58')
+    #False
+    """
+
     files = None
     prefilters = {'fqpndirectory':webpath.lower(), 'is_dir':False,
                   'ignore':False, 'delete_pending':False}
@@ -61,13 +86,6 @@ def new_process_dir(entry):
                           os.path.join(entry.fqpndirectory.lower(),
                                        entry.name))
     if files: # found an file in the directory to use for thumbnail purposes
-        if entry.directory is None:
-            # The directory entry does not exist
-            entry.directory = Thumbnails_Dirs.objects.create(
-                uuid=entry.uuid, FilePath=entry.fqpndirectory.lower())
-            entry.directory.save()
-            entry.save()
-
         fs_d_fname = configdata["locations"]["albums_path"] +\
                     os.path.join(entry.fqpndirectory.lower(),
                                  entry.name, files.name)
@@ -82,12 +100,10 @@ def new_process_dir(entry):
 #                        "images", configdata["filetypes"][fext][1])
 
         if entry.directory.FileSize != os.path.getsize(fs_d_fname):
-            #
             #   The cached data is invalidated since the filesize is
             #   inaccurate.
             #   Reset the existing thumbnails to ensure that they will be
             #   regenerated
-            #
             print("size mismatch, %s - %s - %s" % (entry.directory.FileSize,
                                                    entry.name, fs_d_fname))
             entry.directory.FileSize = -1
@@ -138,13 +154,6 @@ def new_process_img(entry, request):
 
     fext = os.path.splitext(fs_fname)[1][1:].lower()
 
-    if not entry.file_tnail:
-        # The file thumbnail entry does not exist
-#            print("Creating tnail record")
-        entry.file_tnail = Thumbnails_Files.objects.create(
-            uuid=entry.uuid, FilePath=entry.fqpndirectory.lower(),
-            FileName=entry.name)
-        entry.save()
 
     if entry.file_tnail.FileSize != os.path.getsize(fs_fname):
         #   The cached data is invalidated since the filesize is
@@ -197,110 +206,92 @@ def new_process_img(entry, request):
         return return_img_attach(entry.name, entry.file_tnail.LargeThumb)
     return return_img_attach(entry.name, entry.file_tnail.SmallThumb)
 
-def new_process_archive(entry, request):
+def new_process_archive(ind_entry, request, page=0):
     """
     Process an archive, and return the thumbnail
     """
-#        compressed_file = configdata["locations"]["resources_path"] + \
-#            os.sep + "images" + os.sep + "1431973824_compressed.png"
-
     thumbsize = g_option(request, "size", "small").lower().strip()
     fs_archname = configdata["locations"]["albums_path"] +\
-                os.path.join(entry.fqpndirectory.lower(),
-                             entry.name)
+                os.path.join(ind_entry.fqpndirectory.lower(),
+                             ind_entry.name)
     fs_archname = fs_archname.replace("//", "/")
-#        print("archive - %s" % fs_fname)
 
              # file system location of directory
 
+    existing_tnails = Thumbnails_Archives.objects.filter(uuid=ind_entry.uuid)
+        # This contains all the Archive thumbnails that match the uuid, in otherwords
+        # all existing cached pages.
+
+    # Check to see if the page in question is being cached.
+    specific_page, created = Thumbnails_Archives.objects.get_or_create(
+        uuid=ind_entry.uuid, page=page,
+        defaults={'uuid':ind_entry.uuid,
+                  'page':page,
+                  'FilePath':ind_entry.fqpndirectory,
+                  'FileName':ind_entry.name})
+
     archive_file = archives.id_cfile_by_sig(fs_archname)
     archive_file.get_listings()
-    page = int(g_option(request, "arch", 0))
-    if page == "":
-        page = 0
     fn_to_extract = archive_file.listings[page]
+    fext = os.path.splitext(fn_to_extract)[1][1:].lower()
     data = archive_file.extract_mem_file(fn_to_extract)
-    if not entry.archives:
-        # The file thumbnail entry does not exist
-        entry.archives = Thumbnails_Archives.objects.create(
-            uuid=entry.uuid, FilePath=entry.fqpndirectory.lower(),
-            FileName=entry.name, page=page)
-        entry.archives.save()
-
-    if entry.archives.FileSize != os.path.getsize(fs_archname):
-        #
-        #   The cached data is invalidated since the filesize is inaccurate
+    im_data = return_image_obj(data, memory=True)
+    if specific_page.FileSize != os.path.getsize(fs_archname):
+        #   The cached data is invalidated since the filesize is
+        #   inaccurate.
         #   Reset the existing thumbnails to ensure that they will be
         #   regenerated
-        #
-        entry.archives.SmallThumb = b""
-        entry.archives.MediumThumb = b""
-        entry.archives.LargeThumb = b""
-        entry.archives.FileSize = os.path.getsize(fs_archname)
-        entry.archives.save()
-        #
-        #  Clear the django cache here
+        specific_page.FileSize = -1
+        specific_page.SmallThumb = b""
+        specific_page.MediumThumb = b""
+        specific_page.LargeThumb = b""
+        specific_page.save()
 
-    fext = os.path.splitext(archive_file.listings[page])[1][1:].lower()
-                                   # ".pdf_png_preview")
-
-#        if fext in configdata["filetypes"]:
-#            if configdata["filetypes"][fext][1].strip() != "None":
-#                fs_path = os.path.join(
-#                    configdata["locations"]["resources_path"],
-#                    "images",
-#                    configdata["filetypes"][fext][1])
-
+    specific_page.FileSize = os.path.getsize(fs_archname)
     if thumbsize == "large":
-        if not entry.archives.LargeThumb:
+        if not specific_page.LargeThumb:
             try:
-                im_data = return_image_obj(data, memory=True)
+                specific_page.LargeThumb = cr_tnail_img(im_data,
+                                                        sizes[thumbsize],
+                                                        fext=fext)
+                specific_page.save()
             except IOError:
                 im_data = return_image_obj(os.path.join(
                     configdata["locations"]["resources_path"],
                     "images", configdata["filetypes"]["archive"][1]),
                                            memory=True)
 
-            entry.archives.LargeThumb = cr_tnail_img(im_data,
-                                                     sizes[thumbsize],
-                                                     fext=fext)
-            entry.archives.save()
         return return_img_attach(os.path.basename(fs_archname),
-                                 entry.archives.LargeThumb)
+                                 specific_page.LargeThumb)
     elif thumbsize == "medium":
-        if not entry.archives.MediumThumb:
+        if not specific_page.MediumThumb:
 #                print("Creating Med Thumb for %s" % os.path.basename(fs_path))
             try:
-                im_data = return_image_obj(data, memory=True)
+                specific_page.MediumThumb = cr_tnail_img(im_data,
+                                                        sizes[thumbsize],
+                                                        fext=fext)
+                specific_page.save()
             except IOError:
                 im_data = return_image_obj(os.path.join(
                     configdata["locations"]["resources_path"],
                     "images",
                     configdata["filetypes"]["archive"][1]),
                                            memory=True)
-            entry.archives.MediumThumb = cr_tnail_img(im_data,
-                                                      sizes[thumbsize],
-                                                      fext=fext)
-            entry.archives.save()
         return return_img_attach(os.path.basename(fs_archname),
-                                 entry.archives.MediumThumb)
+                                 specific_page.MediumThumb)
     elif thumbsize == "small":
-        if not entry.archives.SmallThumb:
-#                print("Creating Small Thumb for %s" %
-#                        os.path.basename(fs_path))
+        if not specific_page.SmallThumb:
             try:
-                im_data = return_image_obj(data, memory=True)
+                specific_page.SmallThumb = cr_tnail_img(im_data,
+                                                        sizes[thumbsize],
+                                                        fext=fext)
+                specific_page.save()
             except IOError:
                 im_data = return_image_obj(os.path.join(
                     configdata["locations"]["resources_path"],
                     "images",
                     configdata["filetypes"]["archive"][1]),
                                            memory=True)
-            entry.archives.SmallThumb = cr_tnail_img(im_data,
-                                                     sizes[thumbsize],
-                                                     fext=fext)
-            entry.archives.save()
         return return_img_attach(os.path.basename(fs_archname),
-                                 entry.archives.SmallThumb)
-
+                                 specific_page.SmallThumb)
     return return_img_attach(os.path.basename(fs_archname), None)

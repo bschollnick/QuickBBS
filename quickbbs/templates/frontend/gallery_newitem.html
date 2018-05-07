@@ -100,14 +100,14 @@
         <!-- sidebar -->
         <div class="col-xs-6 col-sm-3" id="sidebar" role="navigation">
             <div class="pagination">
-                <a href="{{ up_uri }}">sdf<img src="/resources/images/Go_Up2.png" width="75%"></a>
+                <a href="{{ up_uri }}"><img src="/resources/images/Go_Up2.png" width="75%"></a>
                 <hr>
-                <a href="?page=1">
+                <a href="/view_item/{{first}}">
                     <img width="75%" height="75%" src="/resources/images/gtk_media_next_rtl.png"/></a>
                 <hr>
                 <span class="step-links">
-                    {% if pagelist.has_previous %}
-                        <a href="?page={{ pagelist.previous_page_number }}">
+                    {% if previous %}
+                        <a href="/view_item/{{ previous }}">
                             <img width="75%" height="75%" src="/resources/images/gtk_media_rev_ltr.png"/></a>
                     {% else %}
                             <img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/>
@@ -115,33 +115,32 @@
                 </span>
                 <hr>
                     <span class="current">
-                        Page {{ pagelist.number }} of {{ pagelist.paginator.num_pages }}.
+                        <center>Page<br>{{ page }}<br>of<br>{{ pagecount }}.</center>
                     </span>
                 <hr>
 
-                    {% if pagelist.has_next %}
-                        <a href="?page={{ pagelist.next_page_number }}">
+                    {% if next %}
+                        <a href="/view_item/{{ next }}">
                             <img width="75%" height="75%" src="/resources/images/gtk_media_play_ltr.png"/></a>
 
                     {% else %}
-                            <img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/><
+                            <img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/>
                     {% endif %}
                 <hr>
-                {% if pagelist.has_next %}
-                    <a href="?page={{ pagelist.next_page_number }}" target="_blank">
+                {% if next %}
+                    <a href="/view_item/{{ next }}" target="_blank">
                     <img src="/resources/images/stock_new_window.png" height="75%" width="75%"/></a>
                 {% endif %}
 
                 <hr>
 
-                <a href="?page={{ pagelist.paginator.num_pages }}">
+                <a href="/view_item/{{ last }}">
                     <img width="75%" height="75%" src="/resources/images/gtk_media_next_ltr.png"/></a>
                 <hr>
-                <!-- ?page={{ current_page }}&download" -->
                 <a href="/download/{{item.uuid}}"><img width="75%" height="75%" src="/resources/images/down.png"/></a>
                 </span>
                 <hr>
-                    <form action="?page={{ current_page }}" method="GET">
+                    <form action="/view_item/{{ item.uuid }}" method="GET">
                     {% csrf_token %}
                         <select name="sort" onchange='this.form.submit()'>
                             <option value="0" {% if sort_order == 0 %}selected{% endif %}>A..Z</option>
@@ -154,7 +153,7 @@
 
 <!-- main area -->
          <div class="container-fluid" style="margin-left: 55px;border: 1px solid;width=100%;left-pad:2px;right-pad:2px;background:#b0e2ff;">
-             <center><table><tr><Td width="25%"><b>{{web_path}}/</b></td><td width="75%"><center>{{ item.name|wordwrap:60|linebreaksbr }}</b></center></td></tr></table>
+             <center><table><tr><Td width="25%"><b>{{webpath}}/</b></td><td width="75%"><center>{{ item.name|wordwrap:60|linebreaksbr }}</b></center></td></tr></table>
                 <div class="row">
                         <div class="thumbnail" style="background:{{ pagelist.0.4 }};">
                             <center>

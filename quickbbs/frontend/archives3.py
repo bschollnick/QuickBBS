@@ -238,7 +238,7 @@ print filename, 'is a', cf.mime_type, 'file'
 
     def extract_mem_file64(self, fname):
         """
-        Extract filename out of the archive, and return it as a blob.
+        Extract filename out of the archive, and return it as a base64 blob.
 
         inputs - filename to extract
         returns - blob from the archive.

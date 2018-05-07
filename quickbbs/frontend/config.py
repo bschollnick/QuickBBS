@@ -1,3 +1,4 @@
+# coding: utf-8
 """
 :Module: Config
 :Date: 2015-05-1
