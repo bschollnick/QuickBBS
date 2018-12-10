@@ -25,6 +25,7 @@ else:
 
 DEBUG = True
 #DEBUG = False
+SILK = False
 
 #DEBUG_TOOLBAR = False
 #DEBUG_TOOLBAR = True
@@ -38,7 +39,7 @@ if not DEBUG:
             'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
             #'LOCATION': os.path.join(BASE_DIR, "CACHE"),
             'LOCATION': 'cache_data_db_table',
-            'TIMEOUT': 18000,
+            'TIMEOUT': 500,
             'OPTIONS': {
                 'MAX_ENTRIES': 5000
             }
@@ -68,7 +69,7 @@ INSTALLED_APPS = []
 #    INSTALLED_APPS += ('debug_toolbar',)
 
 INSTALLED_APPS += [
-    # 'sslserver',
+    'grappelli',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -84,11 +85,11 @@ INSTALLED_APPS += [
     'allauth.socialaccount',
     'quickbbs',
     'frontend',
-#    'silk'
-#    'thumbnails',
+    'django_icons',
 ]
 INSTALLED_APPS += ('bootstrap3',)
-#INSTALLED_APPS += ('django_jinja',)
+if SILK:
+    INSTALLED_APPS += ('silk',)
 #INSTALLED_APPS += ('django_jinja.contrib._humanize',)
 
 SITE_ID = 1
@@ -114,7 +115,6 @@ MIDDLEWARE += [
 #    'django.contrib.auth.middleware.SessionAuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-#    'silk.middleware.SilkyMiddleware',
 ]
 if not DEBUG:
     MIDDLEWARE += (
@@ -122,8 +122,10 @@ if not DEBUG:
         'django.middleware.common.CommonMiddleware',
         'django.middleware.cache.FetchFromCacheMiddleware',)
 
+#if SILK:
+#    MIDDLEWARE += ('silk.middleware.SilkyMiddleware')
 
-SILKY_PYTHON_PROFILER = True
+#SILKY_PYTHON_PROFILER = False
 
 ROOT_URLCONF = 'quickbbs.urls'
 
@@ -262,60 +264,64 @@ LOGIN_REDIRECT_URL = '/albums'
 # Default settings
 BOOTSTRAP3 = {
 
-    # The URL to the jQuery JavaScript file
-    'jquery_url': '//code.jquery.com/jquery.min.js',
-
-    # The Bootstrap base URL
-    'base_url': '//maxcdn.bootstrapcdn.com/bootstrap/3.3.7/',
-
-    # The complete URL to the Bootstrap CSS file (None means derive it from base_url)
-    'css_url': None,
+    # The complete URL to the Bootstrap CSS file
+    # Note that a URL can be either
+    # - a string, e.g. "//code.jquery.com/jquery.min.js"
+    # - a dict like the default value below (use key "url" for the actual link)
+    "css_url": {
+        "url": "https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css",
+        "integrity": "sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u",
+        "crossorigin": "anonymous",
+    },
 
     # The complete URL to the Bootstrap CSS file (None means no theme)
-    'theme_url': None,
+    "theme_url": None,
 
-    # The complete URL to the Bootstrap JavaScript file (None means derive it from base_url)
-    'javascript_url': None,
+    # The complete URL to the Bootstrap JavaScript file
+    "javascript_url": {
+        "url": "https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js",
+        "integrity": "sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa",
+        "crossorigin": "anonymous",
+    },
+
+    # The URL to the jQuery JavaScript file
+    "jquery_url": "//code.jquery.com/jquery.min.js",
 
     # Put JavaScript in the HEAD section of the HTML document (only relevant if you use bootstrap3.html)
-    'javascript_in_head': False,
+    "javascript_in_head": False,
 
     # Include jQuery with Bootstrap JavaScript (affects django-bootstrap3 template tags)
-    'include_jquery': False,
+    "include_jquery": False,
 
     # Label class to use in horizontal forms
-    'horizontal_label_class': 'col-md-3',
+    "horizontal_label_class": "col-md-3",
 
     # Field class to use in horizontal forms
-    'horizontal_field_class': 'col-md-9',
+    "horizontal_field_class": "col-md-9",
 
-    # Set HTML required attribute on required fields, for Django <= 1.8 only
-    'set_required': True,
-
-    # Set HTML disabled attribute on disabled fields, for Django <= 1.8 only
-    'set_disabled': False,
-
-    # Set placeholder attributes to label if no placeholder is provided
-    'set_placeholder': True,
+    # Set placeholder attributes to label if no placeholder is provided.
+    # This also considers the "label" option of {% bootstrap_field %} tags.
+    "set_placeholder": True,
 
     # Class to indicate required (better to set this in your Django form)
-    'required_css_class': '',
+    "required_css_class": "",
 
     # Class to indicate error (better to set this in your Django form)
-    'error_css_class': 'has-error',
+    "error_css_class": "has-error",
 
     # Class to indicate success, meaning the field has valid input (better to set this in your Django form)
-    'success_css_class': 'has-success',
+    "success_css_class": "has-success",
 
     # Renderers (only set these if you have studied the source and understand the inner workings)
-    'formset_renderers':{
-        'default': 'bootstrap3.renderers.FormsetRenderer',
+    "formset_renderers":{
+        "default": "bootstrap3.renderers.FormsetRenderer",
     },
-    'form_renderers': {
-        'default': 'bootstrap3.renderers.FormRenderer',
+    "form_renderers": {
+        "default": "bootstrap3.renderers.FormRenderer",
     },
-    'field_renderers': {
-        'default': 'bootstrap3.renderers.FieldRenderer',
-        'inline': 'bootstrap3.renderers.InlineFieldRenderer',
+    "field_renderers": {
+        "default": "bootstrap3.renderers.FieldRenderer",
+        "inline": "bootstrap3.renderers.InlineFieldRenderer",
     },
 }
+#from .logger import LOGGING

@@ -8,11 +8,11 @@ pip3 install  Pillow
 #pip3 install  txbonjour
 pip3 install  rarfile
 pip3 install  scandir
-pip3 install  semantic_url
+#pip3 install  semantic_url
 #pip3 install  twisted
 pip3 install  unidecode
 pip3 install  fastnumbers
-pip3 install  natsort
+#pip3 install  natsort
 pip3 install  django-bootstrap3
 pip3 install  python-thumbnails
 pip3 install  django-allauth
@@ -20,6 +20,10 @@ pip3 install  django-debug-toolbar
 pip3 install  django-jinja
 pip3 install  pathlib2
 pip3 install  configparser
-pip3 install  psycopg2
-pip3 install  psycopg2-binary #psycopg2
+#pip3 install  psycopg2
+#pip3 install  psycopg2-binary #psycopg2
 pip3 install  PyMuPDF
+pip3 install psycopg2cffi
+pip3 install django-grappelli
+pip3 install gunicorn
+pip3 install eventlet

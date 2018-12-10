@@ -102,6 +102,33 @@ def return_img_attach(filename, binaryblob):
     response['Content-Disposition'] = 'attachment; filename={%s}' % filename
     return response
 
+def img_attach_file(filename, fqfn):
+    """
+    Output a http response header, for an image attachment.
+
+   Args:
+        filename (str): Filename of the file to be sent as the attachment name
+        binaryblob (bin): The blob of data that is the image file
+
+    Returns:
+        object::
+            The Django response object that contains the attachment and header
+
+    Raises:
+        None
+
+    Examples
+    --------
+    return_img_attach("test.png", img_data)
+
+
+    """
+    response = HttpResponse()
+    with open(fqfn, 'rb') as filedata:
+        response.write(filedata.read())
+    response['Content-Disposition'] = 'attachment; filename={%s}' % filename
+    return response
+
 def respond_as_attachment(request, file_path, original_filename):
 #   https://www.djangosnippets.org/snippets/1710/
 #   print ("original filename: ", original_filename)
@@ -113,7 +140,6 @@ def respond_as_attachment(request, file_path, original_filename):
     if mtype is None:
         mtype = 'application/octet-stream'
     response['Content-Type'] = mtype
-    print(response['Content-Type'])
     response['Content-Length'] = str(os.stat(filename).st_size)
     if encoding is not None:
         response['Content-Encoding'] = encoding
@@ -134,4 +160,3 @@ def respond_as_attachment(request, file_path, original_filename):
 #              urllib.quote(original_filename.encode('utf-8'))
     response['Content-Disposition'] = 'attachment; ' + filename_header
     return response
-    

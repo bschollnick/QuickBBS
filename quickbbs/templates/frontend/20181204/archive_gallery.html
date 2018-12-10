@@ -1,0 +1,121 @@
+{% extends 'frontend/gallery_base.html' %}
+
+{% block title%}
+{% endblock %}
+
+{% block content %}
+<script type="text/javascript" src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
+<script src="//maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+<link href="//maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" rel="stylesheet"/>
+ <!-- cdnjs -->
+    <script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/jquery.lazy/1.7.9/jquery.lazy.min.js"></script>
+    <script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/jquery.lazy/1.7.9/jquery.lazy.plugins.min.js"></script>
+
+    <!-- sidebar -->
+    <div class="container" style="width:99%">
+      <div class="row">
+        <div class="col-xs-6 col-sm-3" id="sidebar" role="navigation">
+            <div class="pagination">
+                <a href="{{ up_uri }}"><img src="/resources/images/Go_Up2.png" width="75%"></a>
+                <hr>
+                <a href="?page=1">
+                    <img width="75%" height="75%" src="/resources/images/gtk_media_next_rtl.png"/></a>
+                <hr>
+                <span class="step-links">
+                    {% if page_contents.has_previous %}
+                        <a href="?page={{ page_contents.previous_page_number }}">
+                            <img width="75%" height="75%" src="/resources/images/gtk_media_rev_ltr.png"/></a>
+                    {% else %}
+                            <img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/>
+                    {% endif %}
+                <hr>
+                    <span class="current" align=center>
+                    <form action="?" method="GET">
+                    Page
+                        <select name="page" onchange='this.form.submit()'>
+                            {% for pagecnt in pagepop %}
+                                <option value="{{pagecnt}}" {% if pagecnt == current_page %}selected{% endif %}>{{pagecnt}}</option>
+                            {% endfor %}
+                        </select><br>
+                        of {{ pagelist.num_pages }}.
+                    </form>
+                    </span>
+                <hr>
+
+                    {% if page_contents.has_next %}
+                        <a href="?page={{ page_contents.next_page_number }}">
+                            <img width="75%" height="75%" src="/resources/images/gtk_media_play_ltr.png"/></a>
+                    {% else %}
+                            <img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/>
+                    {% endif %}
+                <hr>
+
+                <a href="?page={{ page_contents.paginator.num_pages }}">
+                    <img width="75%" height="75%" src="/resources/images/gtk_media_next_ltr.png"/></a>
+                </span>
+                <hr>
+                    <form action="?page={{ current_page }}" method="GET">
+                    {% csrf_token %}
+                        <select name="sort" onchange='this.form.submit()'>
+                            <option value="0" {% if sort_order == 0 %}selected{% endif %}>A..Z</option>
+                            <option value="1" {% if sort_order == 1 %}selected{% endif %}>LastM</option>
+                            <option value="2" {% if sort_order == 2 %}selected{% endif %}>CTime</option>
+                        </select>
+                    </form>
+                <hr>
+            </div>
+        </div>
+<!-- main area -->
+         <div class="container-fluid" style="margin-left: 45px;margin-right:1px;border: 0px solid;padding-left:2px;padding-right:2px;background:#b0e2ff;">
+             <table border=0 width="100%">
+                <tr>
+                <td width="25%" align=left> <a href="{{ prev_uri }}">{{ prev_uri }}</a></td>
+                <td width="50%" align=center><b>{{ db_entry.name }}</b></td>
+                <td width="25%" align=right> <a href="{{ next_uri }}">{{ next_uri }}</a></td>
+                </tr>
+             </table>
+                    <div class="row" style="margin-left: 0px;margin-right:0px;border: 0px solid;padding-left:2px;padding-right:2px;background:#b0e2ff;">
+                    {% for list_item, offset in page_contents %}
+                                <div class="col-xs-6 col-sm-4">
+                                    <center>
+                                        {{ forloop.counter }} <br>
+                                        <a href="/view_archive_item/{{ db_entry.uuid}}?page={{ offset }}" class="thumbnail" style="background:{{backgroundclr}};">
+                                            {{ name|truncatechars:26|linebreaksbr }}
+                                            <br>
+                                            <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{db_entry.uuid}}?page={{offset}}" style="width:200px;max-width:250px"/>
+
+                                        </a>
+                                        <a href="/view_item/{{ db_entry.uuid}}?page={{ offset }}" target="_blank">
+                                    <img src="/resources/images/stock_new_window.png" align=right height="15%" width="15%"></a>
+
+                                    </center>
+                                </div>
+
+                            <!-- if last column in row -->
+                            {% if forloop.counter|divisibleby:"3" %}
+                                </div> <div class="row" style="margin-left: 0px;margin-right:0px;border: 0px solid;padding-left:2px;padding-right:2px;background:#b0e2ff;">
+                            {% endif %}
+
+                    {% endfor %}
+            </div>
+
+
+        </div><!-- /.col-xs-12 main -->
+    </div><!--/.row-->
+  </div><!--/.container-->
+ </center>
+
+<script>
+$(function($) {
+    $("img.lazy").Lazy({
+    scrollDirection: 'vertical',
+        effect: 'fadeIn',
+        visibleOnly: true,
+        delay: 200,
+        threshold: 200,
+        combined: true
+});
+});
+</script>
+
+{% endblock %}

@@ -27,7 +27,7 @@ def upgrade_package(package):
     """
     upgrade_command = "pip install --upgrade {}".format(package)
     stdout, _ = run_command(upgrade_command)
-    print package, stdout
+    print (package, stdout)
 
 
 def collect_packages():

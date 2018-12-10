@@ -135,14 +135,15 @@
     };
     /* Setup plugin defaults */
     $.fn.actions.defaults = {
-        actionContainer: "div.actions",
-        counterContainer: "span.action-counter",
-        allContainer: "div.actions span.all",
-        acrossInput: "div.actions input.select-across",
-        acrossQuestions: "div.actions span.question",
-        acrossClears: "div.actions span.clear",
+        actionContainer: "div.grp-changelist-actions",
+        counterContainer: "li.grp-action-counter span.grp-action-counter",
+        allContainer: "div.grp-changelist-actions li.grp-all",
+        acrossInput: "div.grp-changelist-actions input.select-across",
+        acrossQuestions: "div.grp-changelist-actions li.grp-question",
+        acrossClears: "div.grp-changelist-actions li.grp-clear-selection",
         allToggle: "#action-toggle",
-        selectedClass: "selected"
+        actionSelect: "div.grp-changelist-actions select",
+        selectedClass: "grp-selected"
     };
     $(document).ready(function() {
         var $actionsEls = $('tr input.action-select');
@@ -150,4 +151,4 @@
             $actionsEls.actions();
         }
     });
-})(django.jQuery);
+})(grp.jQuery);

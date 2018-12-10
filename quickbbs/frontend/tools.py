@@ -14,8 +14,9 @@ def assure_path_exists(dir_path):
     returns - True if the path was created
     returns - False, if the path already existed.
     """
-    if not dir_path.endswith(os.sep):
-        dir_path += os.sep
+#    if not dir_path.endswith(os.sep):
+#        dir_path += os.sep
+# (abspath removes last os.sep, so redundant)
     dir_path = os.path.abspath(dir_path)
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)

@@ -1,0 +1,49 @@
+This is ApacheBench, Version 2.3 <$Revision: 1807734 $>
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
+Licensed to The Apache Software Foundation, http://www.apache.org/
+
+Benchmarking 127.0.0.1 (be patient)
+This is ApacheBench, Version 2.3 <$Revision: 1826891 $>
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
+Licensed to The Apache Software Foundation, http://www.apache.org/
+
+Benchmarking 127.0.0.1 (be patient)
+Total of 1 requests completed
+This is ApacheBench, Version 2.3 <$Revision: 1826891 $>
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
+Licensed to The Apache Software Foundation, http://www.apache.org/
+
+Benchmarking 127.0.0.1 (be patient)
+Total of 1 requests completed
+This is ApacheBench, Version 2.3 <$Revision: 1826891 $>
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
+Licensed to The Apache Software Foundation, http://www.apache.org/
+
+Benchmarking 127.0.0.1 (be patient)
+
+
+Server Software:        WSGIServer/0.2
+Server Hostname:        127.0.0.1
+Server Port:            8888
+
+Document Path:          /download/fcf650d1-f8f0-4cc9-977e-075059821117/
+Document Length:        Variable
+
+Concurrency Level:      5
+Time taken for tests:   0.915 seconds
+Complete requests:      200
+Failed requests:        0
+Non-2xx responses:      200
+Total transferred:      755800 bytes
+HTML transferred:       720400 bytes
+Requests per second:    218.59 [#/sec] (mean)
+Time per request:       22.874 [ms] (mean)
+Time per request:       4.575 [ms] (mean, across all concurrent requests)
+Transfer rate:          806.68 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        0    0   0.2      0       3
+Processing:     5   23   6.1     22      48
+Waiting:        4   19   4.9     19      42
+Total:          5   23   6.1     22      48

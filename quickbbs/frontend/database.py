@@ -5,6 +5,7 @@ Database Specific Functions
 from __future__ import absolute_import, print_function, unicode_literals
 
 import os
+import sys
 from frontend.config import configdata as configdata
 from quickbbs.models import (index_data, Thumbnails_Archives, Thumbnails_Files,
                              Thumbnails_Dirs)
@@ -16,6 +17,7 @@ def validate_database(dir_to_scan):
     """
     validate the data base
     """
+    print (sys._getframe().f_code.co_name)
     dir_to_scan = dir_to_scan.strip()
     fqpn = os.path.join(configdata["locations"]["albums_path"], dir_to_scan)
     fqpn = fqpn.replace("//", "/")
@@ -38,6 +40,7 @@ def check_for_deletes():
     """
     Check to see if any deleted items exist, if so, delete them.
     """
+    print (sys._getframe().f_code.co_name)
     deleted = index_data.objects.filter(delete_pending=True)
     if deleted.exists():
         print("Deleting old deleted records")
@@ -52,6 +55,7 @@ def get_values(database, values):
     """
         Fetch specific database values only from the database
     """
+#    print (sys._getframe().f_code.co_name)
     #https://stackoverflow.com/questions/5903384
     return database.objects.values(*values)
 
@@ -66,6 +70,7 @@ def get_filtered(queryset, filtervalues):
     """
         Apply a filter to the queryset
     """
+#    print (sys._getframe().f_code.co_name)
     #https://stackoverflow.com/questions/5903384
     return queryset.filter(**filtervalues)
 
@@ -73,6 +78,7 @@ def get_db_files(sorder, fpath):
     """
         Fetch specific database values only from the database
     """
+ #   print (sys._getframe().f_code.co_name)
     index = index_data.objects.filter(fqpndirectory=fpath.lower().strip(),
                                       ignore=False).order_by(
                                           *SORT_MATRIX[sorder])
@@ -102,31 +108,26 @@ def check_dup_thumbs(uuid_to_check, page=0):
 
     check_dup_thumbs(uuid, page=4)
     """
+    print (sys._getframe().f_code.co_name)
     indexrec = index_data.objects.filter(uuid=str(uuid_to_check).strip(), ignore=False)[0]
-#    print ("Index rec name:",indexrec.name)
     qset = None
     if indexrec.file_tnail != None:
         qset = Thumbnails_Files.objects.filter(uuid=indexrec.uuid).exclude(
             id=indexrec.file_tnail.id)
-    elif indexrec.directory != None:
+
+    if indexrec.directory != None:
         qset = Thumbnails_Dirs.objects.filter(uuid=indexrec.uuid).exclude(
             id=indexrec.directory.id)
-#        qset = Thumbnails_Dirs.objects.filter(
-#            name__iexact=indexrec.name.title(),
-#            fqpndirectory=dirpath,
-#            ignore=False).exclude(
-#                id=indexrec.directory.id)
-    elif indexrec.archives != None:
+
+    if indexrec.archives != None:
         qset = Thumbnails_Archives.objects.filter(
             uuid=indexrec.uuid,
             page=page).exclude(
                 id=indexrec.archives.id)
-#       qset = Thumbnails_Archives.objects.filter(
-#            name__iexact=indexrec.name.title(),
-#            fqpndirectory=dirpath,
-#            ignore=False).exclude(
-#                id=indexrec.archives.id)
-    if qset != None and qset.count > 0:
+
+#    if qset != None and qset.count() > 0:
+#        qset.delete()
+    if qset.count() > 0:
         qset.delete()
     return None
 
@@ -154,12 +155,27 @@ def get_xth_image(database, positional=0, filters=[]):
     --------
     return_img_attach("test.png", img_data)
 """
-    files = database.objects.filter(**filters)
-    if files:
-        if positional > files.count():
-            positional = files.count()
-        elif positional < 0:
+    count = database.objects.filter(**filters).exclude(file_tnail=None).count()
+    if 0 < positional > count:
+        # outside of possible ranges
+        if positional < 0:
+            print ("Setting lower value")
             positional = 0
-        return files[positional]
-    else:
+        else:
+            print ("Setting higher value")
+            positional = count
+    try:
+        return database.objects.filter(**filters).exclude(file_tnail=None)[positional]
+    except IndexError:
         return None
+
+    #files = database.objects.filter(**filters).exclude(file_tnail=None)
+#    if files:
+#        if positional > count:
+#            positional = count
+#        elif positional < 0:
+#            positional = 0
+
+#        return files[positional]
+#    else:
+#        return None

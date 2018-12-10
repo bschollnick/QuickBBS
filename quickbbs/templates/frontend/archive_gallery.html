@@ -4,11 +4,13 @@
 {% endblock %}
 
 {% block content %}
-<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+<script type="text/javascript" src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
 <script src="//maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
 <link href="//maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" rel="stylesheet"/>
+ <!-- cdnjs -->
+    <script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/jquery.lazy/1.7.9/jquery.lazy.min.js"></script>
+    <script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/jquery.lazy/1.7.9/jquery.lazy.plugins.min.js"></script>
 
-<script src="/resources/javascript/jquery.lazy.min.js"></script>
     <!-- sidebar -->
     <div class="container" style="width:99%">
       <div class="row">
@@ -20,8 +22,8 @@
                     <img width="75%" height="75%" src="/resources/images/gtk_media_next_rtl.png"/></a>
                 <hr>
                 <span class="step-links">
-                    {% if pagelist.has_previous %}
-                        <a href="?page={{ pagelist.previous_page_number }}">
+                    {% if page_contents.has_previous %}
+                        <a href="?page={{ page_contents.previous_page_number }}">
                             <img width="75%" height="75%" src="/resources/images/gtk_media_rev_ltr.png"/></a>
                     {% else %}
                             <img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/>
@@ -31,24 +33,24 @@
                     <form action="?" method="GET">
                     Page
                         <select name="page" onchange='this.form.submit()'>
-                            {% for pagecnt in page_cnt %}
-                                <option value="{{pagecnt}}" {% if pagecnt == pagelist.number %}selected{% endif %}>{{pagecnt}}</option>
+                            {% for pagecnt in pagepop %}
+                                <option value="{{pagecnt}}" {% if pagecnt == current_page %}selected{% endif %}>{{pagecnt}}</option>
                             {% endfor %}
                         </select><br>
-                        of {{ pagelist.paginator.num_pages }}.
+                        of {{ pagelist.num_pages }}.
                     </form>
                     </span>
                 <hr>
 
-                    {% if pagelist.has_next %}
-                        <a href="?page={{ pagelist.next_page_number }}">
+                    {% if page_contents.has_next %}
+                        <a href="?page={{ page_contents.next_page_number }}">
                             <img width="75%" height="75%" src="/resources/images/gtk_media_play_ltr.png"/></a>
                     {% else %}
                             <img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/>
                     {% endif %}
                 <hr>
 
-                <a href="?page={{ pagelist.paginator.num_pages }}">
+                <a href="?page={{ page_contents.paginator.num_pages }}">
                     <img width="75%" height="75%" src="/resources/images/gtk_media_next_ltr.png"/></a>
                 </span>
                 <hr>
@@ -68,33 +70,24 @@
              <table border=0 width="100%">
                 <tr>
                 <td width="25%" align=left> <a href="{{ prev_uri }}">{{ prev_uri }}</a></td>
-                <td width="50%" align=center><b>{{ gallery_name }}</b></td>
+                <td width="50%" align=center><b>{{ db_entry.name }}</b></td>
                 <td width="25%" align=right> <a href="{{ next_uri }}">{{ next_uri }}</a></td>
                 </tr>
              </table>
                     <div class="row" style="margin-left: 0px;margin-right:0px;border: 0px solid;padding-left:2px;padding-right:2px;background:#b0e2ff;">
-                    {% for name, data, thumbnail_web, thumbnail_fs, backgroundclr, a_item_count in pagelist %}
+                    {% for name, offset, count in page_contents %}
                                 <div class="col-xs-6 col-sm-4">
                                     <center>
                                         {{ forloop.counter }} <br>
-                                        <a href="{{ webpath }}?a_item={{ a_item_count }}" class="thumbnail" style="background:{{backgroundclr}};">
+                                        count - {{count}}<br>
+                                        offset - {{offset}}<br>
+                                        <a href="/view_archive_item/{{ db_entry.uuid}}?page={{ count }}" class="thumbnail" style="background:{{backgroundclr}};">
                                             {{ name|truncatechars:26|linebreaksbr }}
                                             <br>
-                                            <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{data.uuid}}?page={{a_item_count}}" data-src2="{{ thumbnail_web }}?arch={{a_item_count}}" style="width:200px;max-width:250px"/>
+                                            <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{db_entry.uuid}}?page={{count}}" style="width:200px;max-width:250px"/>
 
                                         </a>
-                                        {% if data.number_dirs != None and data.number_dirs != 0%}
-                                            <b># of Dirs: </b>{{ data.number_dirs }}<br>
-                                        {% endif %}
-
-                                        {% if data.number_files != None and data.number_files != 0 %}
-                                            <b># of Files: </b>{{ data.number_files }}<br>
-                                        {% endif %}
-                                        {% if data.st.st_size != None and data.st.st_size != 0 %}
-                                            <b>File Size: </b>{{ data.st.st_size }}<br>
-                                        {% endif %}
-                                        <b>Last Modified: </b><br>{{ data.human_st_mtime }}
-                                        <a href="{{ webpath }}?a_item={{ a_item_count }}" target="_blank">
+                                        <a href="/view_item/{{ db_entry.uuid}}?page={{ count }}" target="_blank">
                                     <img src="/resources/images/stock_new_window.png" align=right height="15%" width="15%"></a>
 
                                     </center>
