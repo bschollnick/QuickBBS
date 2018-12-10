@@ -13,14 +13,15 @@ Including another URLconf
     1. Import the include() function: from django.conf.urls import url, include
     2. Add a URL to urlpatterns:  url(r'^blog/', include('blog.urls'))
 """
-from django.conf.urls import include, url
+from django.urls import include, path, re_path
+#from django.conf.urls import include, url
+from django.conf.urls import url
 from django.contrib import admin
 from django.views.generic import RedirectView
 import frontend
 import frontend.views
 import frontend.serve_up
 from django.conf import settings
-from django.conf.urls import include, url
 
 urlpatterns = []
 # if settings.DEBUG_TOOLBAR:
@@ -30,26 +31,44 @@ urlpatterns = []
 #     ]
 
 urlpatterns += [
-    url(r'^(?i)admin/', admin.site.urls),
-    url(r'^(?i)download/(?P<d_uuid>.+)/',
-        frontend.views.new_download,
-        name="downloads"),
-    url(r'^(?i)view_item/(?P<i_uuid>.+)/',
-        frontend.views.new_viewitem,
-        name="new_viewitem"),
-    url(r'^(?i)view_archive/(?P<i_uuid>.+)/',
-        frontend.views.new_view_archive,
-        name="new_view_archive"),
-
-    url(r'^(?i)albums/', frontend.views.new_viewgallery),
-    url(r'^(?i)thumbnails/(?P<t_url_name>.+)',
-        frontend.views.thumbnails,
-        name="raw thumbnails"),
-    url(r'^(?i)resources/', frontend.serve_up.resources),
-    url(r'^accounts/', include('allauth.urls')),
-    url(r'^$', RedirectView.as_view(url="/albums")),
+    path('grappelli/', include('grappelli.urls')), # grappelli URLS
+    path(r'admin/', admin.site.urls),
+    path(r'Admin/', admin.site.urls),
+    path(r'', RedirectView.as_view(url="/albums")),
+    path("download/<uuid:d_uuid>", frontend.views.new_download, name="downloads"),
+    path("view_item/<uuid:i_uuid>/", frontend.views.new_viewitem, name="new_viewitem"),
+    path('view_archive/<uuid:i_uuid>', frontend.views.new_view_archive, name="new_view_archive"),
+    path("view_archive_item/<uuid:i_uuid>", frontend.views.new_archive_item, name="new_archive_item"),
+    re_path('^albums/', frontend.views.new_viewgallery),
+    path('thumbnails/<uuid:t_url_name>', frontend.views.thumbnails, name="raw thumbnails"),
+    #re_path('^resources/', frontend.serve_up.resources),
+    path('resources/<path:pathstr>', frontend.serve_up.resources),
+    path('static/<path:pathstr>', frontend.serve_up.static),
+    path('accounts/', include('allauth.urls')),
+#     url(r'^(?i)download/(?P<d_uuid>.+)/',
+#         frontend.views.new_download,
+#         name="downloads"),
+#     url(r'^(?i)view_item/(?P<i_uuid>.+)/',
+#         frontend.views.new_viewitem,
+#         name="new_viewitem"),
+#     url(r'^(?i)view_archive/(?P<i_uuid>.+)/',
+#         frontend.views.new_view_archive,
+#         name="new_view_archive"),
+#     url(r'^(?i)view_archive_item/(?P<i_uuid>.+)/',
+#         frontend.views.new_archive_item,
+#         name="new_archive_item"),
+#
+#     url(r'^(?i)albums/', frontend.views.new_viewgallery),
+#     url(r'^(?i)thumbnails/(?P<t_url_name>.+)',
+#         frontend.views.thumbnails,
+#         name="raw thumbnails"),
+#     url(r'^(?i)resources/', frontend.serve_up.resources),
+#     url(r'^(?i)static/', frontend.serve_up.static),
+#     url(r'^accounts/', include('allauth.urls')),
+#     url(r'^$', RedirectView.as_view(url="/albums")),
 ]
 
-#urlpatterns += [url(r'^silk/', include('silk.urls', namespace='silk'))]
+if settings.SILK:
+    urlpatterns += [url(r'^silk/', include('silk.urls', namespace='silk'))]
 
 REGISTRATION_OPEN = True

@@ -52,6 +52,7 @@ from __future__ import print_function
 import base64
 import os
 import os.path
+from operator import itemgetter
 import zipfile
 import rarfile
 import six
@@ -208,10 +209,13 @@ print filename, 'is a', cf.mime_type, 'file'
             return False
 
         with handle() as cfile:
-            for afn in cfile.namelist():
+            count = 0
+            for offset, afn in enumerate(cfile.namelist(), start=0):
                 if not (afn.startswith("__MACOSX") or
                         os.path.split(afn)[1] == ""):
-                    self.listings.append(afn)
+                    self.listings.append((afn, offset, count))
+                    count += 1
+            sorted(self.listings, key=itemgetter(0))
             return True
 
         return False
@@ -263,9 +267,12 @@ print filename, 'is a', cf.mime_type, 'file'
             return None
 
         with handle() as cfile:
-            data = "data:image/%s;base64," % translate[fileext.upper()].lower()
+            #
             try:
-                data += base64.b64encode(cfile.read(fname))
+                data = "data:image/%s;base64,%s" % (
+                        translate[fileext.upper()].lower(),
+                        base64.b64encode(cfile.read(fname)))
+            #data += base64.b64encode(cfile.read(fname))
                 return data
             except TypeError:
                 print ("Type error")
@@ -277,9 +284,15 @@ print filename, 'is a', cf.mime_type, 'file'
 signatures = {'\x50\x4b\x03\x04':(['zip', 'cbz'],
                                   'compressed/zip',
                                   zipfile.ZipFile),
+              b'PK\x03\x04':(['zip', 'cbz'],
+                              'compressed/zip',
+                                  zipfile.ZipFile),
               '\x52\x61\x72\x21':(['rar', 'cbr'],
                                   'application/x-rar-compressed',
-                                  rarfile.RarFile)}
+                                  rarfile.RarFile),
+              b'Rar!':(['rar', 'cbr'],
+                       'application/x-rar-compressed',
+                       rarfile.RarFile)}
 
 sign_byte_count = 4
 
@@ -325,7 +338,7 @@ print filename, 'is a', cf.mime_type, 'file'
 
 
 if __name__ == "__main__":
-    filename = 'test.zip'
+    filename = 'test.rar'
     cf = id_cfile_by_sig(filename)
     if cf is not None:
         print(filename, 'is a', cf.mime_type, 'file')
