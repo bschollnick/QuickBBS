@@ -1,9 +1,7 @@
 import sys
 import os
 import os.path
-import frontend.config
-
-
+import frontend.config as config
 #
 #   Boot strap by loading the configuration path data
 #

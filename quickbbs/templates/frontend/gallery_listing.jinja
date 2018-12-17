@@ -109,7 +109,7 @@
                                         {% if item.is_dir != True and item.Size != None and item.Size != 0 %}
                                             <b>File Size: </b>{{ item.size | intcomma}}<br>
                                         {% endif %}
-
+                                        {{ item.filetype["is_image"] }}
                                         <b>Last Modified: </b>{{ fromtimestamp( item.lastmod).strftime("%m/%d/%y %H:%M:%S") }}<br>
                                             {% if item.directory != None or item.is_dir %}<a href="{{ webpath }}{{ item.name }}" target="_blank"> {% endif %}
                                             {% if item.archives != None or item.is_archive %}<a href="{{ webpath }}{{ item.name }}" target="_blank"> {% endif %}
