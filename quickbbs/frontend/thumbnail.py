@@ -82,7 +82,12 @@ def new_process_dir(db_index):
     # webpath contains the URL equivalent to the file system path (fs_path)
     #
     imagedata = None
-    if db_index.size != db_index.directory.FileSize:
+    if db_index.directory.SmallThumb != b'':
+        # Does the thumbnail exist?
+        if db_index.size == db_index.directory.FileSize:
+            # If cache is valid, send it.
+            return return_img_attach(db_index.name, db_index.directory.SmallThumb.tobytes())
+
         #   The cached data is invalidated since the filesize is
         #   inaccurate.
         #   Reset the existing thumbnails to ensure that they will be
@@ -91,68 +96,46 @@ def new_process_dir(db_index):
         #                                       db_index.name, fs_d_fname))
         db_index.directory.FileSize = -1
         db_index.directory.SmallThumb = b""
-#        db_index.directory.save() # redundant save, shouldn't be needed.
-#        db_index.save()    # redundant save, shouldn't be needed.
 
-    if db_index.directory.SmallThumb == b'':
-        files = images_in_dir(index_data,
-                              os.path.join(db_index.fqpndirectory,
-                                           db_index.name).lower())
+    files = images_in_dir(index_data,
+                          os.path.join(db_index.fqpndirectory,
+                                       db_index.name).lower())
 
-        if files: # found an file in the directory to use for thumbnail purposes
-            #print ("Files found in directory")
-            fs_d_fname = configdata["locations"]["albums_path"] +\
-                        os.path.join(db_index.fqpndirectory.lower(),
-                                     db_index.name, files.name)
-                     # file system location of directory
-            fext = os.path.splitext(files.name)[1][1:].lower()
+    if files: # found an file in the directory to use for thumbnail purposes
+        #print ("Files found in directory")
+        fs_d_fname = configdata["locations"]["albums_path"] +\
+                    os.path.join(db_index.fqpndirectory.lower(),
+                                 db_index.name, files.name)
+                 # file system location of directory
+        fext = os.path.splitext(files.name)[1][1:].lower()
 
-            if db_index.directory.SmallThumb == b'':
-                #print("No existing SmallThumb")
-                #print ("fs_d_fname: ",fs_d_fname)
-                temp = cr_tnail_img(return_image_obj(fs_d_fname),
-                                    sizes["small"],
-                                    fext=fext)
-                imagedata = temp
-                db_index.directory.SmallThumb = temp
-                db_index.directory.FileSize = db_index.size
-                #print("Set size to %s for %s" % (db_index.directory.FileSize,
-                #                                 fs_d_fname))
-                db_index.directory.save()
-                db_index.save()
-                return return_img_attach(db_index.name, imagedata)
-        else:
-            #
-            #   There are no files in the directory
-            #
-            if db_index.directory.SmallThumb == b'':
-                #
-                #   There is no cached Thumbnail, so create one.
-                #
-                #print("Created cached empty folder")
-                temp = return_image_obj(configdata["locations"]["images_path"]+\
-                                        os.sep + configdata["filetypes"]["dir"][1])
-    #            if db_index.size != os.path.getsize(temp):
-                img_icon = cr_tnail_img(temp, sizes["small"],
-                                        configdata["filetypes"]["dir"][2])
-                db_index.directory.SmallThumb = img_icon
-                db_index.directory.FileSize = db_index.size
-    #            print("Set size to %s for %s" % (db_index.directory.FileSize,
-    #                                             fs_d_fname))
-                db_index.directory.save()
-                db_index.save()
-                return return_img_attach(db_index.name, img_icon)
-        #else:
-            #
-            #   There is no else, since we are doing the same thing, returning the
-            #   cached thumbnail.  Fall to normal exit, since it's in the same variable
-            #
-        #    return return_img_attach(os.path.basename(
-        #                             configdata["filetypes"]["dir"][1]), img_icon)
-
-    return return_img_attach(db_index.name, db_index.directory.SmallThumb.tobytes())
-#    print(db_index.directory.SmallThumb[0:5])
- #   return return_img_attach(db_index.name, db_index.directory.SmallThumb)
+        temp = cr_tnail_img(return_image_obj(fs_d_fname),
+                            sizes["small"],
+                            fext=fext)
+        imagedata = temp
+        db_index.directory.SmallThumb = temp
+        db_index.directory.FileSize = db_index.size
+        #print("Set size to %s for %s" % (db_index.directory.FileSize,
+        #                                 fs_d_fname))
+        db_index.directory.save()
+        db_index.save()
+        return return_img_attach(db_index.name, db_index.directory.SmallThumb)
+    else:
+        #
+        #   There are no files in the directory
+        #
+        temp = return_image_obj(configdata["locations"]["images_path"]+\
+                                os.sep + configdata["filetypes"]["dir"][1])
+#            if db_index.size != os.path.getsize(temp):
+        img_icon = cr_tnail_img(temp, sizes["small"],
+                                configdata["filetypes"]["dir"][2])
+        db_index.directory.SmallThumb = img_icon
+        db_index.directory.FileSize = db_index.size
+#            print("Set size to %s for %s" % (db_index.directory.FileSize,
+#                                             fs_d_fname))
+    db_index.directory.save()
+    db_index.save()
+    return return_img_attach(db_index.name, db_index.directory.SmallThumb)
 
 def new_process_img(entry, request):
     """

@@ -4,24 +4,31 @@ from django.contrib.auth.models import User
 from django.db import models
 
 class filetypes(models.Model):
-    id = models.AutoField(primary_key=True)
-    fileext = models.CharField(db_index=True,
+#    id = models.AutoField(primary_key=True)
+    fileext = models.CharField(primary_key=True,
+                               db_index=True,
                                max_length=10,
                                unique=True) # File Extension (eg. html)
     generic = models.BooleanField(default=False, db_index=True)
 
-    filename = models.CharField(db_index=True,
-                                max_length=512,
-                                default=None,
-                                unique=False,
-                                blank=True,
-                                null=True)   # FQFN of the file itself
+    icon_filename = models.CharField(db_index=True,
+                                     max_length=512,
+                                     default=None,
+                                     unique=False,
+                                     blank=True,
+                                     null=True)   # FQFN of the file itself
     color = models.CharField(max_length=7, default="000000")
     filetype = models.IntegerField(db_index=True,
                                    default=0,
                                    blank=True,
                                    null=True)
-    class Meta:
+    is_image = models.BooleanField(default=False, db_index=True)
+    is_archive = models.BooleanField(default=False, db_index=True)
+    is_pdf = models.BooleanField(default=False, db_index=True)
+    def __unicode__(self):
+        return u'%s' % self.fileext
+
+class Meta:
         verbose_name = u'File Type'
         verbose_name_plural = u'File Types'
 
@@ -155,6 +162,8 @@ class index_data(models.Model):
     is_image = models.BooleanField(default=False, db_index=True)
     ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
     delete_pending = models.BooleanField(default=False, db_index=True)  # File is to be deleted,
+    filetype = models.ForeignKey(filetypes, to_field='fileext', on_delete = models.CASCADE,
+                                 db_index = True, default=".none")
 # select * from public.quickbbs_indexdata where "Ignore" is True;
     file_tnail = models.OneToOneField(Thumbnails_Files,
                                       on_delete = models.CASCADE,
@@ -179,6 +188,7 @@ class index_data(models.Model):
                                      db_index = True,
                                      default=None,
                                      null = True)
+
                                     # null = System Owned
     class Meta:
         verbose_name = u'Master Index'

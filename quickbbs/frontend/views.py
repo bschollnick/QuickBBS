@@ -23,7 +23,7 @@ from PIL import Image, ImageFile
 
 import frontend.archives3 as archives
 from frontend.config import configdata
-import frontend.filetypes as filetypes
+import frontend.ftypes as ftypes
 from frontend.utilities import (is_valid_uuid,
                                 sort_order, read_from_disk,
                                 ensures_endswith)
@@ -62,13 +62,15 @@ def return_prev_next(parent_path, currentpath, sorder):
     prevdir = ""
     nextdir = ""
     currentpath = currentpath.lower().strip()
-#    if currentpath.lower() == (r"/%s/" % "albums").lower():
-    if currentpath == (r"/%s/" % "albums"):
+    if currentpath == (r"/albums/"):
         return ("", "")
     url_parent = parent_path.replace(configdata["locations"]["albums_path"], "").lower()
-    if url_parent == r"/albums":
-        url_parent = r"/albums/"
-
+    url_parent = os.path.split(url_parent)[0]
+#    if url_parent == r"/albums":
+#        url_parent = r"/albums/"
+#    print("parentPath - ",parent_path)
+#    print ("currentpath - ",currentpath)
+#    print("url_parent - ", url_parent)
     read_from_disk(url_parent, skippable=True)
     pagedata = index_data.objects.filter(
         fqpndirectory=url_parent,
@@ -141,11 +143,11 @@ def new_viewgallery(request):
     """
     View the requested Gallery page
     """
-    start_time = time.time()
+   # start_time = time.time()
     context = {}
     paths = {}
     context["filetypes"] = configdata["filetypes"]
-    context["ftypemap"] = filetypes.ftypes
+    context["ftypemap"] = ftypes.ftypes
     context["small"] = g_option(request,
                                 "size",
                                 configdata["configuration"]["small"])
@@ -159,10 +161,10 @@ def new_viewgallery(request):
     context["mobile"] = detect_mobile(request)
     request.path = request.path.lower().replace(os.sep, r"/")
 #    paths["webpath"] = request.path.lower().replace(os.sep, r"/")
-    paths["webpath"] = request.path
+    paths["webpath"] = ensures_endswith(request.path, "/")
 
     request, context = sort_order(request, context)
-    context["webpath"] = ensures_endswith(request.path, "/")
+    context["webpath"] = paths["webpath"]
 #    if not context["webpath"].endswith("/"):
 #        context["webpath"] += "/"
     context["fromtimestamp"] = datetime.datetime.fromtimestamp
@@ -196,9 +198,9 @@ def new_viewgallery(request):
         files_only = files_only.order_by("lastmod", "sortname")
 
     index = list(chain(dirs_only, files_only))
-    print(
-        "after make_thumbnail fqfns, elapsed after enumerate - %s\r" %
-        (time.time() - start_time))
+#    print(
+ #       "after make_thumbnail fqfns, elapsed after enumerate - %s\r" %
+  #      (time.time() - start_time))
     context["current_page"] = request.GET.get("page", 1)
     chk_list = Paginator(index, 30)
     context["page_cnt"] = list(range(1, chk_list.num_pages + 1))
@@ -221,11 +223,11 @@ def new_viewgallery(request):
 #            context["prev_uri"] += r"/"
 #        if context["next_uri"]© and not context["next_uri"].endswith(r"/"):
 #            context["next_uri"] += r"/"
-    print("\r-------------\r")
-    print(
-        "Gallery page, elapsed after thumbnails - %s\r" %
-        (time.time() - start_time))
-    print("\r-------------\r")
+#    print("\r-------------\r")
+#    print(
+#        "Gallery page, elapsed after thumbnails - %s\r" %
+#        (time.time() - start_time))
+#    print("\r-------------\r")
     response = render(request,
                       "frontend/gallery_listing.jinja",
                       context,
@@ -314,6 +316,8 @@ def new_view_archive(request, i_uuid):
     index_qs = index_data.objects.filter(uuid=e_uuid)
     entry = index_qs[0]
     request, context = sort_order(request, context)
+    context["next"] = ""
+    context["previous"] = ""
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
     context["webpath"] = ensures_endswith(context["webpath"], "/")
     context["fromtimestamp"] = datetime.datetime.fromtimestamp
@@ -328,14 +332,11 @@ def new_view_archive(request, i_uuid):
 #    context["pagecount"] = context["pagelist"].count
     context["pagepop"] = range(1, context["pagelist"].num_pages+1)
     context["page_contents"] = context["pagelist"].page(context["current_page"])
+
     if context["page_contents"].has_next():
         context["next"] = context["page_contents"].next_page_number()
-    else:
-        context["next"] = ""
     if context["page_contents"].has_previous():
         context["previous"] = context["page_contents"].previous_page_number()
-    else:
-        context["previous"] = ""
 
     context["first"] = "1"
     context["last"] = context["pagelist"].num_pages
@@ -601,6 +602,8 @@ if 'runserver' in sys.argv:
     print("Starting cleanup")
     check_for_deletes()
     print("Cleanup is done.")
+    ftypes.refresh_filetypes()
+    ftypes.FILETYPE_DATA = ftypes.get_ftype_dict()
 #    for prepath in configdata["locations"]["preload"]:
 #        print("Pre-Caching: ", prepath)
 #        read_from_disk(prepath.strip()) # startup
