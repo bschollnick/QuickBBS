@@ -49,7 +49,11 @@ def check_for_deletes():
 
 SORT_MATRIX = {0:["-is_dir", "sortname"],
                1:["-is_dir", "lastmod", "sortname"],
-               2:["-is_dir", "sortname"]}
+               2:["-is_dir", "sortname"],
+               }
+#SORT_MATRIX = {0:["sortname"],
+#               1:["lastmod", "sortname"],
+#               2:["sortname"]}
 
 def get_values(database, values):
     """
@@ -80,7 +84,7 @@ def get_db_files(sorder, fpath):
     """
  #   print (sys._getframe().f_code.co_name)
     index = index_data.objects.filter(fqpndirectory=fpath.lower().strip(),
-                                      ignore=False).order_by(
+                                      ignore=False,delete_pending=False).order_by(
                                           *SORT_MATRIX[sorder])
     return index
 

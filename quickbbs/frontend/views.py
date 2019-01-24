@@ -8,6 +8,7 @@ import datetime
 from itertools import chain
 import os
 import os.path
+from pathlib import Path
 import sys
 import time
 import warnings
@@ -24,6 +25,9 @@ from PIL import Image, ImageFile
 import frontend.archives3 as archives
 from frontend.config import configdata
 import frontend.ftypes as ftypes
+#from frontend.constants import *
+import frontend.constants as constants
+
 from frontend.utilities import (is_valid_uuid,
                                 sort_order, read_from_disk,
                                 ensures_endswith)
@@ -52,48 +56,44 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 DF_PNEXT = ["lastscan", "lastmod",
             "size", "numfiles",
             "numdirs", "parent_dir_id"]
-def return_prev_next(parent_path, currentpath, sorder):
+def return_prev_next(fqpn, currentpath, sorder):
     """
     Read the parent directory, get the index of the current path,
     return the previous & next paths.
 
     Replace the old system, with Django pagination.
     """
+    Parent_path = Path(fqpn).parent
+    #dirlist = [ item.lower() for item in os.listdir(Parent_path) if os.path.isdir(os.path.join(Parent_path, item)) ]
+    current_folder_name = os.path.basename(Path(fqpn)).lower()
     prevdir = ""
     nextdir = ""
     currentpath = currentpath.lower().strip()
     if currentpath == (r"/albums/"):
         return ("", "")
-    url_parent = parent_path.replace(configdata["locations"]["albums_path"], "").lower()
+    url_parent = fqpn.replace(configdata["locations"]["albums_path"], "").lower()
     url_parent = os.path.split(url_parent)[0]
-#    if url_parent == r"/albums":
-#        url_parent = r"/albums/"
-#    print("parentPath - ",parent_path)
+#    print("parentPath - ",Parent_path.as_posix())
 #    print ("currentpath - ",currentpath)
 #    print("url_parent - ", url_parent)
     read_from_disk(url_parent, skippable=True)
-    pagedata = index_data.objects.filter(
-        fqpndirectory=url_parent,
-        ignore=False,
-        delete_pending=False,
-        archives=None,
-        file_tnail=None).exclude(directory=None).order_by(*SORT_MATRIX[sorder])
-
+#    print (*SORT_MATRIX[sorder])
+    index = get_db_files(sorder, url_parent)#.order_by("lastmod")
+    dirs_only = index.filter(ignore=False, file_tnail=None, archives=None).exclude(directory=None)
     found = None
-    directories = Paginator(pagedata, 1)
-    low_path = os.path.split(currentpath)[1]
+    directories = Paginator(dirs_only, 1)
+    low_path = current_folder_name
     try:
         search = next(i for i, v in enumerate(directories.object_list)
                       if v.name.lower() == low_path) + 1
     except StopIteration:
         search = 1
-
     found = directories.page(search)
     if found.has_next():
-        nextdir = pagedata[found.next_page_number()-1].name
+        nextdir = dirs_only[found.next_page_number()-1].name
 
     if found.has_previous():
-        prevdir = pagedata[found.previous_page_number()-1].name
+        prevdir = dirs_only[found.previous_page_number()-1].name
 
     return (prevdir, nextdir)
 
@@ -146,8 +146,8 @@ def new_viewgallery(request):
    # start_time = time.time()
     context = {}
     paths = {}
-    context["filetypes"] = configdata["filetypes"]
-    context["ftypemap"] = ftypes.ftypes
+#    context["filetypes"] = configdata["filetypes"]
+#    context["ftypemap"] = ftypes.ftypes
     context["small"] = g_option(request,
                                 "size",
                                 configdata["configuration"]["small"])
@@ -188,23 +188,10 @@ def new_viewgallery(request):
     log.info("Reading from Disk")
     read_from_disk(paths["webpath"], skippable=True) # new_viewgallery
     index = get_db_files(context["sort_order"], paths["webpath"])
-    dirs_only = index.filter(ignore=False, file_tnail=None, archives=None).exclude(directory=None)
-    files_only = index.filter(ignore=False, directory=None)
-    if context["sort_order"] == 0:
-        dirs_only = dirs_only.order_by("sortname")
-        files_only = files_only.order_by("sortname")
-    else:
-        dirs_only = dirs_only.order_by("lastmod", "sortname")
-        files_only = files_only.order_by("lastmod", "sortname")
-
-    index = list(chain(dirs_only, files_only))
-#    print(
- #       "after make_thumbnail fqfns, elapsed after enumerate - %s\r" %
-  #      (time.time() - start_time))
+    index = list(index.order_by(*SORT_MATRIX[context["sort_order"]]))
     context["current_page"] = request.GET.get("page", 1)
     chk_list = Paginator(index, 30)
     context["page_cnt"] = list(range(1, chk_list.num_pages + 1))
-    # Replace with Paginator num_pages?  Have JS count?
 
     context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
     context["gallery_name"] = os.path.split(request.path_info)[-1]
@@ -602,8 +589,8 @@ if 'runserver' in sys.argv:
     print("Starting cleanup")
     check_for_deletes()
     print("Cleanup is done.")
-    ftypes.refresh_filetypes()
-    ftypes.FILETYPE_DATA = ftypes.get_ftype_dict()
+#    ftypes.refresh_filetypes()
+#    ftypes.FILETYPE_DATA = ftypes.get_ftype_dict()
 #    for prepath in configdata["locations"]["preload"]:
 #        print("Pre-Caching: ", prepath)
 #        read_from_disk(prepath.strip()) # startup

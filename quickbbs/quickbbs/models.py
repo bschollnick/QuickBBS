@@ -18,10 +18,17 @@ class filetypes(models.Model):
                                      blank=True,
                                      null=True)   # FQFN of the file itself
     color = models.CharField(max_length=7, default="000000")
+
+    # ftypes dictionary in constants / ftypes
     filetype = models.IntegerField(db_index=True,
                                    default=0,
                                    blank=True,
                                    null=True)
+
+    # quick testers.
+    # Originally going to be filetype only, but the SQL got too large
+    # (eg retrieve all graphics, became is JPEG, GIF, TIF, BMP, etc)
+    # so is_image is easier to fetch.
     is_image = models.BooleanField(default=False, db_index=True)
     is_archive = models.BooleanField(default=False, db_index=True)
     is_pdf = models.BooleanField(default=False, db_index=True)
@@ -134,12 +141,12 @@ class index_data(models.Model):
     uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True)
     lastscan = models.FloatField(db_index=True)   # Stored as Unix TimeStamp (ms)
     lastmod = models.FloatField(db_index=True)   # Stored as Unix TimeStamp (ms)
-    file_ext = models.CharField(db_index=True,
-                                max_length=128,
-                                default=None,
-                                unique=False,
-                                blank=True,
-                                null=True)
+#     file_ext = models.CharField(db_index=True,
+#                                 max_length=128,
+#                                 default=None,
+#                                 unique=False,
+#                                 blank=True,
+#                                 null=True)
     name = models.CharField(db_index=True,
                             max_length=512,
                             default=None,
@@ -159,6 +166,7 @@ class index_data(models.Model):
     is_dir = models.BooleanField(default=False, db_index=True)
     is_pdf = models.BooleanField(default=False, db_index=True)
     is_archive = models.BooleanField(default=False, db_index=True)
+    is_animated = models.BooleanField(default=False, db_index=True)
     is_image = models.BooleanField(default=False, db_index=True)
     ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
     delete_pending = models.BooleanField(default=False, db_index=True)  # File is to be deleted,

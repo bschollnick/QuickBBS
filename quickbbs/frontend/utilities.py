@@ -16,26 +16,40 @@ import time
 import html
 
 from PIL import Image
+import frontend.constants as constants
 import fitz
 import scandir
+import frontend
 import frontend.ftypes as ftypes
 from frontend.database import check_dup_thumbs
 from frontend.database import (validate_database)
 from quickbbs.models import (index_data, Thumbnails_Files, Thumbnails_Archives,
                              Thumbnails_Dirs, filetypes)
 from django.core.exceptions import MultipleObjectsReturned
+#from constants import *
 import logging
 log = logging.getLogger(__name__)
 
 import frontend.archives3 as archives
 
-PY2 = sys.version_info[0] < 3
+def rename_file(old_filename, new_filename):
+    try:
+        os.rename(old_filename, new_filename)
+    except OSError:
+        pass
 
-if PY2:
-    from exceptions import IOError
-
-
-# z = sorted(scandir.scandir("."), key= lambda x: x.stat().st_mtime,reverse=True)
+def get_lm_in_dir(fqpn):
+    """
+    return the directory listing in reverse last modified (oldest -> Newest)
+    as list of scandir items.
+    """
+    lastmod_list = sorted(scandir.scandir(fqpn),
+                          key=lambda x: x.stat().st_mtime,
+                          reverse=True)
+#    print(dir(lastmod_list))
+    for data in lastmod_list:
+        if not data.name.startswith("."):
+            return data.name.title()
 
 def ensures_endswith(string_to_check, value):
     if not string_to_check.endswith(value):
@@ -253,7 +267,88 @@ def naturalize(string):
     return string
 
 
-def read_from_disk(dir_to_scan, skippable=False):
+def multiple_replace(dict, text):#, compiled):
+    # Create a regular expression  from the dictionary keys
+
+    # For each match, look-up corresponding value in dictionary
+    return constants.regex.sub(lambda mo: dict[mo.string[mo.start():mo.end()]], text)
+
+def return_disk_listing(fqpn, enable_rename = False):
+
+    data = {}
+    data_list = []
+    webpath = (fqpn.lower().replace(configdata["locations"]["albums_path"].lower(),
+                                    "")).replace("//", "/")
+    for entry in scandir.scandir(fqpn):
+        titlecase = entry.name.title()#.strip()
+        unescaped = html.unescape(titlecase)
+        lower_filename = entry.name.lower()#.strip()
+        animated = False
+        if entry.is_dir():
+            fext = ".dir"
+        else:
+            fext = os.path.splitext(lower_filename)[1]
+#                try:
+#                    if ftypes.FILETYPE_DATA[fext]["is_image"]:
+#                        animated = Image.open(os.path.join(fqpn, entry.name)).is_animated
+#                except:
+#                    pass
+
+        if fext == "":
+            fext = ".none"
+#        print (dir(ftypes))
+        if fext not in ftypes.FILETYPE_DATA:
+#            print ("Skipping, not in filetypes - ", titlecase)
+            continue
+        elif (fext in configdata["filetypes"]["extensions_to_ignore"]) or\
+           (lower_filename in configdata["filetypes"]["files_to_ignore"]):
+            continue
+#            elif not fext[1:] in configdata["filetypes"].keys() and not entry.is_dir():
+#                print (fext)
+#                continue
+
+        elif configdata["filetypes"]["ignore_dotfiles"] and lower_filename.startswith("."):
+            continue
+
+        if enable_rename:
+            original_filename = titlecase
+            if titlecase != unescaped:
+                lower_filename = unescaped.lower()
+                titlecase = unescaped.title()
+
+            after_filename = multiple_replace(constants.replacements, lower_filename)#, regex)
+            if after_filename != lower_filename:
+                lower_filename = after_filename
+                titlecase = after_filename.title()
+
+            if titlecase != original_filename:
+                rename_file(os.path.join(fqpn, original_filename),
+                            os.path.join(fqpn, titlecase))
+
+            data[titlecase] = {"filename":titlecase,
+#        data_list.append( {"filename":titlecase,
+                           "lower_filename":lower_filename,
+ #                          "fqpndirectory":webpath,
+                           "path":os.path.join(fqpn, titlecase),
+                           'sortname':naturalize(titlecase),
+                           'size':entry.stat()[stat.ST_SIZE],
+                           'lastmod':entry.stat()[stat.ST_MTIME],
+#                               'numfiles':numfiles,
+#                               'numdirs':numdirs,
+                           'is_dir':fext == ".dir",
+                           'is_file':fext != ".dir",
+                           'is_archive':ftypes.FILETYPE_DATA[fext]["is_archive"],
+                           'is_image':ftypes.FILETYPE_DATA[fext]["is_image"],
+#                              'is_animated':animated
+
+#                           'lastscan':time.time(),
+#                           'filetype':filetypes(fileext=fext)
+                           }
+                    #)
+    return data
+    return #data_list
+
+def read_from_disk(dir_to_scan, skippable=True):
     """
     Pass in FQFN, and the database stores the path as the URL path.
     """
@@ -319,6 +414,7 @@ def read_from_disk(dir_to_scan, skippable=False):
                                           sd_entry[filename]["is_dir"]):
             fname = os.path.basename(fs_name).title()#.replace("#", "").\
 #                replace("?", "").strip()
+
             db_entry = Thumbnails_Files.objects.update_or_create(
                 uuid=uuid_entry,
                 FilePath=webpath,
@@ -333,90 +429,6 @@ def read_from_disk(dir_to_scan, skippable=False):
             return db_entry
         return None
 
-    def rename_file(old_filename, new_filename):
-        try:
-            os.rename(old_filename, new_filename)
-        except OSError:
-            pass
-
-    replacements={'?':'','/':"", ":":"", "#":"_"}
-
-    regex = re.compile("(%s)" % "|".join(map(re.escape, replacements.keys())))
-
-    def multiple_replace(dict, text):#, compiled):
-        # Create a regular expression  from the dictionary keys
-
-        # For each match, look-up corresponding value in dictionary
-        return regex.sub(lambda mo: dict[mo.string[mo.start():mo.end()]], text)
-
-    def return_disk_listing(fqpn, enable_rename = False):
-
-        data = {}
-        data_list = []
-#        print ("Scanning, ",fqpn)
-        webpath = (fqpn.lower().replace(configdata["locations"]["albums_path"].lower(),
-                                        "")).replace("//", "/")
-        for entry in scandir.scandir(fqpn):
-            titlecase = entry.name.title()#.strip()
-            unescaped = html.unescape(titlecase)
-            lower_filename = entry.name.lower()#.strip()
-            if entry.is_dir():
-                fext = ".dir"
-            else:
-                fext = os.path.splitext(lower_filename)[1]
-
-            if fext == "":
-                fext = ".none"
-            if not fext in ftypes.FILETYPE_DATA:
-    #                print ("Skipping, not in filetypes - ", titlecase)
-                continue
-            elif (fext in configdata["filetypes"]["extensions_to_ignore"]) or\
-               (lower_filename in configdata["filetypes"]["files_to_ignore"]):
-                continue
-#            elif not fext[1:] in configdata["filetypes"].keys() and not entry.is_dir():
-    #                print (fext)
- #                continue
-
-            elif configdata["filetypes"]["ignore_dotfiles"] and lower_filename.startswith("."):
-                continue
-
-            if enable_rename:
-                original_filename = titlecase
-                if titlecase != unescaped:
-                    lower_filename = unescaped.lower()
-                    titlecase = unescaped.title()
-
-                after_filename = multiple_replace(replacements, lower_filename)#, regex)
-                if after_filename != lower_filename:
-                    lower_filename = after_filename
-                    titlecase = after_filename.title()
-
-                if titlecase != original_filename:
-                    rename_file(os.path.join(fqpn, original_filename),
-                                os.path.join(fqpn, titlecase))
-
-#            data[titlecase] = {"filename":titlecase,
-            data_list.append( {"filename":titlecase,
-                               "lower_filename":lower_filename,
-     #                          "fqpndirectory":webpath,
-                               "path":os.path.join(fqpn, titlecase),
-                               'sortname':naturalize(titlecase),
-                               'size':entry.stat()[stat.ST_SIZE],
-                               'lastmod':entry.stat()[stat.ST_MTIME],
-    #                               'numfiles':numfiles,
-    #                               'numdirs':numdirs,
-                               'is_dir':fext == ".dir",
-                               'is_file':fext != ".dir",
-                               'is_archive':ftypes.FILETYPE_DATA[fext]["is_archive"],
-                               'is_image':ftypes.FILETYPE_DATA[fext]["is_image"],
-
-    #                           'lastscan':time.time(),
-    #                           'filetype':filetypes(fileext=fext)
-                               }
-                        )
-#        return data
-        return data_list
-
 ###############################
     # Read_from_disk - main
     #
@@ -427,7 +439,7 @@ def read_from_disk(dir_to_scan, skippable=False):
     # get all the filenames, and pass into update.
 
     # so that update can if not filename in listing, to check for deleted files.
-#    print ("Skippable - ", skippable)
+    lastmoded = ""
     dir_to_scan = dir_to_scan.strip().lower()
     fqpn = (configdata["locations"]["albums_path"] + dir_to_scan).replace("//", "/")
     webpath = fqpn.lower().replace(
@@ -436,15 +448,6 @@ def read_from_disk(dir_to_scan, skippable=False):
     if not os.path.exists(fqpn):
         print ("%s does not exist" % fqpn)
         return None
-
-#    rawdir = webpath.lower().replace(configdata["locations"]["albums_path"]+"/albums","")
-#    dirpath = os.path.split(rawdir)[0:-1][0]
-#    dirname = rawdir.replace(dirpath,"")[1:]
-#    dirdata = index_data.objects.filter(fqpndirectory=dirpath,
-#                                        name=dirname.title(),
-#                                        ignore=False).exclude(directory=None,
-#                                                              file_tnail=None,
-#                                                              archives=None)
 
     loaded = False
     while not loaded:
@@ -460,55 +463,51 @@ def read_from_disk(dir_to_scan, skippable=False):
     existing_data_size = existing_data.count()
 
     if existing_data_size > disk_count:
-        print ("existing size %s       on disk %s" % (existing_data_size,
-                                                      disk_count))
+        #print ("existing size %s       on disk %s" % (existing_data_size,
+        #                                              disk_count))
         for entry in existing_data:
             if not entry.name in diskstore:    # name is already title cased
                  print("Deleting %s" % entry.name)
                  entry.delete()
         skippable = False
-        print ("existing size, skippable > disk data scan = False")
-        print ("Existing # %s, disk scan %s" % (existing_data_size, disk_count))
+    #    print ("existing size, skippable > disk data scan = False")
+    #    print ("Existing # %s, disk scan %s" % (existing_data_size, disk_count))
 
     elif disk_count > existing_data_size:
-        print ("Disk data scan > existing size, skippable = False")
-        print ("Existing # %s, disk scan %s" % (existing_data_size, disk_count))
+     #   print ("Disk data scan > existing size, skippable = False")
+      #  print ("Existing # %s, disk scan %s" % (existing_data_size, disk_count))
         skippable = False
 
+    if existing_data_size > 0 and existing_data_size is not None:
+        try:
+            lastmoded = existing_data.order_by("-lastmod")[0].name
+            if not lastmoded == get_lm_in_dir(fqpn):
+                #print ("Unable to skip")
+                skippable = False
+        except IndexError:
+            lastmoded = ""
+            skippable = False
+            print ("Setting skipable to False")
+#    print ("Database, last mod - ", lastmoded)
+#    print ("disk, last mod - ", get_lm_in_dir(fqpn))
+    if skippable:
+        return webpath.replace(os.sep, r"/")
 
-#     if (existing_data == len(disk_data_array) and (time.time() - dirdata[0].lastscan < 60)):
-#         print ("Existing Data appears to be same size as current record")
-#     else:
-#         print ("Count mismatch, or expired [%s, %s)" % (existing_data, len(disk_data_array)))
-    # if dirdata:
-#         if (existing_data != 0 and (time.time() - dirdata[0].lastscan < 60)):
-#             print ("Existing Data %s" % existing_data)
-#             print ("Time %s, lastscan %s, Time-lastscan %s" % (time.time(), dirdata[0].lastscan, time.time() - dirdata[0].lastscan))
-#             return
-#     else:
-#         print ("No dirdata")
-    #
-    # Test with and without prefetch_related
-    #
-#    path_index_qs = index_data.objects.prefetch_related(
-#        'archives', 'directory',
-#        'file_tnail').filter(fqpndirectory=webpath.lower(),
-#                             ignore=False)
-
-#    disk_data = {}
-    for filedata in diskstore:
+    for filename, filedata in diskstore.items():
         disk_data = {}
-        filename = filedata["filename"]
         disk_data[filename] = filedata
-#        print (disk_data[filename])
+        animated = False
         if disk_data[filename]["is_dir"]:
             fext = ".dir"
         else:
             fext = os.path.splitext(disk_data[filename]["lower_filename"])[1]
-
-        if fext == "":
-            fext = ".none"
-
+            if fext == "":
+                fext = ".none"
+            if ftypes.FILETYPE_DATA[fext]["is_image"]:
+                try:
+                    animated = Image.open(os.path.join(fqpn, filename)).is_animated
+                except AttributeError:
+                    pass
         fs_item = os.path.join(configdata["locations"]["albums_path"],
                                webpath[1:],
                                filename)
@@ -517,15 +516,12 @@ def read_from_disk(dir_to_scan, skippable=False):
         numdirs = 0
         numfiles = 0
         if (disk_data[filename]["is_dir"]):
-            #print("Path : ", disk_data[filename]["path"])
             dirdata = next(os.walk(disk_data[filename]["path"]))
                 # dir[0] = Path, dir[1] = dirs, dir[2] = files
                 # get directory count, and file count for subdirectory
 #            fext = '.dir'
             numdirs = len(dirdata[1])
             numfiles = len(dirdata[2])
-            #print ("is dir, %s, %s" % (numdirs, numfiles))
-            #force_save = True
 
         new_uuid = uuid.uuid4()
         try:
@@ -534,33 +530,33 @@ def read_from_disk(dir_to_scan, skippable=False):
                 fqpndirectory=webpath,
                 ignore=False,
                 defaults={'name':filename,#.replace("#", "").strip(),
-                          'file_ext':fext,
+#                          'file_ext':fext,
                           'fqpndirectory':webpath,
                           'sortname':naturalize(filename),
                           'size':disk_data[filename]["size"],
-                          'lastmod':disk_data[filename]["lastmod"],#disk_data.stat()[stat.ST_MTIME],
+                          'lastmod':disk_data[filename]["lastmod"],
                           'numfiles':numfiles,
                           'numdirs':numdirs,
-#                          'is_dir':disk_data.is_dir(),
                           'is_dir':disk_data[filename]["is_dir"],
                           'is_archive':disk_data[filename]["is_archive"],
                           'is_image':ftypes.FILETYPE_DATA[fext]["is_image"],
                           'is_pdf':ftypes.FILETYPE_DATA[fext]["is_image"],
                           'lastscan':time.time(),
-                          'filetype':filetypes(fileext=fext)
+                          'filetype':filetypes(fileext=fext),
+                          'is_animated':animated
                           }
                 )
         except MultipleObjectsReturned:
             print ("Multiple Objects Returned")
             index_data.objects.filter(
-                name=filename,#.replace("#", ""),
+                name=filename,
                 fqpndirectory=webpath).delete()
             ind_data, created = index_data.objects.update_or_create(
-                name=filename,#.replace("#", ""),
+                name=filename,
                 fqpndirectory=webpath,
                 ignore=False,
                 defaults={'name':filename,#.replace("#", "").strip(),
-                          'file_ext':fext,
+#                          'file_ext':fext,
                           'fqpndirectory':webpath,
                           'sortname':naturalize(filename),
                           'size':disk_data[filename]["size"],
@@ -572,10 +568,11 @@ def read_from_disk(dir_to_scan, skippable=False):
                           'is_archive':disk_data[filename]["is_archive"],
                           'is_image':ftypes.FILETYPE_DATA[fext]["is_image"],
                           'lastscan':time.time(),
-                          'filetype':filetypes(fileext=fext)
+                          'filetype':filetypes(fileext=fext),
+                          'is_animated':animated
                           }
                 )
-        if ind_data.file_ext == None:
+        if ind_data.filetype == filetypes(fileext=None):
             #print ("Updating due to file_ext")
             force_save = True
 
@@ -588,41 +585,31 @@ def read_from_disk(dir_to_scan, skippable=False):
 #        print (fext)
         if ind_data.file_tnail is None and (ftypes.FILETYPE_DATA[fext]["is_image"] or
             fext in ['.pdf', '.Pdf']):
+            # if is image or PDF, then link to file rec
             ind_data.file_tnail = link_file_rec(disk_data, webpath, new_uuid)
 #            force_save = force_save or not ind_data.file_tnail is None
             #print ("Tnail update")
             force_save = True
-
-        if ind_data.directory is None and fext==".dir":
+        elif ind_data.directory is None and fext==".dir":
+            # is directory link as directory
             ind_data.directory = link_dir_rec(disk_data, webpath, new_uuid)
             #print ("dir update")
             force_save = True
-
-        if ind_data.archives is None and ftypes.FILETYPE_DATA[fext]["is_archive"]:
+        elif ind_data.archives is None and ftypes.FILETYPE_DATA[fext]["is_archive"]:
+            # is archive, link as archive
             ind_data.archives = link_arc_rec(fs_item, webpath, new_uuid)
             #print ("archives update")
             force_save = True
-
-        if ind_data.count_subfiles == 0 and ftypes.FILETYPE_DATA[fext]["is_archive"]:
-            archive_file = archives.id_cfile_by_sig(fs_item)
-            archive_file.get_listings()
-            ind_data.count_subfiles = len(archive_file.listings)
-            #print ("subfiles update")
-            force_save = True
-
-        if created or ind_data.uuid is None:
-            ind_data.uuid = new_uuid
-            #print ("Created update")
-            force_save = True
-
-        if not ind_data.archives is None:# and ind_data.directory is None and ind_data.file_tnail is None:
-            # There is an archive
+        elif ind_data.archives is not None:
+            # There is an archive, and the subfile count does not match, update count
+            # and listings
             ta_listings = Thumbnails_Archives.objects.filter(uuid=ind_data.uuid)
-            if not ta_listings.count() == ind_data.count_subfiles:
+            if ta_listings.count() != ind_data.count_subfiles:
                 archive_file = archives.id_cfile_by_sig(os.path.join(configdata["locations"]["albums_path"],
                                webpath[1:],
                                filename))
                 archive_file.get_listings()
+                ind_data.count_subfiles = ta_listings.count()
                 for zipcount, entry in enumerate(archive_file.listings):
                     if not ta_listings.filter(page = zipcount).exists():
                         Thumbnails_Archives.objects.create(uuid = ind_data.uuid,
@@ -630,6 +617,19 @@ def read_from_disk(dir_to_scan, skippable=False):
                             FilePath = webpath,
                             page = zipcount,
                             FileSize = -1)
+
+#         elif ind_data.count_subfiles == 0 and ftypes.FILETYPE_DATA[fext]["is_archive"]:
+#             # it's an archive, with no files listed, get count of files
+#             archive_file = archives.id_cfile_by_sig(fs_item)
+#             archive_file.get_listings()
+#             ind_data.count_subfiles = len(archive_file.listings)
+#             #print ("subfiles update")
+#             force_save = True
+
+        if created or ind_data.uuid is None:
+            ind_data.uuid = new_uuid
+            #print ("Created update")
+            force_save = True
 
 
         if force_save:
@@ -657,3 +657,4 @@ if __name__ == '__main__':
     doctest.testmod()
 else:
     from frontend.config import configdata
+    print(sys.version)

@@ -23,9 +23,9 @@ if machine_name in ["bschollnicklt", u"nerv.local"]:
 else:
     DEBUG = False
 
-DEBUG = True
-#DEBUG = False
-SILK = False
+#DEBUG = True
+DEBUG = False
+#SILK = False
 
 #DEBUG_TOOLBAR = False
 #DEBUG_TOOLBAR = True
@@ -88,8 +88,8 @@ INSTALLED_APPS += [
     'django_icons',
 ]
 INSTALLED_APPS += ('bootstrap3',)
-if SILK:
-    INSTALLED_APPS += ('silk',)
+#if SILK:
+#    INSTALLED_APPS += ('silk',)
 #INSTALLED_APPS += ('django_jinja.contrib._humanize',)
 
 SITE_ID = 1

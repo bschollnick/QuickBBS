@@ -70,19 +70,10 @@
                                 <div class="col-xs-6 col-sm-4" style="bgcolor:#fef7df">
                                     <center>
                                         {{ loop.index }} <br>
-                                        {% if item.is_dir %}
-                                            {% set bgcolor = filetypes["dir"][0] %}
-                                        {% elif item.is_image %}
-                                            {% set bgcolor = filetypes["jpeg"][0] %}
-                                        {% elif item.is_pdf %}
-                                            {% set bgcolor = filetypes["pdf"][0] %}
-                                        {% elif item.is_archive %}
-                                            {% set bgcolor = filetypes["zip"][0] %}
-                                        {% endif %}
-                                            {% if item.directory != None or item.is_dir %}<a href="{{ webpath }}{{ item.name }}" class="thumbnail" style="background-color:#{{filetypes['dir'][0]}};"> {% endif %}
-                                            {% if item.archives != None  or item.is_archive %}<a href="/view_archive/{{ item.uuid}}" class="thumbnail" style="background-color:#{{filetypes['archive'][0]}};"> {% endif %}
-                                            {% if item.file_tnail != None %}<a href="/view_item/{{ item.uuid }}" class="thumbnail" style="background-color:#{{filetypes['pdf'][0]}};"> {% endif %}
-                                                {{ item.name | wordwrap(width=25, break_long_words=True)}}
+                                            {% if item.directory != None or item.is_dir %}<a href="{{ webpath }}{{ item.name }}" class="thumbnail" style="background-color:#{{item.filetype.color}};"> {% endif %}
+                                            {% if item.archives != None  or item.is_archive %}<a href="/view_archive/{{ item.uuid}}" class="thumbnail" style="background-color:#{{item.filetype.color}};"> {% endif %}
+                                            {% if item.file_tnail != None %}<a href="/view_item/{{ item.uuid }}" class="thumbnail" style="background-color:#{{item.filetype.color}};"> {% endif %}
+                                                {{ item.name|wordwrap(width=24, break_long_words=True)}}
                                                 <br>
                                             {% if item.is_dir %}
                                                 <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{ item.uuid }}?size=small" class="img-responsive" style="width:auto;max-width:100%"/>
@@ -98,7 +89,10 @@
                                             {% endif %}
 
                                         </a>
-                                                {{ item.uuid }}
+                                                {{ item.uuid }} <br>
+                                        {% if item.is_animated %}
+                                        <b>Animated</b><br>
+                                        {% endif %}
                                         {% if item.numdirs != None and item.numdirs != 0%}
                                             <b># of Dirs: </b>{{ item.numdirs | intcomma }}<br>
                                         {% endif %}
@@ -109,7 +103,6 @@
                                         {% if item.is_dir != True and item.Size != None and item.Size != 0 %}
                                             <b>File Size: </b>{{ item.size | intcomma}}<br>
                                         {% endif %}
-                                        {{ item.filetype["is_image"] }}
                                         <b>Last Modified: </b>{{ fromtimestamp( item.lastmod).strftime("%m/%d/%y %H:%M:%S") }}<br>
                                             {% if item.directory != None or item.is_dir %}<a href="{{ webpath }}{{ item.name }}" target="_blank"> {% endif %}
                                             {% if item.archives != None or item.is_archive %}<a href="{{ webpath }}{{ item.name }}" target="_blank"> {% endif %}
