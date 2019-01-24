@@ -5,8 +5,10 @@ import statistics
 number_of_repeats = 100
 wait_for = 10
 
-urls_to_check = [#"http://nerv.local:8888/albums/",
-                 "http://nerv.local:8888/albums/hentai idea/",
+urls_to_check = ["http://nerv.local:8888/albums/",
+                 "http://nerv.local:8888/albums/hentai idea",
+#                 "http://nerv.local:8888/albums/hentai%20idea",
+#                 "http://nerv.local:8888/albums/Hentai%20Idea?page=1",
                  "http://nerv.local:8888/albums/Hentai%20Idea?page=2",
                  "http://nerv.local:8888/albums/Hentai%20Idea?page=10",
                  "http://nerv.local:8888/albums/Hentai%20Idea?page=20",

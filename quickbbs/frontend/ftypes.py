@@ -2,35 +2,17 @@
 """
 Utilities for QuickBBS, the python edition.
 """
-from __future__ import absolute_import, print_function, unicode_literals
+#from _future_ import absolute_import, print_function, unicode_literals
 
 from quickbbs.models import (filetypes)
 #from django.core.exceptions import MultipleObjectsReturned
-import logging
-log = logging.getLogger(__name__)
-
-ftypes = {'unknown':0,
-         'dir':1,
-         'pdf':2,
-         'archive':3,
-         'image':4,
-         'movie':5,
-         'text':6,
-         'html':7,
-         'epub':8,
-         'flash':9}
-
-
-__archives = [".zip", ".rar", ".cbz", ".cbr"]
-__html = [".htm", ".html"]
-__graphics = [".bmp", ".gif", ".jpg", ".jpeg", ".png"]
-__text = [".txt", ".md", ".markdown"]
-__movie = [".mp4", ".m4v", ".mpg", ".mpg4", ".mpeg",
-           ".mpeg4", ".wmv", ".flv", ".avi"]
-
+#import logging
+#log = logging.getLogger(_name_)
+from frontend.constants import ftypes
+import frontend.constants as constants
 
 def refresh_filetypes():
-    for ext in __movie:
+    for ext in constants._movie:
         filetypes.objects.update_or_create(fileext=ext,
                                            defaults={"generic":True,
                                                      "icon_filename":"MovieIcon100.jpg",
@@ -38,7 +20,7 @@ def refresh_filetypes():
                                                      "filetype":ftypes['movie']}
                                                      )
 
-    for ext in __archives:
+    for ext in constants._archives:
         filetypes.objects.update_or_create(fileext=ext,
                                            defaults={"generic":True,
                                                      "icon_filename":"1431973824_compressed.png",
@@ -46,19 +28,19 @@ def refresh_filetypes():
                                                      "filetype":ftypes['archive'],
                                                      "is_archive":True})
 
-    for ext in __html:
+    for ext in constants._html:
         filetypes.objects.update_or_create(fileext=ext,
                                            defaults={"generic":True,
                                            "icon_filename":"1431973779_html.png",
                                            "color":"fef7df", "filetype":ftypes['html']})
 
-    for ext in __graphics:
+    for ext in constants._graphics:
         filetypes.objects.update_or_create(fileext=ext,
                                            defaults={"generic":False,
                                            "color":"FAEBF4", "filetype":ftypes['image'],
                                            "is_image":True})
 
-    for ext in __text:
+    for ext in constants._text:
         filetypes.objects.update_or_create(fileext=ext,
                                            defaults={"generic":True,
                                            "icon_filename":"1431973815_text.PNG",
@@ -106,6 +88,9 @@ def map_ext_to_id(ext):
     ext = ext.lower().strip()
     if ext.startswith("."):
         ext = ext[1:]
+
+refresh_filetypes()
+FILETYPE_DATA = get_ftype_dict()
 
 #print ("# of FileTypes: ",len(FILETYPES))
 # class filetypes(models.Model):
