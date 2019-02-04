@@ -60,7 +60,7 @@ body {background: #CCCCFF;}
 }
 
 </style>
-    <title>{% block title %} {% endblock %}</title>
+    <title>{% block title %} {{ gallery_name }} {% endblock %}</title>
 </head>
 <body>
 
@@ -91,7 +91,7 @@ body {background: #CCCCFF;}
         <li class="dropdown">
           <a href="#" class="dropdown-toggle" data-toggle="dropdown" role="button" aria-haspopup="true" aria-expanded="false">
           {% if user.username == '' %}
-          Account
+          {{ icon("users fa-2x")}}
           {% else %}
           {{ user.username }}
           {% endif %}
