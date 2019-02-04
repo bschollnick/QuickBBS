@@ -14,8 +14,6 @@ from __future__ import absolute_import
 from __future__ import print_function
 import os
 import socket
-import quickbbs.jinjaenv
-
 ALLOWED_HOSTS = [u'nerv.local', u'localhost', u'127.0.0.1']
 INTERNAL_IPS = [u'localhost', '127.0.0.1', u'nerv.local']
 machine_name = socket.gethostname().lower()
@@ -25,19 +23,9 @@ if machine_name in ["bschollnicklt", u"nerv.local"]:
 else:
     DEBUG = False
 
-DEBUG = True
-DEBUG = not DEBUG
-
-SILK = True
-SILK = not SILK
-
-if SILK:
-    SILKY_PYTHON_PROFILER = True
-    SILKY_PYTHON_PROFILER_BINARY = True
-else:
-    SILKY_PYTHON_PROFILER = False
-    SILKY_PYTHON_PROFILER_BINARY = False
-
+#DEBUG = True
+DEBUG = False
+#SILK = False
 
 #DEBUG_TOOLBAR = False
 #DEBUG_TOOLBAR = True
@@ -91,12 +79,7 @@ INSTALLED_APPS += [
     'django.contrib.sites',
     'django_jinja',
     'django_jinja.contrib._humanize',
-    'django.contrib.humanize',]
-
-if SILK:
-        INSTALLED_APPS.append('silk',)
-
-INSTALLED_APPS += [
+    'django.contrib.humanize',
     'allauth',
     'allauth.account',
     'allauth.socialaccount',
@@ -106,7 +89,7 @@ INSTALLED_APPS += [
 ]
 INSTALLED_APPS += ('bootstrap3',)
 #if SILK:
-#    INSTALLED_APPS += ()
+#    INSTALLED_APPS += ('silk',)
 #INSTALLED_APPS += ('django_jinja.contrib._humanize',)
 
 SITE_ID = 1
@@ -122,8 +105,6 @@ SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
 ##if DEBUG_TOOLBAR:
 #    MIDDLEWARE += ('debug_toolbar.middleware.DebugToolbarMiddleware',)
 
-if SILK:
-    MIDDLEWARE += ('silk.middleware.SilkyMiddleware',)
 MIDDLEWARE += [
 #    'quickbbs.middleware.filter_ips.FilterHostMiddleware',
     'django.middleware.security.SecurityMiddleware',
@@ -141,11 +122,10 @@ if not DEBUG:
         'django.middleware.common.CommonMiddleware',
         'django.middleware.cache.FetchFromCacheMiddleware',)
 
+#if SILK:
+#    MIDDLEWARE += ('silk.middleware.SilkyMiddleware')
 
-#if DEBUG:
-#    MIDDLEWARE += ('profiler.middleware.ProfilerMiddleware',
-#                   'profiler.middleware.StatProfMiddleware')
-
+#SILKY_PYTHON_PROFILER = False
 
 ROOT_URLCONF = 'quickbbs.urls'
 
@@ -166,13 +146,11 @@ TEMPLATES = [
         },
     },
 
-    # https://docs.djangoproject.com/en/2.1/ref/templates/api/#django.template.loaders.cached.Loader
-
     {   'NAME': "Jinja2",
         "BACKEND": "django_jinja.backend.Jinja2",
         "APP_DIRS": True,
         'DIRS': [TEMPLATE_PATH,],
-        "OPTIONS": {'environment': "quickbbs.jinjaenv.environment",
+        "OPTIONS": {
             # Match the template names ending in .html but not the ones in the admin folder.
             "match_extension": ".jinja",
             "extensions": [
@@ -191,7 +169,7 @@ TEMPLATES = [
              "bytecode_cache": {
                  "name": "default",
                  "backend": "django_jinja.cache.BytecodeCache",
-                 "enabled": True,
+                 "enabled": False,
              },
              "autoescape": True,
              "auto_reload": True,
@@ -259,8 +237,7 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/1.9/topics/i18n/
 LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'EST'
-#TIME_ZONE = 'UTC'
+TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_L10N = True
 USE_TZ = True
