@@ -4,23 +4,22 @@
  <!-- cdnjs -->
 <script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/jquery.lazy/1.7.9/jquery.lazy.min.js"></script>
 <script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/jquery.lazy/1.7.9/jquery.lazy.plugins.min.js"></script>
-<!-- sidebar -->
-<div class="container" style="width:99%">
-    <div class="row">
-
+    <!-- sidebar -->
+    <div class="container" style="width:99%">
+      <div class="row">
         <div class="col-xs-6 col-sm-3" id="sidebar" role="navigation">
             <div class="pagination">
-                <p align=center><a href="{{ up_uri }}">{{ icon("arrow-up fa-2x")}}</a></p>
+                <a href="{{ up_uri }}"><img src="/resources/images/Go_Up2.png" width="75%"></a>
                 <hr>
                 <a href="?page=1">
-                    <p align=center>{{ icon("angle-double-left fa-3x")}}</a></p>
+                    <img width="75%" height="75%" src="/resources/images/gtk_media_next_rtl.png"/></a>
                 <hr>
                 <span class="step-links">
                     {% if pagelist.has_previous() %}
                         <a href="?page={{ pagelist.previous_page_number() }}">
-                        <p align=center>{{ icon("angle-left fa-3x")}}</a></p>
+                            <img width="75%" height="75%" src="/resources/images/gtk_media_rev_ltr.png"/></a>
                     {% else %}
-                            <p align=center><img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/></p>
+                            <img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/>
                     {% endif %}
                 <hr><center>
                     <form action="?" method="GET">
@@ -36,14 +35,14 @@
 
                     {% if pagelist.has_next() %}
                         <a href="?page={{ pagelist.next_page_number() }}">
-                        <p align=center>{{ icon("angle-right fa-3x")}}</a></p>
+                            <img width="75%" height="75%" src="/resources/images/gtk_media_play_ltr.png"/></a>
                     {% else %}
                             <img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/>
                     {% endif %}
                 <hr>
 
                 <a href="?page={{ pagelist.paginator.num_pages }}">
-                        <p align=center>{{ icon("angle-double-right fa-3x")}}</a></p>
+                    <img width="75%" height="75%" src="/resources/images/gtk_media_next_ltr.png"/></a>
                 </span>
                 <hr>
                     <form action="?page={{ current_page }}" method="GET">
@@ -108,7 +107,7 @@
                                             {% if item.directory != None or item.is_dir %}<a href="{{ webpath }}{{ item.name }}" target="_blank"> {% endif %}
                                             {% if item.archives != None or item.is_archive %}<a href="{{ webpath }}{{ item.name }}" target="_blank"> {% endif %}
                                             {% if item.file_tnail != None %}<a href="/view_item/{{ item.uuid }}" target="_blank"> {% endif %}
-                                            <p align=Right>{{ icon("external-link-alt fa-2x") }}</a></p>
+                                <img src="/resources/images/stock_new_window.png" align=right height="15%" width="15%"></a>
 
                                     </center>
                                 </div>
