@@ -47,7 +47,7 @@ def check_for_deletes():
         deleted.delete()
 
 
-SORT_MATRIX = {0:["-is_dir", "sortname"],
+SORT_MATRIX = {0:["-is_dir", "sortname", "lastmod"],
                1:["-is_dir", "lastmod", "sortname"],
                2:["-is_dir", "sortname"],
                }
@@ -87,14 +87,6 @@ def get_db_files(sorder, fpath):
                                       ignore=False,delete_pending=False).order_by(
                                           *SORT_MATRIX[sorder])
     return index
-
-#       if index_data.objects.filter(name__iexact=entry.name.title(),
-#                                     fqpndirectory=webpath,
-#                                     ignore=False).count() > 1:
-#            print("Recovery from Multiple starting for %s" % entry.name)
-#            recovery_from_multiple(webpath, entry.name)
-#            add_entry(entry, webpath)
-#            return
 
 def check_dup_thumbs(uuid_to_check, page=0):
     """
@@ -159,27 +151,14 @@ def get_xth_image(database, positional=0, filters=[]):
     --------
     return_img_attach("test.png", img_data)
 """
-    count = database.objects.filter(**filters).exclude(file_tnail=None).count()
-    if 0 < positional > count:
-        # outside of possible ranges
-        if positional < 0:
-            print ("Setting lower value")
-            positional = 0
-        else:
-            print ("Setting higher value")
-            positional = count
     try:
-        return database.objects.filter(**filters).exclude(file_tnail=None)[positional]
-    except IndexError:
-        return None
+        # exact match
+        return database.objects.filter(**filters).exclude(file_tnail=None,ignore=False,delete_pending=False)[positional]
+    except IndexError: # No matching position was found
+        # it has to be either too high (greater than length), or less than 0.
+        count = database.objects.filter(**filters).exclude(file_tnail=None,ignore=False,delete_pending=False).count()
+        if positional > count:    # The requested index is too high
+            return database.objects.filter(**filters).exclude(file_tnail=None,ignore=False,delete_pending=False)[count]
+        #else, return None, because positional has to be 0 or less.
+    return None
 
-    #files = database.objects.filter(**filters).exclude(file_tnail=None)
-#    if files:
-#        if positional > count:
-#            positional = count
-#        elif positional < 0:
-#            positional = 0
-
-#        return files[positional]
-#    else:
-#        return None
