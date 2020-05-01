@@ -1,0 +1,132 @@
+{% extends 'frontend/gallery_base.html' %}
+
+{% block title%}
+{% endblock %}
+
+{% block content %}
+    <!-- sidebar -->
+    <div class="container" style="width:99%">
+      <div class="row">
+        <div class="col-xs-6 col-sm-3" id="sidebar" role="navigation">
+            <div class="pagination">
+                <a href="{{ up_uri }}"><img src="/resources/images/Go_Up2.png" width="75%"></a>
+                <hr>
+                <a href="?page=1">
+                    <img width="75%" height="75%" src="/resources/images/gtk_media_next_rtl.png"/></a>
+                <hr>
+                <span class="step-links">
+                    {% if pagelist.has_previous %}
+                        <a href="?page={{ pagelist.previous_page_number }}">
+                            <img width="75%" height="75%" src="/resources/images/gtk_media_rev_ltr.png"/></a>
+                    {% else %}
+                            <img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/>
+                    {% endif %}
+                <hr>
+                    <span class="current" align=center>
+                    <form action="?" method="GET">
+                    Page
+                        <select name="page" onchange='this.form.submit()'>
+                            {% for pagecnt in page_cnt %}
+                                <option value="{{pagecnt}}" {% if pagecnt == pagelist.number %}selected{% endif %}>{{pagecnt}}</option>
+                            {% endfor %}
+                        </select><br>
+                        of {{ pagelist.paginator.num_pages }}.
+                    </form>
+                    </span>
+                <hr>
+
+                    {% if pagelist.has_next %}
+                        <a href="?page={{ pagelist.next_page_number }}">
+                            <img width="75%" height="75%" src="/resources/images/gtk_media_play_ltr.png"/></a>
+                    {% else %}
+                            <img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/>
+                    {% endif %}
+                <hr>
+
+                <a href="?page={{ pagelist.paginator.num_pages }}">
+                    <img width="75%" height="75%" src="/resources/images/gtk_media_next_ltr.png"/></a>
+                </span>
+                <hr>
+                    <form action="?page={{ current_page }}" method="GET">
+                    {% csrf_token %}
+                        <select name="sort" onchange='this.form.submit()'>
+                            <option value="0" {% if sort_order == 0 %}selected{% endif %}>A..Z</option>
+                            <option value="1" {% if sort_order == 1 %}selected{% endif %}>LastM</option>
+                            <option value="2" {% if sort_order == 2 %}selected{% endif %}>CTime</option>
+                        </select>
+                    </form>
+                <hr>
+            </div>
+        </div>
+<!-- main area -->
+         <div class="container-fluid" style="margin-left: 45px;margin-right:1px;border: 0px solid;padding-left:2px;padding-right:2px;background:#b0e2ff;">
+             <table border=0 width="100%">
+                <tr>
+                <td width="25%" align=left> <a href="{{ prev_uri }}">{{ prev_uri }}</a></td>
+                <td width="50%" align=center><b>{{ gallery_name }}</b></td>
+                <td width="25%" align=right> <a href="{{ next_uri }}">{{ next_uri }}</a></td>
+                </tr>
+             </table>
+                    <div class="row" style="margin-left: 0px;margin-right:0px;border: 0px solid;padding-left:2px;padding-right:2px;background:#b0e2ff;">
+                    {% for name, data, thumbnail_web, thumbnail_fs, backgroundclr in pagelist %}
+                                <div class="col-xs-6 col-sm-4">
+                                    <center>
+                                        {{ forloop.counter }} <br>
+
+
+                                        <a href="{{ webpath }}/{{ name }}" class="thumbnail" style="background:{{backgroundclr}};">
+                                                {{ name|truncatechars:26|linebreaksbr }}
+                                                <br>
+                                            {% if data.is_dir %}
+                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ thumbnail_web }}?dir" class="img-responsive" style="width:auto;max-width:100%"/>
+                                            {% elif data.is_pdf %}
+                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ thumbnail_web }}?pdf" class="img-responsive" style="width:auto;max-width:100%"/>
+                                            {% elif data.is_archive %}
+                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ thumbnail_web }}?arch=0" class="img-responsive" style="width:auto;max-width:100%"/>
+                                            {% else %}
+                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ thumbnail_web }}" class="img-responsive" style="width:auto;max-width:100%"/>
+                                            {% endif %}
+                                        </a>
+                                        {% if data.number_dirs != None and data.number_dirs != 0%}
+                                            <b># of Dirs: </b>{{ data.number_dirs }}<br>
+                                        {% endif %}
+
+                                        {% if data.number_files != None and data.number_files != 0 %}
+                                            <b># of Files: </b>{{ data.number_files }}<br>
+                                        {% endif %}
+                                        {% if data.file_extension != "dir" and data.st.st_size != None and data.st.st_size != 0 %}
+                                            <b>File Size: </b>{{ data.st.st_size }}<br>
+                                        {% endif %}
+                                        <b>Last Modified: </b><br>{{ data.human_st_mtime }}
+                                                                    <a href="{{ webpath }}/{{ name }}" target="_blank">
+                                <img src="/resources/images/stock_new_window.png" align=right height="15%" width="15%"></a>
+
+                                    </center>
+                                </div>
+
+                            <!-- if last column in row -->
+                            {% if forloop.counter|divisibleby:"3" %}
+                                </div> <div class="row" style="margin-left: 0px;margin-right:0px;border: 0px solid;padding-left:2px;padding-right:2px;background:#b0e2ff;">
+                            {% endif %}
+
+                    {% endfor %}
+            </div>
+
+
+        </div><!-- /.col-xs-12 main -->
+    </div><!--/.row-->
+  </div><!--/.container-->
+ </center>
+<script>
+$(function($) {
+    $("img.lazy").Lazy({
+    scrollDirection: 'vertical',
+        effect: 'fadeIn',
+        visibleOnly: true,
+        delay: 500,
+        threshold: 200,
+        combined: true
+});
+});
+</script>
+{% endblock %}

@@ -15,19 +15,23 @@
 
 {# Display django.contrib.messages as Bootstrap alerts #}
 {% bootstrap_messages %}
-
+{% load icons %}
+<link href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css"
+      rel="stylesheet"
+      integrity="sha384-wvfXpqpZZVQGK6TAh5PVlGOfQNHSoD2xbE+QkPxCAFlNEevoEH3Sl0sibVcOQVnN"
+      crossorigin="anonymous"
 <link href="//maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" rel="stylesheet">
+<link href=”//vjs.zencdn.net/7.0/video-js.min.css” rel=”stylesheet”>
 <script src="//maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
-<script type="text/javascript" src="//cdn.jsdelivr.net/momentjs/latest/moment.min.js"></script>
-
-<script type="text/javascript" src="https://cdn.datatables.net/v/dt/jq-3.2.1/jq-3.2.1/jszip-2.5.0/dt-1.10.16/b-1.4.2/b-colvis-1.4.2/b-html5-1.4.2/b-print-1.4.2/sl-1.2.3/datatables.min.js"></script>
-<link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/v/dt/jq-3.2.1/jq-3.2.1/jszip-2.5.0/dt-1.10.16/b-1.4.2/b-colvis-1.4.2/b-html5-1.4.2/b-print-1.4.2/sl-1.2.3/datatables.min.css"/>
-
-<!-- Include Date Range Picker -->
-<script type="text/javascript" src="//cdn.jsdelivr.net/bootstrap.daterangepicker/2/daterangepicker.js"></script>
-<link rel="stylesheet" type="text/css" href="//cdn.jsdelivr.net/bootstrap.daterangepicker/2/daterangepicker.css" />
 
 
+<title> {{ pagelist.0.0 }}</Title>
+<script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/jquery.lazy/1.7.9/jquery.lazy.min.js"></script>
+<script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/jquery.lazy/1.7.9/jquery.lazy.plugins.min.js"></script>
+<link href="https://vjs.zencdn.net/7.6.0/video-js.css" rel="stylesheet">
+
+  <!-- If you'd like to support IE8 (for Video.js versions prior to v7) -->
+  <script src="https://vjs.zencdn.net/ie8/1.1.2/videojs-ie8.min.js"></script>
         <!-- CSS code from Bootply.com editor -->
 
 <style type="text/css">
@@ -73,11 +77,6 @@
   margin-left: -15px;
 }
 </style>
-
-<head>
-<title> {{ pagelist.0.0 }}</Title>
-<script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/jquery.lazy/1.7.9/jquery.lazy.min.js"></script>
-<script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/jquery.lazy/1.7.9/jquery.lazy.plugins.min.js"></script>
 </head>
 <body>
         <div class="page-container">
@@ -101,68 +100,76 @@
         <!-- sidebar -->
         <div class="col-xs-6 col-sm-3" id="sidebar" role="navigation">
             <div class="pagination">
-                <a href="{{ up_uri }}"><img src="/resources/images/Go_Up2.png" width="75%"></a>
-                <hr>
-                <a href="/view_item/{{first}}">
-                    <img width="70%"height="50%" src="/resources/images/gtk_media_next_rtl.png"/></a>
-                <hr>
+                <p align=center><a href="{{ up_uri }}?page=1&sort={{sort}}">{% icon 'arrow-up fa-2x' %}</a></p>
+                <br>
+                <a href="/view_item/{{first}}?sort={{sort}}">
+                    <p align=center>{% icon 'angle-double-left fa-3x' %}</a>
+                <br>
                 <span class="step-links">
                     {% if previous %}
-                        <a href="/view_item/{{ previous }}">
-                            <img width="70%" height="50%" src="/resources/images/gtk_media_rev_ltr.png"/></a>
+                        <a href="/view_item/{{ previous }}?sort={{sort}}">
+                            <p align=center>{% icon 'angle-left fa-3x' %}</a>
                     {% else %}
                             <img width="70%" height="50%" src="/resources/images/gtk_media_empty.png"/>
                     {% endif %}
                 </span>
-                <hr>
+                <br>
                     <span class="current">
                         <center>Page<br>{{ page }}<br>of<br>{{ pagecount }}.</center>
                     </span>
-                <hr>
+                <br>
 
                     {% if next %}
-                        <a href="/view_item/{{ next }}">
-                            <img width="70%" height="50%" src="/resources/images/gtk_media_play_ltr.png"/></a>
+                        <a href="/view_item/{{ next }}?sort={{sort}}">
+                            <p align=center>{% icon 'angle-right fa-3x' %}</a>
 
                     {% else %}
                             <img width="70%" height="50%" src="/resources/images/gtk_media_empty.png"/>
                     {% endif %}
-                <hr>
+                <br>
                 {% if next %}
-                    <a href="/view_item/{{ next }}" target="_blank">
-                    <img src="/resources/images/stock_new_window.png" height="50%" width="70%"/></a>
+                    <a href="/view_item/{{ next }}?sort={{sort}}" target="_blank">
+                    <p align=center>{% icon 'external-link fa-3x' %}</a></p>
                 {% endif %}
+                <a href="/view_item/{{ last }}?sort={{sort}}">
+                            <p align=center>{% icon 'angle-double-right fa-3x' %}</a>
+                <a href="/download/{{item.uuid}}">
+                <p align=center>{% icon 'arrow-down fa-3x' %}</a>
 
-                <hr>
-
-                <a href="/view_item/{{ last }}">
-                    <img width="70%" height="50%" src="/resources/images/gtk_media_next_ltr.png"/></a>
-                <hr>
-                <a href="/download/{{item.uuid}}"><img width="70%" height="50%" src="/resources/images/down.png"/></a>
                 </span>
-                <hr>
+                <br>
                     <form action="/view_item/{{ item.uuid }}" method="GET">
                     {% csrf_token %}
+                        <input type="hidden" id="page" name="page" value="{{page}}">
                         <select name="sort" onchange='this.form.submit()'>
-                            <option value="0" {% if sort_order == 0 %}selected{% endif %}>A..Z</option>
-                            <option value="1" {% if sort_order == 1 %}selected{% endif %}>LastM</option>
-                            <option value="2" {% if sort_order == 2 %}selected{% endif %}>CTime</option>
+                            <option value="0" {% if sort == 0 %}selected{% endif %}>A..Z</option>
+                            <option value="1" {% if sort == 1 %}selected{% endif %}>LastM</option>
+                            <option value="2" {% if sort == 2 %}selected{% endif %}>CTime</option>
                         </select>
-                <hr>
             </div>
         </div>
 
 <!-- main area -->
-         <div class="container-fluid" style="margin-left: 55px;border: 1px solid;width=100%;left-pad:2px;right-pad:2px;background:#b0e2ff;">
+         <div class="container-fluid" style="margin-left: 50px;border: 1px solid;width=100%;left-pad:2px;right-pad:2px;background:#b0e2ff;">
              <center><table><tr><Td width="25%"><b>{{webpath}}/</b></td><td width="70%"><center>{{ item.name|wordwrap:60|linebreaksbr }}</b></center></td></tr></table>
                 <div class="row">
                         <div class="thumbnail" style="background:{{ pagelist.0.4 }};">
                             <center>
+                            {% if not item.is_animated %}
                                     {% if mobile == True %}
                                         <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{ item.uuid }}?size=medium{% if item.is_pdf %}&pdf{% elif item.is_archive %}&arch{% else%}{% endif %}" style="height:auto;max-width:100%;"/>
                                     {% else %}
                                         <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{ item.uuid }}?size=large{% if item.is_pdf %}&pdf{% elif item.is_archive %}&arch{% else%}{% endif %}" style="height:auto;max-width:100%;"/>
                                     {% endif %}
+                            {% else %}
+                                    <img class="lazy" src="/resources/images/loading17.gif"
+                                    data-src="/download/{{ item.uuid }}" style="height:auto;max-width:100%;"/>
+                            {% endif %}
+                            {% if item.filetype.is_movie %}
+ <video class="video-js" data-setup='{}' controls>
+  <source src="/download/{{ item.uuid }}" type="video/mp4">
+</video>
+                            {% endif %}
                                 <br>
                                 {% if item.numdirs != None and item.numdirs != 0%}
                                     <b># of Dirs: </b>{{ item.numdirs }}<br>

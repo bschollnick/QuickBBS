@@ -26,7 +26,7 @@ else:
     DEBUG = False
 
 DEBUG = True
-DEBUG = not DEBUG
+#DEBUG = not DEBUG
 
 SILK = True
 SILK = not SILK
@@ -208,19 +208,30 @@ TEMPLATES = [
 
 #if DEBUG:
 # DATABASES = {'default': {'ENGINE': 'django.db.backends.sqlite3',
-#                         'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
-#                         'OPTIONS':{'timeout': 90},
-#                         'CONN_MAX_AGE':300,
-#                        }
-#            }
+#                          'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
+#                          'OPTIONS':{'timeout': 90},
+#                          'CONN_MAX_AGE':300,
+#                         }
+#             }
 #else:
+
+# DATABASES = {'default': {'ENGINE': 'django.db.backends.postgresql',
+#                          'NAME': 'quickbbs',
+#                          'USER': 'quickbbs',
+#                          'PASSWORD': 'quickie123',
+#                          'HOST': 'localhost',
+#                          'PORT': '',
+#                          'CONN_MAX_AGE':300,
+#                         }
+#              }
 
 DATABASES = {'default': {'ENGINE': 'django.db.backends.postgresql',
                          'NAME': 'quickbbs',
-                         'USER': 'quickbbs',
-                         'PASSWORD': 'quickie123',
-                         'HOST': 'localhost',
-                         'PORT': '',
+                         'USER': 'postgres',
+                         'PASSWORD': 'postgres2019',
+                         'HOST': 'seele.local',
+                         #'HOST': 'localhost',
+                         'PORT': '5432',
                          'CONN_MAX_AGE':300,
                         }
              }
@@ -259,7 +270,7 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/1.9/topics/i18n/
 LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'EST'
+TIME_ZONE = 'US/Eastern'
 #TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_L10N = True

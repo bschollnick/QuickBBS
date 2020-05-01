@@ -6,8 +6,11 @@ from __future__ import absolute_import, print_function, unicode_literals
 
 import mimetypes
 import os
-from django.http import (HttpResponse)
+from django.http import (HttpResponse, Http404)
+from django.conf import settings
 from django.contrib.auth import authenticate, login
+import os
+
 
 def verify_login_status(request, force_login=False):
     """
@@ -128,6 +131,21 @@ def img_attach_file(filename, fqfn):
         response.write(filedata.read())
     response['Content-Disposition'] = 'attachment; filename={%s}' % filename
     return response
+
+
+def respond_as_inline(request, file_path, original_filename):
+    # https://stackoverflow.com/questions/36392510/django-download-a-file
+    filename = os.path.join(file_path, original_filename)
+    if os.path.exists(filename):
+        with open(filename, 'rb') as fh:
+            mtype, encoding = mimetypes.guess_type(original_filename)
+            if mtype is None:
+                mtype = 'application/octet-stream'
+            response = HttpResponse(fh.read(), content_type=mtype)
+            response['Content-Disposition'] = 'inline; filename=' + os.path.basename(file_path)
+            return response
+    raise Http404
+
 
 def respond_as_attachment(request, file_path, original_filename):
 #   https://www.djangosnippets.org/snippets/1710/

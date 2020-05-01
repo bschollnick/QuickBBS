@@ -5,7 +5,9 @@ Utilities for QuickBBS, the python edition.
 #from _future_ import absolute_import, print_function, unicode_literals
 
 from quickbbs.models import (filetypes)
-#from django.core.exceptions import MultipleObjectsReturned
+from django.core.exceptions import MultipleObjectsReturned
+#from django.db.utils import ProgrammingError
+
 #import logging
 #log = logging.getLogger(_name_)
 from frontend.constants import ftypes
@@ -17,7 +19,8 @@ def refresh_filetypes():
                                            defaults={"generic":True,
                                                      "icon_filename":"MovieIcon100.jpg",
                                                      "color":"CCCCCC",
-                                                     "filetype":ftypes['movie']}
+                                                     "filetype":ftypes['movie'],
+                                                     "is_movie":True}
                                                      )
 
     for ext in constants._archives:
@@ -58,7 +61,8 @@ def refresh_filetypes():
 
     filetypes.objects.update_or_create(fileext=".dir",
                                         defaults={"generic":False,
-                                       "color":"DAEFF5", "filetype":ftypes['dir']})
+                                       "color":"DAEFF5", "filetype":ftypes['dir'],
+                                       "is_dir":True})
 
     filetypes.objects.update_or_create(fileext=".none", defaults={"generic":True,
                                        "icon_filename":"1431973807_fileicon_bg.png",
@@ -89,8 +93,12 @@ def map_ext_to_id(ext):
     if ext.startswith("."):
         ext = ext[1:]
 
-refresh_filetypes()
-FILETYPE_DATA = get_ftype_dict()
+try:
+    refresh_filetypes()
+    FILETYPE_DATA = get_ftype_dict()
+except:
+    print("Unable to validate or create FileType database table.")
+    pass
 
 #print ("# of FileTypes: ",len(FILETYPES))
 # class filetypes(models.Model):
