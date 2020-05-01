@@ -31,6 +31,7 @@ for url in urls_to_check:
     for inc in range(1, number_of_repeats):
         elapsed = requests.get(url).elapsed.total_seconds()
         times.append(elapsed)
+#        time.sleep(.1)
     print ("---------------")
     print (url)
     print ("Min : %.4f" % min(times))

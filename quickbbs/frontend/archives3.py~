@@ -55,6 +55,9 @@ import os.path
 from operator import itemgetter
 import zipfile
 import rarfile
+import six
+#if six.PY2:
+#    from exceptions import Exception
 
 class NotInitializedYet(Exception):
     """
@@ -277,42 +280,18 @@ print filename, 'is a', cf.mime_type, 'file'
                 print("Unable to find RAR.  Please Install RAR.")
                 return None
 
-signatures = {'\x50\x4b\x03\x04':(['zip', 'cbz', 'pk3', 'pk4'],
-                                   'compressed/zip',
-                                   zipfile.ZipFile),
-              '\x50\x4b\x05\x06':(['zip', 'cbz', 'pk3', 'pk4'],
-                                   'compressed/zip',
-                                   zipfile.ZipFile),
-              '\x50\x4b\x07\x08':(['zip', 'cbz', 'pk3', 'pk4'],
-                                   'compressed/zip',
-                                   zipfile.ZipFile),
-              b'PK\x03\x04':(['zip', 'cbz', 'pk3', 'pk4'],
-                              'compressed/zip',
-                              zipfile.ZipFile),
+signatures = {'\x50\x4b\x03\x04':(['zip', 'cbz'],
+                                  'compressed/zip',
+                                  zipfile.ZipFile),
+              b'PK\x03\x04':(['zip', 'cbz'],
+                             'compressed/zip',
+                             zipfile.ZipFile),
               '\x52\x61\x72\x21':(['rar', 'cbr'],
-                                   'application/x-rar-compressed',
-                                   rarfile.RarFile),
+                                  'application/x-rar-compressed',
+                                  rarfile.RarFile),
               b'Rar!':(['rar', 'cbr'],
-                        'application/x-rar-compressed',
-                        rarfile.RarFile),
-              b'\x1F\9D':(['lzh'],
-                           'tar lzh compression',
-                           None),
-              b'\x1F\A0':(['lzh'],
-                           'tar lzh compression',
-                           None),
-              b'\x42\x5A\x68':(['bzip', 'bz'],
-                           'bzip compression',
-                           None),
-              b'\x37\x7A\xBC\xAF\x27\x1C':(['7z'],
-                           '7zip compression',
-                           None),
-              b'\x1F\x8B':(['gz'],
-                           'gzip compression',
-                           None),
-
-
-                           }
+                       'application/x-rar-compressed',
+                       rarfile.RarFile)}
 
 sign_byte_count = 4
 

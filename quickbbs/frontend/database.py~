@@ -6,10 +6,10 @@ from __future__ import absolute_import, print_function, unicode_literals
 
 import os
 import sys
-from django.core.exceptions import ValidationError
 from frontend.config import configdata
 from quickbbs.models import (index_data, Thumbnails_Archives, Thumbnails_Files,
                              Thumbnails_Dirs)
+from django.core.exceptions import ValidationError
 
 
 DF_VDBASE = ["sortname", "lastscan", "lastmod", "size"]
@@ -48,9 +48,9 @@ def check_for_deletes():
         deleted.delete()
 
 
-SORT_MATRIX = {0:["-filetype__is_dir", "sortname", "lastmod"],
-               1:["-filetype__is_dir", "lastmod", "sortname"],
-               2:["-filetype__is_dir", "sortname"],
+SORT_MATRIX = {0:["-is_dir", "sortname", "lastmod"],
+               1:["-is_dir", "lastmod", "sortname"],
+               2:["-is_dir", "sortname"],
                }
 #SORT_MATRIX = {0:["sortname"],
 #               1:["lastmod", "sortname"],
@@ -153,12 +153,11 @@ def get_xth_image(database, positional=0, filters=[]):
 """
     try:
         # exact match
-        #return database.objects.filter(**filters).exclude(is_image=False).exclude(ignore=True).exclude(delete_pending=True)[positional]
-        return database.objects.filter(**filters).exclude(filetype__is_image=False).exclude(ignore=True).exclude(delete_pending=True)[positional]
+        return database.objects.filter(**filters).exclude(is_image=False).exclude(ignore=True).exclude(delete_pending=True)[positional]
     except IndexError: # No matching position was found
         # it has to be either too high (greater than length), or less than 0.
-        count = database.objects.filter(**filters).exclude(filetype__is_image=False).exclude(ignore=True).exclude(delete_pending=True).count()
+        count = database.objects.filter(**filters).exclude(is_image=False).exclude(ignore=True).exclude(delete_pending=True).count()
         if positional > count:    # The requested index is too high
-            return database.objects.filter(**filters).exclude(filetype__is_image=False).exclude(ignore=True).exclude(delete_pending=True)[count]
+            return database.objects.filter(**filters).exclude(is_image=False).exclude(ignore=True).exclude(delete_pending=True)[count]
         #else, return None, because positional has to be 0 or less.
     return None

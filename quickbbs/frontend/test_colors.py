@@ -5,6 +5,9 @@ import sys
 import os
 import shutil
 import scandir
+import re
+from cached_exists import *
+
 
 colornames = {
     0: 'none',
@@ -44,39 +47,54 @@ def get_files_recursive(directory):
                 filenames.append(file.lower())
     return filenames
 
+# used in Utilities
+replacements={'?':'','/':"", ":":"", "#":"_"}
+regex = re.compile("(%s)" % "|".join(map(re.escape, replacements.keys())))
+
+def multiple_replace(dict, text):#, compiled):
+    # Create a regular expression  from the dictionary keys
+
+    # For each match, look-up corresponding value in dictionary
+    return regex.sub(lambda mo: dict[mo.string[mo.start():mo.end()]], text)
+
+
 def main(args):
     root_src_dir = args.source
     root_target_dir = args.target
 
     operation= 'copy' # 'copy' or 'move'
-
-    for src_dir, dirs, files in os.walk(root_src_dir):
+    filedb = cached_exist()
+    for src_dir, dirs, files in os.walk(root_src_dir, topdown=False):
         dst_dir = src_dir.replace(root_src_dir, root_target_dir)
-        dst_dir_files = get_files_recursive(dst_dir)
+        #dst_dir_files = get_files_recursive(dst_dir)
         for file_ in files:
             src_file = os.path.join(src_dir, file_)
-            dst_file = os.path.join(dst_dir, file_)
+            dst_file = os.path.join(dst_dir, multiple_replace(replacements,file_))
 
-            if os.path.exists(dst_file):
-                #os.remove(dst_file)
-                continue
+#            filedb.read_path(dst_dir, sha=True)
+            #if os.path.exists(dst_file):
+                #continue
             if get_color(src_file)[0] != 0:
                 # the file has a label (any label), copy or move it
+
+                if filedb.file_exist(dst_file):
+                    #print("Skipping (Filename already exists) - ", dst_file)
+                    continue
+                src_sha = filedb.generate_sha224(src_file)
+                if filedb.file_exist(dst_file, sha_hd=src_sha, sha=True):
+                    #print("Skipping (Sha already exists) - ", dst_file)
+                    # If the file already exists, then skip
+                    #os.remove(dst_file)
+                    continue
                 if not os.path.exists(dst_dir):
                     os.makedirs(dst_dir)
-                if file_.lower() in dst_dir_files:
-                    #print ("%s File already exists" % dst_file)
-                    continue
-                if operation is 'copy':
-#                    print("src", src_file)
-#                    print("dst", dst_file)
-                    shutil.copy(src_file, dst_file)
-                elif operation is 'move':
+                #if file_.lower() in dst_dir_files:
+                #    continue
+                if operation == 'copy':
+                    shutil.copy2(src_file, dst_file)
+                elif operation == 'move':
                     shutil.move(src_file, dst_dir)
-#            else:
-                # the file doesn't have a label, but exists in destination
-#                if os.path.exists(dst_file):
-#                    os.remove(dst_file)
+                filedb.clear_path(path_to_clear=dst_dir)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -85,3 +103,6 @@ if __name__ == "__main__":
     print()
     args = parser.parse_args()
     main(args)
+
+
+#  after_filename = multiple_replace(constants.replacements, lower_filename)#, regex)
