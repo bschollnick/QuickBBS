@@ -155,15 +155,22 @@
                 <div class="row">
                         <div class="thumbnail" style="background:{{ pagelist.0.4 }};">
                             <center>
-                            {% if not item.is_animated %}
-                                    {% if mobile == True %}
-                                        <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{ item.uuid }}?size=medium{% if item.is_pdf %}&pdf{% elif item.is_archive %}&arch{% else%}{% endif %}" style="height:auto;max-width:100%;"/>
-                                    {% else %}
-                                        <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{ item.uuid }}?size=large{% if item.is_pdf %}&pdf{% elif item.is_archive %}&arch{% else%}{% endif %}" style="height:auto;max-width:100%;"/>
-                                    {% endif %}
-                            {% else %}
-                                    <img class="lazy" src="/resources/images/loading17.gif"
-                                    data-src="/download/{{ item.uuid }}" style="height:auto;max-width:100%;"/>
+                            {% if item.filetype.is_image %}
+                                {% if not item.is_animated %}
+                                        {% if mobile == True %}
+                                            <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{ item.uuid }}?size=medium{% if item.is_pdf %}&pdf{% elif item.is_archive %}&arch{% else%}{% endif %}" style="height:auto;max-width:100%;"/>
+                                        {% else %}
+                                            <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{ item.uuid }}?size=large{% if item.is_pdf %}&pdf{% elif item.is_archive %}&arch{% else%}{% endif %}" style="height:auto;max-width:100%;"/>
+                                        {% endif %}
+                                {% else %}
+                                        <img class="lazy" src="/resources/images/loading17.gif"
+                                        data-src="/download/{{ item.uuid }}" style="height:auto;max-width:100%;"/>
+                                {% endif %}
+                            {% endif %}
+                            {% if item.filetype.fileext == ".html" %}
+                            <div align=left>
+                                {{ html | safe}}
+                            </div>
                             {% endif %}
                             {% if item.filetype.is_movie %}
  <video class="video-js" data-setup='{}' controls>

@@ -28,5 +28,5 @@ _html = [".htm", ".html"]
 _graphics = [".bmp", ".gif", ".jpg", ".jpeg", ".png"]
 _text = [".txt", ".md", ".markdown"]
 _movie = [".mp4", ".m4v", ".mpg", ".mpg4", ".mpeg",
-           ".mpeg4", ".wmv", ".flv", ".avi"]
+           ".mpeg4", ".wmv", ".flv", ".avi", ".mp3"]
 
