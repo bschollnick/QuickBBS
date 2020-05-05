@@ -487,11 +487,12 @@ def read_from_disk(dir_to_scan, skippable=True):
                 print("Unable to skip, due to last mod value")
                 skippable = False
 
-    if skippable:
+#    if skippable:
         #
         #   We appear to be completely up to date, without reading from disk.
         #   So skip.
-        return webpath.replace(os.sep, r"/")
+#        print("Skipping, C")
+#        return webpath.replace(os.sep, r"/")
 
     bulk_db_elements = []
     count = 0
@@ -515,6 +516,11 @@ def read_from_disk(dir_to_scan, skippable=True):
         if (filedata.is_dir()):
             CACHE.read_path(os.path.join(fqpn, filename))
             numfiles, numdirs = CACHE.return_extended_count(os.path.join(fqpn, filename))
+            if numdirs == -1:
+                numdirs = 0
+
+            if numfiles == -1:
+                numfiles = 0
 
         new_uuid = uuid.uuid4()
         if ftypes.FILETYPE_DATA[fext]["is_image"] and fext in [".gif"]:
@@ -577,6 +583,7 @@ def read_from_disk(dir_to_scan, skippable=True):
             #print("Updating due to file_ext")
             force_save = True
 
+
         if ind_data.filetype.fileext == ".dir":
             if (ind_data.numdirs != numdirs or
                 ind_data.numfiles != numfiles):
@@ -589,10 +596,6 @@ def read_from_disk(dir_to_scan, skippable=True):
             #print("LastMod update")
             force_save = True
 
-#        print("file_tnail is %s" % disk_data.name)
-#        print(fext)
-
-        #if ind_data.archives is None and ftypes.FILETYPE_DATA[fext]["is_archive"]:
         if ind_data.archives is None and ind_data.filetype.is_archive:
             # is archive, link as archive
             ind_data.archives = link_arc_rec(fs_item, webpath, new_uuid)
@@ -629,6 +632,7 @@ def read_from_disk(dir_to_scan, skippable=True):
             #
             # Create up to the first image record (eg. Directory thumbnail) and then
             # break.
+            print("Skippable, Image Break")
             break
     return webpath.replace(os.sep, r"/")
 
