@@ -50,6 +50,7 @@ from quickbbs.models import index_data, Thumbnails_Dirs, Thumbnails_Files#, Thum
 
 from urllib.parse import unquote
 import django_icons.templatetags.icons
+import bleach
 
 import logging
 log = logging.getLogger(__name__)
@@ -144,9 +145,7 @@ def thumbnails(request, t_url_name=None):
                                entry.name)
         fname = os.path.basename(fs_name).title()
         if entry.filetype.is_dir:
-#        if entry.is_dir:
             if entry.directory == None:
-    #        if sd_entry[filename]["is_dir"]:
                 entry.directory = Thumbnails_Dirs.objects.update_or_create(
                     uuid=entry.uuid, FilePath=webpath, DirName=fname,
                     defaults={"uuid":entry.uuid,
@@ -164,9 +163,6 @@ def thumbnails(request, t_url_name=None):
                     defaults={"uuid":entry.uuid,
                               "FilePath":webpath,
                               "FileName":fname,
-#                              "is_pdf":test_extension(fname, ['.pdf']),
-#                              "is_image":test_extension(fname,
- #                                       configdata["filetypes"]["graphic_fts"]),
                               })[0]
                 entry.save()
             return new_process_img(entry, request)
@@ -238,19 +234,9 @@ def new_viewgallery(request):
         context["current_page"] = 1
     except EmptyPage:
         context["pagelist"] = chk_list.page(chk_list.num_pages)
-#        context["all_listings"] = index
     context["prev_uri"], context["next_uri"] = return_prev_next(
         os.path.dirname(paths["album_viewing"]),
         paths["webpath"], context["sort"])
-#        if context["prev_uri"] and not context["prev_uri"].endswith(r"/"):
-#            context["prev_uri"] += r"/"
-#        if context["next_uri"]© and not context["next_uri"].endswith(r"/"):
-#            context["next_uri"] += r"/"
-#    print("\r-------------\r")
-#    print(
-#        "Gallery page, elapsed after thumbnails - %s\r" %
-#        (time.time() - start_time))
-#    print("\r-------------\r")
     response = render(request,
                       "frontend/gallery_listing.jinja",
                       context,
@@ -271,8 +257,11 @@ def new_viewitem(request, i_uuid):
     e_uuid = i_uuid
     index_qs = index_data.objects.filter(uuid=e_uuid)
     entry = index_qs[0]
-
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
+    if entry.filetype.fileext == ".html":
+        html_filename = configdata["locations"]["albums_path"] +  \
+            context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
+        context["html"] = bleach.linkify("\n".join(open(html_filename).readlines()))
 #    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
     context["up_uri"] = entry.fqpndirectory.lower()
     read_from_disk(context["webpath"].strip(), skippable=True)
@@ -436,18 +425,22 @@ def new_archive_item(request, i_uuid):
     return response
 
 
+
 if 'runserver' in sys.argv:
     print("Starting cleanup")
     check_for_deletes()
     print("Cleanup is done.")
-#    ftypes.refresh_filetypes()
-#    ftypes.FILETYPE_DATA = ftypes.get_ftype_dict()
-#    for prepath in configdata["locations"]["preload"]:
-#        print("Pre-Caching: ", prepath)
-#        read_from_disk(prepath.strip()) # startup
+    try:
+        ftypes.refresh_filetypes()
+        ftypes.FILETYPE_DATA = ftypes.get_ftype_dict()
+        for prepath in configdata["locations"]["preload"]:
+            print("Pre-Caching: ", prepath)
+            read_from_disk(prepath.strip()) # startup
 
-#         for ignored in configdata["filetypes"]["files_to_ignore"]:
-#             test = index_data.objects.filter(name__iexact=ignored.title())
-#             if test:
-#                 print("%s - %s" % (ignored, test.count()))
-#                 test.delete()
+            for ignored in configdata["filetypes"]["files_to_ignore"]:
+                test = index_data.objects.filter(name__iexact=ignored.title())
+                if test:
+                    print("%s - %s" % (ignored, test.count()))
+                    test.delete()
+    except:
+        pass

@@ -1,6 +1,7 @@
 asgiref==3.2.7
 astroid==2.4.0
 autopep8==1.5.2
+bleach==3.1.5
 certifi==2020.4.5.1
 cffi==1.14.0
 chardet==3.0.4
@@ -20,6 +21,7 @@ eventlet==0.25.2
 fastnumbers==3.0.0
 flake8==3.7.9
 gevent==20.5.0
+googletrans==2.4.0
 gprof2dot==2019.11.30
 greenlet==0.4.15
 gunicorn==20.0.4
@@ -36,6 +38,7 @@ monotonic==1.5
 natsort==7.0.1
 naturalsort==1.5.1
 oauthlib==3.1.0
+packaging==20.3
 pathlib2==2.3.5
 pathvalidate==2.2.2
 pdfrw==0.4
@@ -50,6 +53,7 @@ pylint==2.5.0
 pylint-django==2.0.15
 pylint-plugin-utils==0.6
 PyMuPDF==1.16.18
+pyparsing==2.4.7
 python-dateutil==2.8.1
 python3-openid==3.1.0
 pytz==2020.1
@@ -65,5 +69,6 @@ typed-ast==1.4.1
 Unidecode==1.1.1
 urllib3==1.25.9
 watchman==0.0.8
+webencodings==0.5.1
 wrapt==1.12.1
 xattr==0.9.7

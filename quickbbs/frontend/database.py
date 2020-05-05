@@ -52,15 +52,11 @@ SORT_MATRIX = {0:["-filetype__is_dir", "sortname", "lastmod"],
                1:["-filetype__is_dir", "lastmod", "sortname"],
                2:["-filetype__is_dir", "sortname"],
                }
-#SORT_MATRIX = {0:["sortname"],
-#               1:["lastmod", "sortname"],
-#               2:["sortname"]}
 
 def get_values(database, values):
     """
         Fetch specific database values only from the database
     """
-#    print(sys._getframe().f_code.co_name)
     #https://stackoverflow.com/questions/5903384
     return database.objects.values(*values)
 
@@ -75,7 +71,6 @@ def get_filtered(queryset, filtervalues):
     """
         Apply a filter to the queryset
     """
-#    print(sys._getframe().f_code.co_name)
     #https://stackoverflow.com/questions/5903384
     return queryset.exclude(ignore=True).exclude(delete_pending=True).filter(**filtervalues)
 
@@ -83,7 +78,6 @@ def get_db_files(sorder, fpath):
     """
         Fetch specific database values only from the database
     """
- #   print(sys._getframe().f_code.co_name)
     index = index_data.objects.exclude(ignore=True).exclude(delete_pending=True).filter(
         fqpndirectory=fpath.lower().strip()).order_by(*SORT_MATRIX[sorder])
     return index
@@ -153,7 +147,6 @@ def get_xth_image(database, positional=0, filters=[]):
 """
     try:
         # exact match
-        #return database.objects.filter(**filters).exclude(is_image=False).exclude(ignore=True).exclude(delete_pending=True)[positional]
         return database.objects.filter(**filters).exclude(filetype__is_image=False).exclude(ignore=True).exclude(delete_pending=True)[positional]
     except IndexError: # No matching position was found
         # it has to be either too high (greater than length), or less than 0.

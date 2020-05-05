@@ -50,6 +50,11 @@ def     generate_sha256(filename, hexdigest=False):
     else:
         return sha.digest()
 
+from cached_exists import cached_exist
+CACHE = cached_exist(use_modify=True, use_extended=True)
+testpath = r"/Volumes/4TB_Drive/gallery/albums/Hyp-Collective/New/goning_south/Gonig South"
+CACHE.check_count(testpath)
+
 
 """
 import os
@@ -57,70 +62,177 @@ import os.path
 from hashlib import md5
 from hashlib import sha256, sha224
 from hashlib import sha512
-import os
+import os, os.path
+import operator
+from pathvalidate import sanitize_filename, is_valid_filename
 
 SCANNED_PATHS = {}
 VERIFY_COUNT = 0
-RESET_COUNT = 10000 # ( 10K )
+RESET_COUNT = 20000 # ( 10K )
+
+
+#         if fext not in ftypes.FILETYPE_DATA:
+#             continue
+#         elif (fext in configdata["filetypes"]["extensions_to_ignore"]) or\
+#            (lower_filename in configdata["filetypes"]["files_to_ignore"]):
+#             continue
+#
+#         elif configdata["filetypes"]["ignore_dotfiles"] and lower_filename.startswith("."):
+#             continue
+
 
 class cached_exist():
-    def     __init__(self, reset_count=RESET_COUNT):
+    def     __init__(self, reset_count=RESET_COUNT, use_modify=False,
+                     use_shas=False, FilesOnly=True, use_extended=False,
+                     use_filtering=False):
         self.scanned_paths = {}
         self.sha_paths = {}
+        self.last_mods = {}
+        self.extended = {}
+        self.use_extended = use_extended
+        self.use_modify = use_modify
+        self.use_shas = use_shas
         self.verify_count = 0
         self.reset_count = reset_count
         self.global_count = 0
-#        self.blocksize = int(65536/2)
+        self.sanitize_platform = "Windows"
+        self.FilesOnly = FilesOnly
+        self.AcceptableExtensions = []
+        self.IgnoreExtensions = []
+        self.IgnoreDotFiles = False
+        self.use_filters=use_filtering
+
+    def     sanitize_filenames(self, dirpath, allow_rename=False, quiet=True):
+        refresh = False
+        dirpath = os.path.normpath(dirpath.lower().strip())
+        for filename in self.scanned_paths[dirpath]:
+            if not is_valid_filename(filename, platform=self.sanitize_platform):
+                new_filename = sanitize_filename(filename, platform=self.sanitize_platform)
+                print("Invalid Filename: %s --> %s" % (filename, new_filename))
+                if allow_rename:
+                    refresh = True
+                    os.rename(os.path.join(dirpath, filename), os.path.join(dirpath, new_filename))
+        if refresh:
+            self.clear_path(dirpath)
+            self.read_path(dirpath)
 
 
     def     clear_scanned_paths(self):
         self.scanned_paths = {}
         self.sha_paths = {}
+        self.last_mods = {}
+        self.extended = {}
         self.global_count = 0
 
     def     clear_path(self, path_to_clear):
         dirpath = os.path.normpath(path_to_clear.lower().strip())
         try:
             del self.scanned_paths[dirpath]
+            del self.sha_paths[dirpath]
+            del self.last_mods[dirpath]
+            del self.extended[dirpath]
         except KeyError:
             pass
 
-        try:
-            del self.sha_paths[dirpath]
-        except KeyError:
-            pass
+
+    def     return_fileCount(self, dirpath):
+        if dirpath in self.scanned_paths:
+            return len(self.scanned_paths[dirpath])
+        else:
+            return -1
+
+    def     return_extended_count(self, dirpath):
+        dirpath = os.path.normpath(dirpath.lower().strip())
+        fileCount = -1
+        dirCount = -1
+        for x in self.extended[dirpath]:
+            fileCount += self.extended[dirpath][x].is_file()
+            dirCount += self.extended[dirpath][x].is_dir()
+        return (fileCount, dirCount)
+
+    def     check_count(self, dirpath):
+        #
+        #   update with processFile support
+        #
+        fs_filecount = 0
+        dirpath = os.path.normpath(dirpath.lower().strip())
+        if dirpath not in self.scanned_paths:
+            return -1
+
+        for x in list(os.scandir(dirpath)):
+            if self.processFile(x.name):
+               if self.FilesOnly and x.is_dir():
+                    pass
+               else:
+                    fs_filecount += 1
+
+#            fs_filecount = len([1 for x in list(os.scandir(dirpath)) if x.is_file()])
+#        else:
+#            fs_filecount = len([1 for x in list(os.scandir(dirpath))])
+
+            # The count of files in the dirpath directory
+        return self.return_fileCount(dirpath) == fs_filecount
+
+
+    def     check_lastmod(self, dirpath):
+        dirpath = os.path.normpath(dirpath.lower().strip())
+            # Get the currently defined lastmod for the latest file in memory
+        if dirpath not in self.last_mods:
+            return False
+
+#        print(dirpath)
+#        print(self.last_mods)
+        if self.return_fileCount(dirpath) == -1 or self.last_mods[dirpath]==('', 0):
+            return False
+
+        fs_lastmod =  os.path.getmtime(os.path.join(dirpath, self.last_mods[dirpath][0]))
+        return  self.last_mods[dirpath][1] == fs_lastmod
+
 
     def     set_reset_count(self, reset_count=RESET_COUNT):
         self.reset_count = RESET_COUNT
 
     def     generate_sha256(self, filename, hexdigest=False):
         sha = sha256()
-        with open(filename, 'rb') as sha_file:
-            while True:
-                # Reading is buffered, so we can read smaller chunks.
-                chunk = sha_file.read(sha.block_size)
-                if not chunk:
-                    break
-                sha.update(chunk)
-        if hexdigest:
-            return sha.hexdigest()
-        else:
-            return sha.digest()
+        if os.path.isfile(filename):
+            with open(filename, 'rb') as sha_file:
+                while True:
+                    # Reading is buffered, so we can read smaller chunks.
+                    chunk = sha_file.read(sha.block_size)
+                    if not chunk:
+                        break
+                    sha.update(chunk)
+            if hexdigest:
+                return sha.hexdigest()
+            else:
+                return sha.digest()
 
     def     generate_sha224(self, filename, hexdigest=False):
         sha = sha224()
-        with open(filename, 'rb') as sha_file:
-            while True:
-                # Reading is buffered, so we can read smaller chunks.
-                chunk = sha_file.read(sha.block_size)
-                if not chunk:
-                    break
-                sha.update(chunk)
-        if hexdigest:
-            return sha.hexdigest()
-        else:
-            return sha.digest()
+        if os.path.isfile(filename):
+            with open(filename, 'rb') as sha_file:
+                while True:
+                    # Reading is buffered, so we can read smaller chunks.
+                    chunk = sha_file.read(sha.block_size)
+                    if not chunk:
+                        break
+                    sha.update(chunk)
+            if hexdigest:
+                return sha.hexdigest()
+            else:
+                return sha.digest()
 
+    def     processFile(self, filename):
+        if not self.use_filters:
+            return True
+
+        baseFilename, fext = os.path.splitext(filename)
+        if self.IgnoreDotFiles and filename.startswith("."):
+            return False
+
+        if fext.lower() in self.AcceptableExtensions:
+            return True
+        return False
 
     def     read_path(self, dirpath, sha=False):
         """
@@ -146,16 +258,38 @@ class cached_exist():
                 >>> read_path(r"c:\\turnup\\test.me")
                 False
         """
+        dirpath = os.path.normpath(dirpath.lower().strip())
+#        print("Count check - ", self.check_count(dirpath))
+#        print("last mod - ", self.check_lastmod(dirpath))
+        if self.check_count(dirpath) == True and self.check_lastmod(dirpath) == True:
+#            print("Count check - ", self.check_count(dirpath))
+#            print("last mod - ", self.check_lastmod(dirpath))
+#            print("Skipping")
+            # Skip, no need for refresh
+            return True
+
         try:
-            dirpath = os.path.normpath(dirpath.lower().strip())
-            directory_data = os.scandir(dirpath)
             self.scanned_paths[dirpath] = {}
             self.sha_paths[dirpath] = {}
+            self.extended[dirpath] = {}
+            self.last_mods[dirpath] = ('', 0)
+            directory_data = os.scandir(dirpath)
+#            print("Directory data: ", directory_data)
             for entry in directory_data:
-                if entry.is_file():
-                    self.scanned_paths[dirpath][entry.name.lower()] =\
-                        entry.stat().st_size
-                    if sha:
+                if self.processFile(entry.name):
+                    if not self.use_modify:
+                        self.scanned_paths[dirpath][entry.name.title()] =\
+                            entry.stat().st_size
+                    else:
+                        self.scanned_paths[dirpath][entry.name.title()] =\
+                            entry.stat().st_mtime
+                        if entry.stat().st_mtime > self.last_mods[dirpath][1]:
+                            self.last_mods[dirpath] = (entry.name.title(), entry.stat().st_mtime)
+
+                    if self.use_extended:
+                        self.extended[dirpath][entry.name.title()] = entry
+
+                    if self.use_shas:
                         sha = self.generate_sha224(os.path.join(dirpath,
                                                                 entry), hexdigest=True)
                         self.sha_paths[dirpath][sha] = entry.stat().st_size
@@ -168,7 +302,7 @@ class cached_exist():
             return False
         return True
 
-    def file_exist(self, filename, rtn_size=False, sha_hd=None, sha=False):
+    def file_exist(self, filename, rtn_size=False, sha_hd=None):
         """
             Does the file exist?
 
@@ -228,7 +362,7 @@ class cached_exist():
         dirpath, filename = os.path.split(filename.lower().strip())
         dirpath = os.path.normpath(dirpath)
         if dirpath not in self.scanned_paths:
-            self.read_path(dirpath, sha=sha)
+            self.read_path(dirpath)
 
         try:
             if sha:

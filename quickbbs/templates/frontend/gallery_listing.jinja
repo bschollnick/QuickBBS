@@ -74,6 +74,7 @@
                                 <div class="col-xs-6 col-sm-4" style="bgcolor:#fef7df">
                                     <center>
                                         {{ loop.index }} <br>
+                                            {% if item.filetype.fileext == ".html" %}<a href="/view_item/{{ item.uuid }}?sort={{sort}}" class="thumbnail" style="background-color:#{{item.filetype.color}};"> {% endif %}
                                             {% if item.filetype.is_movie %}<a href="/view_item/{{ item.uuid }}?sort={{sort}}" class="thumbnail" style="background-color:#{{item.filetype.color}};"> {% endif %}
                                             {% if item.filetype.fileext == ".dir" %}<a href="{{ webpath }}{{ item.name }}?page=1&sort={{sort}}" class="thumbnail" style="background-color:#{{item.filetype.color}};"> {% endif %}
                                             {% if item.filetype.is_archive %}<a href="/view_archive/{{ item.uuid}}?sort={{sort}}" class="thumbnail" style="background-color:#{{item.filetype.color}};"> {% endif %}
