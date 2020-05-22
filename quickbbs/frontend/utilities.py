@@ -300,7 +300,7 @@ def return_disk_listing(fqpn, enable_rename=False):
     data = {}
     data_list = []
     loaded = True
-    webpath = (fqpn.lower().replace(configdata["locations"]["albums_path"].lower(),
+    webpath = (fqpn.title().replace(configdata["locations"]["albums_path"].title(),
                                     "")).replace("//", "/")
     for entry in os.scandir(fqpn):
         titlecase = entry.name.title()
@@ -442,7 +442,7 @@ def read_from_disk(dir_to_scan, skippable=True):
         configdata["locations"]["albums_path"].lower(),
         "")
 
-    dirpath = os.path.normpath(fqpn.lower().strip())
+    dirpath = os.path.normpath(fqpn.title().strip())
 #   count = 0
 #   loaded = False
 #   while not loaded:
@@ -456,7 +456,7 @@ def read_from_disk(dir_to_scan, skippable=True):
 #           return None
 #   # existing_data is from the database
     CACHE.read_path(fqpn)
-    CACHE.sanitize_filenames(dirpath, quiet=False)
+    CACHE.sanitize_filenames(dirpath)#, quiet=False)
     disk_count = CACHE.return_fileCount(dirpath)
     diskstore = CACHE.extended[dirpath]
     existing_data = index_data.objects.filter(fqpndirectory=dir_to_scan,

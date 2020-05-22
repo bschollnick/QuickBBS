@@ -131,14 +131,6 @@ def thumbnails(request, t_url_name=None):
         fqpn = fs_item #(configdata["locations"]["albums_path"] + dir_to_scan).replace("//", "/")
         webpath = os.path.join(configdata["locations"]["albums_path"],
                                entry.fqpndirectory[1:].lower())
-#        webpath = fqpn.lower().replace(
-#                configdata["locations"]["albums_path"].lower(),
-#                "")
-
-#        fs_item = fs_item.replace("//", "/")
-    #    check_dup_thumbs(e_uuid)
-        # entry.fqpndirectory[1:] since a / in the root cancels the configdata
-        # albums path
 
         fs_name = os.path.join(configdata["locations"]["albums_path"],
                                entry.fqpndirectory[1:],
@@ -151,7 +143,6 @@ def thumbnails(request, t_url_name=None):
                     defaults={"uuid":entry.uuid,
                               "FilePath":webpath,
                               "DirName":fname})[0]
-                #index_data.objects.update_or_create(**entry)
                 entry.save()
             return new_process_dir(entry)
         elif entry.filetype.is_pdf or entry.filetype.is_image:

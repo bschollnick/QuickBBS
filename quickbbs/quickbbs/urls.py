@@ -14,7 +14,6 @@ Including another URLconf
     2. Add a URL to urlpatterns:  url(r'^blog/', include('blog.urls'))
 """
 from django.urls import include, path, re_path
-#from django.conf.urls import include, url
 from django.conf.urls import url
 from django.contrib import admin
 from django.views.generic import RedirectView
@@ -24,16 +23,15 @@ import frontend.serve_up
 from django.conf import settings
 
 urlpatterns = []
-# if settings.DEBUG_TOOLBAR:
-#     import debug_toolbar
-#     urlpatterns += [
-#         url(r'^__debug__/', include(debug_toolbar.urls)),
-#     ]
+if settings.DEBUG_TOOLBAR:
+    import debug_toolbar
+    urlpatterns += [
+        url(r'^__debug__/', include(debug_toolbar.urls)),
+    ]
 
 urlpatterns += [
     path('grappelli/', include('grappelli.urls')), # grappelli URLS
     path(r'admin/', admin.site.urls),
-#    path(r'Admin/', admin.site.urls),
     path(r'', RedirectView.as_view(url="/albums")),
     path("download/<uuid:d_uuid>", frontend.views.new_download, name="downloads"),
     path("view_item/<uuid:i_uuid>/", frontend.views.new_viewitem, name="new_viewitem"),
@@ -45,6 +43,7 @@ urlpatterns += [
     path('resources/<path:pathstr>', frontend.serve_up.resources),
     path('static/<path:pathstr>', frontend.serve_up.static),
     path('accounts/', include('allauth.urls')),
+#    path('ajax/info/<uuid:i_uuid>', frontend.ajax_info)
 #     url(r'^(?i)download/(?P<d_uuid>.+)/',
 #         frontend.views.new_download,
 #         name="downloads"),

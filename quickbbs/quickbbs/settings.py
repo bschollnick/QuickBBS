@@ -27,6 +27,7 @@ else:
 
 DEBUG = True
 #DEBUG = not DEBUG
+print("Debug is ", DEBUG)
 
 SILK = True
 SILK = not SILK
@@ -39,24 +40,26 @@ else:
     SILKY_PYTHON_PROFILER_BINARY = False
 
 
-#DEBUG_TOOLBAR = False
+DEBUG_TOOLBAR = False
 #DEBUG_TOOLBAR = True
+
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 if not DEBUG:
     CACHES = {
         'default': {
-            #'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
             'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
-            #'LOCATION': os.path.join(BASE_DIR, "CACHE"),
             'LOCATION': 'cache_data_db_table',
-            'TIMEOUT': 500,
+            'TIMEOUT': 300,
             'OPTIONS': {
                 'MAX_ENTRIES': 5000
             }
         }
     }
+
+USER_AGENTS_CACHE = 'default'
+
 # Before using the database cache, you must create the cache table with this command:
 # python manage.py createcachetable
 
@@ -77,8 +80,8 @@ INSTALLED_APPS = []
 
 # Application definition
 
-#if DEBUG_TOOLBAR:
-#    INSTALLED_APPS += ('debug_toolbar',)
+if DEBUG_TOOLBAR:
+    INSTALLED_APPS += ('debug_toolbar',)
 
 INSTALLED_APPS += [
     'grappelli',
@@ -89,6 +92,7 @@ INSTALLED_APPS += [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.sites',
+    'django_user_agents',
     'django_jinja',
     'django_jinja.contrib._humanize',
     'django.contrib.humanize',]
@@ -119,8 +123,8 @@ MIDDLEWARE = []
 
 SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
 
-##if DEBUG_TOOLBAR:
-#    MIDDLEWARE += ('debug_toolbar.middleware.DebugToolbarMiddleware',)
+if DEBUG_TOOLBAR:
+    MIDDLEWARE += ('debug_toolbar.middleware.DebugToolbarMiddleware',)
 
 if SILK:
     MIDDLEWARE += ('silk.middleware.SilkyMiddleware',)
@@ -134,6 +138,7 @@ MIDDLEWARE += [
 #    'django.contrib.auth.middleware.SessionAuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'django_user_agents.middleware.UserAgentMiddleware',
 ]
 if not DEBUG:
     MIDDLEWARE += (
@@ -146,6 +151,7 @@ if not DEBUG:
 #    MIDDLEWARE += ('profiler.middleware.ProfilerMiddleware',
 #                   'profiler.middleware.StatProfMiddleware')
 
+X_FRAME_OPTIONS = 'SAMEORIGIN'
 
 ROOT_URLCONF = 'quickbbs.urls'
 
