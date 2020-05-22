@@ -15,7 +15,7 @@ class AdminThumbnail_Dirs(admin.ModelAdmin):
 
 @admin.register(Thumbnails_Files)
 class AdminThumbnail_Files(admin.ModelAdmin):
-    list_display = ('FileName', 'FilePath', 'FileSize')#, 'is_pdf', 'is_image')
+    list_display = ('FileName', 'FilePath', 'FileSize')#g, 'is_pdf', 'is_image')
     fields = ('uuid', 'FileName', 'FilePath', 'FileSize')#, 'is_pdf', 'is_image')
 
 @admin.register(Thumbnails_Archives)
