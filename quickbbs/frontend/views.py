@@ -235,7 +235,6 @@ def new_viewgallery(request):
     patch_vary_headers(response, ["sort-%s" % context["sort"]])
     return response
 
-#@vary_on_headers('User-Agent', 'Cookie')
 @vary_on_headers('User-Agent', 'Cookie', 'Request')
 #@silk_profile(name='View new_Viewitem')
 def new_viewitem(request, i_uuid):
@@ -248,6 +247,7 @@ def new_viewitem(request, i_uuid):
     e_uuid = i_uuid
     index_qs = index_data.objects.filter(uuid=e_uuid)
     entry = index_qs[0]
+    context["user"] = request.user
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
     if entry.filetype.fileext == ".html":
         html_filename = configdata["locations"]["albums_path"] +  \
@@ -255,6 +255,7 @@ def new_viewitem(request, i_uuid):
         context["html"] = bleach.linkify("\n".join(open(html_filename).readlines()))
 #    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
     context["up_uri"] = entry.fqpndirectory.lower()
+    context["fromtimestamp"] = datetime.datetime.fromtimestamp
     read_from_disk(context["webpath"].strip(), skippable=True)
     catalog_qs = get_db_files(context["sort"], context["webpath"])
     context["page"] = 1
@@ -262,6 +263,10 @@ def new_viewitem(request, i_uuid):
         if str(data.uuid) == e_uuid:
             context["page"] = counter
             break
+    # possibly replace for loop with
+    # def getIndexOfAnswer(user, question):
+    #answer = user.answer_set.filter(question=question).get()
+    # return user.answer_set.filter(pk__lte=answer.pk).count() - 1
 
     item_list = Paginator(catalog_qs, 1)
     context["pagecount"] = item_list.count
@@ -277,14 +282,14 @@ def new_viewitem(request, i_uuid):
         context["previous"] = catalog_qs[context["page_contents"].previous_page_number()-1].uuid
     else:
         context["previous"] = ""
-#
+
     context["first"] = catalog_qs[0].uuid
     context["last"] = catalog_qs[catalog_qs.count()-1].uuid
-#        context["last"] = catalog_qs[context["page_contents"].page_range[-1]].uuid
+
     response = render(request,
-                      "frontend/gallery_newitem.html",
-                      context)#,
-                      #using="Jinja2")
+                      "frontend/gallery_newitem.jinja",
+                      context,
+                      using="Jinja2")
     patch_vary_headers(response, ["sort-%s" % context["sort"]])
     return response
 
