@@ -37,7 +37,7 @@ import frontend.archives3 as archives
 import quickbbs.settings
 from frontend.cached_exists import cached_exist
 
-CACHE = cached_exist(use_modify=True, use_extended=True, use_filtering=True)
+CACHE = cached_exist(use_modify=True, use_extended=True, FilesOnly=False, use_filtering=True)
 CACHE.IgnoreDotFiles = True
 CACHE.FilesOnly = False
 CACHE.AcceptableExtensions = list(ftypes.get_ftype_dict())
@@ -229,13 +229,19 @@ def return_image_obj(fs_path, memory=False):
             source_image = None
     else:
         if not memory:
-            source_image = Image.open(fs_path)
+            try:
+                source_image = Image.open(fs_path)
+            except IOError:
+                print("Unable to load source file")
+
         else:
             try:# fs_path is a byte stream
                 source_image = Image.open(BytesIO(fs_path))
+                source_image = None
             except IOError:
                 print("IOError")
                 log.debug("PIL was unable to identify as an image file")
+                source_image = None
             except UserWarning:
                 print("UserWarning!")
                 source_image = None
@@ -479,7 +485,7 @@ def read_from_disk(dir_to_scan, skippable=True):
     if existing_data_size > 0:# and existing_data_size is not None:
 #        try:
             lastmoded = existing_data.order_by("-lastmod")[0]
-            fs_lm_name, fs_lm_value = CACHE.last_mods[dirpath]
+            fs_lm_name, fs_lm_value, fs_ls_value = CACHE.last_mods[dirpath]
             if not lastmoded.name == fs_lm_name:
                 print("Unable to skip, due to last mod name. %s vs %s" % (fs_lm_name, lastmoded.name))
                 skippable = False
