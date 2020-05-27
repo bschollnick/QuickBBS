@@ -8,6 +8,7 @@ import os
 import os.path
 #from hashlib import md5
 from hashlib import sha224, sha256, sha512
+import time
 
 #import operator
 from pathvalidate import is_valid_filename, sanitize_filename
@@ -88,6 +89,8 @@ class cached_exist():
         self.IgnoreDotFiles = False
         self.use_filters = use_filtering
         self.MAX_SHA_SIZE = 1024*1024*10
+        self.last_mods["lastScan"] = 0
+        self.last_mods["scanInterval"] = 90 # 60 seconds
 
     def sanitize_filenames(self, dirpath, allow_rename=False):
         """
@@ -131,6 +134,8 @@ class cached_exist():
         self.scanned_paths = {}
         self.sha_paths = {}
         self.last_mods = {}
+        self.last_mods["lastScan"] = 0
+        self.last_mods["scanInterval"] = 60*100 # 60 * 1000 ms = 60 seconds
         self.extended = {}
         self.global_count = 0
         self.verify_count = 0
@@ -153,6 +158,8 @@ class cached_exist():
             del self.scanned_paths[dirpath]
             del self.sha_paths[dirpath]
             del self.last_mods[dirpath]
+            self.last_mods["lastScan"] = 0
+            self.last_mods["scanInterval"] = 60*100 # 60 * 1000 ms = 60 seconds
             del self.extended[dirpath]
         except KeyError:
             pass
@@ -197,6 +204,7 @@ class cached_exist():
 
             .. code-block:
                 # Boolean Tests
+
         """
         dirpath = os.path.normpath(dirpath.title().strip())
         fileCount = 0
@@ -205,6 +213,22 @@ class cached_exist():
             fileCount += self.extended[dirpath][x].is_file()
             dirCount += self.extended[dirpath][x].is_dir()
         return (fileCount, dirCount)
+
+    def return_newest(self, dirpath):
+        dirpath = os.path.normpath(dirpath).title().strip()
+        newest = ('', 0)
+        olddirpath, oldnewest, lastScan = self.last_mods[dirpath]
+#        print( time.time(), time.time() - lastScan, lastScan, self.last_mods["scanInterval"])
+        if time.time() - lastScan > self.last_mods["scanInterval"]:
+#            print("Calculating newest")
+            for entry in os.scandir(dirpath):
+                if entry.stat().st_mtime > newest[1]:
+                    newest = (entry.name.title(), entry.stat().st_mtime, time.time())
+        else:
+#            print("Cached newest")
+            newest = self.last_mods[dirpath]
+        return newest
+
 
     def check_count(self, dirpath):
         """
@@ -226,22 +250,14 @@ class cached_exist():
                 # Boolean Tests
                 >>> file_exist(r"test_samples\\monty.csv")
                 True
-                >>> file_exist(r"test_samples\\small.csv")
-                True
-                >>> file_exist(r"test_samples\\monty_lives_here.csv")
-                False
                 >>> file_exist(r"test_samples\\I_DONT-EXIST.txt")
                 False
 
                 # File size Tests
                 >>> file_exist(r"test_samples\\monty.csv", rtn_size=True)
                 76
-                >>> file_exist(r"test_samples\\small.csv", rtn_size=True)
-                44
                 >>> file_exist(r"test_samples\\monty_lives_here.csv",
                                 rtn_size=True)
-                False
-                >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
                 False
         """
         #
@@ -254,7 +270,7 @@ class cached_exist():
 
         try:
             for x in list(os.scandir(dirpath)):
-                if self.processFile(x.name):
+                if self.processFile(x):
                     if self.FilesOnly and x.is_dir():
                         pass
                     else:
@@ -291,13 +307,13 @@ class cached_exist():
         if dirpath not in self.last_mods:
             return False
 
-        if (self.return_fileCount(dirpath) == 0 or
-                self.last_mods[dirpath] == ('', 0)):
+        #if (self.return_fileCount(dirpath) == 0 or
+        if self.last_mods[dirpath] == ('', 0, 0):
             return False
 
-        fs_lastmod = os.path.getmtime(os.path.join(
-            dirpath, self.last_mods[dirpath][0]))
-        return self.last_mods[dirpath][1] == fs_lastmod
+        newest = self.return_newest(dirpath)
+        return self.last_mods[dirpath] == newest
+
 
     def set_reset_count(self, reset_count=RESET_COUNT):
         """
@@ -390,7 +406,7 @@ class cached_exist():
                 return sha.hexdigest()
         return sha.digest()
 
-    def processFile(self, filename):
+    def processFile(self, dentry):
         """
             Args:
 
@@ -411,9 +427,13 @@ class cached_exist():
         if not self.use_filters:
             return True
 
-        fext = os.path.splitext(filename)[1]
-        if self.IgnoreDotFiles and filename.startswith("."):
+        fext = os.path.splitext(dentry.name)[1]
+        if self.IgnoreDotFiles and dentry.name.startswith("."):
             return False
+
+        if not self.FilesOnly:
+            if dentry.is_dir():
+                return True
 
         if fext.lower() in self.AcceptableExtensions:
             return True
@@ -574,10 +594,11 @@ class cached_exist():
             self.scanned_paths[dirpath] = {}
             self.sha_paths[dirpath] = {}
             self.extended[dirpath] = {}
-            self.last_mods[dirpath] = ('', 0)
+            self.last_mods[dirpath] = ('', 0, 0)
             directory_data = os.scandir(dirpath)
             for entry in directory_data:
-                if self.processFile(entry.name):
+#                print(entry.name, self.processFile(entry))
+                if self.processFile(entry):
                     sha = None
                     if self.use_shas:
                         if self.MAX_SHA_SIZE not in [None, 0]:
@@ -593,7 +614,7 @@ class cached_exist():
                     if self.use_modify:
                         if entry.stat().st_mtime > self.last_mods[dirpath][1]:
                             self.last_mods[dirpath] = (entry.name.title(),
-                                                       entry.stat().st_mtime)
+                                                       entry.stat().st_mtime, time.time())
 
                     self.addFileDirEntry(entry, sha)
 
