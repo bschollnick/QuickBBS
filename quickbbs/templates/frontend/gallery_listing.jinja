@@ -1,13 +1,9 @@
 {% extends 'frontend/gallery_base.jinja' %}
 
 {% block content %}
- <!-- cdnjs -->
-<script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/jquery.lazy/1.7.9/jquery.lazy.min.js"></script>
-<script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/jquery.lazy/1.7.9/jquery.lazy.plugins.min.js"></script>
 <!-- sidebar -->
 <div class="container" style="width:99%">
     <div class="row">
-
         <div class="col-xs-6 col-sm-3" id="sidebar" role="navigation">
             <div class="pagination">
                 <p align=center><a href="{{ up_uri }}?page=1&sort={{sort}} ">{{ icon("arrow-up fa-2x")}}</a></p>
@@ -70,10 +66,16 @@
                 </tr>
              </table>
                     <div class="row" width="auto" style="margin-left: 0px;margin-right:0px;border: 0px solid;padding-left:2px;padding-right:2px;">
-                    {% for item in pagelist %}
+                    {%- for item in pagelist -%}
                                 <div class="col-xs-6 col-sm-4" style="bgcolor:#fef7df">
-                                    <center>
-                                        {{ loop.index }}
+                                    <div valign=top>
+                                        <center>
+                                            {{ loop.index }}
+                                        </center>
+                                    </div>
+
+                                    <div valign=center>
+                                        <center>
                                             {% if item.filetype.fileext == ".html" %}<a href="/view_item/{{ item.uuid }}?sort={{sort}}" class="thumbnail" style="background-color:#{{item.filetype.color}};"> {% endif %}
                                             {% if item.filetype.is_movie %}<a href="/view_item/{{ item.uuid }}?sort={{sort}}" class="thumbnail" style="background-color:#{{item.filetype.color}};"> {% endif %}
                                             {% if item.filetype.fileext == ".dir" %}<a href="{{ webpath }}{{ item.name }}?page=1&sort={{sort}}" class="thumbnail" style="background-color:#{{item.filetype.color}};"> {% endif %}
@@ -93,46 +95,62 @@
                                                 <img class="lazy" src="/resources/images/loading17.gif" data-src="/resources/images//{{ item.filetype.icon_filename }}?arch=0&size=small" class="img-responsive" style="width:auto;max-width:100%"/>
                                             {% else %}
                                                 <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{ item.uuid }}?size=small" class="img-responsive" style="width:auto;max-width:100%"/>
-                                            {% endif %}
-                                        </a>
-                                    </center>
-                                        <table width="99%">
-                                            <tr><td colspan=3><center><sub>{{ item.uuid }}</sub></center></td><td></td></tr>
-                                            <tr align=center><td colspan=3><b>Last Modified: </b>{{ fromtimestamp( item.lastmod).strftime("%m/%d/%y %H:%M:%S") }}</td><td></td></tr>
+                                            {% endif -%}
+                                            </a>
+                                        </center>
+                                    </div>
+                                    <div valign=bottom class="bottom-align-text">
+<!--
+                                            <tr><td colspan=2 width="90%"><center><sub>{{ item.uuid }}</sub></center></td>
+ -->
 
-                                            {% if item.filetype.is_animated %}<tr><td colspan=3><b>Animated</b></td><td></td></tr>{% endif %}
+                                        <table width="99%" border=0>
+                                            <tr align=center>
+                                            {%- if item.filetype.is_animated -%}<tr><td colspan=2><b>Animated</b></td></tr>{%- endif %}
 
                                             <tr align=center>
-                                                <td align=left width="35%">{% if item.numdirs != None and item.numdirs != 0%}<b># of Dirs: </b>{{ item.numdirs | intcomma }}{% endif %}
-                                                </b></td>
-                                                <td align=left  width="35%">{% if item.numfiles != None and item.numfiles != 0 %}<b># of Files: </b>{{ item.numfiles | intcomma }}{% endif %}</td>
-                                                <td align=right  width="20">
-                                            {% if item.filetype.fileext == ".dir" %}<a href="{{ webpath }}{{ item.name }}?sort={{sort}}" target="_blank"> {% endif %}
-                                            {% if item.filetype.is_archive %}<a href="/view_archive/{{ item.uuid}}?sort={{sort}}" target="_blank"> {% endif %}
-                                            {% if item.filetype.is_image or item.filetype.is_pdf %}<a href="/view_item/{{ item.uuid }}?sort={{sort}}" target="_blank"> {% endif %}
-                                            {{ icon("external-link-alt fa-2x") }}</a>
+                                                <td width="40%">
+                                                    {% if item.numdirs != None and item.numdirs != 0%}
+                                                    <b># Dirs:</b> {{ item.numdirs | intcomma }}
+                                                    {% endif %}</b>
+                                                </td>
+                                                <td width="35%">
+                                                    {% if item.numfiles != None and item.numfiles != 0 %}
+                                                    <b># Files:</b> {{ item.numfiles | intcomma }}
+                                                    {% endif %}
                                                 </td>
                                             </tr>
-
-
-</table>
-
+                                            </table>
+                                            <table width="99%" border=0>
+                                            <tr align=Right>
+                                                <td width=75%>
+                                                    <b>Last Modified:</b>
+                                                    {% if not request.user_agent.is_pc %}<br>{% endif %}
+                                                    {{ fromtimestamp( item.lastmod).strftime("%m/%d/%y %H:%M:%S") }}
+                                                </td>
+                                                <td align=right>
+                                                    {% if item.filetype.fileext == ".dir" %}<a href="{{ webpath }}{{ item.name }}?sort={{sort}}" target="_blank"> {% endif %}
+                                                    {% if item.filetype.is_archive %}<a href="/view_archive/{{ item.uuid}}?sort={{sort}}" target="_blank"> {% endif %}
+                                                    {% if item.filetype.is_image or item.filetype.is_pdf %}<a href="/view_item/{{ item.uuid }}?sort={{sort}}" target="_blank"> {% endif %}
+                                                    {{ icon("external-link-alt fa-2x") }}</a>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </div>
                                 </div>
 
                             <!-- if last column in row -->
                             {% if loop.index is divisibleby 3 %}
                                 </div> <div class="row" style="margin-left: 0px;margin-right:0px;border: 0px solid;padding-left:2px;padding-right:2px;">
                             {% endif %}
-
-                    {% endfor %}
+                    {%- endfor %}
             </div>
-
 
         </div><!-- /.col-xs-12 main -->
     </div><!--/.row-->
   </div><!--/.container-->
  </center>
-<script>
+<script >
 $(function($) {
     $("img.lazy").Lazy({
     scrollDirection: 'vertical',
