@@ -6,7 +6,7 @@ cffi==1.14.0
 chardet==3.0.4
 colorama==0.4.3
 defusedxml==0.6.0
-Django==3.0.5
+Django==2.2.13
 django-allauth==0.41.0
 django-bootstrap3==12.1.0
 django-db-pooling==0.0.4

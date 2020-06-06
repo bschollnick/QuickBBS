@@ -11,7 +11,7 @@ configparser==3.5.0
 constantly==15.1.0
 defusedxml==0.5.0
 directory-caching==1.12
-Django==2.1.5
+Django==2.2.13
 django-allauth==0.38.0
 django-bootstrap3==11.0.0
 django-debug-toolbar==1.11
