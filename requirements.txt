@@ -48,7 +48,7 @@ oauthlib==2.1.0
 passlib==1.7.1
 pathlib2==2.3.3
 pep8-naming==0.7.0
-Pillow==5.3.0
+Pillow==7.1.0
 prospector==1.1.6.2
 psycopg2==2.7.6.1
 psycopg2-binary==2.7.6.1

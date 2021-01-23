@@ -52,7 +52,7 @@ pathtools==0.1.2
 pathvalidate==2.3.1
 pdfrw==0.4
 pikepdf==2.2.1
-Pillow==8.0.1
+Pillow==7.1.0
 pip-upgrade-tool==0.4.5
 psycopg2-binary==2.8.6
 pycodestyle==2.6.0
