@@ -82,6 +82,19 @@ def get_db_files(sorder, fpath):
         fqpndirectory=fpath.lower().strip()).order_by(*SORT_MATRIX[sorder])
     return index
 
+def return_offset_uuid(sorder, fpath, tuuid):
+    """
+        Fetch specific database values only from the database
+    """
+    entries = index_data.objects.exclude(ignore=True).exclude(delete_pending=True).filter(
+        fqpndirectory=fpath.lower().strip()).order_by(*SORT_MATRIX[sorder])
+    tpk = entries.filter(uuid=tuuid.strip())[0].pk
+    count = entries.filter(pk__lte=tpk).count() - 1
+        #answer = user.answer_set.filter(question=question).get()
+    # return user.answer_set.filter(pk__lte=answer.pk).count() - 1
+
+    return count
+
 def check_dup_thumbs(uuid_to_check, page=0):
     """
     Eliminate any duplicates in the Thumbnail Databases
