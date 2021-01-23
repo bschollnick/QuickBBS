@@ -40,7 +40,8 @@ from frontend.cached_exists import cached_exist
 CACHE = cached_exist(use_modify=True, use_extended=True, FilesOnly=False, use_filtering=True)
 CACHE.IgnoreDotFiles = True
 CACHE.FilesOnly = False
-CACHE.AcceptableExtensions = list(ftypes.get_ftype_dict())
+#CACHE.AcceptableExtensions = list(ftypes.get_ftype_dict())
+CACHE.AcceptableExtensions = list(ftypes.FILETYPE_DATA.keys())
 CACHE.AcceptableExtensions.append("")
 
 
@@ -237,14 +238,14 @@ def return_image_obj(fs_path, memory=False):
         else:
             try:# fs_path is a byte stream
                 source_image = Image.open(BytesIO(fs_path))
-                source_image = None
+#                source_image = None
             except IOError:
                 print("IOError")
                 log.debug("PIL was unable to identify as an image file")
-                source_image = None
+ #               source_image = None
             except UserWarning:
                 print("UserWarning!")
-                source_image = None
+  #              source_image = None
     return source_image
 
 #@silk_profile(name='utilities.cr_tnail_img')
@@ -265,12 +266,12 @@ def cr_tnail_img(source_image, size, fext):
     try:
         source_image.save(fp=image_data,
                           format=configdata["filetypes"][fext][2].strip(),
-                          optimize=True)
+                          optimize=False)
     except IOError:
         source_image = source_image.convert('RGB')
         source_image.save(fp=image_data,
                           format="JPEG",#configdata["filetypes"][fext][2].strip(),
-                          optimize=True
+                          optimize=False
                           )
 
     image_data.seek(0)
@@ -343,20 +344,21 @@ def return_disk_listing(fqpn, enable_rename=False):
                 rename_file(os.path.join(fqpn, original_filename),
                             os.path.join(fqpn, titlecase))
                 print("rejected - %s" % titlecase)
-                loaded = False
+                #loaded = False
 
-            data[titlecase] = {"filename":titlecase,
-                               "lower_filename":titlecase.lower(),
-                               "path":os.path.join(fqpn, titlecase),
-                               'sortname':naturalize(titlecase),
-                               'size':entry.stat()[stat.ST_SIZE],
-                               'lastmod':entry.stat()[stat.ST_MTIME],
-                               'is_dir':entry.is_dir(),#fext == ".dir",
-                               'is_file':not entry.is_dir(),#fext != ".dir",
-                               'is_archive':ftypes.FILETYPE_DATA[fext]["is_archive"],
-                               'is_image':ftypes.FILETYPE_DATA[fext]["is_image"],
-                               'is_animated':animated
-                               }
+        data[titlecase] = {"filename":titlecase,
+                           "lower_filename":titlecase.lower(),
+                           "path":os.path.join(fqpn, titlecase),
+                           'sortname':naturalize(titlecase),
+                           'size':entry.stat()[stat.ST_SIZE],
+                           'lastmod':entry.stat()[stat.ST_MTIME],
+                           'is_dir':entry.is_dir(),#fext == ".dir",
+                           'is_file':not entry.is_dir(),#fext != ".dir",
+                           'is_archive':ftypes.FILETYPE_DATA[fext]["is_archive"],
+                           'is_image':ftypes.FILETYPE_DATA[fext]["is_image"],
+                           'is_movie':ftypes.FILETYPE_DATA[ext]["is_movie"],
+                           'is_animated':animated
+                           }
     return (loaded, data)
 
 #@silk_profile(name='utilities.read_From_disk')
@@ -449,18 +451,6 @@ def read_from_disk(dir_to_scan, skippable=True):
         "")
 
     dirpath = os.path.normpath(fqpn.title().strip())
-#   count = 0
-#   loaded = False
-#   while not loaded:
-#       try:
-#           loaded, diskstore = return_disk_listing(fqpn, enable_rename=True)
-#           disk_count = len(diskstore)
-#       except StopIteration:
-#           pass
-#       count += 1
-#       if count > 5:
-#           return None
-#   # existing_data is from the database
     CACHE.read_path(fqpn)
     CACHE.sanitize_filenames(dirpath)#, quiet=False)
     disk_count = CACHE.return_fileCount(dirpath)
@@ -507,7 +497,7 @@ def read_from_disk(dir_to_scan, skippable=True):
         numfiles = 0
         force_save = False
         disk_data = {}
-        disk_data[filename] = filedata#filedata
+        disk_data[filename] = filedata
         animated = False
         if filedata.is_dir():
             fext = ".dir"
@@ -522,11 +512,13 @@ def read_from_disk(dir_to_scan, skippable=True):
         if (filedata.is_dir()):
             CACHE.read_path(os.path.join(fqpn, filename))
             numfiles, numdirs = CACHE.return_extended_count(os.path.join(fqpn, filename))
-            if numdirs == -1:
-                numdirs = 0
+            #if numdirs == -1:
+            #    numdirs = 0
 
-            if numfiles == -1:
-                numfiles = 0
+            #if numfiles == -1:
+            #    numfiles = 0
+
+
 
         new_uuid = uuid.uuid4()
         if ftypes.FILETYPE_DATA[fext]["is_image"] and fext in [".gif"]:
@@ -549,10 +541,6 @@ def read_from_disk(dir_to_scan, skippable=True):
                           'lastmod':filedata.stat().st_mtime,
                           'numfiles':numfiles,
                           'numdirs':numdirs,
-                          #'is_dir':disk_data[filename]["is_dir"],
-                          #'is_archive':disk_data[filename]["is_archive"],
-                          #'is_image':ftypes.FILETYPE_DATA[fext]["is_image"],
-                          #'is_pdf':ftypes.FILETYPE_DATA[fext]["is_pdf"],
                           'lastscan':time.time(),
                           'filetype':filetypes(fileext=fext),
                           'is_animated':animated
@@ -563,7 +551,6 @@ def read_from_disk(dir_to_scan, skippable=True):
             index_data.objects.filter(
                 name=filename,
                 fqpndirectory=webpath).delete()
-#            ind_data, created = index_data.objects.update_or_create(
             ind_data, created = index_data.objects.get_or_create(
                 name=filename,
                 fqpndirectory=webpath,
@@ -576,10 +563,6 @@ def read_from_disk(dir_to_scan, skippable=True):
                           'lastmod':filedata.stat().st_mtime,
                           'numfiles':numfiles,
                           'numdirs':numdirs,
-#                         'is_dir':disk_data[filename]["is_dir"],
-#                         'is_archive':disk_data[filename]["is_archive"],
-#                         'is_image':ftypes.FILETYPE_DATA[fext]["is_image"],
-#                         'is_pdf':ftypes.FILETYPE_DATA[fext]["is_pdf"],
                           'lastscan':time.time(),
                           'filetype':filetypes(fileext=fext),
                           'is_animated':animated
@@ -589,13 +572,24 @@ def read_from_disk(dir_to_scan, skippable=True):
             #print("Updating due to file_ext")
             force_save = True
 
-
+#        print(ind_data.filetype.fileext, webpath, filename)
+#        print ("Numdir ", ind_data.numdirs, numdirs)
+#        print("numfiles ", ind_data.numfiles, numfiles)
         if ind_data.filetype.fileext == ".dir":
+            subdir_path = os.path.join(webpath, filename)
             if (ind_data.numdirs != numdirs or
                 ind_data.numfiles != numfiles):
                 force_save = True
                 ind_data.numdirs = numdirs
                 ind_data.numfiles = numfiles
+                print("Mismatch for subdir - ", webpath, filename)
+#            if numfiles == -1 and index_data.objects.filter(fqpndirectory=subdir_path).exclude(ind_data.filetype.fileext='.dir').count() >= 1:
+#            if numfiles == -1 and index_data.objects.filter(fqpndirectory=subdir_path, ind_data.filetype.fileext__ne='.dir').count() => 1:
+#                 print("Attempting to delete, files from ", subdir_path)
+                #index_data.objects.filter(fqpndirectory=subdir_path).exclude(ind_data.filetype.fileext=='.dir').delete()
+            if numdirs == -1 and index_data.objects.filter(fqpndirectory=subdir_path, filetype__fileext='.dir').count() >= 1:
+                print("Attempting to delete, dirs from ", subdir_path)
+                #index_data.objects.filter(fqpndirectory=subdir_path).filter(ind_data.filetype.fileext=='.dir').delete()
 
         if ind_data.lastmod != filedata.stat().st_mtime:#.stat()[stat.ST_MTIME]:
             ind_data.lastmod = filedata.stat().st_mtime
@@ -609,7 +603,6 @@ def read_from_disk(dir_to_scan, skippable=True):
 
             ta_listings = Thumbnails_Archives.objects.filter(uuid=ind_data.uuid)
             if ta_listings.count() != ind_data.count_subfiles:
-                print("Checking")
                 archive_file = archives.id_cfile_by_sig(os.path.join(configdata["locations"]["albums_path"],
                                webpath[1:],
                                filename))

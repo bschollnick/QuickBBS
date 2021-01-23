@@ -218,29 +218,31 @@ TEMPLATES = [
 #                          'OPTIONS':{'timeout': 90},
 #                          'CONN_MAX_AGE':300,
 #                         }
-#             }
+#              }
 #else:
 
-# DATABASES = {'default': {'ENGINE': 'django.db.backends.postgresql',
-#                          'NAME': 'quickbbs',
-#                          'USER': 'quickbbs',
-#                          'PASSWORD': 'quickie123',
-#                          'HOST': 'localhost',
-#                          'PORT': '',
-#                          'CONN_MAX_AGE':300,
-#                         }
-#              }
-
 DATABASES = {'default': {'ENGINE': 'django.db.backends.postgresql',
-                         'NAME': 'quickbbs',
+                         'NAME': 'postgres',
                          'USER': 'postgres',
-                         'PASSWORD': 'postgres2019',
-                         'HOST': 'seele.local',
-                         #'HOST': 'localhost',
-                         'PORT': '5432',
+                         'PASSWORD': 'hentai2020',
+                         'HOST': 'localhost',
+                         'PORT': '',
                          'CONN_MAX_AGE':300,
                         }
              }
+
+# DATABASES = {'default': {#'ENGINE': 'django.db.backends.postgresql',
+#                          'ENGINE': 'django.db.backends.postgresql_psycopg2',
+#                          'NAME': 'quickbbs',
+#                          'USER': 'postgres',
+#                          'PASSWORD': 'postgres2019',
+#                          'HOST': '192.168.1.153',
+# #                         'HOST': 'seele.local',
+#                          #'HOST': 'localhost',
+#                          'PORT': '5432',
+#                          'CONN_MAX_AGE':300,
+#                         }
+#              }
 
 
 SOUTH_DATABASE_ADAPTERS = {

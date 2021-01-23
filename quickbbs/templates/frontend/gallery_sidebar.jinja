@@ -1,1 +1,56 @@
+<!-- sidebar -->
+<div class="container" style="width:99%">
+    <div class="row">
+        <div class="col-xs-6 col-sm-3" id="sidebar" role="navigation">
+            <div class="pagination">
+                <p align=center><a href="{{ up_uri }}?page=1&sort={{sort}} ">{{ icon("arrow-up fa-2x")}}</a></p>
+                <hr>
+                <a href="?page=1">
+                    <p align=center>{{ icon("angle-double-left fa-3x")}}</a></p>
+                <hr>
+                <span class="step-links">
+                    {% if pagelist.has_previous() %}
+                        <a href="?page={{ pagelist.previous_page_number() }}&sort={{sort}}">
+                        <p align=center>{{ icon("angle-left fa-3x")}}</a></p>
+                    {% else %}
+                            <p align=center><img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/></p>
+                    {% endif %}
+                <hr><center>
+                    <form action="?" method="GET">
+                        <input type="hidden" id="sort" name="sort" value="{{sort}}">
+                    Page
+                        <select name="page" onchange='this.form.submit()'>
+                            {% for pagecnt in page_cnt %}
+                                {% set current_page = pagecnt %}
+                                <option value="{{pagecnt}}" {% if pagecnt == pagelist.number %}selected{% endif %}>{{pagecnt}}</option>
+                            {% endfor %}
+                        </select><br>
+                        of {{ pagelist.paginator.num_pages }}.
+                    </form></center>
+                <hr>
+
+                    {% if pagelist.has_next() %}
+                        <a href="?page={{ pagelist.next_page_number() }}&sort={{sort}}">
+                        <p align=center>{{ icon("angle-right fa-3x")}}</a></p>
+                    {% else %}
+                            <img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/>
+                    {% endif %}
+                <hr>
+
+                <a href="?page={{ pagelist.paginator.num_pages }}&sort={{sort}}">
+                        <p align=center>{{ icon("angle-double-right fa-3x")}}</a></p>
+                </span>
+                <hr>
+                    <form action="?" method="GET">
+                    {% csrf_token %}
+                        <input type="hidden" id="page" name="page" value="{{current_page}}">
+                        <select name="sort" onchange='this.form.submit()'>
+                            <option value="0" {% if sort == 0 %}selected{% endif %}>A..Z</option>
+                            <option value="1" {% if sort == 1 %}selected{% endif %}>LastM</option>
+                            <option value="2" {% if sort == 2 %}selected{% endif %}>CTime</option>
+                        </select>
+                    </form>
+                <hr>
+            </div>
+        </div>
 

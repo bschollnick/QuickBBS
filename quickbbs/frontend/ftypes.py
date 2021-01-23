@@ -87,18 +87,22 @@ def return_identifier(ext):
     ext = ext.lower().strip()
     if ext.startswith("."):
         ext = ext[1:]
-
+    return ext
+    
 def map_ext_to_id(ext):
     ext = ext.lower().strip()
     if ext.startswith("."):
         ext = ext[1:]
+    return ext
+    
 
+FILETYPE_DATA = {}
 try:
-    refresh_filetypes()
-    FILETYPE_DATA = get_ftype_dict()
+     refresh_filetypes()
+     FILETYPE_DATA = get_ftype_dict()
 except:
-    print("Unable to validate or create FileType database table.")
-    pass
+     print("Unable to validate or create FileType database table.")
+#     pass
 
 #print ("# of FileTypes: ",len(FILETYPES))
 # class filetypes(models.Model):

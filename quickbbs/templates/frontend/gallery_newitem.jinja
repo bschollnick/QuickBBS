@@ -33,16 +33,15 @@
 
                     {% if next %}
                         <a href="/view_item/{{ next }}?sort={{sort}}">
-                            <p align=center>{{ icon('angle-right fa-3x') }}</a>
+                            <p align=center>{{ icon('angle-right fa-3x') }}</a> <br>
+
+                        <a href="/view_item/{{ next }}?sort={{sort}}" target="_blank">
+                            <p align=center>{{ icon('fas fa-external-link-alt fa-3x') }}</a></p>
 
                     {% else %}
                             <img width="70%" height="50%" src="/resources/images/gtk_media_empty.png"/>
                     {% endif %}
                 <br>
-                {% if next %}
-                    <a href="/view_item/{{ next }}?sort={{sort}}" target="_blank">
-                    <p align=center>{{ icon ('external-link fa-3x') }}</a></p>
-                {% endif %}
                 <a href="/view_item/{{ last }}?sort={{sort}}">
                             <p align=center>{{ icon('angle-double-right fa-3x') }}</a>
                 <a href="/download/{{item.uuid}}">

@@ -1,114 +1,26 @@
-<!DOCTYPE HTML>
-<html lang="en">
-<head>
-<meta http-equiv="content-type" content="text/html; charset=utf-8" />
-<meta charset="utf-8"/>
-<meta http-equiv="X-UA-Compatible" content="IE=edge"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
-{# Load the tag library #}
-{% load bootstrap3 %}
+{% extends 'frontend/gallery_base.jinja' %}
 
-{# Load CSS and JavaScript #}
-{% bootstrap_css %}
-{% bootstrap_javascript %}
+{% block title %}
+{{item.name }}
+{% endblock %}
 
-{# Display django.contrib.messages as Bootstrap alerts #}
-{% bootstrap_messages %}
-{% load icons %}
-<link href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css"
-      rel="stylesheet"
-      integrity="sha384-wvfXpqpZZVQGK6TAh5PVlGOfQNHSoD2xbE+QkPxCAFlNEevoEH3Sl0sibVcOQVnN"
-      crossorigin="anonymous"
-<link href="//maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" rel="stylesheet">
-<link href=”//vjs.zencdn.net/7.0/video-js.min.css” rel=”stylesheet”>
-<script src="//maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
-
-
-<title> {{ pagelist.0.0 }}</Title>
-<script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/jquery.lazy/1.7.9/jquery.lazy.min.js"></script>
-<script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/jquery.lazy/1.7.9/jquery.lazy.plugins.min.js"></script>
-<link href="https://vjs.zencdn.net/7.6.0/video-js.css" rel="stylesheet">
-
-  <!-- If you'd like to support IE8 (for Video.js versions prior to v7) -->
-  <script src="https://vjs.zencdn.net/ie8/1.1.2/videojs-ie8.min.js"></script>
-        <!-- CSS code from Bootply.com editor -->
-
-<style type="text/css">
-            body {
-  padding-top: 51px;
-}
-.text-center {
-  padding-top: 20px;
-}
-.col-xs-12 {
-  background-color: #fff;
-}
-#sidebar {
-  height: 100%;
-  width: 58px;
-  padding-right: 0px;
-  padding-left: 0px;
-  padding-top: 20px;
-  position: fixed;
-  left:5px;
-}
-#sidebar .nav {
-  width: 99%;
-}
-#sidebar li {
-  border:0 #f2f2f2 solid;
-  border-bottom-width:1px;
-}
-
-#sidebar {
-    padding-top:0;
-  }
-
-.col-xs-6.col-sm-4.thumbnail{
-    width:30%;
-    background:#;
-    border:1px solid black;
-    padding:1px 1px;
-    margin: 5px;}
-
-.row {
-  margin-right: 0px;
-  margin-left: -15px;
-}
-</style>
-</head>
-<body>
-        <div class="page-container">
-	<!-- top navbar -->
-    <div class="navbar navbar-default navbar-fixed-top" role="navigation">
-       <div class="container">
-    	<div class="navbar-header">
-           <button type="button" class="navbar-toggle" data-toggle="offcanvas" data-target=".sidebar-nav">
-             <span class="icon-bar"></span>
-             <span class="icon-bar"></span>
-             <span class="icon-bar"></span>
-           </button>
-           <a class="navbar-brand" href="#">Gallery 3</a>
-    	</div>
-       </div>
-    </div>
-
+{% block content %}
+ <!-- cdnjs -->
     <div class="container" style="width:95%">
       <div class="row">
 
         <!-- sidebar -->
         <div class="col-xs-6 col-sm-3" id="sidebar" role="navigation">
             <div class="pagination">
-                <p align=center><a href="{{ up_uri }}?page=1&sort={{sort}}">{% icon 'arrow-up fa-2x' %}</a></p>
+                <p align=center><a href="{{ up_uri }}?page=1&sort={{sort}}">{{icon('arrow-up fa-2x') }}</a></p>
                 <br>
                 <a href="/view_item/{{first}}?sort={{sort}}">
-                    <p align=center>{% icon 'angle-double-left fa-3x' %}</a>
+                    <p align=center>{{icon('angle-double-left fa-3x') }}</a>
                 <br>
                 <span class="step-links">
                     {% if previous %}
                         <a href="/view_item/{{ previous }}?sort={{sort}}">
-                            <p align=center>{% icon 'angle-left fa-3x' %}</a>
+                            <p align=center>{{ icon ('angle-left fa-3x') }}</a>
                     {% else %}
                             <img width="70%" height="50%" src="/resources/images/gtk_media_empty.png"/>
                     {% endif %}
@@ -121,20 +33,19 @@
 
                     {% if next %}
                         <a href="/view_item/{{ next }}?sort={{sort}}">
-                            <p align=center>{% icon 'angle-right fa-3x' %}</a>
+                            <p align=center>{{ icon('angle-right fa-3x') }}</a> <br>
+
+                        <a href="/view_item/{{ next }}?sort={{sort}}" target="_blank">
+                            <p align=center>{{ icon('fas fa-external-link-alt fa-3x') }}</a></p>
 
                     {% else %}
                             <img width="70%" height="50%" src="/resources/images/gtk_media_empty.png"/>
                     {% endif %}
                 <br>
-                {% if next %}
-                    <a href="/view_item/{{ next }}?sort={{sort}}" target="_blank">
-                    <p align=center>{% icon 'external-link fa-3x' %}</a></p>
-                {% endif %}
                 <a href="/view_item/{{ last }}?sort={{sort}}">
-                            <p align=center>{% icon 'angle-double-right fa-3x' %}</a>
+                            <p align=center>{{ icon('angle-double-right fa-3x') }}</a>
                 <a href="/download/{{item.uuid}}">
-                <p align=center>{% icon 'arrow-down fa-3x' %}</a>
+                <p align=center>{{ icon('arrow-down fa-3x') }}</a>
 
                 </span>
                 <br>
@@ -148,13 +59,21 @@
                         </select>
             </div>
         </div>
-
 <!-- main area -->
+        {% if mobile == True %}
+            {% set imagesize = 'medium' %}
+        {% else %}
+            {% set imagesize = 'large' %}
+        {% endif %}
+
          <div class="container-fluid" style="margin-left: 50px;border: 1px solid;width=100%;left-pad:2px;right-pad:2px;background:#b0e2ff;">
-             <center><table><tr><Td width="25%"><b>{{webpath}}/</b></td><td width="70%"><center>{{ item.name|wordwrap:60|linebreaksbr }}</b></center></td></tr></table>
+             <center><table><tr><Td width="25%"><b>{{webpath}}/</b></td><td width="70%"><center>{{ item.name}}</b></center></td></tr></table>
                 <div class="row">
-                        <div class="thumbnail" style="background:{{ pagelist.0.4 }};">
+                        <div class="thumbnail">
                             <center>
+                            {% if item.filetype.is_pdf %}
+                                <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{ item.uuid }}?size={{imagesize}}&pdf" style="height:auto;max-width:100%;"/>
+                            {% endif %}
                             {% if item.filetype.is_image %}
                                 {% if not item.is_animated %}
                                         {% if mobile == True %}
@@ -163,8 +82,7 @@
                                             <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{ item.uuid }}?size=large{% if item.is_pdf %}&pdf{% elif item.is_archive %}&arch{% else%}{% endif %}" style="height:auto;max-width:100%;"/>
                                         {% endif %}
                                 {% else %}
-                                        <img class="lazy" src="/resources/images/loading17.gif"
-                                        data-src="/download/{{ item.uuid }}" style="height:auto;max-width:100%;"/>
+                                        <img class="lazy" src="/resources/images/loading17.gif" data-src="/download/{{ item.uuid }}" style="height:auto;max-width:100%;"/>
                                 {% endif %}
                             {% endif %}
                             {% if item.filetype.fileext == ".html" %}
@@ -188,7 +106,7 @@
                                 {% if item.size != None and item.size != 0 %}
                                     <b>File Size: </b>{{ item.size }}<br>
                                 {% endif %}
-                                <b>Last Modified: </b>{{ last_mod }}<br>
+                                <b>Last Modified: </b>{{fromtimestamp( item.lastmod).strftime("%m/%d/%y %H:%M:%S")}}<br>
                                 UUID: {{item.uuid}}
                             </center>
                         </div> <!--- Thumbnail --->
@@ -202,13 +120,26 @@
                       </center>
 
 
+
 <script>
-  $(function() {
+
+var current_offset = 0
+var next_offset = current_offset + 1
+var previous_offset = current_offset - 1
+
+function docWrite(variable) {
+    document.write(variable);
+}
+
+
+
+$(function() {
         $('img.lazy').lazy({
-            delay: 100,
+            delay: 0,
             visibleOnly: true
         });
     });
 </script>
     </body>
 </html>
+{% endblock %}
