@@ -14,7 +14,7 @@ read -p "Press [Enter] key to start benchmarking or Ctrl-C to abort..."
 echo "Running 1 MB test file benchmarks"
 echo "---------------------------------------------------------------------------------------" >> $1.txt
 #ab -n 200 -c 50  -d -l "http://127.0.0.1:8888/albums/verification_suite/benchtests/test1.bin?download" >> $1.txt
-ab -n 200 -c 50  -d -l "http://127.0.0.1:8888/download/fcf650d1-f8f0-4cc9-977e-075059821117/" >> $1.txt
+ab -n 200 -c 50  -d -l "http://127.0.0.1:8888/download/5eb9184e-d2a7-4e36-8270-afca77228e42" >> $1.txt
 
 echo "---------------------------------------------------------------------------------------" >> $1.txt
 sleep 5
@@ -48,7 +48,7 @@ echo "--------------------------------------------------------------------------
 echo "Running load testing"
 echo "---------------------------------------------------------------------------------------" >> $1_perf.txt
 #httperf --server 127.0.0.1 --port 8888 --num-conns 200 --rate 50 --timeout 1 --uri "/albums/verification_suite/benchtests/test1.bin?download" >> $1_perf.txt
-httperf --server 127.0.0.1 --port 8888 --num-conns 200 --rate 50 --timeout 1 --uri "/download/e0bea8f5-f3bc-4a13-ae0b-ab34a8dc2522" >> $1_perf.txt
+httperf --server 127.0.0.1 --port 8888 --num-conns 200 --rate 50 --timeout 1 --uri "/download/5eb9184e-d2a7-4e36-8270-afca77228e42" >> $1_perf.txt
 echo "---------------------------------------------------------------------------------------" >> $1_perf.txt
 httperf --server 127.0.0.1 --port 8888 --num-conns 200 --rate 100 --timeout 1 --uri "/albums/verification_suite/benchtests/test2.bin?download" >> $1_perf.txt
 echo "---------------------------------------------------------------------------------------" >> $1_perf.txt
