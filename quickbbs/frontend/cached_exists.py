@@ -11,7 +11,7 @@ from hashlib import sha224, sha256, sha512
 import time
 
 #import operator
-from pathvalidate import is_valid_filename, sanitize_filename
+from pathvalidate import is_valid_filename, sanitize_filename, sanitize_filepath
 
 SCANNED_PATHS = {}
 VERIFY_COUNT = 0
@@ -159,7 +159,7 @@ class cached_exist():
             del self.sha_paths[dirpath]
             del self.last_mods[dirpath]
             self.last_mods["lastScan"] = 0
-            self.last_mods["scanInterval"] = 60*100 # 60 * 1000 ms = 60 seconds
+            self.last_mods["scanInterval"] = 90*100 # 60 * 1000 ms = 60 seconds
             del self.extended[dirpath]
         except KeyError:
             pass
@@ -207,11 +207,16 @@ class cached_exist():
 
         """
         dirpath = os.path.normpath(dirpath.title().strip())
-        fileCount = 0
-        dirCount = 0
+        fileCount = -1
+        dirCount = -1
         for x in self.extended[dirpath]:
             fileCount += self.extended[dirpath][x].is_file()
             dirCount += self.extended[dirpath][x].is_dir()
+        if fileCount != -1:
+            fileCount += 1
+
+        if dirCount != -1:
+            dirCount += 1
         return (fileCount, dirCount)
 
     def return_newest(self, dirpath):
@@ -367,7 +372,7 @@ class cached_exist():
                 return sha.hexdigest()
         return sha.digest()
 
-    def generate_sha224(self, filename, hexdigest=False):
+    def generate_sha224(self, filename, hexdigest=False, maxsize=0):
         """
             Args:
 
@@ -393,15 +398,19 @@ class cached_exist():
                 >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
                 False
         """
+        count = 0
         sha = sha224()
         if os.path.isfile(filename):
             with open(filename, 'rb') as sha_file:
                 while True:
                     # Reading is buffered, so we can read smaller chunks.
                     chunk = sha_file.read(sha.block_size)
+                    count += len(chunk)
                     if not chunk:
                         break
                     sha.update(chunk)
+                    if  (count != 0 and count >= maxsize):
+                        break
             if hexdigest:
                 return sha.hexdigest()
         return sha.digest()
@@ -560,7 +569,7 @@ class cached_exist():
         if self.use_shas:
             self.sha_paths[dirpath][sha_hd] = filesize
 
-    def read_path(self, dirpath):
+    def read_path(self, dirpath,recursive=False):
         """
             Read a path using SCANDIR (https://pypi.org/project/scandir/).
 
@@ -598,7 +607,7 @@ class cached_exist():
             directory_data = os.scandir(dirpath)
             for entry in directory_data:
 #                print(entry.name, self.processFile(entry))
-                if self.processFile(entry):
+                if entry.is_file() and self.processFile(entry):
                     sha = None
                     if self.use_shas:
                         if self.MAX_SHA_SIZE not in [None, 0]:
@@ -617,6 +626,11 @@ class cached_exist():
                                                        entry.stat().st_mtime, time.time())
 
                     self.addFileDirEntry(entry, sha)
+                elif entry.is_dir() and recursive==True:
+                    self.read_path(os.path.join(dirpath, entry.name))
+                elif entry.is_dir() and self.FilesOnly==False:
+                    self.addFileDirEntry(entry, None)
+
 
         except StopIteration:
             #print("StopITeration")
@@ -825,7 +839,9 @@ class cached_exist():
         (True, 'test_samples')
         """
         filename = filename.title().strip()
-        for dirpath in self.scanned_paths:
+        for dirpath in list(self.scanned_paths):
+            dirpath = sanitize_filepath(dirpath, platform="Linux")
+#            print(dirpath)
             if self.fexistName(os.path.join(dirpath, filename)):
                 return (True, dirpath)
         return (False, None)
@@ -872,8 +888,8 @@ class cached_exist():
         >>> search_exist("monty.csv")
         (True, 'test_samples')
         """
-        for dirpath in self.sha_paths:
-            if self.fexistSha(shaHD):
+        for dirpath in list(self.sha_paths.keys()):
+            if self.fexistSha("", sha_hd=shaHD):
                 return (True, dirpath)
         return (False, None)
 
@@ -886,7 +902,7 @@ def clear_scanned_paths():
     SCANNED_PATHS = {}
 
 
-def read_path(dirpath):
+def read_path(dirpath, recursive=False):
     """
         Read a path using SCANDIR (https://pypi.org/project/scandir/).
 
@@ -918,6 +934,10 @@ def read_path(dirpath):
             if entry.is_file:
                 SCANNED_PATHS[dirpath][entry.name.title()] =\
                     entry.stat().st_size
+            elif entry.is_dir() and recursive==True:
+                print("Scanning recursive")
+                read_path(os.path.join(dirpath, entry.name))
+
         #SCANNED_PATHS[dirpath] = set(x.lower() for x in directory_data)
     except (StopIteration, OSError):
         # Most likely a bad path, since we can't iterate through the contents

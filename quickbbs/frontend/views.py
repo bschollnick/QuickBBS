@@ -119,7 +119,11 @@ def thumbnails(request, t_url_name=None):
     if is_valid_uuid(t_url_name):
         index_qs = index_data.objects.filter(uuid=t_url_name,
                                              ignore=False, delete_pending=False)
-        if index_qs.count() > 1:
+        count = index_qs.count()
+        if count == 0:
+            print(t_url_name, "is 0 ")
+            return None
+        elif count > 1:
             check_dup_thumbs(t_url_name)
             index_qs = index_data.objects.filter(uuid=t_url_name)
         entry = index_qs[0]
@@ -306,12 +310,15 @@ def new_download(request, d_uuid=None):
         print ("Attempting to find page %s in archive" % page)
     print("\tDownloading - %s, %s" % (download.fqpndirectory.lower(),
                                       download.name))
+                                      
+    movie = download.filetype.is_movie
     return respond_as_inline(request,
                                  "%s%s%s" % (
                                      configdata["locations"]["albums_path"],
                                      os.sep,
                                      download.fqpndirectory),
-                                 download.name)
+                                 download.name,
+                                 ranged=movie)
 #    return respond_as_attachment(request,
 #                                 "%s%s%s" % (
 #                                     configdata["locations"]["albums_path"],

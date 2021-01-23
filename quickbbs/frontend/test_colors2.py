@@ -6,7 +6,8 @@ import re
 import shutil
 from struct import unpack
 
-from xattr import xattr
+#from xattr import xattr
+import xattr
 
 from cached_exists import *
 
@@ -22,7 +23,7 @@ colornames = {
 }
 
 def get_color(filename):
-    attrs = xattr(filename)
+    attrs = xattr.xattr(filename)
     try:
         finder_attrs = attrs[u'com.apple.FinderInfo']
         flags = unpack(32*'B', finder_attrs)
@@ -42,7 +43,7 @@ def get_files_in_onedir(directory):
 
 def get_files_recursive(directory):
     filenames = []
-    for root, dirs, files in os.walk(directory):
+    for root, dirs, files in os.walk(directory, topdown=True):
         for file in files:
             if file.lower() not in filenames:
                 filenames.append(file.lower())
@@ -65,29 +66,28 @@ def main(args):
 
     operation = 'copy' # 'copy' or 'move'
     filedb = cached_exist(use_shas=True, FilesOnly=True)
+    filedb.MAX_SHA_SIZE = 1024*1024*5
+    print("Starting with ",root_src_dir)
     for src_dir, dirs, files in os.walk(root_src_dir, topdown=False):
-        dst_dir = src_dir.replace(root_src_dir, root_target_dir).title()
-        #dst_dir_files = get_files_recursive(dst_dir)
-#        print("\t", dst_dir)
-#        print(dst_dir, filedb.global_count, filedb.verify_count, filedb.reset_count)
+        dst_dir = src_dir.replace(root_src_dir, root_target_dir).title().replace(" ", "_")
+
         filedb.read_path(dst_dir, recursive=True)
         for file_ in files:
             src_file = os.path.join(src_dir, file_)
             dst_file = os.path.join(dst_dir, multiple_replace(replacements,
-                                                              file_))
-            #if os.path.exists(dst_file):
-                #continue
+                                                              file_)).replace(" ", "_")
+
             if get_color(src_file)[0] != 0:
                 # the file has a label (any label), copy or move it
 
 #                if filedb.fexistName(dst_file):
                 if filedb.search_file_exist(os.path.split(dst_file)[1])[0]:
-                    #print("Skipping (already exists) - ", dst_file)
+ #                   print("Skipping (already exists) - ", dst_file)
                     continue
 
                 src_sha = filedb.generate_sha224(src_file)
                 if filedb.search_sha224_exist(src_sha)[0]:
-                    print("Skipping (Sha already exists) - ", dst_file)
+#                    print("Skipping (Sha already exists) - ", dst_file)
                     # If the file already exists, then skip
                     #os.remove(dst_file)
                     continue
@@ -107,5 +107,6 @@ if __name__ == "__main__":
     parser.add_argument("source", help="The source path")
     parser.add_argument("target", help="The target path")
     print()
+    print("Starting up...")
     args = parser.parse_args()
     main(args)
