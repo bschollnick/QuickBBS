@@ -26,6 +26,10 @@ sizes = {
     "unknown":configdata["configuration"]["small"]
 }
 
+def ensures_endswith(string_to_check, value):
+    if not string_to_check.endswith(value):
+        string_to_check = "%s%s" % (string_to_check, value)
+    return string_to_check
 
 def images_in_dir(database, webpath):
     """
@@ -53,7 +57,7 @@ def images_in_dir(database, webpath):
     """
 
     #   What files exist in this directory?
-    filters = {'fqpndirectory':webpath.lower(),
+    filters = {'fqpndirectory':ensures_endswith(webpath.lower(), os.sep),
                'ignore':False, 'delete_pending':False}
     files = get_xth_image(database, 0, filters)
     if files is None:
@@ -83,16 +87,8 @@ def new_process_dir(db_index):
     if db_index.directory.SmallThumb != b'':
         # Does the thumbnail exist?
         if db_index.size == db_index.directory.FileSize:
-#             try:
-#                 tmp = Image.open(BytesIO(db_index.directory.SmallThumb.tobytes())).verify()
-#             except SyntaxError:
-#                 tmp = False
-#             print(db_index.name, tmp, " Does not pass verify")
-#             if tmp != False:
-                # If cache is valid, send it.
-    #            print(db_index.name, db_index.size)
-                return return_img_attach(db_index.name,
-                                         db_index.directory.SmallThumb.tobytes())
+            return return_img_attach(db_index.name,
+                                     db_index.directory.SmallThumb.tobytes())
 
         #   The cached data is invalidated since the filesize is
         #   inaccurate or the image does not pass verify.

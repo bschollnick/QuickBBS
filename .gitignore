@@ -103,3 +103,5 @@ db.sqlite3
 .DS_Store
 quickbbs/db.sqlite3-journal
 /benchmarks/*
+quickbbs/lsar
+quickbbs/unar
