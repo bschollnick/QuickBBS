@@ -37,7 +37,8 @@ import frontend.archives3 as archives
 import quickbbs.settings
 from frontend.cached_exists import cached_exist
 
-CACHE = cached_exist(use_modify=True, use_extended=True, FilesOnly=False, use_filtering=True)
+CACHE = cached_exist(use_modify=True, use_extended=True, FilesOnly=False,
+                     use_filtering=True)
 CACHE.IgnoreDotFiles = True
 CACHE.FilesOnly = False
 #CACHE.AcceptableExtensions = list(ftypes.get_ftype_dict())
@@ -71,7 +72,6 @@ def rename_file(old_filename, new_filename):
 #         if not data.name.startswith("."):
 #             return data.name.title()
 
-#@silk_profile(name='utilities.ensures_endswith')
 def ensures_endswith(string_to_check, value):
     if not string_to_check.endswith(value):
         string_to_check = "%s%s" % (string_to_check, value)
@@ -161,34 +161,6 @@ def test_extension(name, ext_list):
 
     """
     return os.path.splitext(name)[1].lower() in ext_list
-
-# @silk_profile(name='utilities.is_archive')
-# def is_archive(fqfn):
-#   None = not an archive.
-#   """
-#   Check if filename has an file extension that in the archive file types list
-#
-#   Args:
-#       fqfn (str): Filename of the file
-#
-#   Returns:
-#       boolean::
-#           `True` if name does match an extension in the archive_fts
-#           (archive filetypes) list.  Otherwise return none.
-#
-#   Raises:
-#       None
-#
-#   Examples
-#   --------
-#   >>> is_archive("test.zip")
-#   True
-#   >>> is_archive("test.jpg")
-#   False
-#
-#   """
-#   return test_extension(fqfn, configdata["filetypes"]["archive_fts"])
-
 
 #@silk_profile(name='utilities.return_image_object')
 def return_image_obj(fs_path, memory=False):
@@ -382,16 +354,16 @@ def read_from_disk(dir_to_scan, skippable=True):
         try:
             db_entry = Thumbnails_Archives.objects.update_or_create(
                 uuid=uuid_entry,
-                FilePath=webpath,
+                FilePath=ensures_endswith(webpath, os.sep),
                 FileName=fname,
                 page=page,
-                defaults={"uuid":uuid_entry, "FilePath":webpath,
+                defaults={"uuid":uuid_entry, "FilePath":ensures_endswith(webpath, os.sep),
                           "FileName":fname, "page":page})[0]
         except MultipleObjectsReturned:
             check_dup_thumbs(uuid_entry, page)
             db_entry = Thumbnails_Archives.objects.update_or_create(
                 uuid=uuid_entry,
-                FilePath=webpath,
+                FilePath=ensures_endswith(webpath, os.sep),
                 FileName=fname,
                 page=page,
                 defaults={"uuid":uuid_entry, "FilePath":webpath,
@@ -440,7 +412,7 @@ def read_from_disk(dir_to_scan, skippable=True):
     # so that update can if not filename in listing, to check for deleted files.
     global CACHE
     lastmoded = ""
-    dir_to_scan = dir_to_scan.strip().lower()
+    dir_to_scan = ensures_endswith(dir_to_scan.strip().lower(), os.sep)
     fqpn = (configdata["locations"]["albums_path"] + dir_to_scan).replace("//", "/")
     if not os.path.exists(fqpn):
         print("%s does not exist" % fqpn)
@@ -451,11 +423,13 @@ def read_from_disk(dir_to_scan, skippable=True):
         "")
 
     dirpath = os.path.normpath(fqpn.title().strip())
+#    print("dp", dirpath)
     CACHE.read_path(fqpn)
-    CACHE.sanitize_filenames(dirpath)#, quiet=False)
+    CACHE.sanitize_filenames(dirpath, allow_rename=True)#, quiet=False)
     disk_count = CACHE.return_fileCount(dirpath)
     diskstore = CACHE.extended[dirpath]
-    existing_data = index_data.objects.filter(fqpndirectory=dir_to_scan,
+#    print("diskstore",diskstore)
+    existing_data = index_data.objects.filter(fqpndirectory=ensures_endswith(dir_to_scan, os.sep),
                                               ignore=False,
                                               delete_pending=False)
     existing_data_size = existing_data.count()
@@ -475,14 +449,23 @@ def read_from_disk(dir_to_scan, skippable=True):
     if existing_data_size > 0:# and existing_data_size is not None:
 #        try:
             lastmoded = existing_data.order_by("-lastmod")[0]
-            fs_lm_name, fs_lm_value, fs_ls_value = CACHE.last_mods[dirpath]
+ #           print("Dirpath: ", dirpath)
+            fs_lm_name, fs_lm_value, fs_ls_value = CACHE.return_newest(dirpath)
+ #           print("\t", fs_lm_name, fs_lm_value, fs_ls_value)
+
+#            fs_lm_name, fs_lm_value, fs_ls_value = CACHE.last_mods[dirpath]
             if not lastmoded.name == fs_lm_name:
-                print("Unable to skip, due to last mod name. %s vs %s" % (fs_lm_name, lastmoded.name))
+                print("Unable to skip, due to last mod name. fs %s vs C %s, %s - %s" % (fs_lm_name, lastmoded.name, CACHE.last_mods[dirpath], lastmoded.id))
+                #CACHE.clear_path(dirpath)
+                diskstore = CACHE.extended[dirpath]
+                
                 skippable = False
             elif lastmoded.lastmod != fs_lm_value:
                 print("Unable to skip, due to last mod value")
                 skippable = False
-
+            
+#            elif fs_lm_name == None:
+                
 #    if skippable:
         #
         #   We appear to be completely up to date, without reading from disk.
@@ -519,8 +502,15 @@ def read_from_disk(dir_to_scan, skippable=True):
             #    numfiles = 0
 
 
-
+        
         new_uuid = uuid.uuid4()
+        if ftypes.FILETYPE_DATA == {}:
+            try:
+                 ftypes.refresh_filetypes()
+                 ftypes.FILETYPE_DATA = ftypes.get_ftype_dict()
+            except KeyError:
+                 print("Unable to validate or create FileType database table.")
+                 sys.exit(1)
         if ftypes.FILETYPE_DATA[fext]["is_image"] and fext in [".gif"]:
             try:
                 animated = Image.open(os.path.join(fqpn, filename)).is_animated
@@ -592,8 +582,9 @@ def read_from_disk(dir_to_scan, skippable=True):
                 #index_data.objects.filter(fqpndirectory=subdir_path).filter(ind_data.filetype.fileext=='.dir').delete()
 
         if ind_data.lastmod != filedata.stat().st_mtime:#.stat()[stat.ST_MTIME]:
+            print(filename, ind_data.lastmod, filedata.stat().st_mtime)
             ind_data.lastmod = filedata.stat().st_mtime
-            #print("LastMod update")
+            print("LastMod update", filedata.name)
             force_save = True
 
         if ind_data.archives is None and ind_data.filetype.is_archive:

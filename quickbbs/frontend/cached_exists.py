@@ -135,7 +135,7 @@ class cached_exist():
         self.sha_paths = {}
         self.last_mods = {}
         self.last_mods["lastScan"] = 0
-        self.last_mods["scanInterval"] = 60*100 # 60 * 1000 ms = 60 seconds
+        self.last_mods["scanInterval"] = 60 # 60 * 1000 ms = 60 seconds
         self.extended = {}
         self.global_count = 0
         self.verify_count = 0
@@ -158,8 +158,8 @@ class cached_exist():
             del self.scanned_paths[dirpath]
             del self.sha_paths[dirpath]
             del self.last_mods[dirpath]
-            self.last_mods["lastScan"] = 0
-            self.last_mods["scanInterval"] = 90*100 # 60 * 1000 ms = 60 seconds
+#            self.last_mods["lastScan"] = 0
+#            self.last_mods["scanInterval"] = 60 # 60 * 1000 ms = 60 seconds
             del self.extended[dirpath]
         except KeyError:
             pass
@@ -220,18 +220,31 @@ class cached_exist():
         return (fileCount, dirCount)
 
     def return_newest(self, dirpath):
+ #       print("Returning newest for", dirpath)
         dirpath = os.path.normpath(dirpath).title().strip()
-        newest = ('', 0)
+ #       print("Updated dirpath: ",dirpath)
+        newest = (None, 0, 0)
         olddirpath, oldnewest, lastScan = self.last_mods[dirpath]
-#        print( time.time(), time.time() - lastScan, lastScan, self.last_mods["scanInterval"])
+        
+#        print("Dir path ", dirpath, olddirpath, oldnewest, lastScan)
+#        print("Calc - ", time.time(), lastScan, self.last_mods["scanInterval"], time.time() - lastScan > self.last_mods["scanInterval"])
+        
         if time.time() - lastScan > self.last_mods["scanInterval"]:
-#            print("Calculating newest")
-            for entry in os.scandir(dirpath):
-                if entry.stat().st_mtime > newest[1]:
-                    newest = (entry.name.title(), entry.stat().st_mtime, time.time())
+            entries = sorted(os.scandir(dirpath), key=lambda e: e.stat().st_mtime, reverse=True)[0:10]
+            entries = sorted(entries, key=lambda e: e.name)#, reverse=True)
+           # for entry in entries:
+           #     print(entry.name)
+            #entries = sorted(os.scandir(dirpath), key=
+            for entry in entries:
+                if self.processFile(entry) and entry.stat().st_mtime > newest[1]:
+                    newest = (entry.name.title().strip(), entry.stat().st_mtime, time.time())
+            return newest
+            #        print("Newest set to", entry.name.title())
         else:
 #            print("Cached newest")
             newest = self.last_mods[dirpath]
+#        print("Newest: ",newest[dirpath])
+#        print("Done processing", dirpath)
         return newest
 
 
@@ -313,7 +326,7 @@ class cached_exist():
             return False
 
         #if (self.return_fileCount(dirpath) == 0 or
-        if self.last_mods[dirpath] == ('', 0, 0):
+        if self.last_mods[dirpath] == ('', 0, 0) or self.last_mods[dirpath] == (None, 0, 0):
             return False
 
         newest = self.return_newest(dirpath)
@@ -549,6 +562,7 @@ class cached_exist():
                 >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
                 False
         """
+        
         dirpath = dirpath.title().strip()
         filename = filename.strip().title()
 
@@ -624,7 +638,7 @@ class cached_exist():
                         if entry.stat().st_mtime > self.last_mods[dirpath][1]:
                             self.last_mods[dirpath] = (entry.name.title(),
                                                        entry.stat().st_mtime, time.time())
-
+#                    print("Adding ", entry.name)
                     self.addFileDirEntry(entry, sha)
                 elif entry.is_dir() and recursive==True:
                     self.read_path(os.path.join(dirpath, entry.name))

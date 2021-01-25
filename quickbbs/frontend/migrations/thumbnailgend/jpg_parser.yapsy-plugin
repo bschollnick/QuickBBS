@@ -1,9 +1,0 @@
-[Core]
-Name = JPG Processor
-Module = JPG_Parser
-
-[Documentation]
-Description = JPG Processing for Gallery
-Author = Benjamin Schollnick
-Version = 1
-Website = http://bschollnick.github.com

@@ -80,10 +80,7 @@ def return_prev_next(fqpn, currentpath, sorder):
     if currentpath == (r"/albums/"):
         return ("", "")
     url_parent = fqpn.replace(configdata["locations"]["albums_path"], "").lower()
-    url_parent = os.path.split(url_parent)[0]
-#    print("parentPath - ",Parent_path.as_posix())
-#    print ("currentpath - ",currentpath)
-#    print("url_parent - ", url_parent)
+    url_parent = ensures_endswith(os.path.split(url_parent)[0], os.sep)
     read_from_disk(url_parent, skippable=True)
 #    print (*SORT_MATRIX[sorder])
     index = get_db_files(sorder, url_parent)#.order_by("lastmod")
