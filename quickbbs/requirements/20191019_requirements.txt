@@ -17,7 +17,7 @@ autopep8==1.4.4
 certifi==2019.9.11
 cffi==1.13.0
 chardet==3.0.4
-cryptography==3.2
+cryptography==3.3.2
 defusedxml==0.6.0
 Django==3.0.7
 django-allauth==0.40.0
