@@ -9,7 +9,7 @@ click==7.1.2
 colorama==0.4.4
 cryptography==3.3.1
 defusedxml==0.6.0
-Django==3.1.5
+Django==3.1.6
 django-allauth==0.44.0
 django-auth==0.1.9
 django-bootstrap3==14.2.0
