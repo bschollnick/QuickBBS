@@ -42,7 +42,7 @@ packaging==20.3
 pathlib2==2.3.5
 pathvalidate==2.2.2
 pdfrw==0.4
-Pillow==7.1.2
+Pillow==8.1.1
 pipupgrade==1.5.1
 psycopg2-binary==2.8.5
 pycodestyle==2.5.0
