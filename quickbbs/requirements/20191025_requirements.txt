@@ -38,7 +38,7 @@ naturalsort==1.5.1
 oauthlib==3.1.0
 pathlib2==2.3.5
 pdfrw==0.4
-Pillow==6.2.1
+Pillow==8.1.1
 psycopg2-binary==2.8.4
 pycodestyle==2.5.0
 pycparser==2.19
