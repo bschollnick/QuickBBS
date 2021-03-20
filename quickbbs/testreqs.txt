@@ -38,7 +38,7 @@ idna
 #img2pdf==0.4.0
 importlib-metadata==3.4.0
 isort==5.7.0
-Jinja2==2.11.2
+Jinja2==2.11.3
 lazy-object-proxy
 lxml==4.6.2
 Markdown==3.3.3
