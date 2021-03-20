@@ -29,7 +29,7 @@ hyperlink==19.0.0
 idna==2.9
 img2pdf==0.3.6
 isort==4.3.21
-Jinja2==2.11.2
+Jinja2==2.11.3
 lazy-object-proxy==1.4.3
 Markdown==3.2.1
 MarkupSafe==1.1.1
