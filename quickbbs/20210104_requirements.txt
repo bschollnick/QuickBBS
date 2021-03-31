@@ -39,7 +39,7 @@ importlib-metadata==3.3.0
 isort==5.7.0
 Jinja2==2.11.2
 lazy-object-proxy==1.5.2
-lxml==4.6.2
+lxml==4.6.3
 Markdown==3.3.3
 MarkupSafe==1.1.1
 mccabe==0.6.1
