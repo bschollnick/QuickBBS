@@ -6,7 +6,7 @@ chardet==3.0.4
 Click==7.0
 cryptography==3.2
 defusedxml==0.6.0
-Django==3.0.7
+Django==3.0.14
 django-allauth==0.40.0
 django-bootstrap3==11.1.0
 django-grappelli==2.13.1
