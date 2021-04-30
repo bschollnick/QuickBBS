@@ -20,13 +20,9 @@ ALLOWED_HOSTS = [u'nerv.local', u'localhost', u'127.0.0.1']
 INTERNAL_IPS = [u'localhost', '127.0.0.1', u'nerv.local']
 machine_name = socket.gethostname().lower()
 print ("Running on %s" % machine_name)
-if machine_name in ["bschollnicklt", u"nerv.local"]:
-    DEBUG = True
-else:
-
 
 DEBUG = True
-#DEBUG = not DEBUG
+DEBUG = not DEBUG
 print("Debug is ", DEBUG)
 
 
@@ -73,8 +69,9 @@ SECRET_KEY = 'isk^$ye4rx0m!p#0147tcmmmtcz1u&suzp2+z+6#gpjx^1lz4t'
 if DEBUG_TOOLBAR:
     INSTALLED_APPS += ('debug_toolbar',)
 
-    STATIC_URL = '/static/'
+STATIC_URL = '/static/'
     
+INSTALLED_APPS = []
 INSTALLED_APPS += [
     'grappelli',
     'django.contrib.admin',
@@ -110,6 +107,8 @@ SITE_ID = 1
 # If thats not the case, you can still get some benefit from using:
 
 SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
+
+MIDDLEWARE = []
 
 if DEBUG_TOOLBAR:
     MIDDLEWARE += ('debug_toolbar.middleware.DebugToolbarMiddleware',)
