@@ -43,7 +43,7 @@ def get_files_in_onedir(directory):
 
 def get_files_recursive(directory):
     filenames = []
-    for root, dirs, files in os.walk(directory, topdown=True):
+    for root, dirs, files in os.walk(directory, topdown=False):
         for file in files:
             if file.lower() not in filenames:
                 filenames.append(file.lower())
@@ -68,9 +68,12 @@ def main(args):
     filedb = cached_exist(use_shas=True, FilesOnly=True)
     filedb.MAX_SHA_SIZE = 1024*1024*5
     print("Starting with ",root_src_dir)
+    print("Target path", root_target_dir)
     for src_dir, dirs, files in os.walk(root_src_dir, topdown=False):
+#        if dirpath in ["/Volumes", "/Volumes/4Tb_Drive", "/Volumes/4Tb_Drive/Gallery", "/Volumes/4Tb_Drive/Gallery/Albums"]:
+#        print(src_dir)
         dst_dir = src_dir.replace(root_src_dir, root_target_dir).title().replace(" ", "_")
-
+# 
         filedb.read_path(dst_dir, recursive=True)
         for file_ in files:
             src_file = os.path.join(src_dir, file_)
@@ -80,14 +83,13 @@ def main(args):
             if get_color(src_file)[0] != 0:
                 # the file has a label (any label), copy or move it
 
-#                if filedb.fexistName(dst_file):
                 if filedb.search_file_exist(os.path.split(dst_file)[1])[0]:
- #                   print("Skipping (already exists) - ", dst_file)
+                    #print("Skipping (already exists) - ", dst_file)
                     continue
-
-                src_sha = filedb.generate_sha224(src_file)
-                if filedb.search_sha224_exist(src_sha)[0]:
-#                    print("Skipping (Sha already exists) - ", dst_file)
+# 
+                src_sha = filedb.generate_sha224(src_file, hexdigest=True)
+                if filedb.search_sha224_exist(shaHD=src_sha)[0]:
+                    #print("Skipping (Sha already exists) - ", dst_file)
                     # If the file already exists, then skip
                     #os.remove(dst_file)
                     continue

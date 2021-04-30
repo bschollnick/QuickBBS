@@ -20,8 +20,11 @@ import frontend.constants as constants
 import fitz
 from pathvalidate import sanitize_filename
 
+import av
+
 import frontend
 import frontend.ftypes as ftypes
+from frontend.ftypes import return_filetype
 from frontend.database import check_dup_thumbs
 from frontend.database import (validate_database)
 from quickbbs.models import (index_data, Thumbnails_Files, Thumbnails_Archives,
@@ -46,38 +49,22 @@ CACHE.AcceptableExtensions = list(ftypes.FILETYPE_DATA.keys())
 CACHE.AcceptableExtensions.append("")
 
 
-if quickbbs.settings.SILK:
-    from silk.profiling.profiler import silk_profile
 
 Image.MAX_IMAGE_PIXELS = None
 # Disable PILLOW DecompressionBombError errors.
 
-#@silk_profile(name='utilities.rename_file')
 def rename_file(old_filename, new_filename):
     try:
         os.rename(old_filename, new_filename)
     except OSError:
         pass
 
-# @silk_profile(name='utilities.get_lastmod in dir')
-# def get_lm_in_dir(fqpn):
-#     """
-#     return the directory listing in reverse last modified (oldest -> Newest)
-#     as list of scandir items.
-#     """
-#     lastmod_list = sorted(os.scandir(fqpn),
-#                           key=lambda x: x.stat().st_mtime,
-#                           reverse=True)
-#     for data in lastmod_list:
-#         if not data.name.startswith("."):
-#             return data.name.title()
 
 def ensures_endswith(string_to_check, value):
     if not string_to_check.endswith(value):
         string_to_check = "%s%s" % (string_to_check, value)
     return string_to_check
 
-#@silk_profile(name='utilities.sort_order')
 def sort_order(request, context):
     """
     Grab the sort order from the request (cookie)
@@ -103,7 +90,6 @@ def sort_order(request, context):
     return request, context
 
 
-#@silk_profile(name='utilities.is_valid_uuid')
 def is_valid_uuid(uuid_to_test, version=4):
     """
     Check if uuid_to_test is a valid UUID.
@@ -135,7 +121,6 @@ def is_valid_uuid(uuid_to_test, version=4):
     return str(uuid_obj) == uuid_to_test
 
 
-#@silk_profile(name='utilities.test_extension')
 def test_extension(name, ext_list):
     """
     Check if filename has an file extension that is in passed list.
@@ -162,7 +147,6 @@ def test_extension(name, ext_list):
     """
     return os.path.splitext(name)[1].lower() in ext_list
 
-#@silk_profile(name='utilities.return_image_object')
 def return_image_obj(fs_path, memory=False):
     """
     Given a Fully Qualified FileName/Pathname, open the image
@@ -186,7 +170,10 @@ def return_image_obj(fs_path, memory=False):
     --------
     """
     source_image = None
-    if os.path.splitext(fs_path)[1][1:].lower() == u"pdf":
+    extension = os.path.splitext(fs_path)[1].lower()
+    if extension in ("", b"", None):
+        extension = ".none"
+    if extension == u".pdf":
         results = pdf_utilities.check_pdf(fs_path)
         if results[0] == False:
             pdf_utilities.repair_pdf(fs_path, fs_path)
@@ -200,7 +187,15 @@ def return_image_obj(fs_path, memory=False):
         except UserWarning:
             print("UserWarning!")
             source_image = None
-    else:
+    elif ftypes.FILETYPE_DATA[extension]["is_movie"]:
+        print(memory)
+        container=av.open(fs_path)
+        stream = container.streams.video[0]
+        frame = next(container.decode(stream))
+        source_image = frame.to_image()
+        #frame.to_image().save("test.jpg", quality=80)
+
+    elif ftypes.FILETYPE_DATA[extension]["is_image"]:
         if not memory:
             try:
                 source_image = Image.open(fs_path)
@@ -220,7 +215,6 @@ def return_image_obj(fs_path, memory=False):
   #              source_image = None
     return source_image
 
-#@silk_profile(name='utilities.cr_tnail_img')
 def cr_tnail_img(source_image, size, fext):
     """
     Given the PILLOW object, resize the image to <SIZE>
@@ -233,6 +227,9 @@ def cr_tnail_img(source_image, size, fext):
     if source_image == None:
         return None
 
+    if ".%s" % fext in constants._movie:
+        fext = "jpg"
+    
     image_data = BytesIO()
     source_image.thumbnail((size, size), Image.ANTIALIAS)
     try:
@@ -250,7 +247,6 @@ def cr_tnail_img(source_image, size, fext):
     return image_data.getvalue()
 
 
-#@silk_profile(name='utilities.naturalize')
 def naturalize(string):
     """
         return <STRING> as a english sortable <STRING>
@@ -266,14 +262,12 @@ def naturalize(string):
     return string
 
 
-#@silk_profile(name='utilities.multiple_replace')
 def multiple_replace(dict, text):#, compiled):
     # Create a regular expression  from the dictionary keys
 
     # For each match, look-up corresponding value in dictionary
     return constants.regex.sub(lambda mo: dict[mo.string[mo.start():mo.end()]], text)
 
-#@silk_profile(name='utilities.return_disk_listing')
 def return_disk_listing(fqpn, enable_rename=False):
 
     data = {}
@@ -333,7 +327,6 @@ def return_disk_listing(fqpn, enable_rename=False):
                            }
     return (loaded, data)
 
-#@silk_profile(name='utilities.read_From_disk')
 def read_from_disk(dir_to_scan, skippable=True):
     """
     Pass in FQFN, and the database stores the path as the URL path.
@@ -348,7 +341,6 @@ def read_from_disk(dir_to_scan, skippable=True):
 #             ignore=False)
 #         dataset.delete()
 
-    #@silk_profile(name='utilities.link_arch_rec')
     def link_arc_rec(fs_name, webpath, uuid_entry, page=0):
         fname = os.path.basename(fs_name).title()
         try:
@@ -370,7 +362,6 @@ def read_from_disk(dir_to_scan, skippable=True):
                           "FileName":fname, "page":page})[0]
         return db_entry
 
-    #@silk_profile(name='utilities.link_dir_rec')
     def link_dir_rec(sd_entry, webpath, uuid_entry):
         fs_name = os.path.join(configdata["locations"]["albums_path"],
                                webpath[1:],
@@ -383,7 +374,6 @@ def read_from_disk(dir_to_scan, skippable=True):
                       "DirName":fname})[0]
         return db_entry
 
-    #@silk_profile(name='utilities.link_file_rec')
     def link_file_rec(sd_entry, webpath, uuid_entry):
         fs_name = os.path.join(configdata["locations"]["albums_path"],
                                webpath[1:],
@@ -447,16 +437,10 @@ def read_from_disk(dir_to_scan, skippable=True):
         skippable = False
 
     if existing_data_size > 0:# and existing_data_size is not None:
-#        try:
             lastmoded = existing_data.order_by("-lastmod")[0]
- #           print("Dirpath: ", dirpath)
             fs_lm_name, fs_lm_value, fs_ls_value = CACHE.return_newest(dirpath)
- #           print("\t", fs_lm_name, fs_lm_value, fs_ls_value)
-
-#            fs_lm_name, fs_lm_value, fs_ls_value = CACHE.last_mods[dirpath]
             if not lastmoded.name == fs_lm_name:
                 print("Unable to skip, due to last mod name. fs %s vs C %s, %s - %s" % (fs_lm_name, lastmoded.name, CACHE.last_mods[dirpath], lastmoded.id))
-                #CACHE.clear_path(dirpath)
                 diskstore = CACHE.extended[dirpath]
                 
                 skippable = False

@@ -75,14 +75,9 @@ def return_inline_attach(filename, binaryblob):
     --------
     return_img_attach("test.png", img_data, "JPEG")
 
-
     """
     return return_img_attach(filename, binaryblob, fext_override="JPEG")
- 
- #   response = HttpResponse()
- #   response.write(binaryblob)
- #   response['Content-Disposition'] = 'inline;filename={%s}' % filename
- #   return response
+
 
 def return_img_attach(filename, binaryblob, fext_override=None, use_ranged=False):
     """
@@ -204,11 +199,14 @@ def respond_as_inline(request, file_path, original_filename, ranged=False):
 
         with open(filename, 'rb') as fh:
             if ranged:
-                response = RangedFileResponse(request, file=open(filename, 'rb'), as_attachment=False, filename=os.path.basename(filename))
+                #response = RangedFileResponse(request, file=open(filename, 'rb'), as_attachment=False, filename=os.path.basename(filename))
+                response = RangedFileResponse(request, file=open(filename, 'rb'), as_attachment=False, filename=original_filename)
                 response["Content-Type"] = mtype
             else:
                 response = HttpResponse(fh.read(), content_type=mtype)
-                response['Content-Disposition'] = 'inline; filename=' + os.path.basename(file_path)
+#                response['Content-Disposition'] = 'inline; filename=' + os.path.basename(file_path)
+                #response['Content-Disposition'] = 'inline; filename="%s"'% original_filename
+                response['Content-Disposition'] = 'inline; filename=%s'% original_filename
         return response    
     else:
         print("File not found")

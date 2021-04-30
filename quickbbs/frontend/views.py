@@ -4,10 +4,6 @@ Django views for QuickBBS Gallery
 """
 from __future__ import absolute_import, print_function, unicode_literals
 import quickbbs.settings
-if quickbbs.settings.SILK:
-    from silk.profiling.profiler import silk_profile
-#else:
-#    from frontend.utilities import silk_profile
 
 import datetime
 from itertools import chain
@@ -26,6 +22,7 @@ from django.shortcuts import render
 from django.template import loader
 from django.utils.cache import patch_vary_headers
 from django.views.decorators.vary import vary_on_headers
+from django.http import (HttpResponse, Http404, FileResponse, StreamingHttpResponse)
 from PIL import Image, ImageFile
 
 import frontend.archives3 as archives
@@ -104,7 +101,6 @@ def return_prev_next(fqpn, currentpath, sorder):
     return (prevdir, nextdir)
 
 @vary_on_headers('User-Agent', 'Cookie', 'Request')
-#@silk_profile(name='views.thumbnails')
 def thumbnails(request, t_url_name=None):
     """
     Serve the thumbnail resources
@@ -146,7 +142,7 @@ def thumbnails(request, t_url_name=None):
                               "DirName":fname})[0]
                 entry.save()
             return new_process_dir(entry)
-        elif entry.filetype.is_pdf or entry.filetype.is_image:
+        elif entry.filetype.is_pdf or entry.filetype.is_image or entry.filetype.is_movie:
             if entry.file_tnail == None:
                 entry.file_tnail = Thumbnails_Files.objects.update_or_create(
                     uuid=entry.uuid,
@@ -165,7 +161,6 @@ def thumbnails(request, t_url_name=None):
     return HttpResponseBadRequest(content="Bad UUID or %s Unidentifable file." % fs_item)
 
 @vary_on_headers('User-Agent', 'Cookie', 'Request')
-#@silk_profile(name='View new_Viewgallery')
 def new_viewgallery(request):
     """
     View the requested Gallery page
@@ -237,7 +232,6 @@ def new_viewgallery(request):
     return response
 
 @vary_on_headers('User-Agent', 'Cookie', 'Request')
-#@silk_profile(name='View new_Viewitem')
 def new_viewitem(request, i_uuid):
     i_uuid = str(i_uuid).strip().replace("/", "")
     context = {}
@@ -250,12 +244,19 @@ def new_viewitem(request, i_uuid):
     entry = index_qs[0]
     context["user"] = request.user
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
-    if entry.filetype.fileext == ".html":
-        html_filename = configdata["locations"]["albums_path"] +  \
+    if entry.filetype.fileext in [".txt", ".html"]:
+        filename = configdata["locations"]["albums_path"] +  \
             context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
-        context["html"] = bleach.linkify("\n".join(open(html_filename).readlines()))
+        if entry.filetype.fileext in [".html"]:
+            context["html"] = bleach.linkify("\n".join(open(filename).readlines()))
+        else:
+            context["html"] = "<br>".join(open(filename, encoding="latin-1"))
+            
 #    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
     context["up_uri"] = entry.fqpndirectory.lower()
+    while context["up_uri"].endswith("/"):
+        context["up_uri"] = context["up_uri"][:-1]
+        
     context["fromtimestamp"] = datetime.datetime.fromtimestamp
     read_from_disk(context["webpath"].strip(), skippable=True)
     catalog_qs = get_db_files(context["sort"], context["webpath"])
@@ -295,8 +296,45 @@ def new_viewitem(request, i_uuid):
     return response
 
 
+def download(request, filename=None):
+    """
+    Replaces new_download.  
+    
+    This now takes http://<servername>/downloads/<filename>?UUID=<uuid>
+    
+    This fakes the browser into displaying the filename as the title of the
+    download.  
+    
+    """
+    # Is this from an archive?  If so, get the Page ID.
+    d_uuid=request.GET.get("UUID", None)
+    if d_uuid == None:
+        d_uuid=request.GET.get("uuid", None)
+    
+    if d_uuid in ["", None]:
+        raise Http404
+
+    page = request.GET.get('page', None)
+    if page is None:
+        download = index_data.objects.filter(uuid=d_uuid,
+                                             ignore=False,
+                                             delete_pending=False)[0]
+    else:
+        print ("Attempting to find page %s in archive" % page)
+
+    print("\tDownloading - %s, %s" % (download.fqpndirectory.lower(),
+                                      download.name))
+                                      
+    movie = download.filetype.is_movie
+    return respond_as_inline(request,
+                                 "%s%s%s" % (
+                                     configdata["locations"]["albums_path"],
+                                     os.sep,
+                                     download.fqpndirectory),
+                                 download.name,
+                                 ranged=movie)
+
 @vary_on_headers('User-Agent', 'Cookie', 'Request')
-#@silk_profile(name='View new_download')
 def new_download(request, d_uuid=None):
     page = request.GET.get('page', None)
     if page is None:
@@ -325,7 +363,6 @@ def new_download(request, d_uuid=None):
 
 
 @vary_on_headers('User-Agent', 'Cookie', 'Request')
-#@silk_profile(name='View new_view_archive')
 def new_view_archive(request, i_uuid):
     context = {}
     i_uuid = str(i_uuid).strip().replace("/", "")
@@ -426,9 +463,9 @@ def new_archive_item(request, i_uuid):
 
 
 
-if 'runserver' in sys.argv:
+if 'runserver' in sys.argv or "--host" in sys.argv:
     print("Starting cleanup")
-    check_for_deletes()
+#    check_for_deletes()
     print("Cleanup is done.")
     try:
         ftypes.refresh_filetypes()
