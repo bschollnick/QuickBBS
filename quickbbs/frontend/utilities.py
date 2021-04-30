@@ -561,7 +561,7 @@ def read_from_disk(dir_to_scan, skippable=True):
 #            if numfiles == -1 and index_data.objects.filter(fqpndirectory=subdir_path, ind_data.filetype.fileext__ne='.dir').count() => 1:
 #                 print("Attempting to delete, files from ", subdir_path)
                 #index_data.objects.filter(fqpndirectory=subdir_path).exclude(ind_data.filetype.fileext=='.dir').delete()
-            if numdirs == -1 and index_data.objects.filter(fqpndirectory=subdir_path, filetype__fileext='.dir').count() >= 1:
+            if numdirs == -1 and index_data.objects.filter(fqpndirectory=subdir_path, filetype__fileext='.dir').exists():#count() >= 1:
                 print("Attempting to delete, dirs from ", subdir_path)
                 #index_data.objects.filter(fqpndirectory=subdir_path).filter(ind_data.filetype.fileext=='.dir').delete()
 

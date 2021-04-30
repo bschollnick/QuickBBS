@@ -476,7 +476,7 @@ if 'runserver' in sys.argv or "--host" in sys.argv:
 
             for ignored in configdata["filetypes"]["files_to_ignore"]:
                 test = index_data.objects.filter(name__iexact=ignored.title())
-                if test:
+                if test.exists():
                     print("%s - %s" % (ignored, test.count()))
                     test.delete()
     except:
