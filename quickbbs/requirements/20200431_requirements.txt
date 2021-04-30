@@ -63,7 +63,7 @@ sqlparse==0.3.1
 toml==0.10.0
 typed-ast==1.4.1
 Unidecode==1.1.1
-urllib3==1.25.9
+urllib3==1.25.8
 watchman==0.0.8
 wrapt==1.12.1
 xattr==0.9.7
