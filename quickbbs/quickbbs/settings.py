@@ -23,7 +23,7 @@ print ("Running on %s" % machine_name)
 if machine_name in ["bschollnicklt", u"nerv.local"]:
     DEBUG = True
 else:
-    DEBUG = False
+
 
 DEBUG = True
 #DEBUG = not DEBUG
@@ -66,7 +66,7 @@ SECRET_KEY = 'isk^$ye4rx0m!p#0147tcmmmtcz1u&suzp2+z+6#gpjx^1lz4t'
 
 # SECURITY WARNING: don't run with debug turned on in production!
 
-INSTALLED_APPS = []
+
 
 # Application definition
 
@@ -103,9 +103,7 @@ INSTALLED_APPS += ('bootstrap3',)
 
 SITE_ID = 1
 
-MIDDLEWARE = ['django.middleware.security.SecurityMiddleware',
-              'django.middleware.csrf.CsrfViewMiddleware',
-              'django.middleware.clickjacking.XFrameOptionsMiddleware']
+# SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 #SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 
 # Now this assumes you can safely lose any data you store in your user sessions.
@@ -265,10 +263,10 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/1.9/topics/i18n/
 LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'US/Eastern'
+# TIME_ZONE = 'UTC'
 #TIME_ZONE = 'UTC'
 USE_I18N = True
-USE_L10N = True
+USE_TZ = True
 USE_TZ = True
 
 
