@@ -103,10 +103,9 @@ INSTALLED_APPS += ('bootstrap3',)
 
 SITE_ID = 1
 
-MIDDLEWARE = []
-MIDDLEWARE += ['django.middleware.security.SecurityMiddleware']
-MIDDLEWARE += ['django.middleware.csrf.CsrfViewMiddleware']
-MIDDLEWARE += ['django.middleware.clickjacking.XFrameOptionsMiddleware']
+MIDDLEWARE = ['django.middleware.security.SecurityMiddleware',
+              'django.middleware.csrf.CsrfViewMiddleware',
+              'django.middleware.clickjacking.XFrameOptionsMiddleware']
 #SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 
 # Now this assumes you can safely lose any data you store in your user sessions.
