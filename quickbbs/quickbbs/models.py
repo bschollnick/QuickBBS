@@ -9,12 +9,7 @@ class filetypes(models.Model):
                                unique=True) # File Extension (eg. html)
     generic = models.BooleanField(default=False, db_index=True)
 
-    icon_filename = models.CharField(db_index=True,
-                                     max_length=384,
-                                     default=None,
-                                     unique=False,
-                                     blank=True,
-                                     null=True)   # FQFN of the file itself
+    icon_filename = models.CharField(db_index=True, max_length=384, default='', blank=True)   # FQFN of the file itself
     color = models.CharField(max_length=7, default="000000")
 
     # ftypes dictionary in constants / ftypes
@@ -40,7 +35,7 @@ class Meta:
 
 class owners(models.Model):
     id = models.AutoField(primary_key=True)
-    uuid = models.UUIDField(default=None, null=True, editable=False)
+    uuid = models.UUIDField(default=None, null=True, editable=False, blank=True)
     ownerdetails = models.OneToOneField(User,
                                         on_delete = models.CASCADE,
                                         db_index = True,
@@ -51,22 +46,16 @@ class owners(models.Model):
 
 class Favorites(models.Model):
     id = models.AutoField(primary_key=True)
-    uuid = models.UUIDField(default=None, null=True, editable=False)
+    uuid = models.UUIDField(default=None, null=True, editable=False, blank=True)
 
 class Thumbnails_Dirs(models.Model):
     id = models.AutoField(primary_key=True, db_index=True)
-    uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True)
-    DirName = models.CharField(db_index=True,
-                                max_length=384,
-                                default=None,
-                                unique=False,
-                                null=True)   # FQFN of the file itself
+    uuid = models.UUIDField(
+        default=None, null=True, editable=False, db_index=True, blank=True
+    )
+    DirName = models.CharField(db_index=True, max_length=384, default='', blank=True)   # FQFN of the file itself
     FileSize = models.BigIntegerField(default=-1)
-    FilePath = models.CharField(db_index=True,
-                                max_length=384,
-                                default=None,
-                                unique=False,
-                                blank=False)   # FQFN of the file itself
+    FilePath = models.CharField(db_index=True, max_length=384, default=None)   # FQFN of the file itself
     SmallThumb = models.BinaryField(default=b"")
     class Meta:
         verbose_name = u'Directory Thumbnails Cache'
@@ -74,17 +63,11 @@ class Thumbnails_Dirs(models.Model):
 
 class Thumbnails_Files(models.Model):
     id = models.AutoField(primary_key=True, db_index=True)
-    uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True)
-    FilePath = models.CharField(db_index=True,
-                                max_length=384,
-                                default=None,
-                                unique=False,
-                                blank=False)   # FQFN of the file itself
-    FileName = models.CharField(db_index=True,
-                                max_length=384,
-                                default=None,
-                                unique=False,
-                                blank=False)   # FQFN of the file itself
+    uuid = models.UUIDField(
+        default=None, null=True, editable=False, db_index=True, blank=True
+    )
+    FilePath = models.CharField(db_index=True, max_length=384, default=None)   # FQFN of the file itself
+    FileName = models.CharField(db_index=True, max_length=384, default=None)   # FQFN of the file itself
     FileSize = models.BigIntegerField(default=-1)
     SmallThumb = models.BinaryField(default=b"")
     MediumThumb = models.BinaryField(default=b"")
@@ -105,24 +88,13 @@ class Thumbnails_Files(models.Model):
 
 class Thumbnails_Archives(models.Model):
     id = models.AutoField(primary_key=True, db_index=True)
-    uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True)
-    zipfilepath = models.CharField(db_index=True,
-                                max_length=384,
-                                default=None,
-                                unique=False,
-                                blank=False,
-                                null=True)   # FQFN of the file itself
+    uuid = models.UUIDField(
+        default=None, null=True, editable=False, db_index=True, blank=True
+    )
+    zipfilepath = models.CharField(db_index=True, max_length=384, default='', blank=True)   # FQFN of the file itself
 
-    FilePath = models.CharField(db_index=True,
-                                max_length=384,
-                                default=None,
-                                unique=False,
-                                blank=False)   # FQFN of the file itself
-    FileName = models.CharField(db_index=True,
-                                max_length=384,
-                                default=None,
-                                unique=False,
-                                blank=False)   # FQFN of the file itself
+    FilePath = models.CharField(db_index=True, max_length=384, default=None)   # FQFN of the file itself
+    FileName = models.CharField(db_index=True, max_length=384, default=None)   # FQFN of the file itself
     page = models.IntegerField(default=0)  # The
     FileSize = models.BigIntegerField(default=-1)
     SmallThumb = models.BinaryField(default=b"")
@@ -135,19 +107,13 @@ class Thumbnails_Archives(models.Model):
 
 class index_data(models.Model):
     id = models.AutoField(primary_key=True)
-    uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True)
+    uuid = models.UUIDField(
+        default=None, null=True, editable=False, db_index=True, blank=True
+    )
     lastscan = models.FloatField(db_index=True)   # Stored as Unix TimeStamp (ms)
     lastmod = models.FloatField(db_index=True)   # Stored as Unix TimeStamp (ms)
-    name = models.CharField(db_index=True,
-                            max_length=384,
-                            default=None,
-                            unique=False,
-                            blank=False)   # FQFN of the file itself
-    sortname = models.CharField(db_index=True,
-                                editable=False,
-                                max_length=384,
-                                default="",
-                                unique=False)   # FQFN of the file itself
+    name = models.CharField(db_index=True, max_length=384, default=None)   # FQFN of the file itself
+    sortname = models.CharField(db_index=True, editable=False, max_length=384, default='')   # FQFN of the file itself
     size = models.BigIntegerField(default=0)     # File size
     numfiles = models.IntegerField(default=0)  # The # of files in this directory
     numdirs = models.IntegerField(default=0)    # The # of Children Directories in this directory
@@ -160,29 +126,36 @@ class index_data(models.Model):
     filetype = models.ForeignKey(filetypes, to_field='fileext', on_delete = models.CASCADE,
                                  db_index = True, default=".none")
 # select * from public.quickbbs_indexdata where "Ignore" is True;
-    file_tnail = models.OneToOneField(Thumbnails_Files,
-                                      on_delete = models.CASCADE,
-                                      db_index = True,
-                                      default=None,
-                                      null = True)
+    file_tnail = models.OneToOneField(
+        Thumbnails_Files,
+        on_delete=models.CASCADE,
+        db_index=True,
+        default=None,
+        null=True,
+        blank=True,
+    )
 
-    directory = models.OneToOneField(Thumbnails_Dirs,
-                                     on_delete = models.CASCADE,
-                                     db_index = True,
-                                     default=None,
-                                     null = True)
+    directory = models.OneToOneField(
+        Thumbnails_Dirs,
+        on_delete=models.CASCADE,
+        db_index=True,
+        default=None,
+        null=True,
+        blank=True,
+    )
                                 # https://stackoverflow.com/questions/38388423
-    archives = models.OneToOneField(Thumbnails_Archives,
-                                    on_delete = models.CASCADE,
-                                    db_index = True,
-                                    default=None,
-                                    null = True)
+    archives = models.OneToOneField(
+        Thumbnails_Archives,
+        on_delete=models.CASCADE,
+        db_index=True,
+        default=None,
+        null=True,
+        blank=True,
+    )
 
-    ownership = models.OneToOneField(owners,
-                                     on_delete = models.CASCADE,
-                                     db_index = True,
-                                     default=None,
-                                     null = True)
+    ownership = models.OneToOneField(
+        owners, on_delete=models.CASCADE, db_index=True, default=None, null=True, blank=True
+    )
 
                                     # null = System Owned
     class Meta:
