@@ -226,25 +226,16 @@ class cached_exist():
         newest = (None, 0, 0)
         olddirpath, oldnewest, lastScan = self.last_mods[dirpath]
         
-#        print("Dir path ", dirpath, olddirpath, oldnewest, lastScan)
-#        print("Calc - ", time.time(), lastScan, self.last_mods["scanInterval"], time.time() - lastScan > self.last_mods["scanInterval"])
-        
+#        
         if time.time() - lastScan > self.last_mods["scanInterval"]:
             entries = sorted(os.scandir(dirpath), key=lambda e: e.stat().st_mtime, reverse=True)[0:10]
             entries = sorted(entries, key=lambda e: e.name)#, reverse=True)
-           # for entry in entries:
-           #     print(entry.name)
-            #entries = sorted(os.scandir(dirpath), key=
             for entry in entries:
                 if self.processFile(entry) and entry.stat().st_mtime > newest[1]:
                     newest = (entry.name.title().strip(), entry.stat().st_mtime, time.time())
             return newest
-            #        print("Newest set to", entry.name.title())
         else:
-#            print("Cached newest")
             newest = self.last_mods[dirpath]
-#        print("Newest: ",newest[dirpath])
-#        print("Done processing", dirpath)
         return newest
 
 
@@ -422,11 +413,12 @@ class cached_exist():
                     if not chunk:
                         break
                     sha.update(chunk)
-                    if  (count != 0 and count >= maxsize):
+                    if  (count != 0 and maxsize != 0 and count >= maxsize):
                         break
-            if hexdigest:
-                return sha.hexdigest()
-        return sha.digest()
+        if hexdigest:
+            return sha.hexdigest()
+        else:
+            return sha.digest()
 
     def processFile(self, dentry):
         """
@@ -608,6 +600,7 @@ class cached_exist():
                 False
         """
         dirpath = os.path.normpath(dirpath.title().strip())
+
         if (self.check_count(dirpath) == True and
                 self.check_lastmod(dirpath) == True):
             # Skip, no need for refresh
@@ -620,7 +613,6 @@ class cached_exist():
             self.last_mods[dirpath] = ('', 0, 0)
             directory_data = os.scandir(dirpath)
             for entry in directory_data:
-#                print(entry.name, self.processFile(entry))
                 if entry.is_file() and self.processFile(entry):
                     sha = None
                     if self.use_shas:
@@ -638,7 +630,6 @@ class cached_exist():
                         if entry.stat().st_mtime > self.last_mods[dirpath][1]:
                             self.last_mods[dirpath] = (entry.name.title(),
                                                        entry.stat().st_mtime, time.time())
-#                    print("Adding ", entry.name)
                     self.addFileDirEntry(entry, sha)
                 elif entry.is_dir() and recursive==True:
                     self.read_path(os.path.join(dirpath, entry.name))
@@ -730,7 +721,7 @@ class cached_exist():
         except KeyError:
             return False
 
-    def fexistSha(self, filename, rtn_size=False, sha_hd=None):
+    def fexistSha(self, filename=None, rtn_size=False, sha_hd=None):
         """
             Does the file exist?
 
@@ -793,19 +784,22 @@ class cached_exist():
         if self.verify_count > self.reset_count:
             clear_scanned_paths()
 
-        dirpath, filename = os.path.split(filename.title().strip())
-        dirpath = os.path.normpath(dirpath)
-        if dirpath not in self.scanned_paths:
-            self.read_path(dirpath)
+        if filename not in [None, ""]:
+            dirpath, filename = os.path.split(filename.title().strip())
+            dirpath = os.path.normpath(dirpath)
+            
+            if dirpath not in self.scanned_paths:
+                self.read_path(dirpath)
 
         try:
             if self.use_shas:
-                if sha_hd == None:
+                if sha_hd == None and filename not in ["", None]:
                     sha_hd = self.generate_sha224(
                         os.path.join(dirpath, filename), hexdigest=True)
                 if rtn_size:
                     return self.sha_paths[dirpath][sha_hd]
                 return sha_hd in self.sha_paths[dirpath]
+
             if rtn_size:
                 return self.scanned_paths[dirpath][filename]
             return filename in self.scanned_paths[dirpath]
@@ -855,7 +849,6 @@ class cached_exist():
         filename = filename.title().strip()
         for dirpath in list(self.scanned_paths):
             dirpath = sanitize_filepath(dirpath, platform="Linux")
-#            print(dirpath)
             if self.fexistName(os.path.join(dirpath, filename)):
                 return (True, dirpath)
         return (False, None)
@@ -903,7 +896,7 @@ class cached_exist():
         (True, 'test_samples')
         """
         for dirpath in list(self.sha_paths.keys()):
-            if self.fexistSha("", sha_hd=shaHD):
+            if self.fexistSha(dirpath+os.sep, sha_hd=shaHD):
                 return (True, dirpath)
         return (False, None)
 
@@ -949,11 +942,11 @@ def read_path(dirpath, recursive=False):
                 SCANNED_PATHS[dirpath][entry.name.title()] =\
                     entry.stat().st_size
             elif entry.is_dir() and recursive==True:
-                print("Scanning recursive")
                 read_path(os.path.join(dirpath, entry.name))
 
         #SCANNED_PATHS[dirpath] = set(x.lower() for x in directory_data)
     except (StopIteration, OSError):
+        print("Bad Path")
         # Most likely a bad path, since we can't iterate through the contents
         # Fail silently, and return False
         return False

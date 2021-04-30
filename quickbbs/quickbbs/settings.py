@@ -29,19 +29,9 @@ DEBUG = True
 #DEBUG = not DEBUG
 print("Debug is ", DEBUG)
 
-SILK = True
-SILK = not SILK
 
-if SILK:
-    SILKY_PYTHON_PROFILER = True
-    SILKY_PYTHON_PROFILER_BINARY = True
-else:
-    SILKY_PYTHON_PROFILER = False
-    SILKY_PYTHON_PROFILER_BINARY = False
-
-
-DEBUG_TOOLBAR = False
 #DEBUG_TOOLBAR = True
+DEBUG_TOOLBAR = False
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -83,6 +73,8 @@ INSTALLED_APPS = []
 if DEBUG_TOOLBAR:
     INSTALLED_APPS += ('debug_toolbar',)
 
+    STATIC_URL = '/static/'
+    
 INSTALLED_APPS += [
     'grappelli',
     'django.contrib.admin',
@@ -97,8 +89,6 @@ INSTALLED_APPS += [
     'django_jinja.contrib._humanize',
     'django.contrib.humanize',]
 
-if SILK:
-        INSTALLED_APPS.append('silk',)
 
 INSTALLED_APPS += [
     'allauth',
@@ -109,8 +99,6 @@ INSTALLED_APPS += [
     'django_icons',
 ]
 INSTALLED_APPS += ('bootstrap3',)
-#if SILK:
-#    INSTALLED_APPS += ()
 #INSTALLED_APPS += ('django_jinja.contrib._humanize',)
 
 SITE_ID = 1
@@ -126,8 +114,6 @@ SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
 if DEBUG_TOOLBAR:
     MIDDLEWARE += ('debug_toolbar.middleware.DebugToolbarMiddleware',)
 
-if SILK:
-    MIDDLEWARE += ('silk.middleware.SilkyMiddleware',)
 MIDDLEWARE += [
 #    'quickbbs.middleware.filter_ips.FilterHostMiddleware',
     'django.middleware.security.SecurityMiddleware',
@@ -140,11 +126,11 @@ MIDDLEWARE += [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'django_user_agents.middleware.UserAgentMiddleware',
 ]
-if not DEBUG:
-    MIDDLEWARE += (
-        'django.middleware.cache.UpdateCacheMiddleware',
-        'django.middleware.common.CommonMiddleware',
-        'django.middleware.cache.FetchFromCacheMiddleware',)
+if DEBUG_TOOLBAR:
+    MIDDLEWARE += ('debug_toolbar.middleware.DebugToolbarMiddleware')
+#        'django.middleware.cache.UpdateCacheMiddleware',
+#        'django.middleware.common.CommonMiddleware',
+#        'django.middleware.cache.FetchFromCacheMiddleware',)
 
 
 #if DEBUG:
@@ -154,7 +140,6 @@ if not DEBUG:
 X_FRAME_OPTIONS = 'SAMEORIGIN'
 
 ROOT_URLCONF = 'quickbbs.urls'
-
 
 TEMPLATES = [
     {

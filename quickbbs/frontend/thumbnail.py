@@ -195,6 +195,7 @@ def new_process_img(entry, request):
 #    return return_img_attach(db_index.name, db_index.directory.SmallThumb)
 
 
+
 def new_process_archive(ind_entry, request, page=0):
     """
     Process an archive, and return the thumbnail
