@@ -61,6 +61,40 @@ class Thumbnails_Dirs(models.Model):
         verbose_name = u'Directory Thumbnails Cache'
         verbose_name_plural = u'Directory Thumbnails Cache'
 
+class Thumbnails_Small(models.Model):
+    id = models.AutoField(primary_key=True, db_index=True)
+    uuid = models.UUIDField(
+        default=None, null=True, editable=False, db_index=True, blank=True
+    )
+    Thumbnail = models.BinaryField(default=b"")
+    FileSize = models.BigIntegerField(default=-1)
+    class Meta:
+        verbose_name = u'Image File Small Thumbnail Cache'
+        verbose_name_plural = u'Image File Small Thumbnails Cache'
+
+class Thumbnails_Medium(models.Model):
+    id = models.AutoField(primary_key=True, db_index=True)
+    uuid = models.UUIDField(
+        default=None, null=True, editable=False, db_index=True, blank=True
+    )
+    Thumbnail = models.BinaryField(default=b"")
+    FileSize = models.BigIntegerField(default=-1)
+    class Meta:
+        verbose_name = u'Image File Medium Thumbnail Cache'
+        verbose_name_plural = u'Image File Medium Thumbnails Cache'
+
+class Thumbnails_Large(models.Model):
+    id = models.AutoField(primary_key=True, db_index=True)
+    uuid = models.UUIDField(
+        default=None, null=True, editable=False, db_index=True, blank=True
+    )
+    Thumbnail = models.BinaryField(default=b"")
+    FileSize = models.BigIntegerField(default=-1)
+    class Meta:
+        verbose_name = u'Image File Large Thumbnail Cache'
+        verbose_name_plural = u'Image File Large Thumbnails Cache'
+
+        
 class Thumbnails_Files(models.Model):
     id = models.AutoField(primary_key=True, db_index=True)
     uuid = models.UUIDField(

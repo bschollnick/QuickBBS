@@ -133,6 +133,7 @@ def thumbnails(request, t_url_name=None):
                                entry.fqpndirectory[1:],
                                entry.name)
         fname = os.path.basename(fs_name).title()
+        thumb_size = g_option(request, "size", "Small").title()
         if entry.filetype.is_dir:
             if entry.directory == None:
                 entry.directory = Thumbnails_Dirs.objects.update_or_create(
