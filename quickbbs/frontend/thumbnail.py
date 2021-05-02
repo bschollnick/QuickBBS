@@ -19,6 +19,10 @@ from quickbbs.models import (index_data,
                              Thumbnails_Archives)
 from io import BytesIO
 
+small = 0
+medium = 1
+large = 2
+
 sizes = {
     "small":configdata["configuration"]["small"],
     "medium":configdata["configuration"]["medium"],
