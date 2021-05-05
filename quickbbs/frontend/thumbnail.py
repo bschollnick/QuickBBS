@@ -19,10 +19,6 @@ from quickbbs.models import (index_data,
                              Thumbnails_Archives)
 from io import BytesIO
 
-small = 0
-medium = 1
-large = 2
-
 sizes = {
     "small":configdata["configuration"]["small"],
     "medium":configdata["configuration"]["medium"],
@@ -146,11 +142,14 @@ def invalidate_thumb(thumbnail):
     thumbnail.MediumThumb = b""
     thumbnail.LargeThumb = b""
     return thumbnail
+
     
-def new_process_img(entry, request):
+def new_process_img(entry, request, imagesize="Small"):
     """
     input:
         entry - The index_data entry
+        request - The request data from Django
+        imagesize - (small, medium, large constant)
 
     Read directory, and identify the first thumbnailable file.
     Make thumbnail of that file
