@@ -31,7 +31,7 @@ if settings.DEBUG_TOOLBAR:
 
 urlpatterns += [
     path('grappelli/', include('grappelli.urls')), # grappelli URLS
-    path(r'admin/', admin.site.urls),
+    path(r'Admin/', admin.site.urls),
     path(r'', RedirectView.as_view(url="/albums")),
     #path("download/<uuid:d_uuid>", frontend.views.new_download, name="downloads"),
     path("download/<str:filename>", frontend.views.download, name="newdownloads"),

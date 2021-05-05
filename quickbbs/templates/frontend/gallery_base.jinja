@@ -61,12 +61,13 @@ body {background: #CCCCFF;}
   float: none;
 }
 
+
 </style>
     <title>{% block title %} {{ gallery_name }} {% endblock %}</title>
 </head>
 <body>
 
-<nav class="navbar navbar-default">
+<nav class="navbar navbar-default" style="margin-bottom:5px">
   <div class="container-fluid">
     <!-- Brand and toggle get grouped for better mobile display -->
     <div class="navbar-header">
@@ -93,9 +94,9 @@ body {background: #CCCCFF;}
         <li class="dropdown">
           <a href="#" class="dropdown-toggle" data-toggle="dropdown" role="button" aria-haspopup="true" aria-expanded="false">
           {% if user.username == '' %}
-          {{ icon("users fa-2x")}}
+                {{ icon("users fa-2x")}}
           {% else %}
-          {{ user.username }}
+                {{ user.username }}
           {% endif %}
 
           <span class="caret"></span></a>

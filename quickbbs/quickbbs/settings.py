@@ -22,7 +22,7 @@ machine_name = socket.gethostname().lower()
 print ("Running on %s" % machine_name)
 
 DEBUG = True
-DEBUG = not DEBUG
+#DEBUG = not DEBUG
 print("Debug is ", DEBUG)
 
 
@@ -93,6 +93,7 @@ INSTALLED_APPS += [
     'allauth.socialaccount',
     'quickbbs',
     'frontend',
+#    'fontawesome-free',
     'django_icons',
 ]
 INSTALLED_APPS += ('bootstrap3',)

@@ -6,7 +6,7 @@
 
 {% block content %}
  <!-- cdnjs -->
-    <div class="container" style="width:95%">
+    <div class="container" style="width:99%">
       <div class="row">
 
         <!-- sidebar -->
@@ -44,7 +44,7 @@
                 <br>
                 <a href="/view_item/{{ last }}?sort={{sort}}">
                             <p align=center>{{ icon('angle-double-right fa-3x') }}</a>
-                <a href="/download/{{item.uuid}}">
+                <a href="/download/{{item.name}}?UUID={{item.uuid}}">
                 <p align=center>{{ icon('arrow-down fa-3x') }}</a>
 
                 </span>
@@ -66,8 +66,19 @@
             {% set imagesize = 'large' %}
         {% endif %}
 
-         <div class="container-fluid" style="margin-left: 50px;border: 1px solid;width=100%;left-pad:2px;right-pad:2px;background:#b0e2ff;">
-             <center><table><tr><Td width="25%"><b>{{webpath}}/</b></td><td width="70%"><center>{{ item.name}}</b></center></td></tr></table>
+         <div class="container-fluid" width="99%" style="margin-left: 45px;margin-right:1px;border: 1px solid;width=100%;left-pad:2px;right-pad:2px;background:#b0e2ff;">
+             <center>
+             <table border=0 width="98%">
+                <tr>
+                    <td align=left width=99%> 
+                        {% for name, url, link in breadcrumbs %}
+                            <a href='{{url}}'>{{name}}</a> ->  
+                        {% endfor %}
+                        <b>{{ item.name|wordwrap(width=50,break_long_words=True) }}</b>
+                    </td>
+                </tr>
+
+             </table>
                 <div class="row">
                         <div class="thumbnail">
                             <center>
@@ -82,32 +93,34 @@
                                             <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{ item.uuid }}?size=large{% if item.is_pdf %}&pdf{% elif item.is_archive %}&arch{% else%}{% endif %}" style="height:auto;max-width:100%;"/>
                                         {% endif %}
                                 {% else %}
-                                        <img class="lazy" src="/resources/images/loading17.gif" data-src="/download/{{ item.uuid }}" style="height:auto;max-width:100%;"/>
+                                        <img class="lazy" src="/resources/images/loading17.gif" data-src="/download/{{item.name}}?uuid={{ item.uuid }}" style="height:auto;max-width:100%;"/>
                                 {% endif %}
                             {% endif %}
-                            {% if item.filetype.fileext == ".html" %}
+                            {% if item.filetype.fileext in [".html", ".txt"] %}
                             <div align=left>
                                 {{ html | safe}}
                             </div>
                             {% endif %}
                             {% if item.filetype.is_movie %}
  <video class="video-js" data-setup='{}' controls>
-  <source src="/download/{{ item.uuid }}" type="video/mp4">
+  <source src="/download/{{item.name}}?uuid={{ item.uuid }}" type="video/mp4">
 </video>
                             {% endif %}
-                                <br>
-                                {% if item.numdirs != None and item.numdirs != 0%}
-                                    <b># of Dirs: </b>{{ item.numdirs }}<br>
-                                {% endif %}
-
-                                {% if item.numfiles != None and item.numfiles != 0 %}
-                                    <b># of Files: </b>{{ item.numfiles }}<br>
-                                {% endif %}
-                                {% if item.size != None and item.size != 0 %}
-                                    <b>File Size: </b>{{ item.size }}<br>
-                                {% endif %}
-                                <b>Last Modified: </b>{{fromtimestamp( item.lastmod).strftime("%m/%d/%y %H:%M:%S")}}<br>
-                                UUID: {{item.uuid}}
+                            <table border=0 width=90%>
+                                <tr>
+                                    <td width=30% align=left>
+                                        {% if item.size not in [0, None, ""] %}
+                                            <b>File Size: </b>{{ item.size }}<br>
+                                        {% endif %}
+                                    </td>
+                                    <td width=30% align=left>
+                                        <b>Last Modified: </b>{{fromtimestamp(item.lastmod).strftime("%m/%d/%y %H:%M:%S")}}<br>
+                                    </td>
+                                    <td width=30% align=left>
+                                        <small><b>UUID:</b> {{item.uuid}}</small>
+                                    </td>
+                                </tr>
+                            </table>
                             </center>
                         </div> <!--- Thumbnail --->
             </div>
