@@ -1,6 +1,6 @@
 asgiref==3.3.4
 astroid==2.5.6
-autopep8==1.5.6
+autopep8==1.5.7
 av==8.0.3
 bleach==3.3.0
 certifi==2020.12.5
@@ -12,11 +12,10 @@ commonmark==0.9.1
 cryptography==3.4.7
 Cython==0.29.23
 defusedxml==0.7.1
-Django==3.2
+Django==3.2.1
 django-allauth==0.44.0
 django-auth==0.1.9
 django-bootstrap3==15.0.0
-django-codemod==1.5.1
 django-db-pooling==0.0.4
 django-debug-toolbar==3.2.1
 django-grappelli==2.15.1
@@ -35,8 +34,8 @@ h11==0.12.0
 h2==4.0.0
 hpack==4.0.0
 hstspreload==2020.12.22
-httpcore==0.13.0
-httpx==0.17.1
+httpcore==0.13.2
+httpx==0.18.1
 hyperframe==6.0.1
 hyperlink==21.0.0
 idna==3.1
@@ -65,7 +64,7 @@ pathtools==0.1.2
 pathvalidate==2.4.1
 pdf2image==1.14.0
 pdfrw==0.4
-pikepdf==2.11.2
+pikepdf==2.11.4
 Pillow==8.2.0
 pip-upgrade-tool==0.5.0
 pipdeptree==2.0.0
@@ -74,9 +73,9 @@ psycopg2-binary==2.8.6
 pycodestyle==2.7.0
 pycparser==2.20
 pyflakes==2.3.1
-Pygments==2.8.1
-PyJWT==2.0.1
-pylint==2.8.1
+Pygments==2.9.0
+PyJWT==2.1.0
+pylint==2.8.2
 pylint-django==2.4.4
 pylint-plugin-utils==0.6
 PyMuPDF @ https://github.com/pymupdf/PyMuPDF/archive/master.tar.gz
@@ -98,14 +97,14 @@ sqlparse==0.4.1
 toml==0.10.2
 typed-ast==1.4.3
 typing==3.7.4.3
-typing-extensions==3.7.4.3
+typing-extensions==3.10.0.0
 typing-inspect==0.6.0
 ua-parser==0.10.0
 Unidecode==1.2.0
 urllib3==1.26.4
 user-agents==2.2.0
 uvicorn==0.13.4
-watchdog==2.0.3
+watchdog==2.1.0
 webencodings==0.5.1
 wrapt==1.12.1
 xattr==0.9.7
