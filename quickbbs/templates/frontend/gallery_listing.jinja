@@ -60,9 +60,32 @@
          <div class="container-fluid" style="margin-left: 45px;margin-right:1px;border: 0px solid;padding-left:2px;padding-right:2px;">
              <table border=0 width="97%">
                 <tr>
-                <td width="25%" align=left> <a href="{{ prev_uri }}?sort={{sort}}">{{ prev_uri }}</a></td>
-                <td width="50%" align=center><b>{{ gallery_name }}</b></td>
-                <td width="25%" align=right> <a href="{{ next_uri }}?sort={{sort}}">{{ next_uri }}</a></td>
+                    <td align=left width=60%> 
+                        {% for name, url, link in breadcrumbs %}
+                            <a href='{{url}}'>{{name}}</a> ->  
+                        {% endfor %}
+                        <b>{{ gallery_name|wordwrap(width=50,break_long_words=True) }}</b>
+                    </td>
+                    <td width="20%" align=left> 
+                        {% if prev_uri not in ["", None] %}
+                            <a href="{{ prev_uri }}?sort={{sort}}">
+                                {{ icon("angle-left fa-1x")}}
+                                {{ prev_uri[:30]|wordwrap(width=25,break_long_words=True) }}</a>
+                        {% endif %}
+                    </td>
+                    <td width="20%" align=right>
+                        {% if next_uri not in ["", None] %}
+                         <a href="{{ next_uri }}?sort={{sort}}">
+                        {{ icon("angle-right fa-1x")}}
+                        {{ next_uri[:30]|wordwrap(width=25,break_long_words=True)  }}</a>
+                        {% endif %}
+                    </td>
+                </tr>
+
+                <tr>
+<!-- 
+                <td width="50%" align=center><b>{{ gallery_name|wordwrap(width=40,break_long_words=True) }}</b></td>
+ -->
                 </tr>
              </table>
                     <div class="row" width="auto" style="margin-left: 0px;margin-right:0px;border: 0px solid;padding-left:2px;padding-right:2px;">
@@ -76,62 +99,66 @@
 
                                     <div valign=center>
                                         <center>
-                                            {% if item.filetype.fileext == ".html" %}<a href="/view_item/{{ item.uuid }}?sort={{sort}}" class="thumbnail" style="background-color:#{{item.filetype.color}};"> {% endif %}
-                                            {% if item.filetype.is_movie %}<a href="/view_item/{{ item.uuid }}?sort={{sort}}" class="thumbnail" style="background-color:#{{item.filetype.color}};"> {% endif %}
-                                            {% if item.filetype.fileext == ".dir" %}<a href="{{ webpath }}{{ item.name }}?page=1&sort={{sort}}" class="thumbnail" style="background-color:#{{item.filetype.color}};"> {% endif %}
-                                            {% if item.filetype.is_archive %}<a href="/view_archive/{{ item.uuid}}?sort={{sort}}" class="thumbnail" style="background-color:#{{item.filetype.color}};"> {% endif %}
-                                            {% if item.filetype.is_image or item.filetype.is_pdf %}<a href="/view_item/{{ item.uuid }}?sort={{sort}}" class="thumbnail" style="background-color:#{{item.filetype.color}};"> {% endif %}
-                                                {{ item.name|wordwrap(width=24, break_long_words=True)}}
-                                            {% if item.filetype.fileext == ".dir" %}
-                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{ item.uuid }}?size=small" class="img-responsive" style="width:auto;max-width:100%"/>
+<!--                                             Setup the color for the item box and hyperlink into the box -->
+                                            {% if item.filetype.is_movie %}<a href="{{ url('new_viewitem', args=[item.uuid]) }}?sort={{sort}}" class="thumbnail" style="background-color:#{{item.filetype.color}};">
+                                            {% elif item.filetype.is_dir %}<a href="{{ webpath }}{{ item.name }}?page=1&sort={{sort}}" class="thumbnail" style="background-color:#{{item.filetype.color}};">
+                                            {% elif item.filetype.is_archive %}<a href="{{ url('new_view_archive', args=[item.uuid]) }}?sort={{sort}}" class="thumbnail" style="background-color:#{{item.filetype.color}};">
+                                            {% elif item.filetype.is_image or item.filetype.is_pdf %}<a href="{{ url('new_viewitem', args=[item.uuid]) }}?sort={{sort}}" class="thumbnail" style="background-color:#{{item.filetype.color}};">
+                                            {% else %}<a href="{{ url('new_viewitem', args=[item.uuid]) }}?sort={{sort}}" class="thumbnail" style="background-color:#{{item.filetype.color}};">
+                                            {% endif %}
+
+<!--            The Item title           -->
+                                            {{ item.name|wordwrap(width=24, break_long_words=True)}}
+
+<!--            Display the thumbnail           -->
+
+                                            {% if item.filetype.is_dir %}
+                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ url('thumbnailspath') }}{{ item.uuid }}?size=small" class="img-responsive" style="width:auto;max-width:100%"/>
                                             {% elif item.filetype.is_pdf %}
-                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{ item.uuid }}?pdf&size=small" class="img-responsive" style="width:auto;max-width:100%"/>
+                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ url('thumbnailspath') }}{{ item.uuid }}?pdf&size=small" class="img-responsive" style="width:auto;max-width:100%"/>
                                             {% elif item.filetype.is_archive %}
-                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{ item.uuid }}?arch=0&size=small" class="img-responsive" style="width:auto;max-width:100%"/>
-<!--
-                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ thumbpath }}/{{ item.name}}?arch=0&size=small" class="img-responsive" style="width:auto;max-width:100%"/>
- -->
-                                            {% elif item.filetype.is_movie %}
-                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="/resources/images//{{ item.filetype.icon_filename }}?arch=0&size=small" class="img-responsive" style="width:auto;max-width:100%"/>
+                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ url('thumbnailspath') }}{{ item.uuid }}?arch=0&size=small" class="img-responsive" style="width:auto;max-width:100%"/>
+                                            {% elif item.filetype.is_image  or item.filetype.is_movie %}
+                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="{{ url('thumbnailspath') }}{{ item.uuid }}?size=small" class="img-responsive" style="width:auto;max-width:100%"/>
                                             {% else %}
-                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{ item.uuid }}?size=small" class="img-responsive" style="width:auto;max-width:100%"/>
+                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="/resources/images/{{ item.filetype.icon_filename }}" class="img-responsive" style="width:auto;max-width:100%"/>
                                             {% endif -%}
                                             </a>
                                         </center>
                                     </div>
                                     <div valign=bottom class="bottom-align-text">
-<!--
-                                            <tr><td colspan=2 width="90%"><center><sub>{{ item.uuid }}</sub></center></td>
- -->
-
                                         <table width="99%" border=0>
                                             <tr align=center>
                                             {%- if item.filetype.is_animated -%}<tr><td colspan=2><b>Animated</b></td></tr>{%- endif %}
 
+<!--            The Stats           -->
                                             <tr align=center>
-                                                <td width="40%">
-                                                    {% if item.numdirs != None and item.numdirs != 0%}
+                                                <td width="50%">
+                                                    {% if item.numdirs not in [0, None, "", -1]  %}
                                                     <b># Dirs:</b> {{ item.numdirs | intcomma }}
                                                     {% endif %}</b>
                                                 </td>
-                                                <td width="35%">
-                                                    {% if item.numfiles != None and item.numfiles != 0 %}
+                                                <td width="50%">
+                                                    {% if item.numfiles not in [0, None, "", -1]  %}
                                                     <b># Files:</b> {{ item.numfiles | intcomma }}
                                                     {% endif %}
                                                 </td>
                                             </tr>
-                                            </table>
-                                            <table width="99%" border=0>
-                                            <tr align=Right>
-                                                <td width=75%>
+                                            
+<!--            Lastmod           -->
+                                            <tr align=center>
+                                                <td width=50%>
                                                     <b>Last Modified:</b>
-                                                    {% if not request.user_agent.is_pc %}<br>{% endif %}
+                                                    <br>
                                                     {{ fromtimestamp( item.lastmod).strftime("%m/%d/%y %H:%M:%S") }}
                                                 </td>
-                                                <td align=right>
-                                                    {% if item.filetype.fileext == ".dir" %}<a href="{{ webpath }}{{ item.name }}?sort={{sort}}" target="_blank"> {% endif %}
-                                                    {% if item.filetype.is_archive %}<a href="/view_archive/{{ item.uuid}}?sort={{sort}}" target="_blank"> {% endif %}
-                                                    {% if item.filetype.is_image or item.filetype.is_pdf %}<a href="/view_item/{{ item.uuid }}?sort={{sort}}" target="_blank"> {% endif %}
+
+<!--            The new window link           -->
+                                                <td align=center width=50%>
+
+                                                    {% if item.filetype.is_dir %}                <a href="{{ webpath }}{{ item.name }}?sort={{sort}}" target="_blank"> 
+                                                    {% elif item.filetype.is_archive %}                       <a href="/view_archive/{{ item.uuid}}?sort={{sort}}" target="_blank"> 
+                                                    {% elif item.filetype.is_image or item.filetype.is_pdf  or item.filetype.is_movie %} <a href="/view_item/{{ item.uuid }}?sort={{sort}}" target="_blank"> {% endif %}
                                                     {{ icon("external-link-alt fa-2x") }}</a>
                                                 </td>
                                             </tr>

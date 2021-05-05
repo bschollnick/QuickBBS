@@ -116,17 +116,17 @@ def check_dup_thumbs(uuid_to_check, page=0):
     qset = None
     if indexrec.file_tnail != None:
         qset = Thumbnails_Files.objects.filter(uuid=indexrec.uuid).exclude(
-            id=indexrec.file_tnail.id)
+            id=indexrec.file_tnail_id)
 
     if indexrec.directory != None:
         qset = Thumbnails_Dirs.objects.filter(uuid=indexrec.uuid).exclude(
-            id=indexrec.directory.id)
+            id=indexrec.directory_id)
 
     if indexrec.archives != None:
         qset = Thumbnails_Archives.objects.filter(
             uuid=indexrec.uuid,
             page=page).exclude(
-                id=indexrec.archives.id)
+                id=indexrec.archives_id)
 
 #    if qset != None and qset.count() > 0:
 #        qset.delete()

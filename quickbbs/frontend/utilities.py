@@ -14,7 +14,7 @@ import stat
 import sys
 import time
 import html
-
+import urllib.parse
 from PIL import Image
 import frontend.constants as constants
 import fitz
@@ -557,11 +557,7 @@ def read_from_disk(dir_to_scan, skippable=True):
                 ind_data.numdirs = numdirs
                 ind_data.numfiles = numfiles
                 print("Mismatch for subdir - ", webpath, filename)
-#            if numfiles == -1 and index_data.objects.filter(fqpndirectory=subdir_path).exclude(ind_data.filetype.fileext='.dir').count() >= 1:
-#            if numfiles == -1 and index_data.objects.filter(fqpndirectory=subdir_path, ind_data.filetype.fileext__ne='.dir').count() => 1:
-#                 print("Attempting to delete, files from ", subdir_path)
-                #index_data.objects.filter(fqpndirectory=subdir_path).exclude(ind_data.filetype.fileext=='.dir').delete()
-            if numdirs == -1 and index_data.objects.filter(fqpndirectory=subdir_path, filetype__fileext='.dir').count() >= 1:
+            if numdirs == -1 and index_data.objects.filter(fqpndirectory=subdir_path, filetype__fileext='.dir').exists():#count() >= 1:
                 print("Attempting to delete, dirs from ", subdir_path)
                 #index_data.objects.filter(fqpndirectory=subdir_path).filter(ind_data.filetype.fileext=='.dir').delete()
 
@@ -610,6 +606,21 @@ def read_from_disk(dir_to_scan, skippable=True):
             break
     return webpath.replace(os.sep, r"/")
 
+def break_down_urls(uri_path):
+    path = urllib.parse.urlsplit(uri_path).path
+    return path.split('/')
+    
+def return_breadcrumbs(uri_path="", count=3):
+    uris = break_down_urls(uri_path)
+    data = []
+#    data.append(["Home", "/".join(uris[0:2]), "<a href='%s'>%s</a>" % ("Home", "Home")])
+    for count in range(len(uris)-(count+1), len(uris)):
+        name = uris[count].split("/")[-1]
+        url = "/".join(uris[0:count+1])
+        if name == "":
+            continue
+        data.append([name, url, "<a href='%s'>%s</a>" % (url, name)])
+    return data
 
 if __name__ == '__main__':
     from config import configdata, load_data

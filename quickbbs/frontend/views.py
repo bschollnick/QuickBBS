@@ -34,7 +34,7 @@ import frontend.constants as constants
 from frontend.utilities import (is_valid_uuid,
                                 sort_order,
                                 read_from_disk,
-                                ensures_endswith, test_extension)
+                                ensures_endswith, test_extension, return_breadcrumbs)
 from frontend.database import (SORT_MATRIX,
                                check_for_deletes, get_db_files,
                                check_dup_thumbs)
@@ -119,6 +119,7 @@ def thumbnails(request, t_url_name=None):
         elif count > 1:
             check_dup_thumbs(t_url_name)
             index_qs = index_data.objects.filter(uuid=t_url_name)
+
         entry = index_qs[0]
 
         fs_item = os.path.join(configdata["locations"]["albums_path"],
@@ -133,6 +134,7 @@ def thumbnails(request, t_url_name=None):
                                entry.fqpndirectory[1:],
                                entry.name)
         fname = os.path.basename(fs_name).title()
+        thumb_size = g_option(request, "size", "Small").title()
         if entry.filetype.is_dir:
             if entry.directory == None:
                 entry.directory = Thumbnails_Dirs.objects.update_or_create(
@@ -157,7 +159,6 @@ def thumbnails(request, t_url_name=None):
         elif entry.archives:
             page = int(g_option(request, "page", 0))
             return new_process_archive(entry, request, page)
-
     return HttpResponseBadRequest(content="Bad UUID or %s Unidentifable file." % fs_item)
 
 @vary_on_headers('User-Agent', 'Cookie', 'Request')
@@ -184,6 +185,7 @@ def new_viewgallery(request):
 
     request, context = sort_order(request, context)
     context["webpath"] = paths["webpath"]
+    context["breadcrumbs"] = return_breadcrumbs(paths["webpath"])[:-1]
     context["fromtimestamp"] = datetime.datetime.fromtimestamp
     paths["album_viewing"] = configdata["locations"]["albums_path"] + paths["webpath"]
 
@@ -193,14 +195,11 @@ def new_viewgallery(request):
                                                   r"/thumbnails/")
     paths["thumbpath"] = ensures_endswith(paths["thumbpath"], "/")
     context["thumbpath"] = paths["thumbpath"]
-#    print(context["sort"])
     if not os.path.exists(paths["album_viewing"]):
         #
         #   Albums doesn't exist
         return HttpResponseNotFound('<h1>Page not found</h1>')
 
-    #elif isdir(paths["album_viewing"]):
-    #
     # The only thing left is a directory.
     read_from_disk(paths["webpath"], skippable=True) # new_viewgallery
     index = get_db_files(context["sort"], paths["webpath"])
@@ -244,6 +243,7 @@ def new_viewitem(request, i_uuid):
     entry = index_qs[0]
     context["user"] = request.user
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
+    context["breadcrumbs"] = return_breadcrumbs(context["webpath"])
     if entry.filetype.fileext in [".txt", ".html"]:
         filename = configdata["locations"]["albums_path"] +  \
             context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
@@ -476,7 +476,7 @@ if 'runserver' in sys.argv or "--host" in sys.argv:
 
             for ignored in configdata["filetypes"]["files_to_ignore"]:
                 test = index_data.objects.filter(name__iexact=ignored.title())
-                if test:
+                if test.exists():
                     print("%s - %s" % (ignored, test.count()))
                     test.delete()
     except:

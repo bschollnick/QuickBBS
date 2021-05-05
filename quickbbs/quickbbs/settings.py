@@ -20,10 +20,6 @@ ALLOWED_HOSTS = [u'nerv.local', u'localhost', u'127.0.0.1']
 INTERNAL_IPS = [u'localhost', '127.0.0.1', u'nerv.local']
 machine_name = socket.gethostname().lower()
 print ("Running on %s" % machine_name)
-if machine_name in ["bschollnicklt", u"nerv.local"]:
-    DEBUG = True
-else:
-    DEBUG = False
 
 DEBUG = True
 #DEBUG = not DEBUG
@@ -66,15 +62,16 @@ SECRET_KEY = 'isk^$ye4rx0m!p#0147tcmmmtcz1u&suzp2+z+6#gpjx^1lz4t'
 
 # SECURITY WARNING: don't run with debug turned on in production!
 
-INSTALLED_APPS = []
+
 
 # Application definition
 
 if DEBUG_TOOLBAR:
     INSTALLED_APPS += ('debug_toolbar',)
 
-    STATIC_URL = '/static/'
+STATIC_URL = '/static/'
     
+INSTALLED_APPS = []
 INSTALLED_APPS += [
     'grappelli',
     'django.contrib.admin',
@@ -96,6 +93,7 @@ INSTALLED_APPS += [
     'allauth.socialaccount',
     'quickbbs',
     'frontend',
+#    'fontawesome-free',
     'django_icons',
 ]
 INSTALLED_APPS += ('bootstrap3',)
@@ -103,13 +101,15 @@ INSTALLED_APPS += ('bootstrap3',)
 
 SITE_ID = 1
 
-MIDDLEWARE = []
+# SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 #SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 
 # Now this assumes you can safely lose any data you store in your user sessions.
 # If thats not the case, you can still get some benefit from using:
 
 SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
+
+MIDDLEWARE = []
 
 if DEBUG_TOOLBAR:
     MIDDLEWARE += ('debug_toolbar.middleware.DebugToolbarMiddleware',)
@@ -263,10 +263,10 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/1.9/topics/i18n/
 LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'US/Eastern'
+# TIME_ZONE = 'UTC'
 #TIME_ZONE = 'UTC'
 USE_I18N = True
-USE_L10N = True
+USE_TZ = True
 USE_TZ = True
 
 
@@ -352,3 +352,5 @@ BOOTSTRAP3 = {
     },
 }
 #from .logger import LOGGING
+
+DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
