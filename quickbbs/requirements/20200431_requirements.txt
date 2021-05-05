@@ -45,7 +45,7 @@ psycopg2-binary==2.8.5
 pycodestyle==2.5.0
 pycparser==2.20
 pyflakes==2.2.0
-Pygments==2.7.4
+Pygments==2.6.1
 pylint==2.5.0
 pylint-django==2.0.15
 pylint-plugin-utils==0.6
