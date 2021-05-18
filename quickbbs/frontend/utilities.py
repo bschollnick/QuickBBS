@@ -4,40 +4,42 @@ Utilities for QuickBBS, the python edition.
 """
 from __future__ import absolute_import, print_function, unicode_literals
 
+import html
+#from constants import *
+import logging
 import os
 import os.path
-from io import BytesIO
-import uuid
 #import urllib
 import re
 import stat
 import sys
 import time
-import html
 import urllib.parse
-from PIL import Image
-import frontend.constants as constants
-import fitz
-from pathvalidate import sanitize_filename
+import uuid
+from io import BytesIO
 
 import av
-
-import frontend
-import frontend.ftypes as ftypes
-from frontend.ftypes import return_filetype
-from frontend.database import check_dup_thumbs
-from frontend.database import (validate_database)
-from quickbbs.models import (index_data, Thumbnails_Files, Thumbnails_Archives,
-                             Thumbnails_Dirs, filetypes)
-import frontend.pdf_utilities as pdf_utilities
+import fitz
 from django.core.exceptions import MultipleObjectsReturned
-from django.db import transaction
-#from constants import *
-import logging
+#from django.db import transaction
+from pathvalidate import sanitize_filename
+from PIL import Image
+from quickbbs.models import (Thumbnails_Archives,# Thumbnails_Dirs,
+                             #Thumbnails_Files,
+                             filetypes, index_data)
+
+#import frontend
+import frontend.constants as constants
+import frontend.ftypes as ftypes
+import frontend.pdf_utilities as pdf_utilities
+from frontend.database import check_dup_thumbs#, validate_database
+#from frontend.ftypes import return_filetype
+
 log = logging.getLogger(__name__)
 
-import frontend.archives3 as archives
 import quickbbs.settings
+
+import frontend.archives3 as archives
 from frontend.cached_exists import cached_exist
 
 CACHE = cached_exist(use_modify=True, use_extended=True, FilesOnly=False,
@@ -229,7 +231,7 @@ def cr_tnail_img(source_image, size, fext):
 
     if ".%s" % fext in constants._movie:
         fext = "jpg"
-    
+
     image_data = BytesIO()
     source_image.thumbnail((size, size), Image.ANTIALIAS)
     try:
@@ -262,24 +264,24 @@ def naturalize(string):
     return string
 
 
-def multiple_replace(dict, text):#, compiled):
+def multiple_replace(repl_dict, text):#, compiled):
     # Create a regular expression  from the dictionary keys
 
     # For each match, look-up corresponding value in dictionary
-    return constants.regex.sub(lambda mo: dict[mo.string[mo.start():mo.end()]], text)
+    return constants.regex.sub(lambda mo: repl_dict[mo.string[mo.start():mo.end()]], text)
 
 def return_disk_listing(fqpn, enable_rename=False):
 
     data = {}
-    data_list = []
+    #data_list = []
     loaded = True
-    webpath = (fqpn.title().replace(configdata["locations"]["albums_path"].title(),
-                                    "")).replace("//", "/")
+#    webpath = (fqpn.title().replace(configdata["locations"]["albums_path"].title(),
+#                                    "")).replace("//", "/")
     for entry in os.scandir(fqpn):
         titlecase = entry.name.title()
         unescaped = html.unescape(titlecase)
         lower_filename = entry.name.lower()
-        rename = False
+#        rename = False
         animated = False
         fext = os.path.splitext(lower_filename)[1]
         if fext == "":
@@ -322,7 +324,7 @@ def return_disk_listing(fqpn, enable_rename=False):
                            'is_file':not entry.is_dir(),#fext != ".dir",
                            'is_archive':ftypes.FILETYPE_DATA[fext]["is_archive"],
                            'is_image':ftypes.FILETYPE_DATA[fext]["is_image"],
-                           'is_movie':ftypes.FILETYPE_DATA[ext]["is_movie"],
+                           'is_movie':ftypes.FILETYPE_DATA[fext]["is_movie"],
                            'is_animated':animated
                            }
     return (loaded, data)
@@ -362,33 +364,33 @@ def read_from_disk(dir_to_scan, skippable=True):
                           "FileName":fname, "page":page})[0]
         return db_entry
 
-    def link_dir_rec(sd_entry, webpath, uuid_entry):
-        fs_name = os.path.join(configdata["locations"]["albums_path"],
-                               webpath[1:],
-                               sd_entry[filename]["filename"])
-        fname = os.path.basename(fs_name).title()
-        db_entry = Thumbnails_Dirs.objects.update_or_create(
-            uuid=uuid_entry, FilePath=webpath, DirName=fname,
-            defaults={"uuid":uuid_entry,
-                      "FilePath":webpath,
-                      "DirName":fname})[0]
-        return db_entry
-
-    def link_file_rec(sd_entry, webpath, uuid_entry):
-        fs_name = os.path.join(configdata["locations"]["albums_path"],
-                               webpath[1:],
-                               sd_entry[filename]["filename"])#.name)
-        fname = os.path.basename(fs_name).title()
-
-        db_entry = Thumbnails_Files.objects.update_or_create(
-            uuid=uuid_entry,
-            FilePath=webpath,
-            FileName=fname,
-            defaults={"uuid":uuid_entry,
-                      "FilePath":webpath,
-                      "FileName":fname,
-                     })[0]
-        return db_entry
+#     def link_dir_rec(sd_entry, webpath, uuid_entry):
+#         fs_name = os.path.join(configdata["locations"]["albums_path"],
+#                                webpath[1:],
+#                                sd_entry[filename]["filename"])
+#         fname = os.path.basename(fs_name).title()
+#         db_entry = Thumbnails_Dirs.objects.update_or_create(
+#             uuid=uuid_entry, FilePath=webpath, DirName=fname,
+#             defaults={"uuid":uuid_entry,
+#                       "FilePath":webpath,
+#                       "DirName":fname})[0]
+#         return db_entry
+#
+#     def link_file_rec(sd_entry, webpath, uuid_entry):
+#         fs_name = os.path.join(configdata["locations"]["albums_path"],
+#                                webpath[1:],
+#                                sd_entry[filename]["filename"])#.name)
+#         fname = os.path.basename(fs_name).title()
+#
+#         db_entry = Thumbnails_Files.objects.update_or_create(
+#             uuid=uuid_entry,
+#             FilePath=webpath,
+#             FileName=fname,
+#             defaults={"uuid":uuid_entry,
+#                       "FilePath":webpath,
+#                       "FileName":fname,
+#                      })[0]
+#         return db_entry
 
 ###############################
     # Read_from_disk - main
@@ -437,19 +439,19 @@ def read_from_disk(dir_to_scan, skippable=True):
         skippable = False
 
     if existing_data_size > 0:# and existing_data_size is not None:
-            lastmoded = existing_data.order_by("-lastmod")[0]
-            fs_lm_name, fs_lm_value, fs_ls_value = CACHE.return_newest(dirpath)
-            if not lastmoded.name == fs_lm_name:
-                print("Unable to skip, due to last mod name. fs %s vs C %s, %s - %s" % (fs_lm_name, lastmoded.name, CACHE.last_mods[dirpath], lastmoded.id))
-                diskstore = CACHE.extended[dirpath]
-                
-                skippable = False
-            elif lastmoded.lastmod != fs_lm_value:
-                print("Unable to skip, due to last mod value")
-                skippable = False
-            
+        lastmoded = existing_data.order_by("-lastmod")[0]
+        fs_lm_name, fs_lm_value, fs_ls_value = CACHE.return_newest(dirpath)
+        if not lastmoded.name == fs_lm_name:
+            print("Unable to skip, due to last mod name. fs %s vs C %s, %s - %s" % (fs_lm_name, lastmoded.name, CACHE.last_mods[dirpath], lastmoded.id))
+            diskstore = CACHE.extended[dirpath]
+
+            skippable = False
+        elif lastmoded.lastmod != fs_lm_value:
+            print("Unable to skip, due to last mod value")
+            skippable = False
+
 #            elif fs_lm_name == None:
-                
+
 #    if skippable:
         #
         #   We appear to be completely up to date, without reading from disk.
@@ -486,15 +488,15 @@ def read_from_disk(dir_to_scan, skippable=True):
             #    numfiles = 0
 
 
-        
+
         new_uuid = uuid.uuid4()
         if ftypes.FILETYPE_DATA == {}:
             try:
-                 ftypes.refresh_filetypes()
-                 ftypes.FILETYPE_DATA = ftypes.get_ftype_dict()
+                ftypes.refresh_filetypes()
+                ftypes.FILETYPE_DATA = ftypes.get_ftype_dict()
             except KeyError:
-                 print("Unable to validate or create FileType database table.")
-                 sys.exit(1)
+                print("Unable to validate or create FileType database table.")
+                sys.exit(1)
         if ftypes.FILETYPE_DATA[fext]["is_image"] and fext in [".gif"]:
             try:
                 animated = Image.open(os.path.join(fqpn, filename)).is_animated
@@ -609,12 +611,13 @@ def read_from_disk(dir_to_scan, skippable=True):
 def break_down_urls(uri_path):
     path = urllib.parse.urlsplit(uri_path).path
     return path.split('/')
-    
+
 def return_breadcrumbs(uri_path="", count=3):
     uris = break_down_urls(uri_path)
     data = []
 #    data.append(["Home", "/".join(uris[0:2]), "<a href='%s'>%s</a>" % ("Home", "Home")])
-    for count in range(len(uris)-(count+1), len(uris)):
+    #for count in range(len(uris)-(count+1), len(uris)):
+    for count in range(1, len(uris)):
         name = uris[count].split("/")[-1]
         url = "/".join(uris[0:count+1])
         if name == "":

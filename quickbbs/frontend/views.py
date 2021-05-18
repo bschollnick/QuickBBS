@@ -3,53 +3,50 @@
 Django views for QuickBBS Gallery
 """
 from __future__ import absolute_import, print_function, unicode_literals
-import quickbbs.settings
 
 import datetime
-from itertools import chain
+import logging
 import os
 import os.path
-from pathlib import Path
 import sys
-import time
-import uuid
+#import time
+#import uuid
 import warnings
+#from itertools import chain
+from pathlib import Path
+#from urllib.parse import unquote
 
+import bleach
+import django_icons.templatetags.icons
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
-from django.http import (HttpResponse, HttpResponseNotFound,
-                         HttpResponseBadRequest)
+from django.http import (#FileResponse, HttpResponse,
+                         JsonResponse,
+                         Http404, HttpResponseBadRequest, HttpResponseNotFound)
+                         #StreamingHttpResponse)
 from django.shortcuts import render
-from django.template import loader
+#from django.template import loader
 from django.utils.cache import patch_vary_headers
 from django.views.decorators.vary import vary_on_headers
-from django.http import (HttpResponse, Http404, FileResponse, StreamingHttpResponse)
 from PIL import Image, ImageFile
+from quickbbs.models import (Thumbnails_Dirs,  # , Thumbnails_Archives
+                             Thumbnails_Files, index_data)
 
 import frontend.archives3 as archives
-from frontend.config import configdata
-import frontend.ftypes as ftypes
 #from frontend.constants import *
-import frontend.constants as constants
-
-from frontend.utilities import (is_valid_uuid,
-                                sort_order,
-                                read_from_disk,
-                                ensures_endswith, test_extension, return_breadcrumbs)
-from frontend.database import (SORT_MATRIX,
-                               check_for_deletes, get_db_files,
-                               check_dup_thumbs)
-from frontend.thumbnail import (new_process_dir, new_process_archive,
+#import frontend.constants as constants
+import frontend.ftypes as ftypes
+from frontend.config import configdata
+from frontend.database import (#SORT_MATRIX,
+                               check_dup_thumbs, get_db_files)
+                               #check_for_deletes
+from frontend.thumbnail import (new_process_archive, new_process_dir,
                                 new_process_img)
-from frontend.web import (verify_login_status, detect_mobile,
-                          respond_as_attachment, respond_as_inline, g_option)
+from frontend.utilities import (ensures_endswith, is_valid_uuid,
+                                read_from_disk, return_breadcrumbs, sort_order)
+#                                test_extension)
+from frontend.web import (detect_mobile, g_option,#respond_as_attachment,
+                          respond_as_inline)#, verify_login_status)
 
-from quickbbs.models import index_data, Thumbnails_Dirs, Thumbnails_Files#, Thumbnails_Archives
-
-from urllib.parse import unquote
-import django_icons.templatetags.icons
-import bleach
-
-import logging
 log = logging.getLogger(__name__)
 
 warnings.simplefilter('ignore', Image.DecompressionBombWarning)
@@ -126,7 +123,7 @@ def thumbnails(request, t_url_name=None):
                                entry.fqpndirectory[1:].lower(),
                                entry.name)
 
-        fqpn = fs_item #(configdata["locations"]["albums_path"] + dir_to_scan).replace("//", "/")
+        #fqpn = fs_item #(configdata["locations"]["albums_path"] + dir_to_scan).replace("//", "/")
         webpath = os.path.join(configdata["locations"]["albums_path"],
                                entry.fqpndirectory[1:].lower())
 
@@ -134,9 +131,9 @@ def thumbnails(request, t_url_name=None):
                                entry.fqpndirectory[1:],
                                entry.name)
         fname = os.path.basename(fs_name).title()
-        thumb_size = g_option(request, "size", "Small").title()
+        #thumb_size = g_option(request, "size", "Small").title()
         if entry.filetype.is_dir:
-            if entry.directory == None:
+            if entry.directory is None:#== None:
                 entry.directory = Thumbnails_Dirs.objects.update_or_create(
                     uuid=entry.uuid, FilePath=webpath, DirName=fname,
                     defaults={"uuid":entry.uuid,
@@ -145,7 +142,7 @@ def thumbnails(request, t_url_name=None):
                 entry.save()
             return new_process_dir(entry)
         elif entry.filetype.is_pdf or entry.filetype.is_image or entry.filetype.is_movie:
-            if entry.file_tnail == None:
+            if entry.file_tnail is None:#== None:
                 entry.file_tnail = Thumbnails_Files.objects.update_or_create(
                     uuid=entry.uuid,
                     FilePath=webpath,
@@ -189,8 +186,6 @@ def new_viewgallery(request):
     context["fromtimestamp"] = datetime.datetime.fromtimestamp
     paths["album_viewing"] = configdata["locations"]["albums_path"] + paths["webpath"]
 
-    paths["fs_thumbpath"] = paths["album_viewing"].replace(r"%salbums%s" % (
-        os.sep, os.sep), r"%sthumbnails%s" % (os.sep, os.sep))
     paths["thumbpath"] = paths["webpath"].replace(r"/albums/",
                                                   r"/thumbnails/")
     paths["thumbpath"] = ensures_endswith(paths["thumbpath"], "/")
@@ -230,6 +225,113 @@ def new_viewgallery(request):
     patch_vary_headers(response, ["sort-%s" % context["sort"]])
     return response
 
+def item_info(request, i_uuid):
+    i_uuid = str(i_uuid).strip().replace("/", "")
+    context = {}
+    if not is_valid_uuid(i_uuid):
+        return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
+
+    request, context = sort_order(request, context)
+    e_uuid = i_uuid
+    index_qs = index_data.objects.filter(uuid=e_uuid)
+    entry = index_qs[0]
+#    context["user"] = request.user
+    context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
+    breadcrumbs = return_breadcrumbs(context["webpath"])
+    context["breadcrumbs"] = ""
+    for pt_name, pt_url, pt_html in breadcrumbs:
+        context["breadcrumbs"] += r"<li>%s</li>" % pt_html
+#    context["breadcrumbs"] = "</li><li>".join(context["breadcrumbs"])
+    if entry.filetype.fileext in [".txt", ".html"]:
+        filename = configdata["locations"]["albums_path"] +  \
+            context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
+#         if entry.filetype.fileext in [".html"]:
+#             context["html"] = bleach.linkify("\n".join(open(filename).readlines()))
+#         else:
+#             context["html"] = "<br>".join(open(filename, encoding="latin-1"))
+
+#    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
+    context["up_uri"] = entry.fqpndirectory.lower()
+    while context["up_uri"].endswith("/"):
+        context["up_uri"] = context["up_uri"][:-1]
+
+    #context["fromtimestamp"] = datetime.datetime.fromtimestamp
+    read_from_disk(context["webpath"].strip(), skippable=True)
+    catalog_qs = get_db_files(context["sort"], context["webpath"])
+    context["page"] = 1
+    for counter, data in enumerate(catalog_qs, start=1):
+        if str(data.uuid) == e_uuid:
+            context["page"] = counter
+            break
+    item_list = Paginator(catalog_qs, 1)
+    context["pagecount"] = item_list.count
+    page_contents = item_list.page(context["page"])
+
+    context["webpath"] = context["webpath"]#.replace("/", "//")
+    context["up_uri"] = context["up_uri"]#.replace("/", "//")
+    context["uuid"] = entry.uuid
+    context["filename"] = entry.name
+    context["filesize"] = entry.size
+    context["filecount"] = entry.numfiles
+    context["dircount"] = entry.numdirs
+    context["subdircount"] = entry.count_subfiles
+    context["is_animated"] = entry.is_animated
+    context["lastmod"] = entry.lastmod
+    context["lastmod_ds"] = datetime.datetime.fromtimestamp(entry.lastmod).strftime("%m/%d/%y %H:%M:%S")
+    context["ft_filename"] = entry.filetype.icon_filename
+    context["ft_color"] = entry.filetype.color
+    context["ft_is_image"] = entry.filetype.is_image
+    context["ft_is_archive"] = entry.filetype.is_archive
+    context["ft_is_pdf"] = entry.filetype.is_pdf
+    context["ft_is_movie"] = entry.filetype.is_movie
+    context["ft_is_dir"] = entry.filetype.is_dir
+    if detect_mobile(request):
+        context["imagesize"] = "medium"
+    else:
+        context["imagesize"] = "large"
+
+    if page_contents.has_next():
+        context["next_uuid"] = catalog_qs[page_contents.next_page_number()-1].uuid
+    else:
+        context["next_uuid"] = ""
+
+    if page_contents.has_previous():
+         context["previous_uuid"] = catalog_qs[page_contents.previous_page_number()-1].uuid
+    else:
+         context["previous_uuid"] = ""
+
+#     if context["page_contents"].has_next():
+#         context["next"] = catalog_qs[context["page_contents"].next_page_number()-1].uuid
+#     else:
+#         context["next"] = ""
+#
+#     if context["page_contents"].has_previous():
+#         context["previous"] = catalog_qs[context["page_contents"].previous_page_number()-1].uuid
+#     else:
+#         context["previous"] = ""
+
+    context["first_uuid"] = catalog_qs[0].uuid
+    context["last_uuid"] = catalog_qs[catalog_qs.count()-1].uuid
+    response = JsonResponse(context, status=200)
+    return response
+
+def new_json_viewitem(request, i_uuid):
+    i_uuid = str(i_uuid).strip().replace("/", "")
+    context = {}
+    if not is_valid_uuid(i_uuid):
+        return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
+
+    request, context = sort_order(request, context)
+    context["uuid"] = i_uuid
+    context["user"] = request.user
+    response = render(request,
+                      "frontend/gallery_json_item.jinja",
+                      context,
+                      using="Jinja2")
+    patch_vary_headers(response, ["sort-%s" % context["sort"]])
+    return response
+
+
 @vary_on_headers('User-Agent', 'Cookie', 'Request')
 def new_viewitem(request, i_uuid):
     i_uuid = str(i_uuid).strip().replace("/", "")
@@ -251,12 +353,12 @@ def new_viewitem(request, i_uuid):
             context["html"] = bleach.linkify("\n".join(open(filename).readlines()))
         else:
             context["html"] = "<br>".join(open(filename, encoding="latin-1"))
-            
+
 #    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
     context["up_uri"] = entry.fqpndirectory.lower()
     while context["up_uri"].endswith("/"):
         context["up_uri"] = context["up_uri"][:-1]
-        
+
     context["fromtimestamp"] = datetime.datetime.fromtimestamp
     read_from_disk(context["webpath"].strip(), skippable=True)
     catalog_qs = get_db_files(context["sort"], context["webpath"])
@@ -296,21 +398,21 @@ def new_viewitem(request, i_uuid):
     return response
 
 
-def download(request, filename=None):
+def downloadFile(request, filename=None):
     """
-    Replaces new_download.  
-    
+    Replaces new_download.
+
     This now takes http://<servername>/downloads/<filename>?UUID=<uuid>
-    
+
     This fakes the browser into displaying the filename as the title of the
-    download.  
-    
+    download.
+
     """
     # Is this from an archive?  If so, get the Page ID.
     d_uuid=request.GET.get("UUID", None)
-    if d_uuid == None:
+    if d_uuid is None:#== None:
         d_uuid=request.GET.get("uuid", None)
-    
+
     if d_uuid in ["", None]:
         raise Http404
 
@@ -324,7 +426,7 @@ def download(request, filename=None):
 
     print("\tDownloading - %s, %s" % (download.fqpndirectory.lower(),
                                       download.name))
-                                      
+
     movie = download.filetype.is_movie
     return respond_as_inline(request,
                                  "%s%s%s" % (
@@ -345,7 +447,7 @@ def new_download(request, d_uuid=None):
         print ("Attempting to find page %s in archive" % page)
     print("\tDownloading - %s, %s" % (download.fqpndirectory.lower(),
                                       download.name))
-                                      
+
     movie = download.filetype.is_movie
     return respond_as_inline(request,
                                  "%s%s%s" % (

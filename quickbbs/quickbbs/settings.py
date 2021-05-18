@@ -70,7 +70,7 @@ if DEBUG_TOOLBAR:
     INSTALLED_APPS += ('debug_toolbar',)
 
 STATIC_URL = '/static/'
-    
+
 INSTALLED_APPS = []
 INSTALLED_APPS += [
     'grappelli',

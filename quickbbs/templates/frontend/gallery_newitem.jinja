@@ -1,158 +1,223 @@
-{% extends 'frontend/gallery_base.jinja' %}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="content-type" content="text/html; charset=utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.8.2/css/bulma.min.css">
+    <script defer src="https://use.fontawesome.com/releases/v5.3.1/js/all.js"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery.lazy/1.7.9/jquery.lazy.min.js"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery.lazy/1.7.9/jquery.lazy.plugins.min.js"></script>
+    <title>{% block title %} {{ item.name }} {% endblock %}</title>
+</head>
 
-{% block title %}
-{{item.name }}
-{% endblock %}
+<body>
+<nav class="navbar is-light" role="navigation" aria-label="main navigation">
+    <div class="navbar-brand">
+        <a class="navbar-item" href="{{ url('home') }}">
+            <img src="https://bulma.io/images/bulma-logo.png" width="112" height="28">
+        </a>
+    </div>
 
-{% block content %}
- <!-- cdnjs -->
-    <div class="container" style="width:99%">
-      <div class="row">
+    <div class="navbar-menu">
+        <div class="navbar-start">
+            <a class="navbar-item">
+                Name
+            </a>
+            <a class="navbar-item">
+                File
+            </a>
+            <a class="navbar-item" href="javascript:window.print()">
+                Print
+            </a>
+        </div>
 
-        <!-- sidebar -->
-        <div class="col-xs-6 col-sm-3" id="sidebar" role="navigation">
-            <div class="pagination">
-                <p align=center><a href="{{ up_uri }}?page=1&sort={{sort}}">{{icon('arrow-up fa-2x') }}</a></p>
-                <br>
-                <a href="/view_item/{{first}}?sort={{sort}}">
-                    <p align=center>{{icon('angle-double-left fa-3x') }}</a>
-                <br>
+        <div class="navbar-end">
+            <div class="navbar-item">
+                <form>
+                    <div class="field has-addons">
+                        <div class="control">
+                            <input class="input" type="text" placeholder="Title">
+                        </div>
+                        <div class="control">
+                            <button type="submit" class="button is-link">Search</button>
+                        </div>
+                    </div>
+                </form>
+            </div>  <!-- Navbar Item -->
+        </div>  <!-- Navbar End -->
+        <div class="navbar-item has-dropdown is-hoverable">
+            <a class="navbar-link">
+              {% if user.username == '' %}
+                    {{ icon("users fa-2x")}}
+              {% else %}
+                    {{ user.username }}
+              {% endif %}
+            </a>
+            <div class="navbar-dropdown is-boxed is-right">
+                <a class="navbar-item" href="/Admin">Administrator Access</a>
+                <hr class="navbar-divider">
+                <a class="navbar-item" href="/Admin/password_change">Password Change</a>
+                <hr class="navbar-divider">
+                <a class="navbar-item" href="/Admin/logout">Logout</a>
+            </div>
+        </div>
+
+    </div> <!-- Navbar Menu -->
+</nav>
+
+<div class="container is-fluid" style="margin-left:0px;padding-left:2px;padding-right:2px;">
+    <div class="columns is-mobile">
+
+        <!--         Sidebar -->
+        <div class="column is-1 is-narrow" style="border:2px solid black;position: fixed;">
+           <p align=center><a href="{{ up_uri }}?page=1&sort={{sort}}">{{ icon("arrow-up fa-2x")}}</a></p>
+                <hr style="padding:2px;margin:2px">
+                <a href="/view_item/{{ first }}">
+                    <p align=center>{{ icon("angle-double-left fa-3x")}}</a></p>
+                <hr style="padding:2px;margin:2px">
                 <span class="step-links">
                     {% if previous %}
-                        <a href="/view_item/{{ previous }}?sort={{sort}}">
-                            <p align=center>{{ icon ('angle-left fa-3x') }}</a>
+                        <a href="/view_item/{{previous}}?sort={{sort}}">
+                        <p align=center>{{ icon("angle-left fa-3x")}}</a></p>
                     {% else %}
-                            <img width="70%" height="50%" src="/resources/images/gtk_media_empty.png"/>
+                            <p align=center><img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/></p>
                     {% endif %}
-                </span>
-                <br>
-                    <span class="current">
-                        <center>Page<br>{{ page }}<br>of<br>{{ pagecount }}.</center>
-                    </span>
-                <br>
+                <hr style="padding:2px;margin:2px">
+                <center>
+                    Page <br>
+                    {{ page }}<br>
+                    of<br>
+                    {{ pagecount }}
+                    </center>
+                <hr style="padding:2px;margin:2px">
 
                     {% if next %}
-                        <a href="/view_item/{{ next }}?sort={{sort}}">
-                            <p align=center>{{ icon('angle-right fa-3x') }}</a> <br>
-
+                        <a href="/view_item/{{next}}?sort={{sort}}">
+                        <p align=center>{{ icon("angle-right fa-3x")}}</a></p>
+                <hr style="padding:2px;margin:2px">
                         <a href="/view_item/{{ next }}?sort={{sort}}" target="_blank">
-                            <p align=center>{{ icon('fas fa-external-link-alt fa-3x') }}</a></p>
-
-                    {% else %}
-                            <img width="70%" height="50%" src="/resources/images/gtk_media_empty.png"/>
+                        <p align=center>{{ icon('fas fa-external-link-alt fa-3x') }}</a></p>
+                   {% else %}
+                            <img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/>
+                            <img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/>
                     {% endif %}
-                <br>
+                <hr style="padding:2px;margin:2px">
+
                 <a href="/view_item/{{ last }}?sort={{sort}}">
-                            <p align=center>{{ icon('angle-double-right fa-3x') }}</a>
+                        <p align=center>{{ icon("angle-double-right fa-3x")}}</a></p>
+                <hr style="padding:2px;margin:2px">
                 <a href="/download/{{item.name}}?UUID={{item.uuid}}">
                 <p align=center>{{ icon('arrow-down fa-3x') }}</a>
-
                 </span>
-                <br>
-                    <form action="/view_item/{{ item.uuid }}" method="GET">
-                    {% csrf_token %}
-                        <input type="hidden" id="page" name="page" value="{{page}}">
+                <hr style="padding:2px;margin:2px">
+                <center>
+                    <form action="" method="GET">
+                        <input type="hidden" id="page" name="page" value="{{current_page}}">
                         <select name="sort" onchange='this.form.submit()'>
                             <option value="0" {% if sort == 0 %}selected{% endif %}>A..Z</option>
                             <option value="1" {% if sort == 1 %}selected{% endif %}>LastM</option>
                             <option value="2" {% if sort == 2 %}selected{% endif %}>CTime</option>
                         </select>
-            </div>
-        </div>
-<!-- main area -->
-        {% if mobile == True %}
-            {% set imagesize = 'medium' %}
-        {% else %}
-            {% set imagesize = 'large' %}
-        {% endif %}
+                    </form></center>
+        </div>    <!--         Sidebar -->
 
-         <div class="container-fluid" width="99%" style="margin-left: 45px;margin-right:1px;border: 1px solid;width=100%;left-pad:2px;right-pad:2px;background:#b0e2ff;">
-             <center>
-             <table border=0 width="98%">
-                <tr>
-                    <td align=left width=99%> 
+
+        <div class="column is-12">  <!-- Folder Navigation & Breadcrumbs -->
+            <div class="columns is-mobile is-centered is-gapless is-narrow"  style="padding:0px;margin-bottom:1px;margin-top:1px;">
+                <div class="column is-2"></div>
+                <div class="column-fluid has-text-centered">
+                   <nav class="breadcrumb is-small" aria-label="breadcrumbs">
+                        <ul>
                         {% for name, url, link in breadcrumbs %}
-                            <a href='{{url}}'>{{name}}</a> ->  
+                            <li><a href='{{url}}'>{{name}}</a></li>
                         {% endfor %}
-                        <b>{{ item.name|wordwrap(width=50,break_long_words=True) }}</b>
-                    </td>
-                </tr>
+                        <li class="is-active"><b>{{ item.name|wordwrap(width=50,break_long_words=True) }}</b></li>
+                        </ul>
+                   </nav>
+                </div>
+            </div><!-- Folder Navigation & Breadcrumbs -->
 
-             </table>
-                <div class="row">
-                        <div class="thumbnail">
-                            <center>
-                            {% if item.filetype.is_pdf %}
-                                <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{ item.uuid }}?size={{imagesize}}&pdf" style="height:auto;max-width:100%;"/>
-                            {% endif %}
-                            {% if item.filetype.is_image %}
-                                {% if not item.is_animated %}
-                                        {% if mobile == True %}
-                                            <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{ item.uuid }}?size=medium{% if item.is_pdf %}&pdf{% elif item.is_archive %}&arch{% else%}{% endif %}" style="height:auto;max-width:100%;"/>
-                                        {% else %}
-                                            <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{ item.uuid }}?size=large{% if item.is_pdf %}&pdf{% elif item.is_archive %}&arch{% else%}{% endif %}" style="height:auto;max-width:100%;"/>
-                                        {% endif %}
+
+            <div class="columns is-mobile is-gapless is-centered has-text-centered is-narrow"  style="padding:1px;margin-bottom:1px;margin-top:1px;">
+                <div class="column is-1 is-narrow"  style="padding:1px;margin-bottom:1px;margin-top:1px;">
+                </div>
+                <div class="column is-11 is-narrow is-gapless" style="border:1px solid black;margin-bottom:1px;margin-top:1px;">
+                    <div class="columns is-mobile  is-multiline is-gapless is-centered has-text-centered"  style="margin-bottom:0px;margin-top:0px;background-color:#{{item.filetype.color}};">
+                               {% if mobile == True %}
+                                    {% set imagesize = 'medium' %}
                                 {% else %}
-                                        <img class="lazy" src="/resources/images/loading17.gif" data-src="/download/{{item.name}}?uuid={{ item.uuid }}" style="height:auto;max-width:100%;"/>
+                                    {% set imagesize = 'large' %}
                                 {% endif %}
-                            {% endif %}
-                            {% if item.filetype.fileext in [".html", ".txt"] %}
-                            <div align=left>
-                                {{ html | safe}}
-                            </div>
-                            {% endif %}
-                            {% if item.filetype.is_movie %}
- <video class="video-js" data-setup='{}' controls>
-  <source src="/download/{{item.name}}?uuid={{ item.uuid }}" type="video/mp4">
-</video>
-                            {% endif %}
-                            <table border=0 width=90%>
-                                <tr>
-                                    <td width=30% align=left>
-                                        {% if item.size not in [0, None, ""] %}
-                                            <b>File Size: </b>{{ item.size }}<br>
-                                        {% endif %}
-                                    </td>
-                                    <td width=30% align=left>
-                                        <b>Last Modified: </b>{{fromtimestamp(item.lastmod).strftime("%m/%d/%y %H:%M:%S")}}<br>
-                                    </td>
-                                    <td width=30% align=left>
-                                        <small><b>UUID:</b> {{item.uuid}}</small>
-                                    </td>
-                                </tr>
-                            </table>
-                            </center>
-                        </div> <!--- Thumbnail --->
+
+                                 <div class="container-fluid" width="99%" style="margin-left: 1px;margin-right:1px;border: 1px solid;width=100%;left-pad:2px;right-pad:2px;">
+                                     <center>
+                                        <div class="row is-centered has-text-centered">
+                                                <div class="thumbnail" style="background-color:#{{item.filetype.color}};">
+                                                    <center>
+                                                    {% if item.filetype.is_pdf %}
+                                                        <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{ item.uuid }}?size={{imagesize}}&pdf" style="height:auto;max-width:100%;"/>
+                                                    {% endif %}
+                                                    {% if item.filetype.is_image %}
+                                                        {% if not item.is_animated %}
+                                                                {% if mobile == True %}
+                                                                    <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{ item.uuid }}?size=medium{% if item.is_pdf %}&pdf{% elif item.is_archive %}&arch{% else%}{% endif %}" style="height:auto;max-width:100%;"/>
+                                                                {% else %}
+                                                                    <img class="lazy" src="/resources/images/loading17.gif" data-src="/thumbnails/{{ item.uuid }}?size=large{% if item.is_pdf %}&pdf{% elif item.is_archive %}&arch{% else%}{% endif %}" style="height:auto;max-width:100%;"/>
+                                                                {% endif %}
+                                                        {% else %}
+                                                                <img class="lazy" src="/resources/images/loading17.gif" data-src="/download/{{item.name}}?uuid={{ item.uuid }}" style="height:auto;max-width:100%;"/>
+                                                        {% endif %}
+                                                    {% endif %}
+                                                    {% if item.filetype.fileext in [".html", ".txt"] %}
+                                                    <div align=left>
+                                                        {{ html | safe}}
+                                                    </div>
+                                                    {% endif %}
+                                                    {% if item.filetype.is_movie %}
+                         <video class="video-js" data-setup='{}'  style="height:auto;max-width:100%;" controls>
+                          <source src="/download/{{item.name}}?UUID={{item.uuid}}" type="video/mp4">
+                        </video>
+                                                    {% endif %}
+                                                    <div class="columns is-multiline" style="padding:1px">
+                                                        <div class="column is-one-half" style="padding:1px">
+                                                                <b>Last Modified: </b>
+                                                                {{fromtimestamp(item.lastmod).strftime("%m/%d/%y %H:%M:%S")}}
+                                                        </div>
+                                                        <div class="column is-one-half"  style="padding:1px">
+                                                                {% if item.size not in [0, None, ""] %}
+                                                                    <b>File Size: </b>{{ item.size }}
+                                                                {% endif %}
+                                                        </div>
+                                                        <div class="column is-12 is-narrow" style="padding:1px">
+                                                                <b>UUID:</b><font class="is-size-7">{{item.uuid}}</font>
+                                                        </div>
+
+                                                    </center>
+                                                </div> <!--- Thumbnail --->
+                    </div>
+                </div>
             </div>
 
-
-        </div><!-- /.col-xs-12 main -->
-                    </div><!--/.row-->
-                  </div><!--/.container-->
-                </div><!--/.page-container-->
-                      </center>
+        </div>
+    </div>
 
 
-
-<script>
-
-var current_offset = 0
-var next_offset = current_offset + 1
-var previous_offset = current_offset - 1
-
-function docWrite(variable) {
-    document.write(variable);
-}
-
-
-
-$(function() {
-        $('img.lazy').lazy({
-            delay: 0,
-            visibleOnly: true
-        });
-    });
+</div>
+<script >
+$(function($) {
+    $("img.lazy").Lazy({
+    scrollDirection: 'vertical',
+        effect: 'fadeIn',
+        visibleOnly: true,
+        delay: 300,
+        threshold: 200,
+        combined: true
+});
+});
 </script>
-    </body>
+
+</body>
 </html>
-{% endblock %}
