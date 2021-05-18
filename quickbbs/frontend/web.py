@@ -7,12 +7,11 @@ from __future__ import absolute_import, print_function, unicode_literals
 import mimetypes
 import os
 import io
-from django.http import (HttpResponse, Http404, FileResponse, StreamingHttpResponse)
-from django.conf import settings
+from django.http import (HttpResponse, Http404, FileResponse)#, StreamingHttpResponse)
+#from django.conf import settings
 from django.contrib.auth import authenticate, login
 from ranged_response import RangedFileResponse
 
-import os
 
 
 def verify_login_status(request, force_login=False):
@@ -100,37 +99,36 @@ def return_img_attach(filename, binaryblob, fext_override=None, use_ranged=False
 
 
     """
-    #response = HttpResponse()
-    #response.write(binaryblob)
-    #response['Content-Disposition'] = 'attachment; filename={%s}' % filename
-    #return response
     # https://stackoverflow.com/questions/36392510/django-download-a-file
-    # https://stackoverflow.com/questions/27712778/video-plays-in-other-browsers-but-not-safari
-    # https://stackoverflow.com/questions/720419/how-can-i-find-out-whether-a-server-supports-the-range-header
-    basename, fext = os.path.splitext(filename)
-    if fext_override != None:
+    # https://stackoverflow.com/questions/27712778/
+    #               video-plays-in-other-browsers-but-not-safari
+    # https://stackoverflow.com/questions/720419/
+    #               how-can-i-find-out-whether-a-server-supports-the-range-header
+    basename = os.path.splitext(filename)[0]
+    if fext_override is not None:
         mimetype_filename = os.path.join(basename, fext_override)
     else:
         mimetype_filename = filename
 #    mtype, encoding = mimetypes.guess_type(filename)
-    mtype, encoding = mimetypes.guess_type(mimetype_filename)
+    mtype = mimetypes.guess_type(mimetype_filename)[0]
     if mtype is None:
         mtype = 'application/octet-stream'
 
     if use_ranged:
-        response = RangedFileResponse(request, file=open(filename, 'rb'), as_attachment=False, filename=os.path.basename(filename))
+        response = RangedFileResponse(request, file=open(filename, 'rb'),
+                                      as_attachment=False,
+                                      filename=os.path.basename(filename))
         response["Content-Type"] = mtype
         response['Content-Length'] = len(binaryblob)
 #        return response
     else:
-        response = FileResponse(io.BytesIO(binaryblob), content_type=mtype, as_attachment=False, filename=filename)
+        response = FileResponse(io.BytesIO(binaryblob),
+                                content_type=mtype,
+                                as_attachment=False,
+                                filename=filename)
+        response["Content-Type"] = mtype
         response['Content-Length'] = len(binaryblob)
-    return response    
-        #response = RangedFileResponse(request, file=open(filename, 'rb'), as_attachment=False, filename=os.path.basename(filename))
-#        response = RangedFileResponse(request, file=open(filename, 'rb'), as_attachment=False, filename=os.path.basename(filename))
-#        response["Content-Type"] = mtype
-#        return response
-#    raise Http404
+    return response
 
 
 def img_attach_file(filename, fqfn):
@@ -189,37 +187,41 @@ def file_inline(filename, fqfn):
 
 def respond_as_inline(request, file_path, original_filename, ranged=False):
     # https://stackoverflow.com/questions/36392510/django-download-a-file
-    # https://stackoverflow.com/questions/27712778/video-plays-in-other-browsers-but-not-safari
-    # https://stackoverflow.com/questions/720419/how-can-i-find-out-whether-a-server-supports-the-range-header
+    # https://stackoverflow.com/questions/27712778/
+        #       video-plays-in-other-browsers-but-not-safari
+    # https://stackoverflow.com/questions/720419/
+                # how-can-i-find-out-whether-a-server-supports-the-range-header
     filename = os.path.join(file_path, original_filename)
     if os.path.exists(filename):
-        mtype, encoding = mimetypes.guess_type(original_filename)
+        mtype = mimetypes.guess_type(original_filename)[0]
         if mtype is None:
             mtype = 'application/octet-stream'
 
         with open(filename, 'rb') as fh:
             if ranged:
-                #response = RangedFileResponse(request, file=open(filename, 'rb'), as_attachment=False, filename=os.path.basename(filename))
-                response = RangedFileResponse(request, file=open(filename, 'rb'), as_attachment=False, filename=original_filename)
+                response = RangedFileResponse(request, file=open(filename, 'rb'),
+                                              as_attachment=False,
+                                              filename=original_filename)
                 response["Content-Type"] = mtype
             else:
                 response = HttpResponse(fh.read(), content_type=mtype)
-#                response['Content-Disposition'] = 'inline; filename=' + os.path.basename(file_path)
-                #response['Content-Disposition'] = 'inline; filename="%s"'% original_filename
                 response['Content-Disposition'] = 'inline; filename=%s'% original_filename
-        return response    
-    else:
-        print("File not found")
+        return response
+#    else:
+#        print("File not found")
     raise Http404
 
 def respond_as_attachment(request, file_path, original_filename):
     filename = os.path.join(file_path, original_filename)
     if os.path.exists(filename):
-        mtype, encoding = mimetypes.guess_type(filename)
+        mtype = mimetypes.guess_type(filename)[0]
         if mtype is None:
             mtype = 'application/octet-stream'
-        response = FileResponse(open(filename, 'rb'), content_type=mtype, as_attachment=True, filename=filename)
-    return response    
+        response = FileResponse(open(filename, 'rb'),
+                                content_type=mtype,
+                                as_attachment=True,
+                                filename=filename)
+    return response
 
 
 # def respond_as_attachment(request, file_path, original_filename):

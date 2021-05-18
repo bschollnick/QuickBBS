@@ -1,6 +1,38 @@
 #from __future__ import unicode_literals
 from django.contrib.auth.models import User
 from django.db import models
+from django.urls import reverse
+import uuid
+
+def is_valid_uuid(uuid_to_test, version=4):
+    """
+    Check if uuid_to_test is a valid UUID.
+    https://stackoverflow.com/questions/19989481
+
+    Args:
+        uuid_to_test (str) - UUID code to validate
+        version (int) - UUID version to validate against (eg  1, 2, 3, 4)
+
+    Returns:
+        boolean::
+            `True` if uuid_to_test is a valid UUID, otherwise `False`.
+
+    Raises:
+        None
+
+    Examples
+    --------
+    >>> is_valid_uuid('c9bf9e57-1685-4c89-bafb-ff5af830be8a')
+    True
+    >>> is_valid_uuid('c9bf9e58')
+    False
+    """
+    try:
+        uuid_obj = uuid.UUID(uuid_to_test, version=version)
+    except:
+        return False
+
+    return str(uuid_obj) == uuid_to_test
 
 class filetypes(models.Model):
     fileext = models.CharField(primary_key=True,
@@ -29,9 +61,24 @@ class filetypes(models.Model):
     def __unicode__(self):
         return u'%s' % self.fileext
 
-class Meta:
-        verbose_name = u'File Type'
-        verbose_name_plural = u'File Types'
+    def return_filetype(self, fileext):
+        """
+            fileext = gif, jpg, mp4 (lower case, and without prefix .)
+        """
+        fileext = fileext.lower()
+
+        if fileext.startswith("."):
+            fileext = fileext[1:]
+
+        if fileext in ['', None, 'unknown']:
+            fileext = ".none"
+
+        return filetypes.objects.filter(fileext=fileext)
+
+
+    class Meta:
+            verbose_name = u'File Type'
+            verbose_name_plural = u'File Types'
 
 class owners(models.Model):
     id = models.AutoField(primary_key=True)
@@ -94,7 +141,7 @@ class Thumbnails_Large(models.Model):
         verbose_name = u'Image File Large Thumbnail Cache'
         verbose_name_plural = u'Image File Large Thumbnails Cache'
 
-        
+
 class Thumbnails_Files(models.Model):
     id = models.AutoField(primary_key=True, db_index=True)
     uuid = models.UUIDField(
@@ -191,6 +238,33 @@ class index_data(models.Model):
         owners, on_delete=models.CASCADE, db_index=True, default=None, null=True, blank=True
     )
 
+
+#     def find_by_uuid(self, i_uuid=None):
+#         i_uuid = str(i_uuid).strip().replace("/", "")
+#         if not is_valid_uuid(i_uuid):
+#             return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
+#         self.objects.find(uuid=i_uuid)
+    def get_bg_color(self):
+        return self.filetype.color
+
+    def get_view_url(self):
+        options = {}
+        options["i_uuid"] = str(self.uuid)
+
+        parameters = []
+        parameters.append("?small")
+        if self.filetype.is_pdf:
+            parameters.append("&pdf")
+        elif self.filetype.is_archive:
+            parameters.append("&arch")
+        if self.filetype.is_dir:
+            return reverse('home')+self.fqpndirectory
+        else:
+            return reverse('new_viewitem', kwargs=options)+"".join(parameters)
+
+
+    def get_download_url(self):
+        return reverse('download', kwargs={"filename":self.name})+"?UUID="+str(self.uuid)
                                     # null = System Owned
     class Meta:
         verbose_name = u'Master Index'
