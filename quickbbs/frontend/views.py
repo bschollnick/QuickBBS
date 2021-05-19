@@ -9,7 +9,7 @@ import logging
 import os
 import os.path
 import sys
-#import time
+import time
 #import uuid
 import warnings
 #from itertools import chain
@@ -226,22 +226,19 @@ def new_viewgallery(request):
     return response
 
 def item_info(request, i_uuid):
-    i_uuid = str(i_uuid).strip().replace("/", "")
+    start_time = time.time()
+    e_uuid = str(i_uuid).strip().replace("/", "")
     context = {}
-    if not is_valid_uuid(i_uuid):
+    if not is_valid_uuid(e_uuid):
         return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
 
     request, context = sort_order(request, context)
-    e_uuid = i_uuid
-    index_qs = index_data.objects.filter(uuid=e_uuid)
-    entry = index_qs[0]
-#    context["user"] = request.user
+    entry = index_data.objects.filter(uuid=e_uuid)[0]
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
     breadcrumbs = return_breadcrumbs(context["webpath"])
     context["breadcrumbs"] = ""
     for pt_name, pt_url, pt_html in breadcrumbs:
         context["breadcrumbs"] += r"<li>%s</li>" % pt_html
-#    context["breadcrumbs"] = "</li><li>".join(context["breadcrumbs"])
     if entry.filetype.fileext in [".txt", ".html", ".htm"]:
          filename = configdata["locations"]["albums_path"] +  \
             context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
@@ -252,12 +249,10 @@ def item_info(request, i_uuid):
     else:
         context["html"] = ""
 
-#    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
     context["up_uri"] = entry.fqpndirectory.lower()
     while context["up_uri"].endswith("/"):
         context["up_uri"] = context["up_uri"][:-1]
 
-    #context["fromtimestamp"] = datetime.datetime.fromtimestamp
     read_from_disk(context["webpath"].strip(), skippable=True)
     catalog_qs = get_db_files(context["sort"], context["webpath"])
     context["page"] = 1
@@ -299,18 +294,10 @@ def item_info(request, i_uuid):
     else:
          context["previous_uuid"] = ""
 
-#     if context["page_contents"].has_next():
-#         context["next"] = catalog_qs[context["page_contents"].next_page_number()-1].uuid
-#     else:
-#         context["next"] = ""
-#
-#     if context["page_contents"].has_previous():
-#         context["previous"] = catalog_qs[context["page_contents"].previous_page_number()-1].uuid
-#     else:
-#         context["previous"] = ""
 
     context["first_uuid"] = catalog_qs[0].uuid
     context["last_uuid"] = catalog_qs[catalog_qs.count()-1].uuid
+    print ("Process time: ", time.time()-start_time, "secs")
     response = JsonResponse(context, status=200)
     return response
 

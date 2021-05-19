@@ -81,12 +81,12 @@
                 <hr style="padding:2px;margin:2px">
 
                 <p align=center>
-                <a href="" id="first_uuid">
+                <a href="" id="first_uuid" onclick="#">
                     {{ icon("angle-double-left fa-3x")}}</a></p>
                 <hr style="padding:2px;margin:2px">
 
                 <p align=center id="previous_icon">
-                        <a href="" id="previous_uuid">
+                        <a href="" id="previous_uuid" onclick="#">
                         {{ icon("angle-left fa-3x")}}</a></p>
                 <hr style="padding:2px;margin:2px">
                 <center>
@@ -97,7 +97,7 @@
                 <hr style="padding:2px;margin:2px">
 
                 <p align=center>
-                        <a  id="next_uuid">
+                        <a  id="next_uuid" onclick="#">
                         {{ icon("angle-right fa-3x")}}</a></p>
 
                 <hr style="padding:2px;margin:2px">
@@ -108,7 +108,7 @@
                 <hr style="padding:2px;margin:2px">
 
                 <p align=center>
-                <a id="last_uuid">
+                <a id="last_uuid" onclick="#">
                         {{ icon("angle-double-right fa-3x")}}</a></p>
                 <hr style="padding:2px;margin:2px">
 
@@ -187,7 +187,7 @@
 
 <script>
 var setDATA = function(data) {
-    var command = "/view_json_item/"
+    var command = "/view_item/"
     console.log("Setting Title")
     if (data.mobile){
         var imagesize = "medium"
@@ -195,47 +195,75 @@ var setDATA = function(data) {
     else {
         var imagesize = "large"}
 
+    window.history.pushState(data.filename, data.filename, command + data.uuid + "?sort="+data.sort);
+    document.getElementById("next_uuid").click = null
+    document.getElementById("next_uuid").onclick = null
+
+//    next_uuid = document.getElementById("next_uuid")
+//    next_uuid.removeAttribute("href")
+//    next_uuid.removeAttribute("onclick")
+//    next_uuid.removeAttribute("click")
+
     document.title = data.filename
-    document.getElementById("title").outerHTML = data.filename
+    document.getElementById("title").innerHTML = data.filename
     document.getElementById("breadcrumbs").innerHTML = data.breadcrumbs
-    document.getElementById("up_uri").href = data.up_uri+'?page=99&sort=' + data.sort
+    document.getElementById("up_uri").href = data.up_uri+'?page='+data.page+'&sort=' + data.sort
 
     console.log("Setting Previous block")
-    document.getElementById("first_uuid").href = command + data.first_uuid + '?sort='+data.sort
-    document.getElementById("last_uuid").href = command + data.last_uuid + '?sort='+data.sort
-    document.getElementById("previous_uuid").href = command + data.previous_uuid + '?sort='+data.sort
+//    document.getElementById("first_uuid").href = command + data.first_uuid + '?sort='+data.sort
+    document.getElementById("first_uuid").onclick = function (){loadDATA(data.first_uuid, data.sort);return false;}
+//    document.getElementById("last_uuid").href = command + data.last_uuid + '?sort='+data.sort
+    document.getElementById("last_uuid").onclick = function (){loadDATA(data.last_uuid, data.sort);return false;}
+//    document.getElementById("previous_uuid").href = command + data.previous_uuid + '?sort='+data.sort
+    document.getElementById("previous_uuid").onclick = function (){loadDATA(data.previous_uuid, data.sort);return false;}
 
     console.log("Setting next block")
-    document.getElementById("next_uuid").href = command + data.next_uuid + '?sort='+data.sort
+//    document.getElementById("next_uuid").href = command + data.next_uuid + '?sort='+data.sort
+
+    //document.getElementById("next_uuid").addEventListener('click', function(){loadDATA(data.next_uuid, data.sort); return false});
+    document.getElementById("next_uuid").onclick = function (){loadDATA(data.next_uuid, data.sort);return false;}
+    //$('#myLink').click(loadDATA(data.next_uuid, data.sort));
+    //command + data.next_uuid + '?sort='+data.sort
+
     document.getElementById("next_tab_uuid").href = command + data.next_uuid + '?sort='+data.sort
     console.log(data.page, data.page == 1, data.page == "1")
-    if (data.pagex== 1){
-        document.getElementById("first_uuid").style.visibility = "hidden"
-        }
 
     if (data.pagecount == data.page){
         document.getElementById("next_tab_uuid").style.visibility = "hidden"
         document.getElementById("last_uuid").style.visibility = "hidden"
         }
+    else {
+        document.getElementById("next_tab_uuid").style.visibility = "visible"
+        document.getElementById("last_uuid").style.visibility = "visible"
+    }
 
 
     console.log("Setting download block")
     document.getElementById("download_uri").href = '/download/'+data.filename+'?UUID='+data.uuid
 
-    document.getElementById("uuid").outerHTML = data.uuid
-    document.getElementById("file_size").outerHTML = data.filesize
-    document.getElementById("last_mod").outerHTML = data.lastmod_ds
+    document.getElementById("uuid").innerHTML = data.uuid
+    document.getElementById("file_size").innerHTML = data.filesize
+    document.getElementById("last_mod").innerHTML = data.lastmod_ds
 
 
     console.log("Setting hiding block")
     if (data.previous_uuid == "") {
         document.getElementById("previous_icon").style.visibility = "hidden";
         document.getElementById("first_uuid").style.visibility = "hidden";}
+    else {
+        document.getElementById("previous_icon").style.visibility = "visible";
+        document.getElementById("first_uuid").style.visibility = "visible";
+    }
+
     if (data.next_uuid == "") {
         document.getElementById("next_uuid").style.visibility = "hidden";
         document.getElementById("last_uuid").style.visibility = "hidden";}
+    else {
+        document.getElementById("next_uuid").style.visibility = "visible";
+        document.getElementById("last_uuid").style.visibility = "visible";
+    }
 
-    document.getElementById("pages").outerHTML = "Page<br>"+data.page+"<br>of<br>"+data.pagecount
+    document.getElementById("pages").innerHTML = "Page<br>"+data.page+"<br>of<br>"+data.pagecount
     document.getElementById("item_frame").style.backgroundColor = "#"+data.ft_color
     document.getElementById("thumbnail_frame").style.backgroundColor = "#"+data.ft_color
     var filetype = ""
@@ -244,7 +272,7 @@ var setDATA = function(data) {
     if (data.html!=""){
         document.getElementById("movie_frame").style.display = "none"
         document.getElementById("thumbnail_frame").style.display = "none"
-        document.getElementById("text_frame").outerHTML = data.html
+        document.getElementById("text_frame").innerHTML = data.html
     }
     else if (data.ft_is_movie){
         document.getElementById("text_frame").style.display = "none"
@@ -310,6 +338,23 @@ getJSON('http://nerv.local:8888/info/{{uuid}}?sort={{sort}}',  function(err, dat
         setDATA(data)
     }
 });
+
+var loadDATA = function(uuid, sort){
+    console.log("*",uuid, sort)
+    console.log('http://nerv.local:8888/info/'+uuid + '?sort='+sort)
+    getJSON('http://nerv.local:8888/info/'+uuid + '?sort='+sort,  function(err, data) {
+        console.log(err)
+        console.log(data)
+        if (err != null) {
+            console.error("error: ",err);
+        }
+        else
+        {
+            setDATA(data)
+        }
+    })
+    return false;
+};
 
 
 </script>
