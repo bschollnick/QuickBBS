@@ -90,31 +90,30 @@
                         {{ icon("angle-left fa-3x")}}</a></p>
                 <hr style="padding:2px;margin:2px">
                 <center>
-                    Page <br>
-                    {{ page }}<br>
-                    of<br>
-                    {{ pagecount }}
+                    <p id="pages">Page <br>
+                    <br>
+                    <br>
                     </center>
                 <hr style="padding:2px;margin:2px">
 
                 <p align=center>
-                        <a href="http://www.example.com" id="next_uuid">
+                        <a  id="next_uuid">
                         {{ icon("angle-right fa-3x")}}</a></p>
 
                 <hr style="padding:2px;margin:2px">
                 <p align=center>
-                        <a href="http://www.example.com" id="next_tab_uuid" target="_blank">
+                        <a  id="next_tab_uuid" target="_blank">
                         {{ icon('fas fa-external-link-alt fa-3x') }}</a></p>
 
                 <hr style="padding:2px;margin:2px">
 
                 <p align=center>
-                <a href="http://www.example.com" id="last_uuid">
+                <a id="last_uuid">
                         {{ icon("angle-double-right fa-3x")}}</a></p>
                 <hr style="padding:2px;margin:2px">
 
                 <p align=center>
-                <a  href="http://www.example.com" id="download_uri">
+                <a id="download_uri">
                 {{ icon('arrow-down fa-3x') }}</a>
 
                 <hr style="padding:2px;margin:2px">
@@ -132,7 +131,7 @@
 
         <div class="column is-12">  <!-- Folder Navigation & Breadcrumbs -->
             <div class="columns is-mobile is-centered is-gapless is-narrow"  style="padding:0px;margin-bottom:1px;margin-top:1px;">
-                <div class="column is-2"></div>
+                <div class="column is-1"></div>
                 <div class="column-fluid has-text-centered">
                    <nav class="breadcrumb is-small" aria-label="breadcrumbs">
                         <ul>
@@ -144,41 +143,45 @@
             </div><!-- Folder Navigation & Breadcrumbs -->
 
 
-            <div class="columns is-mobile is-gapless is-centered has-text-centered is-narrow"  style="padding:1px;margin-bottom:1px;margin-top:1px;">
-                <div class="column is-1 is-narrow"  style="padding:1px;margin-bottom:1px;margin-top:1px;">
-                </div>
-                <div class="column is-11 is-narrow is-gapless" style="border:1px solid black;margin-bottom:1px;margin-top:1px;">
-                    <div id ="item_frame" class="columns is-mobile  is-multiline is-gapless is-centered has-text-centered"  style="margin-bottom:0px;margin-top:0px;">
-                         <div class="container-fluid" width="99%" style="margin-left: 1px;margin-right:1px;border: 1px solid;width=100%;left-pad:2px;right-pad:2px;">
-                             <center>
-                                <div class="row is-centered has-text-centered">
-                                        <div class="thumbnail" id="thumbnail_frame" style="background-color:#FFFFFF">
-                                            <center><a href id="image_link">
-                                                <img id="display_image" style="height:auto;max-width:100%;"/></a>
-                                        </div>
-                                        <div class="thumbnail" id="movie_frame" style="background-color:#FFFFFF">
-                                                 <video id="movie_viewer" class="video-js" data-setup='{}'  style="height:auto;max-width:100%;" controls>
-                                                      <source type="video/mp4">
-                                                 </video>
-                                        </div>
-                                        <center>
-                                        <div class="columns is-multiline" style="padding:1px">
-                                            <div class="column is-one-half" style="padding:1px">
-                                                <b id="last_mod_head">Last Modified: </b>
-                                                <p id="last_mod"></p>
-                                            </div>
-                                            <div class="column is-one-half"  style="padding:1px">
-                                                <b id="file_size_head">File Size: </b>
-                                                <p id="file_size"></p>
-                                            </div>
-                                            <div class="column is-12 is-narrow" style="padding:1px" id="uuid_head">
-                                               <font class="is-size-7"> <b>UUID:</b><font id="uuid">dddd</font>
-                                            </div>
-                                        </div> <!--- Thumbnail --->
-                                        </center>
-                                </div>
-                        </div>
+            <div class="columns is-mobile is-gapless is-centered is-narrow"  style="padding:1px;margin-bottom:1px;margin-top:1px;">
+                    <div class="column is-1 is-narrow"  style="padding:1px;margin-bottom:1px;margin-top:1px;">
                     </div>
+                    <div class="column is-11 is-narrow is-gapless" style="border:1px solid black;margin-bottom:1px;margin-top:1px;">
+                        <div id ="item_frame" class="columns is-mobile  is-multiline is-gapless is-centered"  style="margin-bottom:0px;margin-top:0px;">
+                             <div class="container-fluid" width="99%" style="margin-left: 1px;margin-right:1px;border: 1px solid;width=100%;left-pad:2px;right-pad:2px;">
+                                    <div class="row">
+                                            <div class="has-text-left" id="text_frame" style=" text-align:left !important;background-color:#FFFFFF">
+                                                </center>
+                                                <p class="has-text-left" style=" text-align:left !important;" id="text_frame"></p>
+                                                <center>
+                                            </div>
+                                            <div class="thumbnail" id="thumbnail_frame" style="background-color:#FFFFFF">
+                                                <center><a href id="image_link">
+                                                    <img id="display_image" style="height:auto;max-width:auto;"/></a>
+                                            </div>
+                                            <div class="thumbnail" id="movie_frame" style="background-color:#FFFFFF">
+                                                     <video id="movie_viewer" class="video-js" data-setup='{}'  style="height:auto;max-width:100%;" controls>
+                                                          <source type="video/mp4">
+                                                     </video>
+                                            </div>
+                                            <center>
+                                            <div class="columns is-multiline" style="padding:1px">
+                                                <div class="column is-one-half" style="padding:1px">
+                                                    <b id="last_mod_head">Last Modified: </b>
+                                                    <p id="last_mod"></p>
+                                                </div>
+                                                <div class="column is-one-half"  style="padding:1px">
+                                                    <b id="file_size_head">File Size: </b>
+                                                    <p id="file_size"></p>
+                                                </div>
+                                                <div class="column is-12 is-narrow" style="padding:1px" id="uuid_head">
+                                                   <font class="is-size-7"> <b>UUID:</b><font id="uuid">dddd</font>
+                                                </div>
+                                            </div> <!--- Thumbnail --->
+                                            </center>
+                                    </div>
+                            </div>
+                        </div>
                 </div>
             </div>
 
@@ -186,6 +189,12 @@
 var setDATA = function(data) {
     var command = "/view_json_item/"
     console.log("Setting Title")
+    if (data.mobile){
+        var imagesize = "medium"
+        }
+    else {
+        var imagesize = "large"}
+
     document.title = data.filename
     document.getElementById("title").outerHTML = data.filename
     document.getElementById("breadcrumbs").innerHTML = data.breadcrumbs
@@ -193,12 +202,22 @@ var setDATA = function(data) {
 
     console.log("Setting Previous block")
     document.getElementById("first_uuid").href = command + data.first_uuid + '?sort='+data.sort
+    document.getElementById("last_uuid").href = command + data.last_uuid + '?sort='+data.sort
     document.getElementById("previous_uuid").href = command + data.previous_uuid + '?sort='+data.sort
 
     console.log("Setting next block")
     document.getElementById("next_uuid").href = command + data.next_uuid + '?sort='+data.sort
     document.getElementById("next_tab_uuid").href = command + data.next_uuid + '?sort='+data.sort
-    document.getElementById("last_uuid").href = command + data.last_uuid + '?sort='+data.sort
+    console.log(data.page, data.page == 1, data.page == "1")
+    if (data.pagex== 1){
+        document.getElementById("first_uuid").style.visibility = "hidden"
+        }
+
+    if (data.pagecount == data.page){
+        document.getElementById("next_tab_uuid").style.visibility = "hidden"
+        document.getElementById("last_uuid").style.visibility = "hidden"
+        }
+
 
     console.log("Setting download block")
     document.getElementById("download_uri").href = '/download/'+data.filename+'?UUID='+data.uuid
@@ -213,36 +232,41 @@ var setDATA = function(data) {
         document.getElementById("previous_icon").style.visibility = "hidden";
         document.getElementById("first_uuid").style.visibility = "hidden";}
     if (data.next_uuid == "") {
-        document.getElementById("next_icon").style.visibility = "hidden";
-        document.getElementById("next_tab_icon").style.visibility = "hidden";
+        document.getElementById("next_uuid").style.visibility = "hidden";
         document.getElementById("last_uuid").style.visibility = "hidden";}
 
+    document.getElementById("pages").outerHTML = "Page<br>"+data.page+"<br>of<br>"+data.pagecount
     document.getElementById("item_frame").style.backgroundColor = "#"+data.ft_color
     document.getElementById("thumbnail_frame").style.backgroundColor = "#"+data.ft_color
     var filetype = ""
     if (data.ft_is_archive) {filetype += "&arch"}
     if (data.ft_is_pdf) {filetype += "&pdf"}
-
-    console.log(data.ft_is_image)
-    console.log(data.ft_is_movie == false)
-    if (data.ft_is_movie==false){
+    if (data.html!=""){
         document.getElementById("movie_frame").style.display = "none"
+        document.getElementById("thumbnail_frame").style.display = "none"
+        document.getElementById("text_frame").outerHTML = data.html
+    }
+    else if (data.ft_is_movie){
+        document.getElementById("text_frame").style.display = "none"
+        document.getElementById("thumbnail_frame").style.display = "none"
+        document.getElementById("movie_viewer").src = '/download/'+data.filename+'?UUID='+data.uuid
         }
-
+    else if (data.ft_is_dir){
+        document.getElementById("image_link").href = data.webpath + data.filename +"?sort=" + data.sort
+        }
+    else if (data.ft_is_image){
+        console.log("processing image")
+        document.getElementById("text_frame").style.display = "none"
+        document.getElementById("movie_viewer").style.display = "none"
         if (data.ft_is_animated) {
                 document.getElementById("display_image").src = '/download/'+data.filename+'?UUID='+data.uuid
             } else {
-                document.getElementById("display_image").src = "/thumbnails/"+data.uuid+"?size=medium"+filetype
+                document.getElementById("display_image").src = "/thumbnails/"+data.uuid+"?size="+imagesize+filetype
             }
-
-    if (data.ft_is_movie){
-        document.getElementById("thumbnail_frame").style.display = "none"
-//        document.getElementById("thumbnail_frame").style.visibility = "hidden"
-        document.getElementById("movie_viewer").src = '/download/'+data.filename+'?UUID='+data.uuid
         }
 
-    if (data.ft_is_dir){
-        document.getElementById("image_link").href = data.webpath + data.filename +"?sort=" + data.sort
+    if (data.ft_is_movie==false){
+        document.getElementById("movie_frame").style.display = "none"
         }
 
 
@@ -274,12 +298,14 @@ getJSON('http://nerv.local:8888/info/{{uuid}}?sort={{sort}}',  function(err, dat
     if (err != null) {
         console.error(err);
     } else {
+        console.log(data.filename)
+        console.log("is movie", data.ft_is_movie)
+        console.log("is pdf", data.ft_is_pdf)
+        console.log("is image", data.ft_is_image)
+        console.log("is dir", data.ft_is_dir)
         console.log("previous uuid:",data.previous_uuid)
         console.log("next uuid:",data.next_uuid)
-        console.log(data.up_uri)
-        console.log(data.filename)
         console.log(data.breadcrumbs)
-        console.log(data.uuid)
         console.log("Sort:",data.sort)
         setDATA(data)
     }

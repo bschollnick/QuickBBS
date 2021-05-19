@@ -242,13 +242,15 @@ def item_info(request, i_uuid):
     for pt_name, pt_url, pt_html in breadcrumbs:
         context["breadcrumbs"] += r"<li>%s</li>" % pt_html
 #    context["breadcrumbs"] = "</li><li>".join(context["breadcrumbs"])
-    if entry.filetype.fileext in [".txt", ".html"]:
-        filename = configdata["locations"]["albums_path"] +  \
+    if entry.filetype.fileext in [".txt", ".html", ".htm"]:
+         filename = configdata["locations"]["albums_path"] +  \
             context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
-#         if entry.filetype.fileext in [".html"]:
-#             context["html"] = bleach.linkify("\n".join(open(filename).readlines()))
-#         else:
-#             context["html"] = "<br>".join(open(filename, encoding="latin-1"))
+         if entry.filetype.fileext in [".html"]:
+             context["html"] = bleach.linkify("\n".join(open(filename).readlines()))
+         else:
+             context["html"] = "<br>".join(open(filename, encoding="latin-1"))
+    else:
+        context["html"] = ""
 
 #    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
     context["up_uri"] = entry.fqpndirectory.lower()
@@ -285,10 +287,7 @@ def item_info(request, i_uuid):
     context["ft_is_pdf"] = entry.filetype.is_pdf
     context["ft_is_movie"] = entry.filetype.is_movie
     context["ft_is_dir"] = entry.filetype.is_dir
-    if detect_mobile(request):
-        context["imagesize"] = "medium"
-    else:
-        context["imagesize"] = "large"
+    context["mobile"] = detect_mobile(request)
 
     if page_contents.has_next():
         context["next_uuid"] = catalog_qs[page_contents.next_page_number()-1].uuid
