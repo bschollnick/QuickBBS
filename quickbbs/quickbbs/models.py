@@ -95,6 +95,11 @@ class Favorites(models.Model):
     id = models.AutoField(primary_key=True)
     uuid = models.UUIDField(default=None, null=True, editable=False, blank=True)
 
+class Cache_Tracking(models.Model):
+    DirName = models.CharField(db_index=True, max_length=384, default='', blank=True)   # FQFN of the file itself
+    lastscan = models.FloatField()   # Stored as Unix TimeStamp (ms)
+
+
 class Thumbnails_Dirs(models.Model):
     id = models.AutoField(primary_key=True, db_index=True)
     uuid = models.UUIDField(
@@ -239,11 +244,6 @@ class index_data(models.Model):
     )
 
 
-#     def find_by_uuid(self, i_uuid=None):
-#         i_uuid = str(i_uuid).strip().replace("/", "")
-#         if not is_valid_uuid(i_uuid):
-#             return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
-#         self.objects.find(uuid=i_uuid)
     def get_bg_color(self):
         return self.filetype.color
 

@@ -28,7 +28,7 @@ from django.shortcuts import render
 from django.utils.cache import patch_vary_headers
 from django.views.decorators.vary import vary_on_headers
 from PIL import Image, ImageFile
-from quickbbs.models import (Thumbnails_Dirs,  # , Thumbnails_Archives
+from quickbbs.models import (Thumbnails_Dirs,  Cache_Tracking,
                              Thumbnails_Files, index_data)
 
 import frontend.archives3 as archives
@@ -46,6 +46,7 @@ from frontend.utilities import (ensures_endswith, is_valid_uuid,
 #                                test_extension)
 from frontend.web import (detect_mobile, g_option,#respond_as_attachment,
                           respond_as_inline)#, verify_login_status)
+from frontend.watchdogmon import watchdog
 
 log = logging.getLogger(__name__)
 
@@ -551,6 +552,28 @@ def new_archive_item(request, i_uuid):
 
 
 
+print("Clearing all entries from Cache Tracking")
+Cache_Tracking.objects.all().delete()
+
+print("Starting Watchdog")
+# import frontend.watchdogmon as watchdogmon
+from frontend.utilities import delete_from_cache_tracking
+# import signal
+
+#if os.environ.get('RUN_MAIN'):
+# watchdog = watchdogmon.watchdog_monitor()
+# signal.signal(signal.SIGINT, watchdog.shutdown)
+# #     watchdog.startup(monitor_path=os.path.join(config.configdata["locations"]["albums_path"],
+# #                                            "albums"), created=watchdogmon.on_created,
+# #                                            deleted=watchdogmon.on_deleted,
+# #                                            modified=watchdogmon.on_modified,
+# #                                            moved=watchdogmon.on_moved)
+watchdog.startup(monitor_path=os.path.join(configdata["locations"]["albums_path"],
+                                       "albums"), created=delete_from_cache_tracking,
+                                       deleted=delete_from_cache_tracking,
+                                       modified=delete_from_cache_tracking,
+                                       moved=delete_from_cache_tracking)
+
 if 'runserver' in sys.argv or "--host" in sys.argv:
     print("Starting cleanup")
 #    check_for_deletes()
@@ -558,6 +581,8 @@ if 'runserver' in sys.argv or "--host" in sys.argv:
     try:
         ftypes.refresh_filetypes()
         ftypes.FILETYPE_DATA = ftypes.get_ftype_dict()
+
+
         for prepath in configdata["locations"]["preload"]:
             print("Pre-Caching: ", prepath)
             read_from_disk(prepath.strip()) # startup
@@ -567,5 +592,6 @@ if 'runserver' in sys.argv or "--host" in sys.argv:
                 if test.exists():
                     print("%s - %s" % (ignored, test.count()))
                     test.delete()
+
     except:
         pass

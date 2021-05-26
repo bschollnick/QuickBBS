@@ -24,7 +24,7 @@ from django.core.exceptions import MultipleObjectsReturned
 #from django.db import transaction
 from pathvalidate import sanitize_filename
 from PIL import Image
-from quickbbs.models import (Thumbnails_Archives,# Thumbnails_Dirs,
+from quickbbs.models import (Thumbnails_Archives,Cache_Tracking,
                              #Thumbnails_Files,
                              filetypes, index_data)
 
@@ -49,6 +49,7 @@ CACHE.FilesOnly = False
 #CACHE.AcceptableExtensions = list(ftypes.get_ftype_dict())
 CACHE.AcceptableExtensions = list(ftypes.FILETYPE_DATA.keys())
 CACHE.AcceptableExtensions.append("")
+
 
 
 
@@ -329,19 +330,18 @@ def return_disk_listing(fqpn, enable_rename=False):
                            }
     return (loaded, data)
 
+def delete_from_cache_tracking(event):
+    if event.is_directory:
+        dirpath = os.path.normpath(event.src_path.title().strip())
+        if Cache_Tracking.objects.filter(DirName=dirpath).exists():
+            Cache_Tracking.objects.filter(DirName=dirpath).delete()
+#        else:
+#            print("Does not exist in Cache Tracking %s" % dirpath)
+
 def read_from_disk(dir_to_scan, skippable=True):
     """
     Pass in FQFN, and the database stores the path as the URL path.
     """
-
-#     def recovery_from_multiple(fqpndirectory, uname):
-#         """
-#         eliminate any duplicates
-#         """
-#         dataset = index_data.objects.filter(
-#             name=uname.title(), fqpndirectory=fqpndirectory.lower(),
-#             ignore=False)
-#         dataset.delete()
 
     def link_arc_rec(fs_name, webpath, uuid_entry, page=0):
         fname = os.path.basename(fs_name).title()
@@ -415,6 +415,18 @@ def read_from_disk(dir_to_scan, skippable=True):
         "")
 
     dirpath = os.path.normpath(fqpn.title().strip())
+    if Cache_Tracking.objects.filter(DirName=dirpath).count() == 0:
+        # The path has not been seen since the Cache Tracking has been enabled
+        # (eg Startup, or the entry has been nullified)
+        # Add to table, and allow a rescan to occur.
+ #       print("\nSaving, %s to cache tracking\n" % dirpath)
+        new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
+        new_rec.save()
+    else:
+ #       print("Skipping due to CT")
+        # The entry is in the cache table
+        return webpath.replace(os.sep, r"/")
+
 #    print("dp", dirpath)
     CACHE.read_path(fqpn)
     CACHE.sanitize_filenames(dirpath, allow_rename=True)#, quiet=False)
@@ -450,14 +462,6 @@ def read_from_disk(dir_to_scan, skippable=True):
             print("Unable to skip, due to last mod value")
             skippable = False
 
-#            elif fs_lm_name == None:
-
-#    if skippable:
-        #
-        #   We appear to be completely up to date, without reading from disk.
-        #   So skip.
-#        print("Skipping, C")
-#        return webpath.replace(os.sep, r"/")
 
     bulk_db_elements = []
     count = 0
@@ -481,13 +485,6 @@ def read_from_disk(dir_to_scan, skippable=True):
         if (filedata.is_dir()):
             CACHE.read_path(os.path.join(fqpn, filename))
             numfiles, numdirs = CACHE.return_extended_count(os.path.join(fqpn, filename))
-            #if numdirs == -1:
-            #    numdirs = 0
-
-            #if numfiles == -1:
-            #    numfiles = 0
-
-
 
         new_uuid = uuid.uuid4()
         if ftypes.FILETYPE_DATA == {}:
@@ -504,7 +501,6 @@ def read_from_disk(dir_to_scan, skippable=True):
             except AttributeError:
                 print("%s is not an animated GIF" % fext)
         try:
-            #ind_data, created = index_data.objects.update_or_create(
             ind_data, created = index_data.objects.get_or_create(
                 name=filename,
                 fqpndirectory=webpath,

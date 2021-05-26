@@ -22,7 +22,7 @@ machine_name = socket.gethostname().lower()
 print ("Running on %s" % machine_name)
 
 DEBUG = True
-#DEBUG = not DEBUG
+DEBUG = not DEBUG
 print("Debug is ", DEBUG)
 
 
@@ -39,7 +39,7 @@ if not DEBUG:
             'LOCATION': 'cache_data_db_table',
             'TIMEOUT': 300,
             'OPTIONS': {
-                'MAX_ENTRIES': 5000
+                'MAX_ENTRIES': 12000
             }
         }
     }
