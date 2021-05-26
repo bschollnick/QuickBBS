@@ -7,9 +7,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.8.2/css/bulma.min.css">
     <script defer src="https://use.fontawesome.com/releases/v5.3.1/js/all.js"></script>
+<!--
     <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
     <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery.lazy/1.7.9/jquery.lazy.min.js"></script>
     <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery.lazy/1.7.9/jquery.lazy.plugins.min.js"></script>
+ -->
     <title></title>
 </head>
 
@@ -157,7 +159,7 @@
                                             </div>
                                             <div class="thumbnail" id="thumbnail_frame" style="background-color:#FFFFFF">
                                                 <center><a href id="image_link">
-                                                    <img id="display_image" style="height:auto;max-width:auto;"/></a>
+                                                    <img id="display_image" class="lazy" src="/resources/images/loading17.gif" style="height:auto;max-width:auto;"/></a>
                                             </div>
                                             <div class="thumbnail" id="movie_frame" style="background-color:#FFFFFF">
                                                      <video id="movie_viewer" class="video-js" data-setup='{}'  style="height:auto;max-width:100%;" controls>
@@ -196,14 +198,6 @@ var setDATA = function(data) {
         var imagesize = "large"}
 
     window.history.pushState(data.filename, data.filename, command + data.uuid + "?sort="+data.sort);
-    document.getElementById("next_uuid").click = null
-    document.getElementById("next_uuid").onclick = null
-
-//    next_uuid = document.getElementById("next_uuid")
-//    next_uuid.removeAttribute("href")
-//    next_uuid.removeAttribute("onclick")
-//    next_uuid.removeAttribute("click")
-
     document.title = data.filename
     document.getElementById("title").innerHTML = data.filename
     document.getElementById("breadcrumbs").innerHTML = data.breadcrumbs
@@ -267,26 +261,35 @@ var setDATA = function(data) {
     document.getElementById("item_frame").style.backgroundColor = "#"+data.ft_color
     document.getElementById("thumbnail_frame").style.backgroundColor = "#"+data.ft_color
     var filetype = ""
+    console.log(data.filename, data.html != "")
     if (data.ft_is_archive) {filetype += "&arch"}
     if (data.ft_is_pdf) {filetype += "&pdf"}
+
     if (data.html!=""){
         document.getElementById("movie_frame").style.display = "none"
         document.getElementById("thumbnail_frame").style.display = "none"
+        document.getElementById("text_frame").style.display = "block"
         document.getElementById("text_frame").innerHTML = data.html
     }
-    else if (data.ft_is_movie){
+    else {
+        document.getElementById("text_frame").innerHTML = ""
+        }
+
+    if (data.ft_is_movie){
         document.getElementById("text_frame").style.display = "none"
         document.getElementById("thumbnail_frame").style.display = "none"
+        document.getElementById("movie_frame").style.display = "block"
         document.getElementById("movie_viewer").src = '/download/'+data.filename+'?UUID='+data.uuid
         }
     else if (data.ft_is_dir){
         document.getElementById("image_link").href = data.webpath + data.filename +"?sort=" + data.sort
         }
-    else if (data.ft_is_image){
+    else if (data.ft_is_image || data.ft_is_pdf || data.ft_is_archive){
         console.log("processing image")
+        document.getElementById("thumbnail_frame").style.display = "block"
         document.getElementById("text_frame").style.display = "none"
         document.getElementById("movie_viewer").style.display = "none"
-        if (data.ft_is_animated) {
+        if (data.is_animated) {
                 document.getElementById("display_image").src = '/download/'+data.filename+'?UUID='+data.uuid
             } else {
                 document.getElementById("display_image").src = "/thumbnails/"+data.uuid+"?size="+imagesize+filetype
@@ -321,30 +324,17 @@ var getJSON = function(url, callback) {
     xhr.send();
 };
 
-getJSON('http://nerv.local:8888/info/{{uuid}}?sort={{sort}}',  function(err, data) {
-
-    if (err != null) {
-        console.error(err);
-    } else {
-        console.log(data.filename)
-        console.log("is movie", data.ft_is_movie)
-        console.log("is pdf", data.ft_is_pdf)
-        console.log("is image", data.ft_is_image)
-        console.log("is dir", data.ft_is_dir)
-        console.log("previous uuid:",data.previous_uuid)
-        console.log("next uuid:",data.next_uuid)
-        console.log(data.breadcrumbs)
-        console.log("Sort:",data.sort)
-        setDATA(data)
-    }
-});
+// getJSON('/info/{{uuid}}?sort={{sort}}',  function(err, data) {
+//
+//     if (err != null) {
+//         console.error(err);
+//     } else {
+//         setDATA(data)
+//     }
+// });
 
 var loadDATA = function(uuid, sort){
-    console.log("*",uuid, sort)
-    console.log('http://nerv.local:8888/info/'+uuid + '?sort='+sort)
-    getJSON('http://nerv.local:8888/info/'+uuid + '?sort='+sort,  function(err, data) {
-        console.log(err)
-        console.log(data)
+    getJSON('/info/'+uuid + '?sort='+sort,  function(err, data) {
         if (err != null) {
             console.error("error: ",err);
         }
@@ -356,11 +346,19 @@ var loadDATA = function(uuid, sort){
     return false;
 };
 
-
+loadDATA('{{uuid}}','{{sort}}')
 </script>
-<script >
-
+<script>
+$(function($) {
+    $("img.lazy").Lazy({
+    scrollDirection: 'vertical',
+        effect: 'fadeIn',
+        visibleOnly: true,
+        delay: 300,
+        threshold: 200,
+        combined: true
+});
+});
 </script>
-
 </body>
 </html>
