@@ -5,8 +5,8 @@ Database Specific Functions
 from __future__ import absolute_import, print_function, unicode_literals
 
 import os
-import sys
-from django.core.exceptions import ValidationError
+#sdimport sys
+#from django.core.exceptions import ValidationError
 from frontend.config import configdata
 from quickbbs.models import (index_data, Thumbnails_Archives, Thumbnails_Files,
                              Thumbnails_Dirs)
@@ -18,7 +18,7 @@ def validate_database(dir_to_scan):
     """
     validate the data base
     """
-    print(sys._getframe().f_code.co_name)
+#    print(sys._getframe().f_code.co_name)
     dir_to_scan = dir_to_scan.strip()
     fqpn = os.path.join(configdata["locations"]["albums_path"], dir_to_scan)
     fqpn = fqpn.replace("//", "/")
@@ -41,7 +41,7 @@ def check_for_deletes():
     """
     Check to see if any deleted items exist, if so, delete them.
     """
-    print(sys._getframe().f_code.co_name)
+#    print(sys._getframe().f_code.co_name)
     deleted = index_data.objects.filter(delete_pending=True)
     if deleted.exists():
         print("Deleting old deleted records")
@@ -111,30 +111,31 @@ def check_dup_thumbs(uuid_to_check, page=0):
 
     check_dup_thumbs(uuid, page=4)
     """
-    print(sys._getframe().f_code.co_name)
+#    print(sys._getframe().f_code.co_name)
     indexrec = index_data.objects.filter(uuid=str(uuid_to_check).strip(), ignore=False)[0]
     qset = None
-    if indexrec.file_tnail != None:
+    if indexrec.file_tnail is None:
         qset = Thumbnails_Files.objects.filter(uuid=indexrec.uuid).exclude(
             id=indexrec.file_tnail_id)
 
-    if indexrec.directory != None:
+    if indexrec.directory is None:
         qset = Thumbnails_Dirs.objects.filter(uuid=indexrec.uuid).exclude(
             id=indexrec.directory_id)
 
-    if indexrec.archives != None:
+    if indexrec.archives is None:
         qset = Thumbnails_Archives.objects.filter(
             uuid=indexrec.uuid,
             page=page).exclude(
                 id=indexrec.archives_id)
 
-#    if qset != None and qset.count() > 0:
-#        qset.delete()
-    if qset.count() > 0:
+    if qset is None and qset.count() > 0:
         qset.delete()
-    return None
 
-def get_xth_image(database, positional=0, filters=[]):
+#    if qset.count() > 0:
+#        qset.delete()
+    #return None
+
+def get_xth_image(database, positional=0, filters=None):
     """
     Return the xth image from the database, using the passed filters
 
@@ -158,6 +159,8 @@ def get_xth_image(database, positional=0, filters=[]):
     --------
     return_img_attach("test.png", img_data)
 """
+    if filters is None:
+        filters = []
     try:
         # exact match
         return database.objects.filter(**filters).exclude(filetype__is_image=False).exclude(ignore=True).exclude(delete_pending=True)[positional]
