@@ -18,28 +18,27 @@ import urllib.parse
 import uuid
 from io import BytesIO
 
-import av
-import fitz
+import av  # Video Previews
+import fitz  # PDF previews
 from django.core.exceptions import MultipleObjectsReturned
 #from django.db import transaction
 from pathvalidate import sanitize_filename
 from PIL import Image
-from quickbbs.models import (Thumbnails_Archives,Cache_Tracking,
-                             #Thumbnails_Files,
-                             filetypes, index_data)
 
 #import frontend
 import frontend.constants as constants
 import frontend.ftypes as ftypes
 import frontend.pdf_utilities as pdf_utilities
-from frontend.database import check_dup_thumbs#, validate_database
+from frontend.database import check_dup_thumbs  # , validate_database
+from quickbbs.models import (Cache_Tracking,  # Thumbnails_Files,
+                             Thumbnails_Archives, filetypes, index_data)
+
 #from frontend.ftypes import return_filetype
 
 log = logging.getLogger(__name__)
 
-import quickbbs.settings
-
 import frontend.archives3 as archives
+import quickbbs.settings
 from frontend.cached_exists import cached_exist
 
 CACHE = cached_exist(use_modify=True, use_extended=True, FilesOnly=False,
@@ -608,11 +607,9 @@ def break_down_urls(uri_path):
     path = urllib.parse.urlsplit(uri_path).path
     return path.split('/')
 
-def return_breadcrumbs(uri_path="", count=3):
+def return_breadcrumbs(uri_path=""):#, crumbsize=3):
     uris = break_down_urls(uri_path)
     data = []
-#    data.append(["Home", "/".join(uris[0:2]), "<a href='%s'>%s</a>" % ("Home", "Home")])
-    #for count in range(len(uris)-(count+1), len(uris)):
     for count in range(1, len(uris)):
         name = uris[count].split("/")[-1]
         url = "/".join(uris[0:count+1])
@@ -622,13 +619,14 @@ def return_breadcrumbs(uri_path="", count=3):
     return data
 
 if __name__ == '__main__':
-    from config import configdata, load_data
-    cfg_path = os.path.abspath(r"../../cfg")
-    config.load_data(os.path.join(cfg_path, "paths.ini"))
-    config.load_data(os.path.join(cfg_path, "settings.ini"))
-    config.load_data(os.path.join(cfg_path, "filetypes.ini"))
-    import doctest
-    doctest.testmod()
+    pass
+#     from frontend.config import configdata, load_data
+#     cfg_path = os.path.abspath(r"../../cfg")
+#     config.load_data(os.path.join(cfg_path, "paths.ini"))
+#     config.load_data(os.path.join(cfg_path, "settings.ini"))
+#     config.load_data(os.path.join(cfg_path, "filetypes.ini"))
+#     import doctest
+#     doctest.testmod()
 else:
     from frontend.config import configdata
     print(sys.version)
