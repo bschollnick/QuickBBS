@@ -399,7 +399,7 @@ def new_viewitem(request, i_uuid):
     return response
 
 
-#@cache_page(60)
+#@cache_page(60)  # Caching actually slows down the download, at least for small files.
 def downloadFile(request, filename=None):
     """
     Replaces new_download.

@@ -5,6 +5,8 @@ import frontend.config as config
 import signal
 import time
 from frontend.watchdogmon import watchdog
+#from zeroconf import ServiceBrowser, Zeroconf
+
 #from frontend.utilities import delete_from_cache_tracking
 #
 #   Boot strap by loading the configuration path data
@@ -24,6 +26,7 @@ config.load_data(os.path.join(cfg_path, "settings.ini"))
 config.load_data(os.path.join(cfg_path, "filetypes.ini"))
 
 signal.signal(signal.SIGINT, watchdogmon.watchdog.shutdown)
+
 #if os.environ.get('RUN_MAIN'):
 #    watchdog.startup(monitor_path=os.path.join(config.configdata["locations"]["albums_path"],
 #                                           "albums"), created=watchdogmon.on_created,
