@@ -104,7 +104,7 @@ scandir==1.10.0
 sh==1.14.2
 six==1.16.0
 sniffio==1.2.0
-sqlparse==0.4.1
+sqlparse==0.4.2
 toml==0.10.2
 typed-ast==1.4.3
 typing==3.7.4.3
