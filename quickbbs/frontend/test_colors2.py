@@ -65,17 +65,19 @@ def main(args):
     root_target_dir = args.target
 
     operation = 'copy' # 'copy' or 'move'
-    filedb = cached_exist(use_shas=True, FilesOnly=True)
+    use_imagehash = True
+    use_shas=False
+    filedb = cached_exist(use_shas=use_shas, use_image_hash=use_imagehash, FilesOnly=True)
     filedb.MAX_SHA_SIZE = 1024*1024*5
     print("Starting with ",root_src_dir)
     print("Target path", root_target_dir)
     for src_dir, dirs, files in os.walk(root_src_dir, topdown=False):
-#        if dirpath in ["/Volumes", "/Volumes/4Tb_Drive", "/Volumes/4Tb_Drive/Gallery", "/Volumes/4Tb_Drive/Gallery/Albums"]:
-#        print(src_dir)
         dst_dir = src_dir.replace(root_src_dir, root_target_dir).title().replace(" ", "_")
-# 
+#
         filedb.read_path(dst_dir, recursive=True)
         for file_ in files:
+            src_sha = None
+            src_hash = None
             src_file = os.path.join(src_dir, file_)
             dst_file = os.path.join(dst_dir, multiple_replace(replacements,
                                                               file_)).replace(" ", "_")
@@ -86,22 +88,34 @@ def main(args):
                 if filedb.search_file_exist(os.path.split(dst_file)[1])[0]:
                     #print("Skipping (already exists) - ", dst_file)
                     continue
-# 
-                src_sha = filedb.generate_sha224(src_file, hexdigest=True)
-                if filedb.search_sha224_exist(shaHD=src_sha)[0]:
-                    #print("Skipping (Sha already exists) - ", dst_file)
-                    # If the file already exists, then skip
-                    #os.remove(dst_file)
-                    continue
+#
+                if use_shas:
+                    src_sha = filedb.generate_sha224(src_file, hexdigest=True)
+                    if filedb.search_sha224_exist(shaHD=src_sha)[0]:
+                        #print("Skipping (Sha already exists) - ", dst_file)
+                        # If the file already exists, then skip
+                        #os.remove(dst_file)
+                        continue
+
+                if use_imagehash and os.path.splitext(src_file)[1].lower() in filedb._graphics:
+                    src_hash = filedb.generate_imagehash(src_file)
+                    if filedb.search_imagehash_exist(img_hash=src_hash)[0]:
+                        # check to see if the image exists via image hashing
+                        # if exists, skip
+                        continue
+
                 if not os.path.exists(dst_dir):
                     os.makedirs(dst_dir)
+
+                # We know the file doesn't exist, since it wasn't found via
+                # search_file_exists
                 if operation == 'copy':
                     shutil.copy2(src_file, dst_file)
                 elif operation == 'move':
                     shutil.move(src_file, dst_dir)
                 #filedb.clear_path(path_to_clear=dst_dir)
                 filedb.addFile(dirpath=dst_dir, filename=file_, sha_hd=src_sha,
-                               filesize=None, mtime=None)
+                               filesize=None, mtime=None, img_hash=src_hash)
         filedb.clear_path(path_to_clear=dst_dir)
 
 if __name__ == "__main__":

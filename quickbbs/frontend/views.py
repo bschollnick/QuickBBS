@@ -16,6 +16,7 @@ import warnings
 from pathlib import Path
 
 import bleach
+import markdown2
 import django_icons.templatetags.icons
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
 from django.http import (Http404,  # FileResponse, HttpResponse,
@@ -253,11 +254,15 @@ def item_info(request, i_uuid):
     for bcrumb in breadcrumbs:
         context["breadcrumbs"] += r"<li>%s</li>" % bcrumb[2]
 
-    if entry.filetype.fileext in [".txt", ".html", ".htm"]:
+    if entry.filetype.fileext in [".txt", ".html", ".htm", ".markdown"]:
         filename = configdata["locations"]["albums_path"] +  \
            context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
         if entry.filetype.fileext in [".html"]:
             context["html"] = bleach.linkify("\n".join(open(filename).readlines()))
+        elif entry.filetype.fileext in [".markdown"]:
+            markdowner = markdown2.Markdown()
+            context["html"] = markdowner.convert("\n".join(open(filename).readlines()))
+
         else:
             context["html"] = "<br>".join(open(filename, encoding="latin-1"))
     else:

@@ -7,11 +7,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.8.2/css/bulma.min.css">
     <script defer src="https://use.fontawesome.com/releases/v5.3.1/js/all.js"></script>
-<!--
     <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
     <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery.lazy/1.7.9/jquery.lazy.min.js"></script>
     <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery.lazy/1.7.9/jquery.lazy.plugins.min.js"></script>
- -->
     <title></title>
 </head>
 
@@ -204,23 +202,15 @@ var setDATA = function(data) {
     document.getElementById("up_uri").href = data.up_uri+'?page='+data.page+'&sort=' + data.sort
 
     console.log("Setting Previous block")
-//    document.getElementById("first_uuid").href = command + data.first_uuid + '?sort='+data.sort
     document.getElementById("first_uuid").onclick = function (){loadDATA(data.first_uuid, data.sort);return false;}
-//    document.getElementById("last_uuid").href = command + data.last_uuid + '?sort='+data.sort
     document.getElementById("last_uuid").onclick = function (){loadDATA(data.last_uuid, data.sort);return false;}
-//    document.getElementById("previous_uuid").href = command + data.previous_uuid + '?sort='+data.sort
     document.getElementById("previous_uuid").onclick = function (){loadDATA(data.previous_uuid, data.sort);return false;}
-
-    console.log("Setting next block")
-//    document.getElementById("next_uuid").href = command + data.next_uuid + '?sort='+data.sort
-
-    //document.getElementById("next_uuid").addEventListener('click', function(){loadDATA(data.next_uuid, data.sort); return false});
     document.getElementById("next_uuid").onclick = function (){loadDATA(data.next_uuid, data.sort);return false;}
     //$('#myLink').click(loadDATA(data.next_uuid, data.sort));
     //command + data.next_uuid + '?sort='+data.sort
 
     document.getElementById("next_tab_uuid").href = command + data.next_uuid + '?sort='+data.sort
-    console.log(data.page, data.page == 1, data.page == "1")
+    //console.log(data.page, data.page == 1, data.page == "1")
 
     if (data.pagecount == data.page){
         document.getElementById("next_tab_uuid").style.visibility = "hidden"
@@ -232,7 +222,7 @@ var setDATA = function(data) {
     }
 
 
-    console.log("Setting download block")
+    //console.log("Setting download block")
     document.getElementById("download_uri").href = '/download/'+data.filename+'?UUID='+data.uuid
 
     document.getElementById("uuid").innerHTML = data.uuid
@@ -261,11 +251,19 @@ var setDATA = function(data) {
     document.getElementById("item_frame").style.backgroundColor = "#"+data.ft_color
     document.getElementById("thumbnail_frame").style.backgroundColor = "#"+data.ft_color
     var filetype = ""
-    console.log(data.filename, data.html != "")
+    if (data.ft_is_movie){
+        document.getElementById("movie_frame").style.display = "block"
+        document.getElementById("movie_frame").style.visibility = "visible";
+        document.getElementById("movie_viewer").src = '/download/'+data.filename+'?UUID='+data.uuid
+        document.getElementById("text_frame").style.display = "none"
+        document.getElementById("thumbnail_frame").style.display = "none"
+        }
+
     if (data.ft_is_archive) {filetype += "&arch"}
     if (data.ft_is_pdf) {filetype += "&pdf"}
 
     if (data.html!=""){
+        console.log("HTML is populated")
         document.getElementById("movie_frame").style.display = "none"
         document.getElementById("thumbnail_frame").style.display = "none"
         document.getElementById("text_frame").style.display = "block"
@@ -275,33 +273,30 @@ var setDATA = function(data) {
         document.getElementById("text_frame").innerHTML = ""
         }
 
-    if (data.ft_is_movie){
-        document.getElementById("text_frame").style.display = "none"
-        document.getElementById("thumbnail_frame").style.display = "none"
-        document.getElementById("movie_frame").style.display = "block"
-        document.getElementById("movie_viewer").src = '/download/'+data.filename+'?UUID='+data.uuid
-        }
-    else if (data.ft_is_dir){
+    if (data.ft_is_dir){
         document.getElementById("image_link").href = data.webpath + data.filename +"?sort=" + data.sort
         }
-    else if (data.ft_is_image || data.ft_is_pdf || data.ft_is_archive){
-        console.log("processing image")
+    else
+        {
+        document.getElementById("image_link").href = "none"
+        }
+
+    if (data.ft_is_image || data.ft_is_pdf || data.ft_is_archive){
         document.getElementById("thumbnail_frame").style.display = "block"
         document.getElementById("text_frame").style.display = "none"
-        document.getElementById("movie_viewer").style.display = "none"
         if (data.is_animated) {
                 document.getElementById("display_image").src = '/download/'+data.filename+'?UUID='+data.uuid
             } else {
                 document.getElementById("display_image").src = "/thumbnails/"+data.uuid+"?size="+imagesize+filetype
             }
-        }
-
-    if (data.ft_is_movie==false){
         document.getElementById("movie_frame").style.display = "none"
         }
 
+    if (data.ft_is_movie==false){
+        console.log("turn off movie")
+        document.getElementById("movie_frame").style.display = "none"
+        }
 
-    console.log("Done setDATA")
 };
 
 var getJSON = function(url, callback) {
