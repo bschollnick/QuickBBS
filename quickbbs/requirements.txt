@@ -17,7 +17,7 @@ commonmark==0.9.1
 cryptography==3.4.8
 Cython==0.29.24
 defusedxml==0.7.1
-Django==3.2.7
+Django==3.2.13
 django-allauth==0.45.0
 django-auth==0.1.9
 django-bootstrap3==15.0.0
