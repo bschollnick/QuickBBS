@@ -68,7 +68,7 @@ natsort==7.1.1
 naturalsort==1.5.1
 nudepy==0.5.1
 numpy==1.21.2
-oauthlib==3.1.1
+oauthlib==3.2.1
 packaging==21.0
 pathlib2==2.3.6
 pathspec==0.9.0
