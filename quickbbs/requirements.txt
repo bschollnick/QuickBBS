@@ -29,7 +29,7 @@ django-icons==3.0.0
 django-ranged-response==0.2.0
 django-user-agents==0.4.0
 dnspython==2.1.0
-dparse==0.5.1
+dparse==0.5.2
 entrypoints==0.3
 eventlet==0.32.0
 fastnumbers==3.1.0
@@ -56,7 +56,7 @@ isort==5.9.3
 Jinja2==3.0.1
 lazy-object-proxy==1.6.0
 libcst==0.3.20
-lxml==4.6.3
+lxml==4.9.1
 Markdown==3.3.4
 markdown2==2.4.1
 MarkupSafe==2.0.1
@@ -67,7 +67,7 @@ mysql-client==0.0.1
 natsort==7.1.1
 naturalsort==1.5.1
 nudepy==0.5.1
-numpy==1.21.2
+numpy==1.22.2
 oauthlib==3.1.1
 packaging==21.0
 pathlib2==2.3.6
