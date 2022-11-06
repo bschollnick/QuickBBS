@@ -17,7 +17,7 @@ commonmark==0.9.1
 cryptography==3.4.8
 Cython==0.29.24
 defusedxml==0.7.1
-Django==3.2.7
+Django==3.2.16
 django-allauth==0.45.0
 django-auth==0.1.9
 django-bootstrap3==15.0.0
@@ -58,7 +58,7 @@ lazy-object-proxy==1.6.0
 libcst==0.3.20
 lxml==4.6.3
 Markdown==3.3.4
-markdown2==2.4.1
+markdown2==2.4.4
 MarkupSafe==2.0.1
 mccabe==0.6.1
 monotonic==1.6
@@ -67,7 +67,7 @@ mysql-client==0.0.1
 natsort==7.1.1
 naturalsort==1.5.1
 nudepy==0.5.1
-numpy==1.21.2
+numpy==1.22.2
 oauthlib==3.1.1
 packaging==21.0
 pathlib2==2.3.6
