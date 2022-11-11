@@ -17,7 +17,7 @@ commonmark==0.9.1
 cryptography==3.4.8
 Cython==0.29.24
 defusedxml==0.7.1
-Django==3.2.7
+Django==3.2.16
 django-allauth==0.45.0
 django-auth==0.1.9
 django-bootstrap3==15.0.0
@@ -56,7 +56,7 @@ isort==5.9.3
 Jinja2==3.0.1
 lazy-object-proxy==1.6.0
 libcst==0.3.20
-lxml==4.6.3
+lxml==4.9.1
 Markdown==3.3.4
 markdown2==2.4.1
 MarkupSafe==2.0.1
