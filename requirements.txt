@@ -17,7 +17,7 @@ commonmark==0.9.1
 cryptography==3.4.8
 Cython==0.29.24
 defusedxml==0.7.1
-Django==3.2.7
+Django==3.2.16
 django-allauth==0.45.0
 django-auth==0.1.9
 django-bootstrap3==15.0.0
@@ -68,7 +68,7 @@ natsort==7.1.1
 naturalsort==1.5.1
 nudepy==0.5.1
 numpy==1.21.2
-oauthlib==3.1.1
+oauthlib==3.2.1
 packaging==21.0
 pathlib2==2.3.6
 pathspec==0.9.0
@@ -87,7 +87,7 @@ pycodestyle==2.7.0
 pycparser==2.20
 pyflakes==2.3.1
 Pygments==2.10.0
-PyJWT==2.1.0
+PyJWT==2.4.0
 pylint==2.11.1
 pylint-django==2.4.4
 pylint-plugin-utils==0.6
