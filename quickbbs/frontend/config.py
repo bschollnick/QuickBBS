@@ -44,7 +44,7 @@ import configparser
 from configparser import ConfigParser
 import os
 import os.path
-import sys
+#import sys
 import fastnumbers
 
 #####################################################

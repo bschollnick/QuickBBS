@@ -27,6 +27,7 @@ from django.shortcuts import render
 from django.utils.cache import patch_vary_headers
 from django.views.decorators.vary import vary_on_headers
 from django.views.decorators.cache import cache_page
+from django.db.utils import ProgrammingError
 from PIL import Image, ImageFile
 
 import frontend.archives3 as archives
@@ -103,8 +104,8 @@ def return_prev_next(fqpn, currentpath, sorder):
 
     return (prevdir, nextdir)
 
-@cache_page(120)
-#@vary_on_headers('User-Agent', 'Cookie', 'Request')
+@cache_page(500)
+@vary_on_headers('User-Agent', 'Cookie', 'Request')
 def thumbnails(request, t_url_name=None):
     """
     Serve the thumbnail resources
@@ -167,8 +168,8 @@ def thumbnails(request, t_url_name=None):
             return new_process_archive(entry, request, page)
     return HttpResponseBadRequest(content="Bad UUID or %s Unidentifable file." % fs_item)
 
-@cache_page(60)
-#@vary_on_headers('User-Agent', 'Cookie', 'Request')
+@cache_page(500)
+@vary_on_headers('User-Agent', 'Cookie', 'Request')
 def new_viewgallery(request):
     """
     View the requested Gallery page
@@ -216,7 +217,9 @@ def new_viewgallery(request):
     chk_list = Paginator(index, 30)
     context["page_cnt"] = list(range(1, chk_list.num_pages + 1))
 
-    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
+#    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
+    context["up_uri"] = "/".join(request.build_absolute_uri().split("/")[0:-1])
+
     context["gallery_name"] = os.path.split(request.path_info)[-1]
     try:
         context["pagelist"] = chk_list.page(context["current_page"])
@@ -236,7 +239,8 @@ def new_viewgallery(request):
     print("Gallery View, processing time: ", time.time()-start_time)
     return response
 
-@cache_page(120)
+@cache_page(500)
+@vary_on_headers('User-Agent', 'Cookie', 'Request', 'i_uuid')
 def item_info(request, i_uuid):
     start_time = time.time()
     e_uuid = str(i_uuid).strip().replace("/", "")
@@ -320,6 +324,8 @@ def item_info(request, i_uuid):
     response = JsonResponse(context, status=200)
     return response
 
+@cache_page(500)
+@vary_on_headers('User-Agent', 'Cookie', 'Request', 'i_uuid')
 def new_json_viewitem(request, i_uuid):
     i_uuid = str(i_uuid).strip().replace("/", "")
     context = {}
@@ -337,8 +343,8 @@ def new_json_viewitem(request, i_uuid):
     return response
 
 
-#@cache_page(60)
-#@vary_on_headers('User-Agent', 'Cookie', 'Request')
+@cache_page(500)
+@vary_on_headers('User-Agent', 'Cookie', 'Request', 'i_uuid')
 def new_viewitem(request, i_uuid):
     i_uuid = str(i_uuid).strip().replace("/", "")
     context = {}
@@ -482,7 +488,21 @@ def new_view_archive(request, i_uuid):
     e_uuid = i_uuid
     index_qs = index_data.objects.filter(uuid=e_uuid)
     entry = index_qs[0]
+    context["basename"] = os.path.basename
+    context["splitext"] = os.path.splitext
+    context["small"] = g_option(request,
+                                "size",
+                                configdata["configuration"]["small"])
+    context["medium"] = g_option(request,
+                                 "size",
+                                 configdata["configuration"]["medium"])
+    context["large"] = g_option(request,
+                                "size",
+                                configdata["configuration"]["large"])
+    context["user"] = request.user
+    context["mobile"] = detect_mobile(request)
     request, context = sort_order(request, context)
+
     context["next"] = ""
     context["previous"] = ""
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
@@ -496,24 +516,41 @@ def new_view_archive(request, i_uuid):
     context["db_entry"] = entry
 
     context["current_page"] = request.GET.get("page", 1)
-    context["pagelist"] = Paginator(archive_file.listings, 30)
-#    context["pagecount"] = context["pagelist"].count
-    context["pagepop"] = range(1, context["pagelist"].num_pages+1)
-    context["page_contents"] = context["pagelist"].page(context["current_page"])
+    chk_list = Paginator(archive_file.listings, 30)
+    context["page_cnt"] = list(range(1, chk_list.num_pages + 1))
 
-    if context["page_contents"].has_next():
-        context["next"] = context["page_contents"].next_page_number()
-    if context["page_contents"].has_previous():
-        context["previous"] = context["page_contents"].previous_page_number()
+#    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
+    context["up_uri"] = entry.fqpndirectory.lower()
+
+    context["gallery_name"] = os.path.split(request.path_info)[-1]
+    try:
+        context["pagelist"] = chk_list.page(context["current_page"])
+    except PageNotAnInteger:
+        context["pagelist"] = chk_list.page(1)
+        context["current_page"] = 1
+    except EmptyPage:
+        context["pagelist"] = chk_list.page(chk_list.num_pages)
+    # context["current_page"] = request.GET.get("page", 1)
+#     context["pagelist"] = Paginator(archive_file.listings, 30)
+# #    context["pagecount"] = context["pagelist"].count
+#     context["pagepop"] = range(1, context["pagelist"].num_pages+1)
+#     context["page_contents"] = context["pagelist"].page(context["current_page"])
+#
+#     if context["page_contents"].has_next():
+#         context["next"] = context["page_contents"].next_page_number()
+#     if context["page_contents"].has_previous():
+#         context["previous"] = context["page_contents"].previous_page_number()
 
     context["first"] = "1"
-    context["last"] = context["pagelist"].num_pages
+    print(dir(context["pagelist"]))
+
+    context["last"] = context["pagelist"].end_index
 
 
     response = render(request,
-                      "frontend/archive_gallery.html",
-                      context)#,
-                      #using="Jinja2")
+                      "frontend/archive_newgallery.jinja",
+                      context,
+                      using="Jinja2")
     patch_vary_headers(response, ["sort-%s" % context["sort"]])
     return response
 
@@ -537,7 +574,8 @@ def new_archive_item(request, i_uuid):
                            entry.fqpndirectory[1:],
                            entry.name)
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
-    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
+#    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
+    context["up_uri"] = entry.fqpndirectory.lower()
 #        read_from_disk(context["webpath"].strip())
 
     context["current_page"] = int(request.GET.get("page", 0))  # 1 based not zero based
@@ -576,14 +614,18 @@ def new_archive_item(request, i_uuid):
 
 
 print("Clearing all entries from Cache Tracking")
-Cache_Tracking.objects.all().delete()
+try:
+    Cache_Tracking.objects.all().delete()
+except ProgrammingError:
+    print("Unable to clear Cache Table")
 
-print("Starting Watchdog")
+print("Starting Watchdog - ",os.path.join(configdata["locations"]["albums_path"], "albums"))
 watchdog.startup(monitor_path=os.path.join(configdata["locations"]["albums_path"],
-                                       "albums"), created=delete_from_cache_tracking,
-                                       deleted=delete_from_cache_tracking,
-                                       modified=delete_from_cache_tracking,
-                                       moved=delete_from_cache_tracking)
+                                           "albums"),
+                                           created=delete_from_cache_tracking,
+                                           deleted=delete_from_cache_tracking,
+                                           modified=delete_from_cache_tracking,
+                                           moved=delete_from_cache_tracking)
 
 if 'runserver' in sys.argv or "--host" in sys.argv:
     print("Starting cleanup")

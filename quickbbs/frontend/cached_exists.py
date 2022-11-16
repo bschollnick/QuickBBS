@@ -34,9 +34,9 @@ print(db.return_imagehash_name(img_hash=z))
 import os
 import os.path
 #from hashlib import md5
-from hashlib import sha224, sha256, sha512
+from hashlib import sha224, sha256#, sha512
 import time
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 import imagehash
 
 #import operator
@@ -45,6 +45,7 @@ from pathvalidate import is_valid_filename, sanitize_filename, sanitize_filepath
 SCANNED_PATHS = {}
 VERIFY_COUNT = 0
 RESET_COUNT = 10000  # ( 10K )
+Image.MAX_IMAGE_PIXELS = None
 
 class cached_exist():
     """
@@ -124,8 +125,11 @@ class cached_exist():
         self.last_mods["lastScan"] = 0
         self.last_mods["scanInterval"] = 90 # 60 seconds
         self.image_hasher = image_hasher
-        self._graphics = [".bmp", ".gif", ".jpg", ".jpeg", ".png"]
-
+#        self.image_hash_size=128
+        self.image_hash_size=64
+        self._graphics = [".bmp", ".gif", ".jpg", ".jpeg", ".png", "webp"]
+        self._archives = [".zip", ".rar", ".7z", ".lzh", ".gz"]
+        self._movies = [".mp4", ".mpg", ".mkv", ".mov", ".avi"]
 
     def sanitize_filenames(self, dirpath, allow_rename=False):
         """
@@ -189,15 +193,18 @@ class cached_exist():
                 # Boolean Tests
         """
         dirpath = os.path.normpath(path_to_clear.title().strip())
-        try:
+        if dirpath in self.scanned_paths:
             del self.scanned_paths[dirpath]
+
+        if dirpath in self.sha_paths:
             del self.sha_paths[dirpath]
+
+        if dirpath in self.last_mods:
             del self.last_mods[dirpath]
-#            self.last_mods["lastScan"] = 0
-#            self.last_mods["scanInterval"] = 60 # 60 * 1000 ms = 60 seconds
+
+        if dirpath in self.extended:
             del self.extended[dirpath]
-        except KeyError:
-            pass
+
 
     def return_fileCount(self, dirpath):
         """
@@ -455,7 +462,7 @@ class cached_exist():
         else:
             return sha.digest()
 
-    def generate_imagehash(self, filename):
+    def generate_imagehash(self, filename, debug=False):
         """
             Args:
 
@@ -482,7 +489,15 @@ class cached_exist():
                 False
         """
         if os.path.isfile(filename):
-            return self.image_hasher(Image.open(filename))
+            try:
+                return self.image_hasher(Image.open(filename), hash_size=self.image_hash_size)
+            except UnidentifiedImageError:
+                if debug:
+                    print("Damaged Image File: ", filename)
+            except OSError:
+                if debug:
+                    print("Damaged Image File: ", filename)
+
         return None
 
     def processFile(self, dentry):
@@ -696,6 +711,7 @@ class cached_exist():
             self.last_mods[dirpath] = ('', 0, 0)
             directory_data = os.scandir(dirpath)
             for entry in directory_data:
+                fext = os.path.splitext(entry.name)[1].lower()
                 if entry.is_file() and self.processFile(entry):
 #                    print(entry.name, entry.is_file(), self.processFile(entry))
                     sha = None
@@ -712,9 +728,12 @@ class cached_exist():
                         self.addFileDirEntry(entry, sha)
 
                     elif self.use_image_hash:
-                        img_hash = self.generate_imagehash(os.path.join(dirpath,
-                                                                    entry))
-                        self.addFileDirEntry(entry, sha_hd=None, img_hash=img_hash)
+                        try:
+                            img_hash = self.generate_imagehash(os.path.join(dirpath,
+                                                                            entry))
+                            self.addFileDirEntry(entry, sha_hd=None, img_hash=img_hash)
+                        except OSError:
+                            print("Bad image file:", os.path.join(dirpath,entry))
                     else:
                         self.addFileDirEntry(entry, sha_hd=None, img_hash=None)
 
@@ -722,6 +741,7 @@ class cached_exist():
                         if entry.stat().st_mtime > self.last_mods[dirpath][1]:
                             self.last_mods[dirpath] = (entry.name.title(),
                                                        entry.stat().st_mtime, time.time())
+
                 elif entry.is_dir() and recursive==True:
                     self.read_path(os.path.join(dirpath, entry.name))
                 elif entry.is_dir() and self.FilesOnly==False:

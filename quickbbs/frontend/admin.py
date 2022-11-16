@@ -28,5 +28,11 @@ class AdminMaster_Index(admin.ModelAdmin):
     list_display = ('name', 'lastscan', 'lastmod', 'size', 'fqpndirectory', 'ignore', 'delete_pending', 'file_tnail', 'directory', 'archives', 'ownership')
     fields = ('name', 'sortname', 'lastscan', 'lastmod', 'size', 'fqpndirectory', 'ignore', 'delete_pending', 'file_tnail', 'directory', 'archives', 'ownership')
 
+@admin.register(Cache_Tracking)
+class Cache_dir_tracking_Index(admin.ModelAdmin):
+    list_display = ('DirName', 'lastscan')
+    fields = ('DirName', 'lastscan')
+
 admin.site.register(owners)
 admin.site.register(Favorites)
+#admin.site.register(Cache_Tracking)

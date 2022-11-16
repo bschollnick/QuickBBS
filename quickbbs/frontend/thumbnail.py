@@ -6,7 +6,7 @@ from __future__ import absolute_import, print_function, unicode_literals
 
 import os
 #import sys
-from PIL import Image
+#from PIL import Image
 import frontend.archives3 as archives
 from frontend.config import configdata
 from frontend.database import get_xth_image
@@ -17,7 +17,7 @@ from quickbbs.models import (index_data,
                              #Thumbnails_Dirs,
                              #Thumbnails_Files,
                              Thumbnails_Archives)
-from io import BytesIO
+#from io import BytesIO
 
 sizes = {
     "small":configdata["configuration"]["small"],
@@ -103,8 +103,8 @@ def new_process_dir(db_index):
     files = images_in_dir(index_data,
                           os.path.join(db_index.fqpndirectory,
                                        db_index.name).lower())
-    print("\n\n !!! = ",os.path.join(db_index.fqpndirectory,
-                                       db_index.name).lower(), files)
+#    print("\n\n !!! = ",os.path.join(db_index.fqpndirectory,
+#                                       db_index.name).lower(), files)
     if files: # found an file in the directory to use for thumbnail purposes
         #print ("Files found in directory")
         fs_d_fname = configdata["locations"]["albums_path"] +\
@@ -143,7 +143,7 @@ def invalidate_thumb(thumbnail):
     thumbnail.LargeThumb = b""
     return thumbnail
 
-    
+
 def new_process_img(entry, request, imagesize="Small"):
     """
     input:

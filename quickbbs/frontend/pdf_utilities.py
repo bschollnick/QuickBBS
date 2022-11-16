@@ -23,7 +23,7 @@ from io import BytesIO
 from os import path
 import os
 import subprocess
-import time
+#import time
 import fitz
 from pdfrw import PdfReader, PdfWriter
 import img2pdf
