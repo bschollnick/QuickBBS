@@ -50,19 +50,15 @@ def map_ext_to_id(ext):
     Why is this duplicated?
     """
     return return_identifier(ext)
-    #ext = ext.lower().strip()
-    #if ext.startswith("."):
-    #    ext = ext[1:]
-    #return ext
+
 
 
 FILETYPE_DATA = {}
 try:
-#     refresh_filetypes()
+#refresh_filetypes()
     FILETYPE_DATA = get_ftype_dict()
 except :
-    print("Unable to validate or create FileType database table.")
-    print("\nPlease use manage.py --refresh-filetypes\n")
-    print("This will rebuild and/or update the FileType table.")
-    sys.exit()
-#     pass
+   print("Unable to validate or create FileType database table.")
+   print("\nPlease use manage.py --refresh-filetypes\n")
+   print("This will rebuild and/or update the FileType table.")
+#   sys.exit()

@@ -25,7 +25,7 @@ ftypes = {'unknown':0,
 
 _archives = [".zip", ".rar", ".cbz", ".cbr"]
 _html = [".htm", ".html"]
-_graphics = [".bmp", ".gif", ".jpg", ".jpeg", ".png"]
+_graphics = [".bmp", ".gif", ".jpg", ".jpeg", ".png", ".webp"]
 _text = [".txt", ".md", ".markdown"]
 _movie = [".mp4", ".m4v", ".mpg", ".mpg4", ".mpeg",
            ".mpeg4", ".wmv", ".flv", ".avi", ".mp3"]

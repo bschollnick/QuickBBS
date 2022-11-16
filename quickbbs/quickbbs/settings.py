@@ -16,6 +16,7 @@ import os
 import socket
 import quickbbs.jinjaenv
 
+#ALLOWED_HOSTS = [u'nerv.local', u'localhost', u'127.0.0.1']
 ALLOWED_HOSTS = [u'nerv.local', u'localhost', u'127.0.0.1']
 INTERNAL_IPS = [u'localhost', '127.0.0.1', u'nerv.local']
 machine_name = socket.gethostname().lower()
@@ -24,7 +25,6 @@ print ("Running on %s" % machine_name)
 DEBUG = True
 DEBUG = not DEBUG
 print("Debug is ", DEBUG)
-
 
 #DEBUG_TOOLBAR = True
 DEBUG_TOOLBAR = False
@@ -39,7 +39,7 @@ if not DEBUG:
             'LOCATION': 'cache_data_db_table',
             'TIMEOUT': 300,
             'OPTIONS': {
-                'MAX_ENTRIES': 12000
+                'MAX_ENTRIES': 22000
             }
         }
     }
@@ -83,9 +83,9 @@ INSTALLED_APPS += [
     'django.contrib.sites',
     'django_user_agents',
     'django_jinja',
-    'django_jinja.contrib._humanize',
-    'django.contrib.humanize',]
-
+#    'django_jinja.contrib._humanize',
+#    'django.contrib.humanize',]
+    ]
 
 INSTALLED_APPS += [
     'allauth',
@@ -95,7 +95,9 @@ INSTALLED_APPS += [
     'frontend',
 #    'fontawesome-free',
     'django_icons',
+    'django_jinja.contrib._humanize'
 ]
+
 INSTALLED_APPS += ('bootstrap3',)
 #INSTALLED_APPS += ('django_jinja.contrib._humanize',)
 
@@ -197,15 +199,6 @@ TEMPLATES = [
 # Database
 # https://docs.djangoproject.com/en/1.9/ref/settings/#databases
 
-#if DEBUG:
-# DATABASES = {'default': {'ENGINE': 'django.db.backends.sqlite3',
-#                          'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
-#                          'OPTIONS':{'timeout': 90},
-#                          'CONN_MAX_AGE':300,
-#                         }
-#              }
-#else:
-
 DATABASES = {'default': {'ENGINE': 'django.db.backends.postgresql',
                          'NAME': 'postgres',
                          'USER': 'postgres',
@@ -215,19 +208,6 @@ DATABASES = {'default': {'ENGINE': 'django.db.backends.postgresql',
                          'CONN_MAX_AGE':300,
                         }
              }
-
-# DATABASES = {'default': {#'ENGINE': 'django.db.backends.postgresql',
-#                          'ENGINE': 'django.db.backends.postgresql_psycopg2',
-#                          'NAME': 'quickbbs',
-#                          'USER': 'postgres',
-#                          'PASSWORD': 'postgres2019',
-#                          'HOST': '192.168.1.153',
-# #                         'HOST': 'seele.local',
-#                          #'HOST': 'localhost',
-#                          'PORT': '5432',
-#                          'CONN_MAX_AGE':300,
-#                         }
-#              }
 
 
 SOUTH_DATABASE_ADAPTERS = {
@@ -267,7 +247,6 @@ LANGUAGE_CODE = 'en-us'
 #TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
-USE_TZ = True
 
 
 # Static files (CSS, JavaScript, Images)
@@ -290,7 +269,6 @@ LOGIN_REDIRECT_URL = '/albums'
 
 # Default settings
 BOOTSTRAP3 = {
-
     # The complete URL to the Bootstrap CSS file
     # Note that a URL can be either
     # - a string, e.g. "//code.jquery.com/jquery.min.js"

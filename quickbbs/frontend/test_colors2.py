@@ -67,15 +67,22 @@ def main(args):
     operation = 'copy' # 'copy' or 'move'
     use_imagehash = True
     use_shas=False
-    filedb = cached_exist(use_shas=use_shas, use_image_hash=use_imagehash, FilesOnly=True)
+    filedb = cached_exist(use_shas=use_shas,
+                          use_image_hash=use_imagehash,
+                          FilesOnly=True,
+                          image_hasher=imagehash.phash)
     filedb.MAX_SHA_SIZE = 1024*1024*5
     print("Starting with ",root_src_dir)
     print("Target path", root_target_dir)
-    for src_dir, dirs, files in os.walk(root_src_dir, topdown=False):
+    for src_dir, dirs, files in os.walk(root_src_dir, topdown=True):
         dst_dir = src_dir.replace(root_src_dir, root_target_dir).title().replace(" ", "_")
 #
         filedb.read_path(dst_dir, recursive=True)
         for file_ in files:
+            fext = os.path.splitext(file_)[1].lower()
+            if fext not in filedb._graphics and fext not in filedb._movies:
+                continue
+
             src_sha = None
             src_hash = None
             src_file = os.path.join(src_dir, file_)
@@ -97,12 +104,13 @@ def main(args):
                         #os.remove(dst_file)
                         continue
 
-                if use_imagehash and os.path.splitext(src_file)[1].lower() in filedb._graphics:
-                    src_hash = filedb.generate_imagehash(src_file)
-                    if filedb.search_imagehash_exist(img_hash=src_hash)[0]:
-                        # check to see if the image exists via image hashing
-                        # if exists, skip
-                        continue
+                if use_imagehash:
+                    if os.path.splitext(src_file)[1].lower() in filedb._graphics:
+                        src_hash = filedb.generate_imagehash(src_file)
+                        if filedb.search_imagehash_exist(img_hash=src_hash)[0]:
+                            # check to see if the image exists via image hashing
+                            # if exists, skip
+                            continue
 
                 if not os.path.exists(dst_dir):
                     os.makedirs(dst_dir)
@@ -113,10 +121,10 @@ def main(args):
                     shutil.copy2(src_file, dst_file)
                 elif operation == 'move':
                     shutil.move(src_file, dst_dir)
-                #filedb.clear_path(path_to_clear=dst_dir)
                 filedb.addFile(dirpath=dst_dir, filename=file_, sha_hd=src_sha,
                                filesize=None, mtime=None, img_hash=src_hash)
         filedb.clear_path(path_to_clear=dst_dir)
+        filedb.clear_path(path_to_clear=src_dir)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

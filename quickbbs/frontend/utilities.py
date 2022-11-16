@@ -18,6 +18,8 @@ import urllib.parse
 import uuid
 from io import BytesIO
 
+#from moviepy.video.io import VideoFileClip
+#from moviepy.editor import VideoFileClip #* # import everythings (variables, classes, methods...) inside moviepy.editor
 import av  # Video Previews
 import fitz  # PDF previews
 from django.core.exceptions import MultipleObjectsReturned
@@ -172,6 +174,8 @@ def return_image_obj(fs_path, memory=False):
     --------
     """
     source_image = None
+#    print(fs_path[:20])
+#    print(fs_path[1], type(fs_path))
     extension = os.path.splitext(fs_path)[1].lower()
     if extension in ("", b"", None):
         extension = ".none"
@@ -181,21 +185,28 @@ def return_image_obj(fs_path, memory=False):
             pdf_utilities.repair_pdf(fs_path, fs_path)
 
         pdf_file = fitz.open(fs_path)
-        pdf_page = pdf_file.loadPage(0)
-        pix = pdf_page.getPixmap(alpha=True)#matrix=fitz.Identity, alpha=True)
+        pdf_page = pdf_file.load_page(0)
+#        pix = pdf_page.getPixmap(alpha=True)#matrix=fitz.Identity, alpha=True)
+        pix = pdf_page.get_pixmap(alpha=True)#matrix=fitz.Identity, alpha=True)
 
         try:
-            source_image = Image.open(BytesIO(pix.getPNGData()))
+            #source_image = Image.open(BytesIO(pix.getPNGData()))
+            source_image = Image.open(BytesIO(pix.tobytes()))
         except UserWarning:
             print("UserWarning!")
             source_image = None
     elif ftypes.FILETYPE_DATA[extension]["is_movie"]:
-        print(memory)
-        container=av.open(fs_path)
-        stream = container.streams.video[0]
-        frame = next(container.decode(stream))
-        source_image = frame.to_image()
-        #frame.to_image().save("test.jpg", quality=80)
+        #print(memory)
+        with av.open(fs_path) as container:
+            stream = container.streams.video[0]
+            frame = next(container.decode(stream))
+            source_image = frame.to_image()
+            #frame.to_image().save("test.jpg", quality=80)
+
+#        clip = VideoFileClip(fs_path)
+        #frame = clip.get_frame(5)
+ #       source_image = clip.get_frame(5)
+
 
     elif ftypes.FILETYPE_DATA[extension]["is_image"]:
         if not memory:
@@ -330,10 +341,13 @@ def return_disk_listing(fqpn, enable_rename=False):
     return (loaded, data)
 
 def delete_from_cache_tracking(event):
+    global CACHE
     if event.is_directory:
         dirpath = os.path.normpath(event.src_path.title().strip())
+        CACHE.clear_path(path_to_clear=dirpath)
         if Cache_Tracking.objects.filter(DirName=dirpath).exists():
             Cache_Tracking.objects.filter(DirName=dirpath).delete()
+            print("\n\n", time.ctime(), " Deleted %s" % dirpath, "\n\n")
 #        else:
 #            print("Does not exist in Cache Tracking %s" % dirpath)
 
@@ -418,13 +432,13 @@ def read_from_disk(dir_to_scan, skippable=True):
         # The path has not been seen since the Cache Tracking has been enabled
         # (eg Startup, or the entry has been nullified)
         # Add to table, and allow a rescan to occur.
- #       print("\nSaving, %s to cache tracking\n" % dirpath)
+        print("\n\n","\nSaving, %s to cache tracking\n" % dirpath,"\n\n")
         new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
         new_rec.save()
-    else:
- #       print("Skipping due to CT")
-        # The entry is in the cache table
-        return webpath.replace(os.sep, r"/")
+#    else:
+#        print("Skipping (%s) due to CT" % dirpath)
+#        # The entry is in the cache table
+#        return webpath.replace(os.sep, r"/")
 
 #    print("dp", dirpath)
     CACHE.read_path(fqpn)
@@ -436,6 +450,15 @@ def read_from_disk(dir_to_scan, skippable=True):
                                               ignore=False,
                                               delete_pending=False)
     existing_data_size = existing_data.count()
+
+
+    # Scenarios
+    #
+    # 1) All files and directories are the same = Nothing needs to be done
+    #       - Validate all files
+
+    # 2) More files or directories exist, need to validate existing, and add new files/dirs
+    # 3) Less files or directories exist, need to validate existing, and remove non-existant
 
     if existing_data_size > disk_count:
         print("existing size %s       on disk %s" % (existing_data_size,
