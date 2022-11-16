@@ -31,7 +31,7 @@ django-jinja==2.10.0
 django-ranged-response==0.2.0
 django-user-agents==0.4.0
 dnspython==2.1.0
-dparse==0.6.2
+dparse==0.5.2
 fastnumbers==3.2.1
 flake8==5.0.4
 idna==3.4
