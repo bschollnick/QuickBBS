@@ -93,6 +93,8 @@ INSTALLED_APPS += [
     'allauth.socialaccount',
     'quickbbs',
     'frontend',
+    'thumbnails',
+    'filetypes',
 #    'fontawesome-free',
     'django_icons',
     'django_jinja.contrib._humanize'
