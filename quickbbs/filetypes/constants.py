@@ -5,11 +5,6 @@ Constants for QuickBBS, the python edition.
 import re
 
 
-# used in Utilities
-replacements={'?':'','/':"", ":":"", "#":"_"}
-regex = re.compile("(%s)" % "|".join(map(re.escape, replacements.keys())))
-
-
 # Used in ftypes / Filetypes
 ftypes = {'unknown':0,
           'dir':1,
@@ -29,3 +24,4 @@ _graphics = [".bmp", ".gif", ".jpg", ".jpeg", ".png", ".webp"]
 _text = [".txt", ".md", ".markdown"]
 _movie = [".mp4", ".m4v", ".mpg", ".mpg4", ".mpeg",
            ".mpeg4", ".wmv", ".flv", ".avi", ".mp3"]
+

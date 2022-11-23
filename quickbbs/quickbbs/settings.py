@@ -334,3 +334,12 @@ BOOTSTRAP3 = {
 #from .logger import LOGGING
 
 DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
+
+# Settings for django-icons
+DJANGO_ICONS = {
+
+    'DEFAULTS': {
+        'renderer': 'fontawesome4',
+    },
+
+}
