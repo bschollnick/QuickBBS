@@ -2,7 +2,7 @@
 """
 Django views for QuickBBS Gallery
 """
-from __future__ import absolute_import, print_function, unicode_literals
+#from __future__ import absolute_import, print_function, unicode_literals
 
 import datetime
 import logging
@@ -33,7 +33,9 @@ from PIL import Image, ImageFile
 import frontend.archives3 as archives
 #from frontend.constants import *
 #import frontend.constants as constants
-import frontend.ftypes as ftypes
+#import filetypes.ftypes as ftypes
+#from filetypes.models import FILETYPE_DATA
+import filetypes.models
 from frontend.config import configdata
 from frontend.database import check_dup_thumbs, get_db_files  # SORT_MATRIX,
 from frontend.thumbnail import (new_process_archive, new_process_dir,
@@ -632,8 +634,10 @@ if 'runserver' in sys.argv or "--host" in sys.argv:
 #    check_for_deletes()
     print("Cleanup is done.")
     try:
-        ftypes.refresh_filetypes()
-        ftypes.FILETYPE_DATA = ftypes.get_ftype_dict()
+#        FILETYPE_DATA = load_filetypes()
+
+#        ftypes.refresh_filetypes()
+#        ftypes.FILETYPE_DATA = ftypes.get_ftype_dict()
 
 
         for prepath in configdata["locations"]["preload"]:

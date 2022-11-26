@@ -1,23 +1,30 @@
 from django.core.management.base import BaseCommand, CommandError
 
-from filetypes.models import filetypes as new_filetypes
+from filetypes.models import *
 from filetypes.constants import ftypes
 import filetypes.constants as constants
-from filetypes.ftypes import *
 
 class Command(BaseCommand):
     def refresh_filetypes(self):
         for ext in constants._movie:
-            new_filetypes.objects.update_or_create(fileext=ext,
+            filetypes.objects.update_or_create(fileext=ext,
                                                defaults={"generic":True,
                                                          "icon_filename":"MovieIcon100.jpg",
                                                          "color":"CCCCCC",
                                                          "filetype":ftypes['movie'],
                                                          "is_movie":True}
                                                          )
+        for ext in constants._audio:
+            filetypes.objects.update_or_create(fileext=ext,
+                                               defaults={"generic":True,
+                                                         "icon_filename":"MovieIcon100.jpg",
+                                                         "color":"CCCCCC",
+                                                         "filetype":ftypes['audio'],
+                                                         "is_audio":True}
+                                                         )
 
         for ext in constants._archives:
-            new_filetypes.objects.update_or_create(fileext=ext,
+            filetypes.objects.update_or_create(fileext=ext,
                                                defaults={"generic":True,
                                                          "icon_filename":"1431973824_compressed.png",
                                                          "color":"b2dece",
@@ -25,39 +32,39 @@ class Command(BaseCommand):
                                                          "is_archive":True})
 
         for ext in constants._html:
-            new_filetypes.objects.update_or_create(fileext=ext,
+            filetypes.objects.update_or_create(fileext=ext,
                                                defaults={"generic":True,
                                                "icon_filename":"1431973779_html.png",
                                                "color":"fef7df", "filetype":ftypes['html']})
 
         for ext in constants._graphics:
-            new_filetypes.objects.update_or_create(fileext=ext,
+            filetypes.objects.update_or_create(fileext=ext,
                                                defaults={"generic":False,
                                                "color":"FAEBF4", "filetype":ftypes['image'],
                                                "is_image":True})
 
         for ext in constants._text:
-            new_filetypes.objects.update_or_create(fileext=ext,
+            filetypes.objects.update_or_create(fileext=ext,
                                                defaults={"generic":True,
                                                "icon_filename":"1431973815_text.PNG",
                                                "color":"FAEBF4", "filetype":ftypes['image']})
 
-        new_filetypes.objects.update_or_create(fileext=".pdf",
+        filetypes.objects.update_or_create(fileext=".pdf",
                                            defaults={"generic":False,
                                            "color":"FDEDB1", "filetype":ftypes['image'],
                                            "is_pdf":True})
 
-        new_filetypes.objects.update_or_create(fileext=".epub",
+        filetypes.objects.update_or_create(fileext=".epub",
                                            defaults={"generic":True,
                                            "icon_filename":"epub-logo.gif",
                                            "color":"FDEDB1", "filetype":ftypes['epub']})
 
-        new_filetypes.objects.update_or_create(fileext=".dir",
+        filetypes.objects.update_or_create(fileext=".dir",
                                             defaults={"generic":False,
                                            "color":"DAEFF5", "filetype":ftypes['dir'],
                                            "is_dir":True})
 
-        new_filetypes.objects.update_or_create(fileext=".none", defaults={"generic":True,
+        filetypes.objects.update_or_create(fileext=".none", defaults={"generic":True,
                                            "icon_filename":"1431973807_fileicon_bg.png",
                                            "color":"FFFFFF", "filetype":ftypes['unknown']})
 
