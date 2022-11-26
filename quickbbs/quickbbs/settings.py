@@ -23,7 +23,7 @@ machine_name = socket.gethostname().lower()
 print ("Running on %s" % machine_name)
 
 DEBUG = True
-DEBUG = not DEBUG
+#DEBUG = not DEBUG
 print("Debug is ", DEBUG)
 
 #DEBUG_TOOLBAR = True

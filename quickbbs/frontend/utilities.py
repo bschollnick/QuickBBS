@@ -29,7 +29,8 @@ from PIL import Image
 
 #import frontend
 import frontend.constants as constants
-import frontend.ftypes as ftypes
+import filetypes.models as filetype_models
+#from filetypes.models import FILETYPE_DATA, load_filetypes
 import frontend.pdf_utilities as pdf_utilities
 from frontend.database import check_dup_thumbs  # , validate_database
 from quickbbs.models import (Cache_Tracking,  # Thumbnails_Files,
@@ -48,7 +49,11 @@ CACHE = cached_exist(use_modify=True, use_extended=True, FilesOnly=False,
 CACHE.IgnoreDotFiles = True
 CACHE.FilesOnly = False
 #CACHE.AcceptableExtensions = list(ftypes.get_ftype_dict())
-CACHE.AcceptableExtensions = list(ftypes.FILETYPE_DATA.keys())
+try:
+    CACHE.AcceptableExtensions = list(filetype_models.FILETYPE_DATA.keys())
+except AttributeError:
+    pass
+
 CACHE.AcceptableExtensions.append("")
 
 
@@ -170,16 +175,18 @@ def return_image_obj(fs_path, memory=False):
         obj::
             Pillow image object
 
+
     Examples
     --------
     """
     source_image = None
-#    print(fs_path[:20])
 #    print(fs_path[1], type(fs_path))
     extension = os.path.splitext(fs_path)[1].lower()
+    #print(fs_path[:20], extension)
+
     if extension in ("", b"", None):
         extension = ".none"
-    if extension == u".pdf":
+    if extension == ".pdf":
         results = pdf_utilities.check_pdf(fs_path)
         if results[0] == False:
             pdf_utilities.repair_pdf(fs_path, fs_path)
@@ -195,37 +202,34 @@ def return_image_obj(fs_path, memory=False):
         except UserWarning:
             print("UserWarning!")
             source_image = None
-    elif ftypes.FILETYPE_DATA[extension]["is_movie"]:
-        #print(memory)
-        with av.open(fs_path) as container:
-            stream = container.streams.video[0]
-            frame = next(container.decode(stream))
-            source_image = frame.to_image()
-            #frame.to_image().save("test.jpg", quality=80)
 
-#        clip = VideoFileClip(fs_path)
-        #frame = clip.get_frame(5)
- #       source_image = clip.get_frame(5)
+    if extension in filetype_models.FILETYPE_DATA:
+        if filetype_models.FILETYPE_DATA[extension]["is_movie"]:
+            #print(memory)
+            with av.open(fs_path) as container:
+                stream = container.streams.video[0]
+                frame = next(container.decode(stream))
+                source_image = frame.to_image()
 
 
-    elif ftypes.FILETYPE_DATA[extension]["is_image"]:
-        if not memory:
-            try:
-                source_image = Image.open(fs_path)
-            except IOError:
-                print("Unable to load source file")
+        elif filetype_models.FILETYPE_DATA[extension]["is_image"]:
+            if not memory:
+                try:
+                    source_image = Image.open(fs_path)
+                except IOError:
+                    print("Unable to load source file")
 
-        else:
-            try:# fs_path is a byte stream
-                source_image = Image.open(BytesIO(fs_path))
-#                source_image = None
-            except IOError:
-                print("IOError")
-                log.debug("PIL was unable to identify as an image file")
- #               source_image = None
-            except UserWarning:
-                print("UserWarning!")
-  #              source_image = None
+            else:
+                try:# fs_path is a byte stream
+                    source_image = Image.open(BytesIO(fs_path))
+    #                source_image = None
+                except IOError:
+                    print("IOError")
+                    log.debug("PIL was unable to identify as an image file")
+     #               source_image = None
+                except UserWarning:
+                    print("UserWarning!")
+      #              source_image = None
     return source_image
 
 def cr_tnail_img(source_image, size, fext):
@@ -300,7 +304,7 @@ def return_disk_listing(fqpn, enable_rename=False):
         elif entry.is_dir():
             fext = ".dir"
 
-        if fext not in ftypes.FILETYPE_DATA:
+        if fext not in filetype_models.FILETYPE_DATA:
             continue
         elif (fext in configdata["filetypes"]["extensions_to_ignore"]) or\
            (lower_filename in configdata["filetypes"]["files_to_ignore"]):
@@ -333,9 +337,9 @@ def return_disk_listing(fqpn, enable_rename=False):
                            'lastmod':entry.stat()[stat.ST_MTIME],
                            'is_dir':entry.is_dir(),#fext == ".dir",
                            'is_file':not entry.is_dir(),#fext != ".dir",
-                           'is_archive':ftypes.FILETYPE_DATA[fext]["is_archive"],
-                           'is_image':ftypes.FILETYPE_DATA[fext]["is_image"],
-                           'is_movie':ftypes.FILETYPE_DATA[fext]["is_movie"],
+                           'is_archive':filetype_models.FILETYPE_DATA[fext]["is_archive"],
+                           'is_image':filetype_models.FILETYPE_DATA[fext]["is_image"],
+                           'is_movie':filetype_models.FILETYPE_DATA[fext]["is_movie"],
                            'is_animated':animated
                            }
     return (loaded, data)
@@ -509,14 +513,15 @@ def read_from_disk(dir_to_scan, skippable=True):
             numfiles, numdirs = CACHE.return_extended_count(os.path.join(fqpn, filename))
 
         new_uuid = uuid.uuid4()
-        if ftypes.FILETYPE_DATA == {}:
+        if filetype_models.FILETYPE_DATA == {}:
             try:
-                ftypes.refresh_filetypes()
-                ftypes.FILETYPE_DATA = ftypes.get_ftype_dict()
+#                ftypes.refresh_filetypes()
+                #ftypes.FILETYPE_DATA = ftypes.get_ftype_dict()
+                filetype_models.reload_filetypes()
             except KeyError:
                 print("Unable to validate or create FileType database table.")
                 sys.exit(1)
-        if ftypes.FILETYPE_DATA[fext]["is_image"] and fext in [".gif"]:
+        if filetype_models.FILETYPE_DATA[fext]["is_image"] and fext in [".gif"]:
             try:
                 animated = Image.open(os.path.join(fqpn, filename)).is_animated
                 force_save = True
