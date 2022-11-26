@@ -2,9 +2,9 @@
 import os
 import os.path
 import frontend.config as config
-import signal
+#import signal
 #import time
-from frontend.watchdogmon import watchdog
+#from frontend.watchdogmon import watchdog
 
 #
 #   Boot strap by loading the configuration path data
@@ -23,4 +23,4 @@ config.load_data(os.path.join(cfg_path, "paths.ini"))
 config.load_data(os.path.join(cfg_path, "settings.ini"))
 config.load_data(os.path.join(cfg_path, "filetypes.ini"))
 
-signal.signal(signal.SIGINT, watchdogmon.watchdog.shutdown)
+#signal.signal(signal.SIGINT, watchdogmon.watchdog.shutdown)
