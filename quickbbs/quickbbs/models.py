@@ -50,10 +50,10 @@ class Favorites(models.Model):
     id = models.AutoField(primary_key=True)
     uuid = models.UUIDField(default=None, null=True, editable=False, blank=True)
 
-class Cache_Tracking(models.Model):
-    DirName = models.CharField(db_index=True, max_length=384, default='', blank=True)   # FQFN of the file itself
-    lastscan = models.FloatField()   # Stored as Unix TimeStamp (ms)
-
+# class Cache_Tracking(models.Model):
+#     DirName = models.CharField(db_index=True, max_length=384, default='', blank=True)   # FQFN of the file itself
+#     lastscan = models.FloatField()   # Stored as Unix TimeStamp (ms)
+#
 
 class Thumbnails_Dirs(models.Model):
     id = models.AutoField(primary_key=True, db_index=True)

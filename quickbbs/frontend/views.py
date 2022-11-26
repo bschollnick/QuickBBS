@@ -31,10 +31,6 @@ from django.db.utils import ProgrammingError
 from PIL import Image, ImageFile
 
 import frontend.archives3 as archives
-#from frontend.constants import *
-#import frontend.constants as constants
-#import filetypes.ftypes as ftypes
-#from filetypes.models import FILETYPE_DATA
 import filetypes.models
 from frontend.config import configdata
 from frontend.database import check_dup_thumbs, get_db_files  # SORT_MATRIX,
@@ -47,8 +43,9 @@ from frontend.watchdogmon import watchdog
 #                                test_extension)
 from frontend.web import respond_as_inline  # , verify_login_status)
 from frontend.web import detect_mobile, g_option  # respond_as_attachment,
-from quickbbs.models import (Cache_Tracking, Thumbnails_Dirs, Thumbnails_Files,
-                             index_data)
+from quickbbs.models import (Thumbnails_Dirs, Thumbnails_Files, index_data)
+from cache.models import fs_Cache_Tracking as Cache_Tracking
+
 
 #from urllib.parse import unquote
 
