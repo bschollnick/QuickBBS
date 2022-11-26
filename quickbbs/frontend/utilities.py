@@ -344,16 +344,16 @@ def return_disk_listing(fqpn, enable_rename=False):
                            }
     return (loaded, data)
 
-def delete_from_cache_tracking(event):
-    global CACHE
-    if event.is_directory:
-        dirpath = os.path.normpath(event.src_path.title().strip())
-        CACHE.clear_path(path_to_clear=dirpath)
-        if Cache_Tracking.objects.filter(DirName=dirpath).exists():
-            Cache_Tracking.objects.filter(DirName=dirpath).delete()
-            print("\n\n", time.ctime(), " Deleted %s" % dirpath, "\n\n")
-#        else:
-#            print("Does not exist in Cache Tracking %s" % dirpath)
+# def delete_from_cache_tracking(event):
+#     global CACHE
+#     if event.is_directory:
+#         dirpath = os.path.normpath(event.src_path.title().strip())
+#         CACHE.clear_path(path_to_clear=dirpath)
+#         if Cache_Tracking.objects.filter(DirName=dirpath).exists():
+#             Cache_Tracking.objects.filter(DirName=dirpath).delete()
+#             print("\n\n", time.ctime(), " Deleted %s" % dirpath, "\n\n")
+# #        else:
+# #            print("Does not exist in Cache Tracking %s" % dirpath)
 
 def read_from_disk(dir_to_scan, skippable=True):
     """

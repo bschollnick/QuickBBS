@@ -36,25 +36,17 @@ from frontend.config import configdata
 from frontend.database import check_dup_thumbs, get_db_files  # SORT_MATRIX,
 from frontend.thumbnail import (new_process_archive, new_process_dir,
                                 new_process_img)
-from frontend.utilities import (delete_from_cache_tracking, ensures_endswith,
+from frontend.utilities import (ensures_endswith,
                                 is_valid_uuid, read_from_disk,
                                 return_breadcrumbs, sort_order)
-from frontend.watchdogmon import watchdog
-#                                test_extension)
-from frontend.web import respond_as_inline  # , verify_login_status)
-from frontend.web import detect_mobile, g_option  # respond_as_attachment,
+from cache.watchdogmon import watchdog
+from frontend.web import respond_as_inline, detect_mobile, g_option
 from quickbbs.models import (Thumbnails_Dirs, Thumbnails_Files, index_data)
 from cache.models import fs_Cache_Tracking as Cache_Tracking
 
 
-#from urllib.parse import unquote
-
-                         #StreamingHttpResponse)
-
-                               #check_for_deletes
 
 log = logging.getLogger(__name__)
-
 warnings.simplefilter('ignore', Image.DecompressionBombWarning)
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 # https://stackoverflow.com/questions/12984426/
@@ -618,14 +610,14 @@ try:
 except ProgrammingError:
     print("Unable to clear Cache Table")
 
-print("Starting Watchdog - ",os.path.join(configdata["locations"]["albums_path"], "albums"))
-watchdog.startup(monitor_path=os.path.join(configdata["locations"]["albums_path"],
-                                           "albums"),
-                                           created=delete_from_cache_tracking,
-                                           deleted=delete_from_cache_tracking,
-                                           modified=delete_from_cache_tracking,
-                                           moved=delete_from_cache_tracking)
-
+# print("Starting Watchdog - ",os.path.join(configdata["locations"]["albums_path"], "albums"))
+# watchdog.startup(monitor_path=os.path.join(configdata["locations"]["albums_path"],
+#                                            "albums"),
+#                                            created=delete_from_cache_tracking,
+#                                            deleted=delete_from_cache_tracking,
+#                                            modified=delete_from_cache_tracking,
+#                                            moved=delete_from_cache_tracking)
+#
 if 'runserver' in sys.argv or "--host" in sys.argv:
     print("Starting cleanup")
 #    check_for_deletes()
