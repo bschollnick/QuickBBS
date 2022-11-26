@@ -33,8 +33,8 @@ import filetypes.models as filetype_models
 #from filetypes.models import FILETYPE_DATA, load_filetypes
 import frontend.pdf_utilities as pdf_utilities
 from frontend.database import check_dup_thumbs  # , validate_database
-from quickbbs.models import (Cache_Tracking,  # Thumbnails_Files,
-                             Thumbnails_Archives, filetypes, index_data)
+from quickbbs.models import (Thumbnails_Archives, filetypes, index_data)
+from cache.models import fs_Cache_Tracking as Cache_Tracking
 
 #from frontend.ftypes import return_filetype
 
