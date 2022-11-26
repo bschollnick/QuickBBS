@@ -42,7 +42,7 @@ from frontend.utilities import (ensures_endswith,
 from cache.watchdogmon import watchdog
 from frontend.web import respond_as_inline, detect_mobile, g_option
 from quickbbs.models import (Thumbnails_Dirs, Thumbnails_Files, index_data)
-from cache.models import fs_Cache_Tracking as Cache_Tracking
+from cache.models import fs_Cache_Tracking as Cache_Tracking, CACHE
 
 
 

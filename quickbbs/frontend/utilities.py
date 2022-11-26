@@ -2,7 +2,7 @@
 """
 Utilities for QuickBBS, the python edition.
 """
-from __future__ import absolute_import, print_function, unicode_literals
+#from __future__ import absolute_import, print_function, unicode_literals
 
 import html
 #from constants import *
@@ -26,11 +26,10 @@ from django.core.exceptions import MultipleObjectsReturned
 #from django.db import transaction
 from pathvalidate import sanitize_filename
 from PIL import Image
+from cache.models import CACHE
 
-#import frontend
 import frontend.constants as constants
 import filetypes.models as filetype_models
-#from filetypes.models import FILETYPE_DATA, load_filetypes
 import frontend.pdf_utilities as pdf_utilities
 from frontend.database import check_dup_thumbs  # , validate_database
 from quickbbs.models import (Thumbnails_Archives, filetypes, index_data)
@@ -42,22 +41,6 @@ log = logging.getLogger(__name__)
 
 import frontend.archives3 as archives
 import quickbbs.settings
-from frontend.cached_exists import cached_exist
-
-CACHE = cached_exist(use_modify=True, use_extended=True, FilesOnly=False,
-                     use_filtering=True)
-CACHE.IgnoreDotFiles = True
-CACHE.FilesOnly = False
-#CACHE.AcceptableExtensions = list(ftypes.get_ftype_dict())
-try:
-    CACHE.AcceptableExtensions = list(filetype_models.FILETYPE_DATA.keys())
-except AttributeError:
-    pass
-
-CACHE.AcceptableExtensions.append("")
-
-
-
 
 Image.MAX_IMAGE_PIXELS = None
 # Disable PILLOW DecompressionBombError errors.
@@ -491,6 +474,15 @@ def read_from_disk(dir_to_scan, skippable=True):
 
     bulk_db_elements = []
     count = 0
+    if filetype_models.FILETYPE_DATA == {}:
+        try:
+#                ftypes.refresh_filetypes()
+            #ftypes.FILETYPE_DATA = ftypes.get_ftype_dict()
+            filetype_models.reload_filetypes()
+        except KeyError:
+            print("Unable to validate or create FileType database table.")
+            sys.exit(1)
+
     for filename, filedata in diskstore.items():
         numdirs = 0
         numfiles = 0
@@ -513,14 +505,6 @@ def read_from_disk(dir_to_scan, skippable=True):
             numfiles, numdirs = CACHE.return_extended_count(os.path.join(fqpn, filename))
 
         new_uuid = uuid.uuid4()
-        if filetype_models.FILETYPE_DATA == {}:
-            try:
-#                ftypes.refresh_filetypes()
-                #ftypes.FILETYPE_DATA = ftypes.get_ftype_dict()
-                filetype_models.reload_filetypes()
-            except KeyError:
-                print("Unable to validate or create FileType database table.")
-                sys.exit(1)
         if filetype_models.FILETYPE_DATA[fext]["is_image"] and fext in [".gif"]:
             try:
                 animated = Image.open(os.path.join(fqpn, filename)).is_animated
