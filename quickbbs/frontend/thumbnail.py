@@ -235,9 +235,13 @@ def new_process_archive(ind_entry, request, page=0):
         #
         # Add Caching
         #
-        return return_img_attach(os.path.basename(
-            configdata["filetypes"]["dir"][1]), "1431973824_compressed.png",
-            fext_override="JPEG")
+
+        im_data = return_image_obj(os.path.join(
+                                        configdata["locations"]["resources_path"],
+                                        "images", configdata["filetypes"]["archive"][1]),
+                                   memory=True)
+        return return_img_attach("1431973824_compressed.png", im_data,
+                                 fext_override="JPEG")
 
     if specific_page.FileSize != os.path.getsize(fs_archname):
         #   The cached data is invalidated since the filesize is

@@ -9,7 +9,12 @@ from struct import unpack
 #from xattr import xattr
 import xattr
 
-from cached_exists import *
+import sys
+
+app_dir = os.path.split(sys.argv[0])[0]
+print(app_dir)
+sys.path.append(os.path.join(app_dir, '..'))
+from cache.cached_exists import *
 
 colornames = {
     0: 'none',

@@ -58,36 +58,17 @@ docs/_build/
 #
 #	modules
 #
-app/markdown/
-app/directory_caching/
-app/natsort/
-app/pybonjour.*
-app/scandir.*
-app/txbonjour/
-app/unidecode/
-app/directory_caching/__init__.py
-app/directory_caching/archives.py
-
 app/rarfile.py
-
 app/semantic_url/__init__.py
 
 app/time_test.py
-
-app/time_test.py
-
 app/testing/time_test.py
-
-app/time_test.py
 
 django/Albums/
 django/quickbbs/db.sqlite3
 
 Albums/
-Thumbnails/
 django/Thumbnails/
-django/db.sqlite3
-
 django/db.sqlite3
 
 *.passwdfile
@@ -95,9 +76,6 @@ django/db.sqlite3
 cfg/settings copy.ini
 
 db.sqlite3
-
-*.sqlite3
-
 *.sqlite3
 *.cprofile
 .DS_Store
