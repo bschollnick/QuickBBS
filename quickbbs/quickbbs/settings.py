@@ -10,8 +10,6 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/1.9/ref/settings/
 """
 
-from __future__ import absolute_import
-from __future__ import print_function
 import os
 import socket
 import quickbbs.jinjaenv
@@ -23,10 +21,10 @@ machine_name = socket.gethostname().lower()
 print ("Running on %s" % machine_name)
 
 DEBUG = True
-#DEBUG = not DEBUG
+DEBUG = not DEBUG
 print("Debug is ", DEBUG)
 
-#DEBUG_TOOLBAR = True
+# DEBUG_TOOLBAR = True
 DEBUG_TOOLBAR = False
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
@@ -83,8 +81,6 @@ INSTALLED_APPS += [
     'django.contrib.sites',
     'django_user_agents',
     'django_jinja',
-#    'django_jinja.contrib._humanize',
-#    'django.contrib.humanize',]
     ]
 
 INSTALLED_APPS += [
@@ -101,13 +97,8 @@ INSTALLED_APPS += [
     'django_jinja.contrib._humanize'
 ]
 
-INSTALLED_APPS += ('bootstrap3',)
-#INSTALLED_APPS += ('django_jinja.contrib._humanize',)
 
 SITE_ID = 1
-
-# SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
-#SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 
 # Now this assumes you can safely lose any data you store in your user sessions.
 # If thats not the case, you can still get some benefit from using:
@@ -120,27 +111,17 @@ if DEBUG_TOOLBAR:
     MIDDLEWARE += ('debug_toolbar.middleware.DebugToolbarMiddleware',)
 
 MIDDLEWARE += [
-#    'quickbbs.middleware.filter_ips.FilterHostMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
-#    'django.contrib.auth.middleware.SessionAuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'django_user_agents.middleware.UserAgentMiddleware',
 ]
 if DEBUG_TOOLBAR:
     MIDDLEWARE += ('debug_toolbar.middleware.DebugToolbarMiddleware')
-#        'django.middleware.cache.UpdateCacheMiddleware',
-#        'django.middleware.common.CommonMiddleware',
-#        'django.middleware.cache.FetchFromCacheMiddleware',)
-
-
-#if DEBUG:
-#    MIDDLEWARE += ('profiler.middleware.ProfilerMiddleware',
-#                   'profiler.middleware.StatProfMiddleware')
 
 X_FRAME_OPTIONS = 'SAMEORIGIN'
 
@@ -270,68 +251,6 @@ ACCOUNT_AUTHENTICATED_LOGIN_REDIRECTS = True
 ACCOUNT_LOGOUT_REDIRECT_URL = "/albums"
 LOGIN_REDIRECT_URL = '/albums'
 
-# Default settings
-BOOTSTRAP3 = {
-    # The complete URL to the Bootstrap CSS file
-    # Note that a URL can be either
-    # - a string, e.g. "//code.jquery.com/jquery.min.js"
-    # - a dict like the default value below (use key "url" for the actual link)
-    "css_url": {
-        "url": "https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css",
-        "integrity": "sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u",
-        "crossorigin": "anonymous",
-    },
-
-    # The complete URL to the Bootstrap CSS file (None means no theme)
-    "theme_url": None,
-
-    # The complete URL to the Bootstrap JavaScript file
-    "javascript_url": {
-        "url": "https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js",
-        "integrity": "sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa",
-        "crossorigin": "anonymous",
-    },
-
-    # The URL to the jQuery JavaScript file
-    "jquery_url": "//code.jquery.com/jquery.min.js",
-
-    # Put JavaScript in the HEAD section of the HTML document (only relevant if you use bootstrap3.html)
-    "javascript_in_head": False,
-
-    # Include jQuery with Bootstrap JavaScript (affects django-bootstrap3 template tags)
-    "include_jquery": False,
-
-    # Label class to use in horizontal forms
-    "horizontal_label_class": "col-md-3",
-
-    # Field class to use in horizontal forms
-    "horizontal_field_class": "col-md-9",
-
-    # Set placeholder attributes to label if no placeholder is provided.
-    # This also considers the "label" option of {% bootstrap_field %} tags.
-    "set_placeholder": True,
-
-    # Class to indicate required (better to set this in your Django form)
-    "required_css_class": "",
-
-    # Class to indicate error (better to set this in your Django form)
-    "error_css_class": "has-error",
-
-    # Class to indicate success, meaning the field has valid input (better to set this in your Django form)
-    "success_css_class": "has-success",
-
-    # Renderers (only set these if you have studied the source and understand the inner workings)
-    "formset_renderers":{
-        "default": "bootstrap3.renderers.FormsetRenderer",
-    },
-    "form_renderers": {
-        "default": "bootstrap3.renderers.FormRenderer",
-    },
-    "field_renderers": {
-        "default": "bootstrap3.renderers.FieldRenderer",
-        "inline": "bootstrap3.renderers.InlineFieldRenderer",
-    },
-}
 #from .logger import LOGGING
 
 DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'

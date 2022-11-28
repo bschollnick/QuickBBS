@@ -1,25 +1,24 @@
 import os
-from io import BytesIO
+# from io import BytesIO
+import uuid
 from uuid import uuid4
 
 from django.db import models
-from django.urls import reverse
-#from frontend.utilities import return_image_obj
-from PIL import Image
+# from django.urls import reverse
+# from PIL import Image
 
-from frontend.thumbnail import cr_tnail_img, return_image_obj, sizes
-"""
+from frontend.thumbnail import cr_tnail_img, sizes# , return_image_obj
+
 __version__ = '1.5'
 
 __author__ = 'Benjamin Schollnick'
 __email__ = 'Benjamin@schollnick.net'
 
 __url__ = 'https://github.com/bschollnick/quickbbs'
-__license__ = ''
+__license__ = 'TBD'
 
+"""
 The models, and logic for thumbnail storage for the Quickbbs reloaded project.
-
-
 
 * Thumbnail Files - Is the core storage for the thumbnails.  This stores the actual
     data for the thumbnail (e.g. FileSize, FileName, uuid, etc.  The actual
@@ -38,6 +37,7 @@ create_file_entry(filename, filesize, is_default)
     files filesize.
 
 """
+
 
 def is_valid_uuid(uuid_to_test, version=4) -> uuid4:
     """
@@ -69,11 +69,22 @@ def is_valid_uuid(uuid_to_test, version=4) -> uuid4:
 
     return str(uuid_obj) == uuid_to_test
 
-def invalidate_thumb(thumbnail, imagesize="Small"):
+
+def invalidate_thumb(thumbnail):
+    """
+    The invalidate_thumb function takes a thumbnail object and sets its file size to -1
+    and clears all the thumbnails. This is done so that when we call update_thumb, it will
+    be forced to regenerate the thumbnails from the original image.
+
+    :param thumbnail: Specify the thumbnail to be invalidated
+    :return: The thumbnail object with the file size set to - 1, and all of the thumbnails
+        as empty bytes
+    :doc-author: Trelent
+    """
     thumbnail.FileSize = -1
-    thumbnail.Thumbnail = b""
-    thumbnail.MediumThumb = b""
-    thumbnail.LargeThumb = b""
+    thumbnail.SmallThumb.Thumbnail = b""
+    thumbnail.MediumThumb.Thumbnail = b""
+    thumbnail.LargeThumb.Thumbnail = b""
     return thumbnail
 
 
@@ -83,17 +94,36 @@ class SmallThumb(models.Model):
         default=None, null=True, editable=False, unique=True, db_index=True, blank=True)
     Thumbnail = models.BinaryField(default=b"")
     FileSize = models.BigIntegerField(default=-1)
+
     def add_thumb(self, imagedata, fext):
+        """
+        The add_thumb function adds a thumbnail image to the database.
+        It takes two arguments: imagedata and fext.
+        imagedata is the image data of the thumbnail, in binary form.
+        fext is an optional argument that specifies what file extension
+            should be used for this thumbnail (e.g., .png).
+            If not specified, it defaults to whatever format the original image was in.
+
+        :param self: Refer to the instance of the object itself
+        :param imagedata: Save the image data to the database
+        :param fext: Determine the file extension of the thumbnail image
+        :return: The path to the thumbnail image
+        :doc-author: Trelent
+        """
         self.Thumbnail = cr_tnail_img(imagedata,
                                       sizes["small"],
                                       fext=fext)
         self.save()
 
-    def remove_thumb(self):
-        self.FileSize = -1
-        self.Thumbnail = b""
-
     def get_thumb(self):
+        """
+        The get_thumb function returns the thumbnail of a given image.
+
+
+        :param self: Access variables that belongs to the class
+        :return: The value of the thumbnail variable
+        :doc-author: Trelent
+        """
         return self.Thumbnail
 
     class Meta:
@@ -109,23 +139,41 @@ class MediumThumb(models.Model):
     FileSize = models.BigIntegerField(default=-1)
 
     def add_thumb(self, imagedata, fext):
-        self.Thumbnail = cr_tnail_img(return_image_obj(imagedata),
+        """
+        The add_thumb function adds a thumbnail to the image.
+        It takes two arguments: imagedata and fext.
+        imagedata is the binary data of an image file, and fext is its extension (e.g., jpg).
+        The function creates a thumbnail from the imagedata using cr_tnail_img,
+        which returns a string containing base64 encoded data for an image file with
+        size &quot;medium&quot;. The function then sets self's Thumbnail attribute to this string.
+
+        :param self: Refer to the instance of the object itself
+        :param imagedata: Store the image data
+        :param fext: Determine the file extension of the thumbnail image
+        :return: The thumbnail image
+        :doc-author: Trelent
+        """
+        self.Thumbnail = cr_tnail_img(imagedata,
                                       sizes["medium"],
                                       fext=fext)
         self.save()
         self.save()
 
-    def remove_thumb(self):
-        self.FileSize = -1
-        self.Thumbnail = b""
-        self.save()
-
     def get_thumb(self):
+        """
+        The get_thumb function returns the thumbnail of a given image.
+
+
+        :param self: Access variables that belongs to the class
+        :return: The value of the thumbnail variable
+        :doc-author: Trelent
+        """
         return self.Thumbnail
 
     class Meta:
         verbose_name = 'Image File Medium Thumbnail Cache'
         verbose_name_plural = 'Image File Medium Thumbnails Cache'
+
 
 class LargeThumb(models.Model):
     id = models.AutoField(primary_key=True, db_index=True)
@@ -135,48 +183,62 @@ class LargeThumb(models.Model):
     FileSize = models.BigIntegerField(default=-1)
 
     def add_thumb(self, imagedata, fext):
-        self.Thumbnail = cr_tnail_img(return_image_obj(imagedata),
-                                      sizes["medium"],
+        """
+        The add_thumb function adds a thumbnail image to the database.
+        It takes two arguments: imagedata and fext.
+        imagedata is the image data of the thumbnail, and fext is its file extension.
+
+        :param self: Refer to the instance of the object itself
+        :param imagedata: Specify the image data to be used for
+        :param fext: Determine the file extension of the thumbnail image
+        :return: A thumbnail image
+        :doc-author: Trelent
+        """
+        self.Thumbnail = cr_tnail_img(imagedata,
+                                      sizes["large"],
                                       fext=fext)
         self.save()
 
-    def remove_thumb(self):
-        self.FileSize = -1
-        self.Thumbnail = b""
-        self.save()
-
     def get_thumb(self):
+        """
+        The get_thumb function returns the thumbnail of a given image.
+
+
+        :param self: Access variables that belongs to the class
+        :return: The value of the thumbnail variable
+        :doc-author: Trelent
+        """
         return self.Thumbnail
 
     class Meta:
         verbose_name = 'Image File Large Thumbnail Cache'
         verbose_name_plural = 'Image File Large Thumbnails Cache'
 
-def create_file_entry(filename, filesize=None, is_default=False):
-    uuid = uuid4()
-    filename = filename
+
+def create_file_entry(filename, filesize=None, is_default=False) -> object:
+    record_id = uuid4()
+    #filename = filename
     if filesize is None:
         filesize = os.path.getsize(filename)
-    else:
-        filesize = filesize
+    #else:
+    #    filesize = filesize
 
-    is_default = is_default
+    #is_default = is_default
     ignore = False
 
-    small = SmallThumb.objects.create(uuid=uuid, FileSize=filesize, Thumbnail=b'')
+    small = SmallThumb.objects.create(uuid=record_id, FileSize=filesize, Thumbnail=b'')
 
-    medium = MediumThumb.objects.create(uuid=uuid, FileSize=filesize, Thumbnail=b'')
+    medium = MediumThumb.objects.create(uuid=record_id, FileSize=filesize, Thumbnail=b'')
 
-    large = LargeThumb.objects.create(uuid=uuid, FileSize=filesize, Thumbnail=b'')
+    large = LargeThumb.objects.create(uuid=record_id, FileSize=filesize, Thumbnail=b'')
 
-    entry = Thumbnails_Files.objects.create(uuid=uuid, FileName=filename,
+    entry = Thumbnails_Files.objects.create(uuid=record_id, FileName=filename,
                                             FileSize=filesize,
                                             SmallThumb=small, MediumThumb=medium,
                                             LargeThumb=large,
-                                            is_default=is_default, ignore=False)
+                                            is_default=is_default, ignore=ignore)
     return entry
 
-#        obj, created = self.objects.update_or_create(uuid=self.uuid)
 
 class Thumbnails_Files(models.Model):
     id = models.AutoField(primary_key=True, db_index=True)
@@ -208,51 +270,55 @@ class Thumbnails_Files(models.Model):
     ignore = models.BooleanField(default=False, db_index=False)
 
     def add_small(self, image_data):
+        """
+        The add_small function adds a small thumbnail to the database.
+        It takes an image_data argument, which is the data of the image file.
+        The function then uses cr_tnail_img to create a smaller version of
+        that image and saves it in self.SmallThumb.
+
+        :param self: Refer to the object that is calling the method
+        :param image_data: Store the image data of the thumbnail
+        :return: The image data of the small thumbnail
+        :doc-author: Trelent
+        """
         fext = os.path.splitext(self.FileName)[1][1:].lower()
-        #image_data = cr_tnail_img(image_data, sizes["small"], fext=fext)
-        obj, created = SmallThumb.objects.update_or_create(uuid=self.uuid,
-                                                           FileSize=self.FileSize,
-                                                           Thumbnail=b'',
-                                                           defaults={'uuid':self.uuid,
-                                                                     'FileSize':self.FileSize,
-                                                                     'Thumbnail':b''})
-        self.SmallThumb = obj
+        # image_data = cr_tnail_img(image_data, sizes["small"], fext=fext)
         self.SmallThumb.add_thumb(image_data, fext=fext)
         self.SmallThumb.save()
         self.save()
 
-    def remove_small(self):
-        self.SmallThumb.remove_thumb()
-        self.save()
-
     def add_medium(self, image_data):
-        self.MediumThumb.FileSize = self.FileSize
-        self.MediumThumb.uuid = self.uuid
-        self.MediumThumb.add_thumb(image_data)
-        self.save()
+        """
+        The add_medium function adds a medium to the database.
+        It takes an image_data argument, which is a string of binary data from an uploaded file.
+        The function also requires that the FileName attribute be set before calling it.
 
-    def remove_medium(self):
-        self.MediumThumb.remove_thumb()
-
-
-    def remove_small(self):
-        self.SmallThumb.remove_thumb()
+        :param self: Refer to the instance of the class
+        :param image_data: Pass the image data to the add_thumb function
+        :return: The value of self
+        :doc-author: Trelent
+        """
+        fext = os.path.splitext(self.FileName)[1][1:].lower()
+        self.SmallThumb.add_thumb(image_data, fext=fext)
+        self.SmallThumb.save()
         self.save()
 
     def add_large(self, image_data):
-        self.LargeThumb.FileSize = self.FileSize
-        self.LargeThumb.uuid = self.uuid
-        self.LargeThumb.add_thumb(image_data)
-        self.save()
+        """
+        The add_large function adds a large thumbnail to the database.
+        It takes an image_data argument, which is a string of binary data from the uploaded file.
+        The fext argument is optional and defaults to the extension on FileName (e.g., .jpg).
 
-    def remove_large(self):
-        self.LargeThumb.remove_thumb()
-        self.save()
 
-    def remove_all(self):
-        self.remove_small()
-        self.remove_medium()
-        self.remove_large()
+        :param self: Refer to the instance of the class
+        :param image_data: Store the image data in the database
+        :return: None
+        :doc-author: Trelent
+        """
+        fext = os.path.splitext(self.FileName)[1][1:].lower()
+        self.LargeThumb.add_thumb(image_data, fext=fext)
+        self.LargeThumb.save()
+        self.save()
 
     class Meta:
         verbose_name = 'Thumbnails Index for Files'
@@ -280,6 +346,7 @@ class Thumbnails_Archive(models.Model):
     FilePath = models.CharField(db_index=True, max_length=384, default=None)
     FileName = models.CharField(db_index=True, max_length=384, default=None)
     SmallThumb = models.BinaryField(default=b"")
+
     class Meta:
         verbose_name = 'Archive Thumbnails Cache'
         verbose_name_plural = 'Archive Thumbnails Cache'
@@ -295,6 +362,7 @@ class Thumbnails_Archive_Pages(models.Model):
     SmallThumb = models.BinaryField(default=b"")
     MediumThumb = models.BinaryField(default=b"")
     LargeThumb = models.BinaryField(default=b"")
+
     class Meta:
         verbose_name = 'Archive Pages Cache'
         verbose_name_plural = 'Archive Pages Cache'
@@ -315,23 +383,6 @@ class Thumbnails_Dir(models.Model):
                                      blank=True)
     is_default = models.BooleanField(default=False, db_index=False)
 
-    def check_thumb(self):
-        if self.FileSize != self.Thumbnail.FileSize:
-            self.remove_thumb()
-
-    def add_thumb(self, filename, fext):
-        self.Thumbnail = cr_tnail_img(return_image_obj(filename),
-                                      sizes["small"],
-                                      fext=fext)
-        self.save()
-
-    def remove_thumb(self):
-        self.FileSize = -1
-        self.Thumbnail = b""
-        self.save()
-
-    def get_thumb(self):
-        return self.Thumbnail
 
     class Meta:
         verbose_name = 'Directory Thumbnails Cache'

@@ -1,3 +1,6 @@
+"""
+
+"""
 import signal
 import sys
 
@@ -5,6 +8,6 @@ import sys
 if 'runserver' in sys.argv or "--host" in sys.argv:
     from cache.watchdogmon import watchdog
 #
-#   Boot strap by loading the configuration path data
+#   Bootstrap by loading the configuration path data
 #
-    signal.signal(signal.SIGINT, watchdogmon.watchdog.shutdown)
+    signal.signal(signal.SIGINT, watchdog.shutdown)
