@@ -10,21 +10,25 @@ from quickbbs.models import *
 
 @admin.register(Thumbnails_Dirs)
 class AdminThumbnail_Dirs(admin.ModelAdmin):
+    readonly_fields = ('id', 'uuid',)
     list_display = ('FilePath', 'DirName', 'FileSize')
     fields = ('uuid', 'FilePath', 'DirName', 'FileSize')
 
 @admin.register(Thumbnails_Files)
 class AdminThumbnail_Files(admin.ModelAdmin):
+    readonly_fields = ('id', 'uuid',)
     list_display = ('FileName', 'FilePath', 'FileSize')#g, 'is_pdf', 'is_image')
     fields = ('uuid', 'FileName', 'FilePath', 'FileSize')#, 'is_pdf', 'is_image')
 
 @admin.register(Thumbnails_Archives)
 class AdminThumbnail_Archives(admin.ModelAdmin):
+    readonly_fields = ('id', 'uuid',)
     list_display = ('zipfilepath', 'FilePath', 'FileName', 'page', 'FileSize')
     fields = ('uuid', 'zipfilepath', 'FilePath', 'FileName', 'page', 'FileSize')
 
 @admin.register(index_data)
 class AdminMaster_Index(admin.ModelAdmin):
+    readonly_fields = ('id', 'uuid',)
     list_display = ('name', 'lastscan', 'lastmod', 'size', 'fqpndirectory', 'ignore', 'delete_pending', 'file_tnail', 'directory', 'archives', 'ownership')
     fields = ('name', 'sortname', 'lastscan', 'lastmod', 'size', 'fqpndirectory', 'ignore', 'delete_pending', 'file_tnail', 'directory', 'archives', 'ownership')
 

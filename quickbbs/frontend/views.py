@@ -440,32 +440,8 @@ def downloadFile(request, filename=None):
                                  download.name,
                                  ranged=movie)
 
-# @vary_on_headers('User-Agent', 'Cookie', 'Request')
-# def new_download(request, d_uuid=None):
-#     """
-#     """"
-#
-#     page = request.GET.get('page', None)
-#     if page is None:
-#         download = index_data.objects.filter(uuid=d_uuid,
-#                                              ignore=False,
-#                                              delete_pending=False)[0]
-#     else:
-#         print ("Attempting to find page %s in archive" % page)
-#     print("\tDownloading - %s, %s" % (download.fqpndirectory.lower(),
-#                                       download.name))
-#
-#     movie = download.filetype.is_movie
-#     return respond_as_inline(request,
-#                                  "%s%s%s" % (
-#                                      configdata["locations"]["albums_path"],
-#                                      os.sep,
-#                                      download.fqpndirectory),
-#                                  download.name,
-#                                  ranged=movie)
-
-
-#@vary_on_headers('User-Agent', 'Cookie', 'Request')
+#@cache_page(500)
+#@vary_on_headers('User-Agent', 'Cookie', 'Request', 'i_uuid')
 def new_view_archive(request, i_uuid):
     """
     Show the gallery from the archive contents
@@ -499,7 +475,8 @@ def new_view_archive(request, i_uuid):
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
     context["webpath"] = ensures_endswith(context["webpath"], "/")
     context["fromtimestamp"] = datetime.datetime.fromtimestamp
-    context["djicons"] = django_icons.templatetags.icons.icon
+    #context["djicons"] = django_icons.templatetags.icons.icon
+    context["djicons"] = django_icons.templatetags.icons.icon_tag
     arc_filename = configdata["locations"]["albums_path"] +  \
         context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
     archive_file = archives.id_cfile_by_sig(arc_filename)
@@ -521,19 +498,8 @@ def new_view_archive(request, i_uuid):
         context["current_page"] = 1
     except EmptyPage:
         context["pagelist"] = chk_list.page(chk_list.num_pages)
-    # context["current_page"] = request.GET.get("page", 1)
-#     context["pagelist"] = Paginator(archive_file.listings, 30)
-# #    context["pagecount"] = context["pagelist"].count
-#     context["pagepop"] = range(1, context["pagelist"].num_pages+1)
-#     context["page_contents"] = context["pagelist"].page(context["current_page"])
-#
-#     if context["page_contents"].has_next():
-#         context["next"] = context["page_contents"].next_page_number()
-#     if context["page_contents"].has_previous():
-#         context["previous"] = context["page_contents"].previous_page_number()
 
     context["first"] = "1"
-    print(dir(context["pagelist"]))
 
     context["last"] = context["pagelist"].end_index
 
@@ -546,8 +512,8 @@ def new_view_archive(request, i_uuid):
     return response
 
 
-#@vary_on_headers('User-Agent', 'Cookie')
-#@vary_on_headers('User-Agent', 'Cookie', 'Request')
+#@cache_page(500)
+#@vary_on_headers('User-Agent', 'Cookie', 'Request', 'i_uuid')
 def new_archive_item(request, i_uuid):
     """
     Show item in an archive
@@ -610,25 +576,11 @@ try:
 except ProgrammingError:
     print("Unable to clear Cache Table")
 
-# print("Starting Watchdog - ",os.path.join(configdata["locations"]["albums_path"], "albums"))
-# watchdog.startup(monitor_path=os.path.join(configdata["locations"]["albums_path"],
-#                                            "albums"),
-#                                            created=delete_from_cache_tracking,
-#                                            deleted=delete_from_cache_tracking,
-#                                            modified=delete_from_cache_tracking,
-#                                            moved=delete_from_cache_tracking)
-#
 if 'runserver' in sys.argv or "--host" in sys.argv:
     print("Starting cleanup")
 #    check_for_deletes()
     print("Cleanup is done.")
     try:
-#        FILETYPE_DATA = load_filetypes()
-
-#        ftypes.refresh_filetypes()
-#        ftypes.FILETYPE_DATA = ftypes.get_ftype_dict()
-
-
         for prepath in configdata["locations"]["preload"]:
             print("Pre-Caching: ", prepath)
             read_from_disk(prepath.strip()) # startup
@@ -638,6 +590,5 @@ if 'runserver' in sys.argv or "--host" in sys.argv:
                 if test.exists():
                     print("%s - %s" % (ignored, test.count()))
                     test.delete()
-
     except:
         pass
