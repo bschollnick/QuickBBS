@@ -44,9 +44,6 @@ Zip, RAR are supported, what other formats might be useful?
               create extracted pages
 """
 
-#		Gallery Comic Support
-#
-#
 from __future__ import absolute_import
 from __future__ import print_function
 import base64
@@ -55,6 +52,7 @@ import os.path
 from operator import itemgetter
 import zipfile
 import rarfile
+
 
 class NotInitializedYet(Exception):
     """
@@ -168,14 +166,14 @@ print filename, 'is a', cf.mime_type, 'file'
         Returns - Handler as assigned by self.handler
        """
         if self.handler != None:
-# pylint: disable=E1102
+            # pylint: disable=E1102
             try:
                 return self.handler(self.filename, 'r')
             except rarfile.NeedFirstVolume:
                 return None
             except rarfile.TypeError:
                 return None
-# pylint: enable=E1102
+        # pylint: enable=E1102
         else:
             raise NotInitializedYet
 
@@ -190,7 +188,6 @@ print filename, 'is a', cf.mime_type, 'file'
         if self.mime_type != None:
             return self.mime_type
         raise NotInitializedYet
-
 
     def get_listings(self):
         """
@@ -213,8 +210,6 @@ print filename, 'is a', cf.mime_type, 'file'
                     count += 1
             sorted(self.listings, key=itemgetter(0))
             return True
-
-        return False
 
     def extract_mem_file(self, fname):
         """
@@ -243,17 +238,17 @@ print filename, 'is a', cf.mime_type, 'file'
         inputs - filename to extract
         returns - blob from the archive.
         """
-        translate = {'JPG' : 'JPEG',
-                     'JPEG' : 'JPEG',
-                     'PNG' : 'PNG',
-                     'GIF' : 'GIF',
-                     'BMP' : 'BMP',
-                     'EPS' : 'EPS',
-                     'MSP' : 'MSP',
-                     'PCX' : 'PCX',
-                     'PPM' : 'PPM',
-                     'TIF' : 'TIF',
-                     'TIFF' : 'TIF'}
+        translate = {'JPG': 'JPEG',
+                     'JPEG': 'JPEG',
+                     'PNG': 'PNG',
+                     'GIF': 'GIF',
+                     'BMP': 'BMP',
+                     'EPS': 'EPS',
+                     'MSP': 'MSP',
+                     'PCX': 'PCX',
+                     'PPM': 'PPM',
+                     'TIF': 'TIF',
+                     'TIFF': 'TIF'}
 
         handle = self._open
         if handle is None:
@@ -268,7 +263,7 @@ print filename, 'is a', cf.mime_type, 'file'
                 data = "data:image/%s;base64,%s" % (
                     translate[fileext.upper()].lower(),
                     base64.b64encode(cfile.read(fname)))
-            #data += base64.b64encode(cfile.read(fname))
+                # data += base64.b64encode(cfile.read(fname))
                 return data
             except TypeError:
                 print("Type error")
@@ -277,44 +272,45 @@ print filename, 'is a', cf.mime_type, 'file'
                 print("Unable to find RAR.  Please Install RAR.")
                 return None
 
-signatures = {'\x50\x4b\x03\x04':(['zip', 'cbz', 'pk3', 'pk4'],
+
+signatures = {'\x50\x4b\x03\x04': (['zip', 'cbz', 'pk3', 'pk4'],
                                    'compressed/zip',
                                    zipfile.ZipFile),
-              '\x50\x4b\x05\x06':(['zip', 'cbz', 'pk3', 'pk4'],
+              '\x50\x4b\x05\x06': (['zip', 'cbz', 'pk3', 'pk4'],
                                    'compressed/zip',
                                    zipfile.ZipFile),
-              '\x50\x4b\x07\x08':(['zip', 'cbz', 'pk3', 'pk4'],
+              '\x50\x4b\x07\x08': (['zip', 'cbz', 'pk3', 'pk4'],
                                    'compressed/zip',
                                    zipfile.ZipFile),
-              b'PK\x03\x04':(['zip', 'cbz', 'pk3', 'pk4'],
+              b'PK\x03\x04': (['zip', 'cbz', 'pk3', 'pk4'],
                               'compressed/zip',
                               zipfile.ZipFile),
-              '\x52\x61\x72\x21':(['rar', 'cbr'],
+              '\x52\x61\x72\x21': (['rar', 'cbr'],
                                    'application/x-rar-compressed',
                                    rarfile.RarFile),
-              b'Rar!':(['rar', 'cbr'],
+              b'Rar!': (['rar', 'cbr'],
                         'application/x-rar-compressed',
                         rarfile.RarFile),
-              b'\x1F\9D':(['lzh'],
+              b'\x1F\9D': (['lzh'],
                            'tar lzh compression',
                            None),
-              b'\x1F\A0':(['lzh'],
+              b'\x1F\A0': (['lzh'],
                            'tar lzh compression',
                            None),
-              b'\x42\x5A\x68':(['bzip', 'bz'],
-                           'bzip compression',
-                           None),
-              b'\x37\x7A\xBC\xAF\x27\x1C':(['7z'],
-                           '7zip compression',
-                           None),
-              b'\x1F\x8B':(['gz'],
-                           'gzip compression',
-                           None),
+              b'\x42\x5A\x68': (['bzip', 'bz'],
+                                'bzip compression',
+                                None),
+              b'\x37\x7A\xBC\xAF\x27\x1C': (['7z'],
+                                            '7zip compression',
+                                            None),
+              b'\x1F\x8B': (['gz'],
+                            'gzip compression',
+                            None),
 
-
-                           }
+              }
 
 sign_byte_count = 4
+
 
 # factory function to create a suitable instance for accessing files
 def id_cfile_by_sig(fname):

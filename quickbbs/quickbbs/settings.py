@@ -21,7 +21,7 @@ machine_name = socket.gethostname().lower()
 print ("Running on %s" % machine_name)
 
 DEBUG = True
-DEBUG = not DEBUG
+#DEBUG = not DEBUG
 print("Debug is ", DEBUG)
 
 # DEBUG_TOOLBAR = True
@@ -155,9 +155,9 @@ TEMPLATES = [
             "extensions": [
                 "jinja2.ext.do",
                 "jinja2.ext.loopcontrols",
-                "jinja2.ext.with_",
+#                "jinja2.ext.with_",
                 "jinja2.ext.i18n",
-                "jinja2.ext.autoescape",
+#                "jinja2.ext.autoescape",
                 "django_jinja.builtins.extensions.CsrfExtension",
                 "django_jinja.builtins.extensions.CacheExtension",
                 "django_jinja.builtins.extensions.TimezoneExtension",
