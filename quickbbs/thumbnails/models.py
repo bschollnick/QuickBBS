@@ -7,7 +7,7 @@ from django.db import models
 # from django.urls import reverse
 # from PIL import Image
 
-from frontend.thumbnail import cr_tnail_img, sizes# , return_image_obj
+from frontend.thumbnail import cr_tnail_img, sizes  # , return_image_obj
 
 __version__ = '1.5'
 
@@ -217,13 +217,13 @@ class LargeThumb(models.Model):
 
 def create_file_entry(filename, filesize=None, is_default=False) -> object:
     record_id = uuid4()
-    #filename = filename
+    # filename = filename
     if filesize is None:
         filesize = os.path.getsize(filename)
-    #else:
+    # else:
     #    filesize = filesize
 
-    #is_default = is_default
+    # is_default = is_default
     ignore = False
 
     small = SmallThumb.objects.create(uuid=record_id, FileSize=filesize, Thumbnail=b'')
@@ -382,7 +382,6 @@ class Thumbnails_Dir(models.Model):
                                      null=True,
                                      blank=True)
     is_default = models.BooleanField(default=False, db_index=False)
-
 
     class Meta:
         verbose_name = 'Directory Thumbnails Cache'

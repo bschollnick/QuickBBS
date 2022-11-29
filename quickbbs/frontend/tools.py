@@ -5,11 +5,7 @@ Created on Thu May 19 15:09:54 2016
 @author: bschollnick
 """
 import os
-#import os.path
-#import tempfile
-#import zipfile
 
-#from django.http import HttpResponse
 
 def assure_path_exists(dir_path):
     """

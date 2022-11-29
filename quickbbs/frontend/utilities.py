@@ -2,14 +2,12 @@
 """
 Utilities for QuickBBS, the python edition.
 """
-#from __future__ import absolute_import, print_function, unicode_literals
+# from __future__ import absolute_import, print_function, unicode_literals
 
 import html
-#from constants import *
 import logging
 import os
 import os.path
-#import urllib
 import re
 import stat
 import sys
@@ -18,31 +16,30 @@ import urllib.parse
 import uuid
 from io import BytesIO
 
-#from moviepy.video.io import VideoFileClip
-#from moviepy.editor import VideoFileClip #* # import everythings (variables, classes, methods...) inside moviepy.editor
+# from moviepy.video.io import VideoFileClip
+# from moviepy.editor import VideoFileClip #* # import everythings (variables, classes, methods...) inside moviepy.editor
 import av  # Video Previews
 import fitz  # PDF previews
 from django.core.exceptions import MultipleObjectsReturned
-#from django.db import transaction
 from pathvalidate import sanitize_filename
 from PIL import Image
-from cache.models import CACHE
 
 import frontend.constants as constants
+import filetypes.constants as ftype_constants
 import filetypes.models as filetype_models
 import frontend.pdf_utilities as pdf_utilities
 from frontend.database import check_dup_thumbs  # , validate_database
 from quickbbs.models import (Thumbnails_Archives, filetypes, index_data)
 from cache.models import fs_Cache_Tracking as Cache_Tracking
-
-#from frontend.ftypes import return_filetype
+from cache.models import CACHE
 
 log = logging.getLogger(__name__)
 
 import frontend.archives3 as archives
-import quickbbs.settings
 
 Image.MAX_IMAGE_PIXELS = None
+
+
 # Disable PILLOW DecompressionBombError errors.
 
 def rename_file(old_filename, new_filename):
@@ -56,6 +53,7 @@ def ensures_endswith(string_to_check, value):
     if not string_to_check.endswith(value):
         string_to_check = "%s%s" % (string_to_check, value)
     return string_to_check
+
 
 def sort_order(request, context):
     """
@@ -139,6 +137,7 @@ def test_extension(name, ext_list):
     """
     return os.path.splitext(name)[1].lower() in ext_list
 
+
 def return_image_obj(fs_path, memory=False):
     """
     Given a Fully Qualified FileName/Pathname, open the image
@@ -163,9 +162,9 @@ def return_image_obj(fs_path, memory=False):
     --------
     """
     source_image = None
-#    print(fs_path[1], type(fs_path))
+    #    print(fs_path[1], type(fs_path))
     extension = os.path.splitext(fs_path)[1].lower()
-    #print(fs_path[:20], extension)
+    # print(fs_path[:20], extension)
 
     if extension in ("", b"", None):
         extension = ".none"
@@ -176,11 +175,11 @@ def return_image_obj(fs_path, memory=False):
 
         pdf_file = fitz.open(fs_path)
         pdf_page = pdf_file.load_page(0)
-#        pix = pdf_page.getPixmap(alpha=True)#matrix=fitz.Identity, alpha=True)
-        pix = pdf_page.get_pixmap(alpha=True)#matrix=fitz.Identity, alpha=True)
+        #        pix = pdf_page.getPixmap(alpha=True)#matrix=fitz.Identity, alpha=True)
+        pix = pdf_page.get_pixmap(alpha=True)  # matrix=fitz.Identity, alpha=True)
 
         try:
-            #source_image = Image.open(BytesIO(pix.getPNGData()))
+            # source_image = Image.open(BytesIO(pix.getPNGData()))
             source_image = Image.open(BytesIO(pix.tobytes()))
         except UserWarning:
             print("UserWarning!")
@@ -188,12 +187,11 @@ def return_image_obj(fs_path, memory=False):
 
     if extension in filetype_models.FILETYPE_DATA:
         if filetype_models.FILETYPE_DATA[extension]["is_movie"]:
-            #print(memory)
+            # print(memory)
             with av.open(fs_path) as container:
                 stream = container.streams.video[0]
                 frame = next(container.decode(stream))
                 source_image = frame.to_image()
-
 
         elif filetype_models.FILETYPE_DATA[extension]["is_image"]:
             if not memory:
@@ -203,17 +201,18 @@ def return_image_obj(fs_path, memory=False):
                     print("Unable to load source file")
 
             else:
-                try:# fs_path is a byte stream
+                try:  # fs_path is a byte stream
                     source_image = Image.open(BytesIO(fs_path))
-    #                source_image = None
+                #                source_image = None
                 except IOError:
                     print("IOError")
                     log.debug("PIL was unable to identify as an image file")
-     #               source_image = None
+                #               source_image = None
                 except UserWarning:
                     print("UserWarning!")
-      #              source_image = None
+    #              source_image = None
     return source_image
+
 
 def cr_tnail_img(source_image, size, fext):
     """
@@ -227,7 +226,7 @@ def cr_tnail_img(source_image, size, fext):
     if source_image == None:
         return None
 
-    if ".%s" % fext in constants._movie:
+    if ".%s" % fext in ftype_constants._movie:
         fext = "jpg"
 
     image_data = BytesIO()
@@ -239,7 +238,7 @@ def cr_tnail_img(source_image, size, fext):
     except IOError:
         source_image = source_image.convert('RGB')
         source_image.save(fp=image_data,
-                          format="JPEG",#configdata["filetypes"][fext][2].strip(),
+                          format="JPEG",  # configdata["filetypes"][fext][2].strip(),
                           optimize=False
                           )
 
@@ -251,6 +250,7 @@ def naturalize(string):
     """
         return <STRING> as a english sortable <STRING>
     """
+
     def naturalize_int_match(match):
         """ reformat as a human sortable number
         """
@@ -262,24 +262,24 @@ def naturalize(string):
     return string
 
 
-def multiple_replace(repl_dict, text):#, compiled):
+def multiple_replace(repl_dict, text):  # , compiled):
     # Create a regular expression  from the dictionary keys
 
     # For each match, look-up corresponding value in dictionary
     return constants.regex.sub(lambda mo: repl_dict[mo.string[mo.start():mo.end()]], text)
 
-def return_disk_listing(fqpn, enable_rename=False):
 
+def return_disk_listing(fqpn, enable_rename=False):
     data = {}
-    #data_list = []
+    # data_list = []
     loaded = True
-#    webpath = (fqpn.title().replace(configdata["locations"]["albums_path"].title(),
-#                                    "")).replace("//", "/")
+    #    webpath = (fqpn.title().replace(configdata["locations"]["albums_path"].title(),
+    #                                    "")).replace("//", "/")
     for entry in os.scandir(fqpn):
         titlecase = entry.name.title()
         unescaped = html.unescape(titlecase)
         lower_filename = entry.name.lower()
-#        rename = False
+        #        rename = False
         animated = False
         fext = os.path.splitext(lower_filename)[1]
         if fext == "":
@@ -289,8 +289,8 @@ def return_disk_listing(fqpn, enable_rename=False):
 
         if fext not in filetype_models.FILETYPE_DATA:
             continue
-        elif (fext in configdata["filetypes"]["extensions_to_ignore"]) or\
-           (lower_filename in configdata["filetypes"]["files_to_ignore"]):
+        elif (fext in configdata["filetypes"]["extensions_to_ignore"]) or \
+                (lower_filename in configdata["filetypes"]["files_to_ignore"]):
             continue
 
         elif configdata["filetypes"]["ignore_dotfiles"] and lower_filename.startswith("."):
@@ -301,7 +301,7 @@ def return_disk_listing(fqpn, enable_rename=False):
             if titlecase != unescaped:
                 titlecase = unescaped.title()
 
-            after_filename = multiple_replace(constants.replacements, lower_filename)#, regex)
+            after_filename = multiple_replace(constants.replacements, lower_filename)  # , regex)
             if after_filename != lower_filename:
                 titlecase = after_filename.title()
 
@@ -310,22 +310,23 @@ def return_disk_listing(fqpn, enable_rename=False):
                 rename_file(os.path.join(fqpn, original_filename),
                             os.path.join(fqpn, titlecase))
                 print("rejected - %s" % titlecase)
-                #loaded = False
+                # loaded = False
 
-        data[titlecase] = {"filename":titlecase,
-                           "lower_filename":titlecase.lower(),
-                           "path":os.path.join(fqpn, titlecase),
-                           'sortname':naturalize(titlecase),
-                           'size':entry.stat()[stat.ST_SIZE],
-                           'lastmod':entry.stat()[stat.ST_MTIME],
-                           'is_dir':entry.is_dir(),#fext == ".dir",
-                           'is_file':not entry.is_dir(),#fext != ".dir",
-                           'is_archive':filetype_models.FILETYPE_DATA[fext]["is_archive"],
-                           'is_image':filetype_models.FILETYPE_DATA[fext]["is_image"],
-                           'is_movie':filetype_models.FILETYPE_DATA[fext]["is_movie"],
-                           'is_animated':animated
+        data[titlecase] = {"filename": titlecase,
+                           "lower_filename": titlecase.lower(),
+                           "path": os.path.join(fqpn, titlecase),
+                           'sortname': naturalize(titlecase),
+                           'size': entry.stat()[stat.ST_SIZE],
+                           'lastmod': entry.stat()[stat.ST_MTIME],
+                           'is_dir': entry.is_dir(),  # fext == ".dir",
+                           'is_file': not entry.is_dir(),  # fext != ".dir",
+                           'is_archive': filetype_models.FILETYPE_DATA[fext]["is_archive"],
+                           'is_image': filetype_models.FILETYPE_DATA[fext]["is_image"],
+                           'is_movie': filetype_models.FILETYPE_DATA[fext]["is_movie"],
+                           'is_animated': animated
                            }
     return (loaded, data)
+
 
 # def delete_from_cache_tracking(event):
 #     global CACHE
@@ -351,8 +352,8 @@ def read_from_disk(dir_to_scan, skippable=True):
                 FilePath=ensures_endswith(webpath, os.sep),
                 FileName=fname,
                 page=page,
-                defaults={"uuid":uuid_entry, "FilePath":ensures_endswith(webpath, os.sep),
-                          "FileName":fname, "page":page})[0]
+                defaults={"uuid": uuid_entry, "FilePath": ensures_endswith(webpath, os.sep),
+                          "FileName": fname, "page": page})[0]
         except MultipleObjectsReturned:
             check_dup_thumbs(uuid_entry, page)
             db_entry = Thumbnails_Archives.objects.update_or_create(
@@ -360,39 +361,39 @@ def read_from_disk(dir_to_scan, skippable=True):
                 FilePath=ensures_endswith(webpath, os.sep),
                 FileName=fname,
                 page=page,
-                defaults={"uuid":uuid_entry, "FilePath":webpath,
-                          "FileName":fname, "page":page})[0]
+                defaults={"uuid": uuid_entry, "FilePath": webpath,
+                          "FileName": fname, "page": page})[0]
         return db_entry
 
-#     def link_dir_rec(sd_entry, webpath, uuid_entry):
-#         fs_name = os.path.join(configdata["locations"]["albums_path"],
-#                                webpath[1:],
-#                                sd_entry[filename]["filename"])
-#         fname = os.path.basename(fs_name).title()
-#         db_entry = Thumbnails_Dirs.objects.update_or_create(
-#             uuid=uuid_entry, FilePath=webpath, DirName=fname,
-#             defaults={"uuid":uuid_entry,
-#                       "FilePath":webpath,
-#                       "DirName":fname})[0]
-#         return db_entry
-#
-#     def link_file_rec(sd_entry, webpath, uuid_entry):
-#         fs_name = os.path.join(configdata["locations"]["albums_path"],
-#                                webpath[1:],
-#                                sd_entry[filename]["filename"])#.name)
-#         fname = os.path.basename(fs_name).title()
-#
-#         db_entry = Thumbnails_Files.objects.update_or_create(
-#             uuid=uuid_entry,
-#             FilePath=webpath,
-#             FileName=fname,
-#             defaults={"uuid":uuid_entry,
-#                       "FilePath":webpath,
-#                       "FileName":fname,
-#                      })[0]
-#         return db_entry
+    #     def link_dir_rec(sd_entry, webpath, uuid_entry):
+    #         fs_name = os.path.join(configdata["locations"]["albums_path"],
+    #                                webpath[1:],
+    #                                sd_entry[filename]["filename"])
+    #         fname = os.path.basename(fs_name).title()
+    #         db_entry = Thumbnails_Dirs.objects.update_or_create(
+    #             uuid=uuid_entry, FilePath=webpath, DirName=fname,
+    #             defaults={"uuid":uuid_entry,
+    #                       "FilePath":webpath,
+    #                       "DirName":fname})[0]
+    #         return db_entry
+    #
+    #     def link_file_rec(sd_entry, webpath, uuid_entry):
+    #         fs_name = os.path.join(configdata["locations"]["albums_path"],
+    #                                webpath[1:],
+    #                                sd_entry[filename]["filename"])#.name)
+    #         fname = os.path.basename(fs_name).title()
+    #
+    #         db_entry = Thumbnails_Files.objects.update_or_create(
+    #             uuid=uuid_entry,
+    #             FilePath=webpath,
+    #             FileName=fname,
+    #             defaults={"uuid":uuid_entry,
+    #                       "FilePath":webpath,
+    #                       "FileName":fname,
+    #                      })[0]
+    #         return db_entry
 
-###############################
+    ###############################
     # Read_from_disk - main
     #
     # rewrite to use update_or_create? - No the logic doesn't work.
@@ -419,25 +420,24 @@ def read_from_disk(dir_to_scan, skippable=True):
         # The path has not been seen since the Cache Tracking has been enabled
         # (eg Startup, or the entry has been nullified)
         # Add to table, and allow a rescan to occur.
-        print("\n\n","\nSaving, %s to cache tracking\n" % dirpath,"\n\n")
+        print("\n\n", "\nSaving, %s to cache tracking\n" % dirpath, "\n\n")
         new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
         new_rec.save()
-#    else:
-#        print("Skipping (%s) due to CT" % dirpath)
-#        # The entry is in the cache table
-#        return webpath.replace(os.sep, r"/")
+    #    else:
+    #        print("Skipping (%s) due to CT" % dirpath)
+    #        # The entry is in the cache table
+    #        return webpath.replace(os.sep, r"/")
 
-#    print("dp", dirpath)
+    #    print("dp", dirpath)
     CACHE.read_path(fqpn)
-    CACHE.sanitize_filenames(dirpath, allow_rename=True)#, quiet=False)
+    CACHE.sanitize_filenames(dirpath, allow_rename=True)  # , quiet=False)
     disk_count = CACHE.return_fileCount(dirpath)
     diskstore = CACHE.extended[dirpath]
-#    print("diskstore",diskstore)
+    #    print("diskstore",diskstore)
     existing_data = index_data.objects.filter(fqpndirectory=ensures_endswith(dir_to_scan, os.sep),
                                               ignore=False,
                                               delete_pending=False)
     existing_data_size = existing_data.count()
-
 
     # Scenarios
     #
@@ -451,7 +451,7 @@ def read_from_disk(dir_to_scan, skippable=True):
         print("existing size %s       on disk %s" % (existing_data_size,
                                                      disk_count))
         for entry in existing_data:
-            if not entry.name in diskstore:    # name is already title cased
+            if not entry.name in diskstore:  # name is already title cased
                 print("Deleting %s" % entry.name)
                 entry.delete()
         skippable = False
@@ -459,25 +459,22 @@ def read_from_disk(dir_to_scan, skippable=True):
     elif disk_count > existing_data_size:
         skippable = False
 
-    if existing_data_size > 0:# and existing_data_size is not None:
+    if existing_data_size > 0:  # and existing_data_size is not None:
         lastmoded = existing_data.order_by("-lastmod")[0]
         fs_lm_name, fs_lm_value, fs_ls_value = CACHE.return_newest(dirpath)
         if not lastmoded.name == fs_lm_name:
-            print("Unable to skip, due to last mod name. fs %s vs C %s, %s - %s" % (fs_lm_name, lastmoded.name, CACHE.last_mods[dirpath], lastmoded.id))
+            print("Unable to skip, due to last mod name. fs %s vs C %s, %s - %s" % (
+                fs_lm_name, lastmoded.name, CACHE.last_mods[dirpath], lastmoded.id))
             diskstore = CACHE.extended[dirpath]
-
             skippable = False
         elif lastmoded.lastmod != fs_lm_value:
             print("Unable to skip, due to last mod value")
             skippable = False
 
-
     bulk_db_elements = []
     count = 0
     if filetype_models.FILETYPE_DATA == {}:
         try:
-#                ftypes.refresh_filetypes()
-            #ftypes.FILETYPE_DATA = ftypes.get_ftype_dict()
             filetype_models.reload_filetypes()
         except KeyError:
             print("Unable to validate or create FileType database table.")
@@ -517,18 +514,18 @@ def read_from_disk(dir_to_scan, skippable=True):
                 fqpndirectory=webpath,
                 ignore=False,
                 delete_pending=False,
-                defaults={'name':filename,
-                          'fqpndirectory':webpath,
-                          'sortname':naturalize(filename),
-                          'size':filedata.stat().st_size,
-                          'lastmod':filedata.stat().st_mtime,
-                          'numfiles':numfiles,
-                          'numdirs':numdirs,
-                          'lastscan':time.time(),
-                          'filetype':filetypes(fileext=fext),
-                          'is_animated':animated
+                defaults={'name': filename,
+                          'fqpndirectory': webpath,
+                          'sortname': naturalize(filename),
+                          'size': filedata.stat().st_size,
+                          'lastmod': filedata.stat().st_mtime,
+                          'numfiles': numfiles,
+                          'numdirs': numdirs,
+                          'lastscan': time.time(),
+                          'filetype': filetypes(fileext=fext),
+                          'is_animated': animated
                           }
-                )
+            )
         except MultipleObjectsReturned:
             print("Multiple Objects Returned")
             index_data.objects.filter(
@@ -539,38 +536,39 @@ def read_from_disk(dir_to_scan, skippable=True):
                 fqpndirectory=webpath,
                 ignore=False,
                 delete_pending=False,
-                defaults={'name':filename,
-                          'fqpndirectory':webpath,
-                          'sortname':naturalize(filename),
-                          'size':filedata.stat().st_size,
-                          'lastmod':filedata.stat().st_mtime,
-                          'numfiles':numfiles,
-                          'numdirs':numdirs,
-                          'lastscan':time.time(),
-                          'filetype':filetypes(fileext=fext),
-                          'is_animated':animated
+                defaults={'name': filename,
+                          'fqpndirectory': webpath,
+                          'sortname': naturalize(filename),
+                          'size': filedata.stat().st_size,
+                          'lastmod': filedata.stat().st_mtime,
+                          'numfiles': numfiles,
+                          'numdirs': numdirs,
+                          'lastscan': time.time(),
+                          'filetype': filetypes(fileext=fext),
+                          'is_animated': animated
                           }
-                )
+            )
         if ind_data.filetype == filetypes(fileext=None):
-            #print("Updating due to file_ext")
+            # print("Updating due to file_ext")
             force_save = True
 
-#        print(ind_data.filetype.fileext, webpath, filename)
-#        print ("Numdir ", ind_data.numdirs, numdirs)
-#        print("numfiles ", ind_data.numfiles, numfiles)
+        #        print(ind_data.filetype.fileext, webpath, filename)
+        #        print ("Numdir ", ind_data.numdirs, numdirs)
+        #        print("numfiles ", ind_data.numfiles, numfiles)
         if ind_data.filetype.fileext == ".dir":
             subdir_path = os.path.join(webpath, filename)
             if (ind_data.numdirs != numdirs or
-                ind_data.numfiles != numfiles):
+                    ind_data.numfiles != numfiles):
                 force_save = True
                 ind_data.numdirs = numdirs
                 ind_data.numfiles = numfiles
                 print("Mismatch for subdir - ", webpath, filename)
-            if numdirs == -1 and index_data.objects.filter(fqpndirectory=subdir_path, filetype__fileext='.dir').exists():#count() >= 1:
+            if numdirs == -1 and index_data.objects.filter(fqpndirectory=subdir_path,
+                                                           filetype__fileext='.dir').exists():  # count() >= 1:
                 print("Attempting to delete, dirs from ", subdir_path)
-                #index_data.objects.filter(fqpndirectory=subdir_path).filter(ind_data.filetype.fileext=='.dir').delete()
+                # index_data.objects.filter(fqpndirectory=subdir_path).filter(ind_data.filetype.fileext=='.dir').delete()
 
-        if ind_data.lastmod != filedata.stat().st_mtime:#.stat()[stat.ST_MTIME]:
+        if ind_data.lastmod != filedata.stat().st_mtime:  # .stat()[stat.ST_MTIME]:
             print(filename, ind_data.lastmod, filedata.stat().st_mtime)
             ind_data.lastmod = filedata.stat().st_mtime
             print("LastMod update", filedata.name)
@@ -584,30 +582,29 @@ def read_from_disk(dir_to_scan, skippable=True):
             ta_listings = Thumbnails_Archives.objects.filter(uuid=ind_data.uuid)
             if ta_listings.count() != ind_data.count_subfiles:
                 archive_file = archives.id_cfile_by_sig(os.path.join(configdata["locations"]["albums_path"],
-                               webpath[1:],
-                               filename))
+                                                                     webpath[1:],
+                                                                     filename))
                 archive_file.get_listings()
                 ind_data.count_subfiles = ta_listings.count()
                 for zipcount, entry in enumerate(archive_file.listings):
-                    if not ta_listings.filter(page = zipcount).exists():
-                        Thumbnails_Archives.objects.create(uuid = ind_data.uuid,
-                            FileName = filename,#.replace("#",""),
-                            FilePath = webpath,
-                            page = zipcount,
-                            FileSize = -1)
+                    if not ta_listings.filter(page=zipcount).exists():
+                        Thumbnails_Archives.objects.create(uuid=ind_data.uuid,
+                                                           FileName=filename,  # .replace("#",""),
+                                                           FilePath=webpath,
+                                                           page=zipcount,
+                                                           FileSize=-1)
 
         if created or ind_data.uuid is None:
             ind_data.uuid = new_uuid
             force_save = True
 
-
         if force_save:
-#            print("Force saving")
+            #            print("Force saving")
             ind_data.save()
-            #bulk_db_elements.append(ind_data)
+            # bulk_db_elements.append(ind_data)
 
         if ind_data.filetype.is_image and skippable:
-            #if ftypes.FILETYPE_DATA[fext]["is_image"] and skippable:
+            # if ftypes.FILETYPE_DATA[fext]["is_image"] and skippable:
             #
             # Create up to the first image record (eg. Directory thumbnail) and then
             # break.
@@ -615,20 +612,23 @@ def read_from_disk(dir_to_scan, skippable=True):
             break
     return webpath.replace(os.sep, r"/")
 
+
 def break_down_urls(uri_path):
     path = urllib.parse.urlsplit(uri_path).path
     return path.split('/')
 
-def return_breadcrumbs(uri_path=""):#, crumbsize=3):
+
+def return_breadcrumbs(uri_path=""):  # , crumbsize=3):
     uris = break_down_urls(uri_path)
     data = []
     for count in range(1, len(uris)):
         name = uris[count].split("/")[-1]
-        url = "/".join(uris[0:count+1])
+        url = "/".join(uris[0:count + 1])
         if name == "":
             continue
         data.append([name, url, "<a href='%s'>%s</a>" % (url, name)])
     return data
+
 
 if __name__ == '__main__':
     pass
@@ -641,4 +641,5 @@ if __name__ == '__main__':
 #     doctest.testmod()
 else:
     from frontend.config import configdata
+
     print(sys.version)

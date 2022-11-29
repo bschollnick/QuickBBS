@@ -5,31 +5,34 @@ Thumbnail routines for QuickBBS
 from __future__ import absolute_import, print_function, unicode_literals
 
 import os
-#import sys
-#from PIL import Image
+# import sys
+# from PIL import Image
 import frontend.archives3 as archives
 from frontend.config import configdata
 from frontend.database import get_xth_image
 from frontend.utilities import (cr_tnail_img, return_image_obj,
                                 read_from_disk)
-from frontend.web import return_img_attach, g_option, return_inline_attach#, respond_as_attachment
+from frontend.web import return_img_attach, g_option, return_inline_attach  # , respond_as_attachment
 from quickbbs.models import (index_data,
-                             #Thumbnails_Dirs,
-                             #Thumbnails_Files,
+    # Thumbnails_Dirs,
+    # Thumbnails_Files,
                              Thumbnails_Archives)
-#from io import BytesIO
+
+# from io import BytesIO
 
 sizes = {
-    "small":configdata["configuration"]["small"],
-    "medium":configdata["configuration"]["medium"],
-    "large":configdata["configuration"]["large"],
-    "unknown":configdata["configuration"]["small"]
+    "small": configdata["configuration"]["small"],
+    "medium": configdata["configuration"]["medium"],
+    "large": configdata["configuration"]["large"],
+    "unknown": configdata["configuration"]["small"]
 }
+
 
 def ensures_endswith(string_to_check, value):
     if not string_to_check.endswith(value):
         string_to_check = "%s%s" % (string_to_check, value)
     return string_to_check
+
 
 def images_in_dir(database, webpath):
     """
@@ -57,8 +60,8 @@ def images_in_dir(database, webpath):
     """
 
     #   What files exist in this directory?
-    filters = {'fqpndirectory':ensures_endswith(webpath.lower(), os.sep),
-               'ignore':False, 'delete_pending':False}
+    filters = {'fqpndirectory': ensures_endswith(webpath.lower(), os.sep),
+               'ignore': False, 'delete_pending': False}
     files = get_xth_image(database, 0, filters)
     if files is None:
         # No files exist in the database for this directory
@@ -67,6 +70,7 @@ def images_in_dir(database, webpath):
         # process_dir
         files = get_xth_image(database, 0, filters)
     return files
+
 
 def new_process_dir(db_index):
     """
@@ -83,7 +87,7 @@ def new_process_dir(db_index):
     #
     # webpath contains the URL equivalent to the file system path (fs_path)
     #
-    #imagedata = None
+    # imagedata = None
     if db_index.directory.SmallThumb != b'':
         # Does the thumbnail exist?
         if db_index.size == db_index.directory.FileSize:
@@ -103,38 +107,39 @@ def new_process_dir(db_index):
     files = images_in_dir(index_data,
                           os.path.join(db_index.fqpndirectory,
                                        db_index.name).lower())
-#    print("\n\n !!! = ",os.path.join(db_index.fqpndirectory,
-#                                       db_index.name).lower(), files)
-    if files: # found an file in the directory to use for thumbnail purposes
-        #print ("Files found in directory")
-        fs_d_fname = configdata["locations"]["albums_path"] +\
-                    os.path.join(db_index.fqpndirectory.lower(),
-                                 db_index.name, files.name)
-                 # file system location of directory
+    #    print("\n\n !!! = ",os.path.join(db_index.fqpndirectory,
+    #                                       db_index.name).lower(), files)
+    if files:  # found an file in the directory to use for thumbnail purposes
+        # print ("Files found in directory")
+        fs_d_fname = configdata["locations"]["albums_path"] + \
+                     os.path.join(db_index.fqpndirectory.lower(),
+                                  db_index.name, files.name)
+        # file system location of directory
         fext = os.path.splitext(files.name)[1][1:].lower()
 
         temp = cr_tnail_img(return_image_obj(fs_d_fname),
                             sizes["small"],
                             fext=fext)
-        #imagedata = temp
+        # imagedata = temp
         db_index.directory.SmallThumb = temp
         db_index.directory.FileSize = db_index.size
     else:
         #
         #   There are no files in the directory
         #
-        temp = return_image_obj(configdata["locations"]["images_path"]+\
+        temp = return_image_obj(configdata["locations"]["images_path"] + \
                                 os.sep + configdata["filetypes"]["dir"][1])
-#            if db_index.size != os.path.getsize(temp):
+        #            if db_index.size != os.path.getsize(temp):
         img_icon = cr_tnail_img(temp, sizes["small"],
                                 configdata["filetypes"]["dir"][2])
         db_index.directory.SmallThumb = img_icon
         db_index.directory.FileSize = db_index.size
-#            print("Set size to %s for %s" % (db_index.directory.FileSize,
-#                                             fs_d_fname))
+    #            print("Set size to %s for %s" % (db_index.directory.FileSize,
+    #                                             fs_d_fname))
     db_index.directory.save()
     db_index.save()
     return return_img_attach(db_index.name, db_index.directory.SmallThumb)
+
 
 def invalidate_thumb(thumbnail):
     thumbnail.FileSize = -1
@@ -160,7 +165,7 @@ def new_process_img(entry, request, imagesize="Small"):
     """
     thumb_size = g_option(request, "size", "Small").title()
 
-    existing_data = getattr(entry.file_tnail, "%sThumb" % thumb_size)#.tobytes()
+    existing_data = getattr(entry.file_tnail, "%sThumb" % thumb_size)  # .tobytes()
     if existing_data != b'':
         # Does the thumbnail exist?
         if entry.size == entry.file_tnail.FileSize:
@@ -168,21 +173,21 @@ def new_process_img(entry, request, imagesize="Small"):
 
         else:
             print("Cache is invalid")
-    fs_fname = configdata["locations"]["albums_path"] +\
-                os.path.join(entry.fqpndirectory.lower(),
-                             entry.name)
+    fs_fname = configdata["locations"]["albums_path"] + \
+               os.path.join(entry.fqpndirectory.lower(),
+                            entry.name)
     fs_fname = fs_fname.replace("//", "/")
-             # file system location of directory
+    # file system location of directory
 
     fext = os.path.splitext(fs_fname)[1][1:].lower()
     imagedata = None
-    #entry.file_tnail.FileSize = -1
-    #entry.file_tnail.SmallThumb = b""
-    #entry.file_tnail.MediumThumb = b""
-    #entry.file_tnail.LargeThumb = b""
+    # entry.file_tnail.FileSize = -1
+    # entry.file_tnail.SmallThumb = b""
+    # entry.file_tnail.MediumThumb = b""
+    # entry.file_tnail.LargeThumb = b""
     entry.file_tnail = invalidate_thumb(entry.file_tnail)
 
-# https://stackoverflow.com/questions/1167398/python-access-class-property-from-string
+    # https://stackoverflow.com/questions/1167398/python-access-class-property-from-string
     temp = return_image_obj(fs_fname)
     setattr(entry.file_tnail,
             "%sThumb" % thumb_size, cr_tnail_img(temp,
@@ -195,8 +200,9 @@ def new_process_img(entry, request, imagesize="Small"):
     entry.save()
     imagedata = getattr(entry.file_tnail, "%sThumb" % thumb_size)
     return return_img_attach(entry.name, imagedata, fext_override="JPEG")
-#    return return_img_attach(db_index.name, db_index.directory.SmallThumb)
 
+
+#    return return_img_attach(db_index.name, db_index.directory.SmallThumb)
 
 
 def new_process_archive(ind_entry, request, page=0):
@@ -204,30 +210,30 @@ def new_process_archive(ind_entry, request, page=0):
     Process an archive, and return the thumbnail
     """
     thumbsize = g_option(request, "size", "small").lower().strip()
-    fs_archname = configdata["locations"]["albums_path"] +\
-                os.path.join(ind_entry.fqpndirectory.lower(),
-                             ind_entry.name)
+    fs_archname = configdata["locations"]["albums_path"] + \
+                  os.path.join(ind_entry.fqpndirectory.lower(),
+                               ind_entry.name)
     fs_archname = fs_archname.replace("//", "/").strip()
 
-             # file system location of directory
+    # file system location of directory
 
-    #existing_tnails = Thumbnails_Archives.objects.filter(uuid=ind_entry.uuid)
-        # This contains all the Archive thumbnails that match the uuid, in otherwords
-        # all existing cached pages.
+    # existing_tnails = Thumbnails_Archives.objects.filter(uuid=ind_entry.uuid)
+    # This contains all the Archive thumbnails that match the uuid, in otherwords
+    # all existing cached pages.
 
     # Check to see if the page in question is being cached.
     specific_page, created = Thumbnails_Archives.objects.get_or_create(
         uuid=ind_entry.uuid, page=page,
-        defaults={'uuid':ind_entry.uuid,
-                  'page':page,
-                  'FilePath':ind_entry.fqpndirectory,
-                  'FileName':ind_entry.name})
+        defaults={'uuid': ind_entry.uuid,
+                  'page': page,
+                  'FilePath': ind_entry.fqpndirectory,
+                  'FileName': ind_entry.name})
 
-#    print ("fs archname: ",fs_archname)
+    #    print ("fs archname: ",fs_archname)
     archive_file = archives.id_cfile_by_sig(fs_archname)
     archive_file.get_listings()
     fn_to_extract = archive_file.listings[page][0]
-#    print (fn_to_extract, page)
+    #    print (fn_to_extract, page)
     fext = os.path.splitext(fn_to_extract)[1][1:].lower()
     data = archive_file.extract_mem_file(fn_to_extract)
     im_data = return_image_obj(data, memory=True)
@@ -237,9 +243,9 @@ def new_process_archive(ind_entry, request, page=0):
         #
 
         im_data = return_image_obj(os.path.join(
-                                        configdata["locations"]["resources_path"],
-                                        "images", configdata["filetypes"]["archive"][1]),
-                                   memory=True)
+            configdata["locations"]["resources_path"],
+            "images", configdata["filetypes"]["archive"][1]),
+            memory=True)
         return return_img_attach("1431973824_compressed.png", im_data,
                                  fext_override="JPEG")
 
@@ -249,10 +255,10 @@ def new_process_archive(ind_entry, request, page=0):
         #   Reset the existing thumbnails to ensure that they will be
         #   regenerated
         specific_page = invalidate_thumb(specific_page)
-        #specific_page.FileSize = -1
-        #specific_page.SmallThumb = b""
-        #specific_page.MediumThumb = b""
-        #specific_page.LargeThumb = b""
+        # specific_page.FileSize = -1
+        # specific_page.SmallThumb = b""
+        # specific_page.MediumThumb = b""
+        # specific_page.LargeThumb = b""
         specific_page.save()
 
     specific_page.FileSize = os.path.getsize(fs_archname)
@@ -267,7 +273,7 @@ def new_process_archive(ind_entry, request, page=0):
                 im_data = return_image_obj(os.path.join(
                     configdata["locations"]["resources_path"],
                     "images", configdata["filetypes"]["archive"][1]),
-                                           memory=True)
+                    memory=True)
 
             return return_img_attach(os.path.basename(fs_archname),
                                      specific_page.LargeThumb,
@@ -288,7 +294,7 @@ def new_process_archive(ind_entry, request, page=0):
                     configdata["locations"]["resources_path"],
                     "images",
                     configdata["filetypes"]["archive"][1]),
-                                           memory=True)
+                    memory=True)
             return_img_attach(os.path.basename(fs_archname),
                               specific_page.MediumThumb,
                               fext_override="JPEG")
@@ -308,7 +314,7 @@ def new_process_archive(ind_entry, request, page=0):
                     configdata["locations"]["resources_path"],
                     "images",
                     configdata["filetypes"]["archive"][1]),
-                                           memory=True)
+                    memory=True)
             return return_img_attach(os.path.basename(fs_archname),
                                      specific_page.SmallThumb,
                                      fext_override="JPEG")

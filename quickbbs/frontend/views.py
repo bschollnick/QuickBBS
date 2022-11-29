@@ -2,17 +2,15 @@
 """
 Django views for QuickBBS Gallery
 """
-#from __future__ import absolute_import, print_function, unicode_literals
-
 import datetime
 import logging
 import os
 import os.path
 import sys
 import time
-#import uuid
+# import uuid
 import warnings
-#from itertools import chain
+# from itertools import chain
 from pathlib import Path
 
 import bleach
@@ -23,7 +21,7 @@ from django.http import (Http404,  # FileResponse, HttpResponse,
                          HttpResponseBadRequest, HttpResponseNotFound,
                          JsonResponse)
 from django.shortcuts import render
-#from django.template import loader
+# from django.template import loader
 from django.utils.cache import patch_vary_headers
 from django.views.decorators.vary import vary_on_headers
 from django.views.decorators.cache import cache_page
@@ -44,8 +42,6 @@ from frontend.web import respond_as_inline, detect_mobile, g_option
 from quickbbs.models import (Thumbnails_Dirs, Thumbnails_Files, index_data)
 from cache.models import fs_Cache_Tracking as Cache_Tracking, CACHE
 
-
-
 log = logging.getLogger(__name__)
 warnings.simplefilter('ignore', Image.DecompressionBombWarning)
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -53,10 +49,11 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 # Sending File or zipfile - https://djangosnippets.org/snippets/365/
 
 
-
 DF_PNEXT = ["lastscan", "lastmod",
             "size", "numfiles",
             "numdirs", "parent_dir_id"]
+
+
 def return_prev_next(fqpn, currentpath, sorder):
     """
     Read the parent directory, get the index of the current path,
@@ -64,7 +61,7 @@ def return_prev_next(fqpn, currentpath, sorder):
 
     Replace the old system, with Django pagination.
     """
-    #Parent_path = Path(fqpn).parent
+    # Parent_path = Path(fqpn).parent
     current_folder_name = os.path.basename(Path(fqpn)).lower()
     prevdir = ""
     nextdir = ""
@@ -74,10 +71,11 @@ def return_prev_next(fqpn, currentpath, sorder):
     url_parent = fqpn.replace(configdata["locations"]["albums_path"], "").lower()
     url_parent = ensures_endswith(os.path.split(url_parent)[0], os.sep)
     read_from_disk(url_parent, skippable=True)
-#    print (*SORT_MATRIX[sorder])
-    index = get_db_files(sorder, url_parent)#.order_by("lastmod")
-    #dirs_only = index.filter(ignore=False, file_tnail=None, archives=None).exclude(is_dir=False)
-    dirs_only = index.filter(ignore=False, filetype__is_dir=True)#file_tnail=None, archives=None).exclude(is_dir=False)
+    #    print (*SORT_MATRIX[sorder])
+    index = get_db_files(sorder, url_parent)  # .order_by("lastmod")
+    # dirs_only = index.filter(ignore=False, file_tnail=None, archives=None).exclude(is_dir=False)
+    dirs_only = index.filter(ignore=False,
+                             filetype__is_dir=True)  # file_tnail=None, archives=None).exclude(is_dir=False)
     found = None
     directories = Paginator(dirs_only, 1)
     low_path = current_folder_name
@@ -88,12 +86,13 @@ def return_prev_next(fqpn, currentpath, sorder):
         search = 1
     found = directories.page(search)
     if found.has_next():
-        nextdir = dirs_only[found.next_page_number()-1].name
+        nextdir = dirs_only[found.next_page_number() - 1].name
 
     if found.has_previous():
-        prevdir = dirs_only[found.previous_page_number()-1].name
+        prevdir = dirs_only[found.previous_page_number() - 1].name
 
     return (prevdir, nextdir)
+
 
 @cache_page(500)
 @vary_on_headers('User-Agent', 'Cookie', 'Request')
@@ -103,7 +102,7 @@ def thumbnails(request, t_url_name=None):
 
     URL -> thumbnails/(?P<t_url_name>.*)
     """
-#
+    #
     t_url_name = str(t_url_name).strip().replace("/", "")
     if is_valid_uuid(t_url_name):
         index_qs = index_data.objects.filter(uuid=t_url_name,
@@ -122,7 +121,7 @@ def thumbnails(request, t_url_name=None):
                                entry.fqpndirectory[1:].lower(),
                                entry.name)
 
-        #fqpn = fs_item #(configdata["locations"]["albums_path"] + dir_to_scan).replace("//", "/")
+        # fqpn = fs_item #(configdata["locations"]["albums_path"] + dir_to_scan).replace("//", "/")
         webpath = os.path.join(configdata["locations"]["albums_path"],
                                entry.fqpndirectory[1:].lower())
 
@@ -130,26 +129,26 @@ def thumbnails(request, t_url_name=None):
                                entry.fqpndirectory[1:],
                                entry.name)
         fname = os.path.basename(fs_name).title()
-        #thumb_size = g_option(request, "size", "Small").title()
+        # thumb_size = g_option(request, "size", "Small").title()
         if entry.filetype.is_dir:
-            if entry.directory is None:#== None:
+            if entry.directory is None:  # == None:
                 entry.directory = Thumbnails_Dirs.objects.update_or_create(
                     uuid=entry.uuid, FilePath=webpath, DirName=fname,
-                    defaults={"uuid":entry.uuid,
-                              "FilePath":webpath,
-                              "DirName":fname})[0]
+                    defaults={"uuid": entry.uuid,
+                              "FilePath": webpath,
+                              "DirName": fname})[0]
                 entry.save()
             return new_process_dir(entry)
 
         if entry.filetype.is_pdf or entry.filetype.is_image or entry.filetype.is_movie:
-            if entry.file_tnail is None:#== None:
+            if entry.file_tnail is None:  # == None:
                 entry.file_tnail = Thumbnails_Files.objects.update_or_create(
                     uuid=entry.uuid,
                     FilePath=webpath,
                     FileName=fname,
-                    defaults={"uuid":entry.uuid,
-                              "FilePath":webpath,
-                              "FileName":fname,
+                    defaults={"uuid": entry.uuid,
+                              "FilePath": webpath,
+                              "FileName": fname,
                               })[0]
                 entry.save()
             return new_process_img(entry, request)
@@ -158,6 +157,7 @@ def thumbnails(request, t_url_name=None):
             page = int(g_option(request, "page", 0))
             return new_process_archive(entry, request, page)
     return HttpResponseBadRequest(content="Bad UUID or %s Unidentifable file." % fs_item)
+
 
 @cache_page(500)
 @vary_on_headers('User-Agent', 'Cookie', 'Request')
@@ -198,17 +198,17 @@ def new_viewgallery(request):
         return HttpResponseNotFound('<h1>Page not found</h1>')
 
     # The only thing left is a directory.
-    read_from_disk(paths["webpath"], skippable=True) # new_viewgallery
+    read_from_disk(paths["webpath"], skippable=True)  # new_viewgallery
     index = get_db_files(context["sort"], paths["webpath"])
 
-#    index = list(index.order_by(*SORT_MATRIX[context["sort"]]))
-#   already sorted by get_db_files call.
+    #    index = list(index.order_by(*SORT_MATRIX[context["sort"]]))
+    #   already sorted by get_db_files call.
 
     context["current_page"] = request.GET.get("page", 1)
     chk_list = Paginator(index, 30)
     context["page_cnt"] = list(range(1, chk_list.num_pages + 1))
 
-#    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
+    #    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
     context["up_uri"] = "/".join(request.build_absolute_uri().split("/")[0:-1])
 
     context["gallery_name"] = os.path.split(request.path_info)[-1]
@@ -227,8 +227,9 @@ def new_viewgallery(request):
                       context,
                       using="Jinja2")
     patch_vary_headers(response, ["sort-%s" % context["sort"]])
-    print("Gallery View, processing time: ", time.time()-start_time)
+    print("Gallery View, processing time: ", time.time() - start_time)
     return response
+
 
 @cache_page(500)
 @vary_on_headers('User-Agent', 'Cookie', 'Request', 'i_uuid')
@@ -244,14 +245,14 @@ def item_info(request, i_uuid):
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
     breadcrumbs = return_breadcrumbs(context["webpath"])
     context["breadcrumbs"] = ""
-#    for pt_name, pt_url, pt_html in breadcrumbs:
-#        context["breadcrumbs"] += r"<li>%s</li>" % pt_html
+    #    for pt_name, pt_url, pt_html in breadcrumbs:
+    #        context["breadcrumbs"] += r"<li>%s</li>" % pt_html
     for bcrumb in breadcrumbs:
         context["breadcrumbs"] += r"<li>%s</li>" % bcrumb[2]
 
     if entry.filetype.fileext in [".txt", ".html", ".htm", ".markdown"]:
-        filename = configdata["locations"]["albums_path"] +  \
-           context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
+        filename = configdata["locations"]["albums_path"] + \
+                   context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
         if entry.filetype.fileext in [".html"]:
             context["html"] = bleach.linkify("\n".join(open(filename).readlines()))
         elif entry.filetype.fileext in [".markdown"]:
@@ -278,8 +279,8 @@ def item_info(request, i_uuid):
     context["pagecount"] = item_list.count
     page_contents = item_list.page(context["page"])
 
-    context["webpath"] = context["webpath"]#.replace("/", "//")
-    context["up_uri"] = context["up_uri"]#.replace("/", "//")
+    context["webpath"] = context["webpath"]  # .replace("/", "//")
+    context["up_uri"] = context["up_uri"]  # .replace("/", "//")
     context["uuid"] = entry.uuid
     context["filename"] = entry.name
     context["filesize"] = entry.size
@@ -299,21 +300,21 @@ def item_info(request, i_uuid):
     context["mobile"] = detect_mobile(request)
 
     if page_contents.has_next():
-        context["next_uuid"] = catalog_qs[page_contents.next_page_number()-1].uuid
+        context["next_uuid"] = catalog_qs[page_contents.next_page_number() - 1].uuid
     else:
         context["next_uuid"] = ""
 
     if page_contents.has_previous():
-        context["previous_uuid"] = catalog_qs[page_contents.previous_page_number()-1].uuid
+        context["previous_uuid"] = catalog_qs[page_contents.previous_page_number() - 1].uuid
     else:
         context["previous_uuid"] = ""
 
-
     context["first_uuid"] = catalog_qs[0].uuid
-    context["last_uuid"] = catalog_qs[catalog_qs.count()-1].uuid
-    print ("Process time: ", time.time()-start_time, "secs")
+    context["last_uuid"] = catalog_qs[catalog_qs.count() - 1].uuid
+    print("Process time: ", time.time() - start_time, "secs")
     response = JsonResponse(context, status=200)
     return response
+
 
 @cache_page(500)
 @vary_on_headers('User-Agent', 'Cookie', 'Request', 'i_uuid')
@@ -350,14 +351,14 @@ def new_viewitem(request, i_uuid):
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
     context["breadcrumbs"] = return_breadcrumbs(context["webpath"])
     if entry.filetype.fileext in [".txt", ".html"]:
-        filename = configdata["locations"]["albums_path"] +  \
-            context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
+        filename = configdata["locations"]["albums_path"] + \
+                   context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
         if entry.filetype.fileext in [".html"]:
             context["html"] = bleach.linkify("\n".join(open(filename).readlines()))
         else:
             context["html"] = "<br>".join(open(filename, encoding="latin-1"))
 
-#    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
+    #    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
     context["up_uri"] = entry.fqpndirectory.lower()
     while context["up_uri"].endswith("/"):
         context["up_uri"] = context["up_uri"][:-1]
@@ -372,26 +373,26 @@ def new_viewitem(request, i_uuid):
             break
     # possibly replace for loop with
     # def getIndexOfAnswer(user, question):
-    #answer = user.answer_set.filter(question=question).get()
+    # answer = user.answer_set.filter(question=question).get()
     # return user.answer_set.filter(pk__lte=answer.pk).count() - 1
 
     item_list = Paginator(catalog_qs, 1)
     context["pagecount"] = item_list.count
     context["page_contents"] = item_list.page(context["page"])
     context["item"] = entry
-    #print(entry.filetype.is_movie)
+    # print(entry.filetype.is_movie)
     if context["page_contents"].has_next():
-        context["next"] = catalog_qs[context["page_contents"].next_page_number()-1].uuid
+        context["next"] = catalog_qs[context["page_contents"].next_page_number() - 1].uuid
     else:
         context["next"] = ""
 
     if context["page_contents"].has_previous():
-        context["previous"] = catalog_qs[context["page_contents"].previous_page_number()-1].uuid
+        context["previous"] = catalog_qs[context["page_contents"].previous_page_number() - 1].uuid
     else:
         context["previous"] = ""
 
     context["first"] = catalog_qs[0].uuid
-    context["last"] = catalog_qs[catalog_qs.count()-1].uuid
+    context["last"] = catalog_qs[catalog_qs.count() - 1].uuid
 
     response = render(request,
                       "frontend/gallery_newitem.jinja",
@@ -401,7 +402,7 @@ def new_viewitem(request, i_uuid):
     return response
 
 
-#@cache_page(60)  # Caching actually slows down the download, at least for small files.
+# @cache_page(60)  # Caching actually slows down the download, at least for small files.
 def downloadFile(request, filename=None):
     """
     Replaces new_download.
@@ -413,9 +414,9 @@ def downloadFile(request, filename=None):
 
     """
     # Is this from an archive?  If so, get the Page ID.
-    d_uuid=request.GET.get("UUID", None)
-    if d_uuid is None:#== None:
-        d_uuid=request.GET.get("uuid", None)
+    d_uuid = request.GET.get("UUID", None)
+    if d_uuid is None:  # == None:
+        d_uuid = request.GET.get("uuid", None)
 
     if d_uuid in ["", None]:
         raise Http404
@@ -426,22 +427,23 @@ def downloadFile(request, filename=None):
                                              ignore=False,
                                              delete_pending=False)[0]
     else:
-        print ("Attempting to find page %s in archive" % page)
+        print("Attempting to find page %s in archive" % page)
 
     print("\tDownloading - %s, %s" % (download.fqpndirectory.lower(),
                                       download.name))
 
     movie = download.filetype.is_movie
     return respond_as_inline(request,
-                                 "%s%s%s" % (
-                                     configdata["locations"]["albums_path"],
-                                     os.sep,
-                                     download.fqpndirectory),
-                                 download.name,
-                                 ranged=movie)
+                             "%s%s%s" % (
+                                 configdata["locations"]["albums_path"],
+                                 os.sep,
+                                 download.fqpndirectory),
+                             download.name,
+                             ranged=movie)
 
-#@cache_page(500)
-#@vary_on_headers('User-Agent', 'Cookie', 'Request', 'i_uuid')
+
+# @cache_page(500)
+# @vary_on_headers('User-Agent', 'Cookie', 'Request', 'i_uuid')
 def new_view_archive(request, i_uuid):
     """
     Show the gallery from the archive contents
@@ -451,7 +453,7 @@ def new_view_archive(request, i_uuid):
     if not is_valid_uuid(i_uuid):
         return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
 
-#    request, context = sort_order(request, context)
+    #    request, context = sort_order(request, context)
     e_uuid = i_uuid
     index_qs = index_data.objects.filter(uuid=e_uuid)
     entry = index_qs[0]
@@ -475,10 +477,10 @@ def new_view_archive(request, i_uuid):
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
     context["webpath"] = ensures_endswith(context["webpath"], "/")
     context["fromtimestamp"] = datetime.datetime.fromtimestamp
-    #context["djicons"] = django_icons.templatetags.icons.icon
+    # context["djicons"] = django_icons.templatetags.icons.icon
     context["djicons"] = django_icons.templatetags.icons.icon_tag
-    arc_filename = configdata["locations"]["albums_path"] +  \
-        context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
+    arc_filename = configdata["locations"]["albums_path"] + \
+                   context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
     archive_file = archives.id_cfile_by_sig(arc_filename)
     archive_file.get_listings()
     context["db_entry"] = entry
@@ -487,7 +489,7 @@ def new_view_archive(request, i_uuid):
     chk_list = Paginator(archive_file.listings, 30)
     context["page_cnt"] = list(range(1, chk_list.num_pages + 1))
 
-#    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
+    #    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
     context["up_uri"] = entry.fqpndirectory.lower()
 
     context["gallery_name"] = os.path.split(request.path_info)[-1]
@@ -503,7 +505,6 @@ def new_view_archive(request, i_uuid):
 
     context["last"] = context["pagelist"].end_index
 
-
     response = render(request,
                       "frontend/archive_newgallery.jinja",
                       context,
@@ -512,8 +513,8 @@ def new_view_archive(request, i_uuid):
     return response
 
 
-#@cache_page(500)
-#@vary_on_headers('User-Agent', 'Cookie', 'Request', 'i_uuid')
+# @cache_page(500)
+# @vary_on_headers('User-Agent', 'Cookie', 'Request', 'i_uuid')
 def new_archive_item(request, i_uuid):
     """
     Show item in an archive
@@ -531,43 +532,42 @@ def new_archive_item(request, i_uuid):
                            entry.fqpndirectory[1:],
                            entry.name)
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
-#    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
+    #    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
     context["up_uri"] = entry.fqpndirectory.lower()
-#        read_from_disk(context["webpath"].strip())
+    #        read_from_disk(context["webpath"].strip())
 
     context["current_page"] = int(request.GET.get("page", 0))  # 1 based not zero based
-    context["page"] = context["current_page"]+1  # 1 based not zero based
-#    print (context["current_page"])
+    context["page"] = context["current_page"] + 1  # 1 based not zero based
+    #    print (context["current_page"])
     archive_file = archives.id_cfile_by_sig(item_fs)
     archive_file.get_listings()
-    context["pagecount"] = len(archive_file.listings)-1
-#    context["pagecount"] = archive_file.listings.count()-1
+    context["pagecount"] = len(archive_file.listings) - 1
+    #    context["pagecount"] = archive_file.listings.count()-1
     context["item"] = entry
     item_list = Paginator(archive_file.listings, 1)
-    context["page_contents"] = item_list.page(context["current_page"]+1)
+    context["page_contents"] = item_list.page(context["current_page"] + 1)
 
     if context["page_contents"].has_next():
         context["next"] = "view_archive_item/%s?page=%s" % (
-            entry.uuid, context["page_contents"].next_page_number()-1) #1 based
+            entry.uuid, context["page_contents"].next_page_number() - 1)  # 1 based
     else:
         context["next"] = ""
 
     if context["page_contents"].has_previous():
         context["previous"] = "view_archive_item/%s?page=%s" % (
-            entry.uuid, context["page_contents"].previous_page_number()-1) #1 based
+            entry.uuid, context["page_contents"].previous_page_number() - 1)  # 1 based
     else:
         context["previous"] = ""
-#
+    #
     context["first"] = "view_archive_item/%s?page=%s" % (entry.uuid, 0)
     context["last"] = "view_archive_item/%s?page=%s" % (entry.uuid, context["pagecount"])
 
     response = render(request,
                       "frontend/archive_item.html",
-                      context)#,
-                      #using="Jinja2")
+                      context)  # ,
+    # using="Jinja2")
     patch_vary_headers(response, ["sort-%s" % context["sort"]])
     return response
-
 
 
 print("Clearing all entries from Cache Tracking")
@@ -578,12 +578,12 @@ except ProgrammingError:
 
 if 'runserver' in sys.argv or "--host" in sys.argv:
     print("Starting cleanup")
-#    check_for_deletes()
+    #    check_for_deletes()
     print("Cleanup is done.")
     try:
         for prepath in configdata["locations"]["preload"]:
             print("Pre-Caching: ", prepath)
-            read_from_disk(prepath.strip()) # startup
+            read_from_disk(prepath.strip())  # startup
 
             for ignored in configdata["filetypes"]["files_to_ignore"]:
                 test = index_data.objects.filter(name__iexact=ignored.title())
