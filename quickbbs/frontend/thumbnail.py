@@ -14,8 +14,6 @@ from frontend.utilities import (cr_tnail_img, return_image_obj,
                                 read_from_disk)
 from frontend.web import return_img_attach, g_option, return_inline_attach  # , respond_as_attachment
 from quickbbs.models import (index_data,
-    # Thumbnails_Dirs,
-    # Thumbnails_Files,
                              Thumbnails_Archives)
 
 # from io import BytesIO

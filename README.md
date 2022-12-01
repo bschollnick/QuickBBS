@@ -116,3 +116,5 @@ Small, Medium, and Large Thumbnail table which does contain the binary data.
 
 [![](https://mermaid.ink/img/pako:eNp9z8EKwjAMBuBXKTlV2F6gB0-7CHrajgVJm2wrtJ3UFpSxd7eyg4hgToH_-yFZwS7EoGBKeJvF0Oko6pwi8ePaYUbRtkeBKIe5BBPR-T077A733BjZB_T-gwY0nr-RtfLC5Er4q4jkGdPEvwgaCJwCOqrnru-ShjxzYA2qrsQjFp816LhViiUv_TNaUDkVbqDcCDN3DuujAdSI_s7bCwJMUnY?type=png)](https://mermaid.live/edit#pako:eNp9z8EKwjAMBuBXKTlV2F6gB0-7CHrajgVJm2wrtJ3UFpSxd7eyg4hgToH_-yFZwS7EoGBKeJvF0Oko6pwi8ePaYUbRtkeBKIe5BBPR-T077A733BjZB_T-gwY0nr-RtfLC5Er4q4jkGdPEvwgaCJwCOqrnru-ShjxzYA2qrsQjFp816LhViiUv_TNaUDkVbqDcCDN3DuujAdSI_s7bCwJMUnY)
 
+Real World Testing needs to be done to see what impact the SmallThumbnail, MediumThumbnail, and LargeThumbnail foreign tables
+will have, but I suspect that the speed to the Thumbnail Index would be extremely beneficial. 
