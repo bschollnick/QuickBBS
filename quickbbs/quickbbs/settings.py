@@ -12,6 +12,8 @@ https://docs.djangoproject.com/en/1.9/ref/settings/
 
 import os
 import socket
+from pathlib import Path
+
 import quickbbs.jinjaenv
 
 #ALLOWED_HOSTS = [u'nerv.local', u'localhost', u'127.0.0.1']
@@ -21,14 +23,17 @@ machine_name = socket.gethostname().lower()
 print ("Running on %s" % machine_name)
 
 DEBUG = True
-#DEBUG = not DEBUG
+DEBUG = not DEBUG
 print("Debug is ", DEBUG)
 
 # DEBUG_TOOLBAR = True
 DEBUG_TOOLBAR = False
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#print(BASE_DIR)
+BASE_DIR = Path(__file__).resolve().parent.parent
+#print(BASE_DIR)
 
 if not DEBUG:
     CACHES = {
@@ -48,9 +53,11 @@ USER_AGENTS_CACHE = 'default'
 # python manage.py createcachetable
 
 
-TEMPLATE_PATH = os.path.join(BASE_DIR, 'templates')
-MEDIA_ROOT = os.sep.join((BASE_DIR.split(os.sep)[0:-1]))
+TEMPLATE_PATH = BASE_DIR / 'templates'
+#TEMPLATE_PATH = os.path.join(BASE_DIR, 'templates')
 
+#MEDIA_ROOT = os.sep.join((str(BASE_DIR).split(os.sep)[0:-1]))
+MEDIA_ROOT = BASE_DIR.resolve().parent
 # MEDIA_ROOT =
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/1.9/howto/deployment/checklist/
@@ -177,7 +184,7 @@ TEMPLATES = [
     },
 ]
 
-#WSGI_APPLICATION = 'quickbbs.wsgi.application'
+WSGI_APPLICATION = 'quickbbs.wsgi.application'
 #WSGI_APPLICATION = 'wsgi.application'
 
 # Database
