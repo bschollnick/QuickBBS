@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Unified Archive support for Python.
 
@@ -44,8 +43,6 @@ Zip, RAR are supported, what other formats might be useful?
               create extracted pages
 """
 
-from __future__ import absolute_import
-from __future__ import print_function
 import base64
 import os
 import os.path
@@ -260,7 +257,7 @@ print filename, 'is a', cf.mime_type, 'file'
         with handle() as cfile:
             #
             try:
-                data = "data:image/%s;base64,%s" % (
+                data = "data:image/{};base64,{}".format(
                     translate[fileext.upper()].lower(),
                     base64.b64encode(cfile.read(fname)))
                 # data += base64.b64encode(cfile.read(fname))
@@ -291,10 +288,10 @@ signatures = {'\x50\x4b\x03\x04': (['zip', 'cbz', 'pk3', 'pk4'],
               b'Rar!': (['rar', 'cbr'],
                         'application/x-rar-compressed',
                         rarfile.RarFile),
-              b'\x1F\9D': (['lzh'],
+              b'\x1F\\9D': (['lzh'],
                            'tar lzh compression',
                            None),
-              b'\x1F\A0': (['lzh'],
+              b'\x1F\\A0': (['lzh'],
                            'tar lzh compression',
                            None),
               b'\x42\x5A\x68': (['bzip', 'bz'],

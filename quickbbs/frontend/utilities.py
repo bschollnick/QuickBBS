@@ -1,4 +1,3 @@
-# coding: utf-8
 """
 Utilities for QuickBBS, the python edition.
 """
@@ -51,7 +50,7 @@ def rename_file(old_filename, new_filename):
 
 def ensures_endswith(string_to_check, value):
     if not string_to_check.endswith(value):
-        string_to_check = "%s%s" % (string_to_check, value)
+        string_to_check = "{}{}".format(string_to_check, value)
     return string_to_check
 
 
@@ -197,14 +196,14 @@ def return_image_obj(fs_path, memory=False):
             if not memory:
                 try:
                     source_image = Image.open(fs_path)
-                except IOError:
+                except OSError:
                     print("Unable to load source file")
 
             else:
                 try:  # fs_path is a byte stream
                     source_image = Image.open(BytesIO(fs_path))
                 #                source_image = None
-                except IOError:
+                except OSError:
                     print("IOError")
                     log.debug("PIL was unable to identify as an image file")
                 #               source_image = None
@@ -239,7 +238,7 @@ def cr_tnail_img(source_image, size, fext):
                           format="PNG", # Need alpha channel support for icons, etc.
                                     # configdata["filetypes"][fext][2].strip(),
                           optimize=False)
-    except IOError:
+    except OSError:
         source_image = source_image.convert('RGB')
         source_image.save(fp=image_data,
                           format="JPEG",  # configdata["filetypes"][fext][2].strip(),
@@ -424,7 +423,7 @@ def read_from_disk(dir_to_scan, skippable=True):
     # 3) Less files or directories exist, need to validate existing, and remove non-existant
 
     if existing_data_size > disk_count:
-        print("existing size %s       on disk %s" % (existing_data_size,
+        print("existing size {}       on disk {}".format(existing_data_size,
                                                      disk_count))
         for entry in existing_data:
             if not entry.name in diskstore:  # name is already title cased
@@ -439,7 +438,7 @@ def read_from_disk(dir_to_scan, skippable=True):
         lastmoded = existing_data.order_by("-lastmod")[0]
         fs_lm_name, fs_lm_value, fs_ls_value = CACHE.return_newest(dirpath)
         if not lastmoded.name == fs_lm_name:
-            print("Unable to skip, due to last mod name. fs %s vs C %s, %s - %s" % (
+            print("Unable to skip, due to last mod name. fs {} vs C {}, {} - {}".format(
                 fs_lm_name, lastmoded.name, CACHE.last_mods[dirpath], lastmoded.id))
             diskstore = CACHE.extended[dirpath]
             skippable = False
@@ -601,7 +600,7 @@ def return_breadcrumbs(uri_path=""):  # , crumbsize=3):
         url = "/".join(uris[0:count + 1])
         if name == "":
             continue
-        data.append([name, url, "<a href='%s'>%s</a>" % (url, name)])
+        data.append([name, url, "<a href='{}'>{}</a>".format(url, name)])
     return data
 
 

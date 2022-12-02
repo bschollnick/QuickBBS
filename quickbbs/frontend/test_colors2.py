@@ -30,7 +30,7 @@ colornames = {
 def get_color(filename):
     attrs = xattr.xattr(filename)
     try:
-        finder_attrs = attrs[u'com.apple.FinderInfo']
+        finder_attrs = attrs['com.apple.FinderInfo']
         flags = unpack(32*'B', finder_attrs)
         color = flags[9] >> 1 & 7
     except KeyError:

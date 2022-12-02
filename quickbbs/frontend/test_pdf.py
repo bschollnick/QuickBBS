@@ -83,7 +83,7 @@ def return_image_obj(fs_path, memory=False):
     --------
     """
     source_image = None
-    if os.path.splitext(fs_path)[1][1:].lower() == u"pdf":
+    if os.path.splitext(fs_path)[1][1:].lower() == "pdf":
         results = check_pdf(fs_path)
 #        if results[0] == False:
 #            pdf_utilities.repair_pdf(fs_path, fs_path)
@@ -106,7 +106,7 @@ def return_image_obj(fs_path, memory=False):
         else:
             try:# fs_path is a byte stream
                 source_image = Image.open(BytesIO(fs_path))
-            except IOError:
+            except OSError:
                 print("IOError")
                 log.debug("PIL was unable to identify as an image file")
             except UserWarning:

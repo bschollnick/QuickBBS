@@ -1,4 +1,3 @@
-# coding: utf-8
 """
 Constants for QuickBBS, the python edition.
 """

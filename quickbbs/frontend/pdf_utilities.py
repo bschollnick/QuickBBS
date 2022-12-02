@@ -58,7 +58,7 @@ def repair_pdf(origname, newname, forced=False):
         data = PdfReader(ibuffer)
         if not forced:
             return ""  # File did not need to be repaired
-    except IOError:  # problem! heal it with PyMuPDF
+    except OSError:  # problem! heal it with PyMuPDF
         pass
 
     # either an exception occured, or we are being forced to repair
