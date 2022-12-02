@@ -7,7 +7,8 @@ from django.db import models
 # from django.urls import reverse
 # from PIL import Image
 
-from frontend.thumbnail import cr_tnail_img, sizes  # , return_image_obj
+from frontend.thumbnail import cr_tnail_img
+from django.conf import settings
 
 __version__ = '1.5'
 
@@ -111,7 +112,7 @@ class SmallThumb(models.Model):
         :doc-author: Trelent
         """
         self.Thumbnail = cr_tnail_img(imagedata,
-                                      sizes["small"],
+                                      settings.IMAGE_SIZES["small"],
                                       fext=fext)
         self.save()
 
@@ -154,7 +155,7 @@ class MediumThumb(models.Model):
         :doc-author: Trelent
         """
         self.Thumbnail = cr_tnail_img(imagedata,
-                                      sizes["medium"],
+                                      settings.IMAGE_SIZES["medium"],
                                       fext=fext)
         self.save()
         self.save()
@@ -195,7 +196,7 @@ class LargeThumb(models.Model):
         :doc-author: Trelent
         """
         self.Thumbnail = cr_tnail_img(imagedata,
-                                      sizes["large"],
+                                      settings.IMAGE_SIZES["large"],
                                       fext=fext)
         self.save()
 
@@ -282,7 +283,7 @@ class Thumbnails_Files(models.Model):
         :doc-author: Trelent
         """
         fext = os.path.splitext(self.FileName)[1][1:].lower()
-        # image_data = cr_tnail_img(image_data, sizes["small"], fext=fext)
+        # image_data = cr_tnail_img(image_data, settings.IMAGE_settings.IMAGE_SIZES["small"], fext=fext)
         self.SmallThumb.add_thumb(image_data, fext=fext)
         self.SmallThumb.save()
         self.save()

@@ -13,7 +13,7 @@ https://docs.djangoproject.com/en/1.9/ref/settings/
 import os
 import socket
 from pathlib import Path
-
+from quickbbs.quickbbs_settings import *
 import quickbbs.jinjaenv
 
 #ALLOWED_HOSTS = [u'nerv.local', u'localhost', u'127.0.0.1']
@@ -23,7 +23,7 @@ machine_name = socket.gethostname().lower()
 print ("Running on %s" % machine_name)
 
 DEBUG = True
-DEBUG = not DEBUG
+#DEBUG = not DEBUG
 print("Debug is ", DEBUG)
 
 # DEBUG_TOOLBAR = True
@@ -59,6 +59,10 @@ TEMPLATE_PATH = BASE_DIR / 'templates'
 #MEDIA_ROOT = os.sep.join((str(BASE_DIR).split(os.sep)[0:-1]))
 MEDIA_ROOT = BASE_DIR.resolve().parent
 # MEDIA_ROOT =
+
+
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/1.9/howto/deployment/checklist/
 
@@ -67,6 +71,8 @@ SECRET_KEY = 'isk^$ye4rx0m!p#0147tcmmmtcz1u&suzp2+z+6#gpjx^1lz4t'
 
 # SECURITY WARNING: don't run with debug turned on in production!
 
+#session_cookie_expiration = 43200
+#session_logout_timeout = 43200
 
 
 # Application definition

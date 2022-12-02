@@ -2,14 +2,13 @@
 """
 Database Specific Functions
 """
-from __future__ import absolute_import, print_function, unicode_literals
-
 import os
 #sdimport sys
 #from django.core.exceptions import ValidationError
-from frontend.config import configdata
+# from frontend.config import configdata
 from quickbbs.models import (index_data, Thumbnails_Archives, Thumbnails_Files,
                              Thumbnails_Dirs)
+from django.conf import settings
 
 
 DF_VDBASE = ["sortname", "lastscan", "lastmod", "size"]
@@ -20,18 +19,18 @@ def validate_database(dir_to_scan):
     """
 #    print(sys._getframe().f_code.co_name)
     dir_to_scan = dir_to_scan.strip()
-    fqpn = os.path.join(configdata["locations"]["albums_path"], dir_to_scan)
+    fqpn = os.path.join(settings.ALBUMS_PATH, dir_to_scan)
     fqpn = fqpn.replace("//", "/")
-    webpath = fqpn.replace(configdata["locations"]["albums_path"], "")
+    webpath = fqpn.replace(settings.ALBUMS_PATH, "")
     temp = get_filtered(index_data.objects,
                         {'fqpndirectory':webpath, 'ignore':False})
     print("validate triggered :", dir_to_scan)
     for entry in temp:
         if not os.path.exists(os.path.join(fqpn, entry.name)) or \
             os.path.splitext(entry.name.lower().strip())[1] in\
-                configdata["filetypes"]["extensions_to_ignore"] or \
+                settings.EXTENSIONS_TO_IGNORE or \
                 entry.name.lower().strip() in\
-                configdata["filetypes"]["files_to_ignore"]:
+                settings.FILES_TO_IGNORE:
             entry.ignore = True
             entry.delete_pending = True
             entry.save()

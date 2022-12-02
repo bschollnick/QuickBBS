@@ -26,11 +26,12 @@ from django.utils.cache import patch_vary_headers
 from django.views.decorators.vary import vary_on_headers
 from django.views.decorators.cache import cache_page
 from django.db.utils import ProgrammingError
+from django.conf import settings
 from PIL import Image, ImageFile
 
 import frontend.archives3 as archives
 import filetypes.models
-from frontend.config import configdata
+# from frontend.config import configdata
 from frontend.database import check_dup_thumbs, get_db_files  # SORT_MATRIX,
 from frontend.thumbnail import (new_process_archive, new_process_dir,
                                 new_process_img)
@@ -68,7 +69,8 @@ def return_prev_next(fqpn, currentpath, sorder):
     currentpath = currentpath.lower().strip()
     if currentpath == (r"/albums/"):
         return ("", "")
-    url_parent = fqpn.replace(configdata["locations"]["albums_path"], "").lower()
+    # url_parent = fqpn.replace(configdata["locations"]["albums_path"], "").lower()
+    url_parent = fqpn.replace(settings.ALBUMS_PATH, "").lower()
     url_parent = ensures_endswith(os.path.split(url_parent)[0], os.sep)
     read_from_disk(url_parent, skippable=True)
     #    print (*SORT_MATRIX[sorder])
@@ -117,17 +119,22 @@ def thumbnails(request, t_url_name=None):
 
         entry = index_qs[0]
 
-        fs_item = os.path.join(configdata["locations"]["albums_path"],
+        # fs_item = os.path.join(configdata["locations"]["albums_path"],
+        #                        entry.fqpndirectory[1:].lower(),
+        #                        entry.name)
+        fs_item = os.path.join(settings.ALBUMS_PATH,
                                entry.fqpndirectory[1:].lower(),
                                entry.name)
 
         # fqpn = fs_item #(configdata["locations"]["albums_path"] + dir_to_scan).replace("//", "/")
-        webpath = os.path.join(configdata["locations"]["albums_path"],
-                               entry.fqpndirectory[1:].lower())
+        # webpath = os.path.join(configdata["locations"]["albums_path"],
+        #                        entry.fqpndirectory[1:].lower())
+        webpath = fs_item
 
-        fs_name = os.path.join(configdata["locations"]["albums_path"],
-                               entry.fqpndirectory[1:],
-                               entry.name)
+        # fs_name = os.path.join(configdata["locations"]["albums_path"],
+        #                        entry.fqpndirectory[1:],
+        #                        entry.name)
+        fs_name = fs_item
         fname = os.path.basename(fs_name).title()
         # thumb_size = g_option(request, "size", "Small").title()
         if entry.filetype.is_dir:
@@ -170,13 +177,17 @@ def new_viewgallery(request):
     paths = {}
     context["small"] = g_option(request,
                                 "size",
-                                configdata["configuration"]["small"])
+                                #                            configdata["configuration"]["small"])
+                                settings.IMAGE_SIZE["small"])
     context["medium"] = g_option(request,
                                  "size",
-                                 configdata["configuration"]["medium"])
+                                 #                                 configdata["configuration"]["medium"])
+                                 settings.IMAGE_SIZE["medium"])
+
     context["large"] = g_option(request,
                                 "size",
-                                configdata["configuration"]["large"])
+                                settings.IMAGE_SIZE["large"])
+    #    configdata["configuration"]["large"])
     context["user"] = request.user
     context["mobile"] = detect_mobile(request)
     request.path = request.path.lower().replace(os.sep, r"/")
@@ -186,7 +197,8 @@ def new_viewgallery(request):
     context["webpath"] = paths["webpath"]
     context["breadcrumbs"] = return_breadcrumbs(paths["webpath"])[:-1]
     context["fromtimestamp"] = datetime.datetime.fromtimestamp
-    paths["album_viewing"] = configdata["locations"]["albums_path"] + paths["webpath"]
+    # paths["album_viewing"] = configdata["locations"]["albums_path"] + paths["webpath"]
+    paths["album_viewing"] = settings.ALBUMS_PATH + paths["webpath"]
 
     paths["thumbpath"] = paths["webpath"].replace(r"/albums/",
                                                   r"/thumbnails/")
@@ -251,8 +263,8 @@ def item_info(request, i_uuid):
         context["breadcrumbs"] += r"<li>%s</li>" % bcrumb[2]
 
     if entry.filetype.fileext in [".txt", ".html", ".htm", ".markdown"]:
-        filename = configdata["locations"]["albums_path"] + \
-                   context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
+        # filename = configdata["locations"]["albums_path"] + \
+        filename = settings.ALBUMS_PATH + context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
         if entry.filetype.fileext in [".html"]:
             context["html"] = bleach.linkify("\n".join(open(filename).readlines()))
         elif entry.filetype.fileext in [".markdown"]:
@@ -351,8 +363,8 @@ def new_viewitem(request, i_uuid):
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
     context["breadcrumbs"] = return_breadcrumbs(context["webpath"])
     if entry.filetype.fileext in [".txt", ".html"]:
-        filename = configdata["locations"]["albums_path"] + \
-                   context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
+        # filename = configdata["locations"]["albums_path"] + \
+        filename = settings.ALBUMS_PATH + context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
         if entry.filetype.fileext in [".html"]:
             context["html"] = bleach.linkify("\n".join(open(filename).readlines()))
         else:
@@ -432,14 +444,13 @@ def downloadFile(request, filename=None):
     print("\tDownloading - %s, %s" % (download.fqpndirectory.lower(),
                                       download.name))
 
-    movie = download.filetype.is_movie
     return respond_as_inline(request,
-                             "%s%s%s" % (
-                                 configdata["locations"]["albums_path"],
-                                 os.sep,
-                                 download.fqpndirectory),
+                             "%s%s%s" % (settings.ALBUMS_PATH,
+                                         # configdata["locations"]["albums_path"],
+                                         os.sep,
+                                         download.fqpndirectory),
                              download.name,
-                             ranged=movie)
+                             ranged=download.filetype.is_movie)
 
 
 # @cache_page(500)
@@ -461,13 +472,16 @@ def new_view_archive(request, i_uuid):
     context["splitext"] = os.path.splitext
     context["small"] = g_option(request,
                                 "size",
-                                configdata["configuration"]["small"])
+                                settings.IMAGE_SIZE["small"])
+    # configdata["configuration"]["small"])
     context["medium"] = g_option(request,
                                  "size",
-                                 configdata["configuration"]["medium"])
+                                 # configdata["configuration"]["medium"])
+                                 settings.IMAGE_SIZE["medium"])
     context["large"] = g_option(request,
                                 "size",
-                                configdata["configuration"]["large"])
+                                # configdata["configuration"]["large"])
+                                settings.IMAGE_SIZE["large"])
     context["user"] = request.user
     context["mobile"] = detect_mobile(request)
     request, context = sort_order(request, context)
@@ -479,8 +493,8 @@ def new_view_archive(request, i_uuid):
     context["fromtimestamp"] = datetime.datetime.fromtimestamp
     # context["djicons"] = django_icons.templatetags.icons.icon
     context["djicons"] = django_icons.templatetags.icons.icon_tag
-    arc_filename = configdata["locations"]["albums_path"] + \
-                   context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
+    # arc_filename = configdata["locations"]["albums_path"] + \
+    arc_filename = settings.ALBUMS_PATH + context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
     archive_file = archives.id_cfile_by_sig(arc_filename)
     archive_file.get_listings()
     context["db_entry"] = entry
@@ -528,7 +542,7 @@ def new_archive_item(request, i_uuid):
     e_uuid = i_uuid
     index_qs = index_data.objects.filter(uuid=e_uuid)
     entry = index_qs[0]
-    item_fs = os.path.join(configdata["locations"]["albums_path"],
+    item_fs = os.path.join(settings.ALBUMS_PATH,
                            entry.fqpndirectory[1:],
                            entry.name)
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
@@ -581,14 +595,14 @@ if 'runserver' in sys.argv or "--host" in sys.argv:
     #    check_for_deletes()
     print("Cleanup is done.")
     try:
-        for prepath in configdata["locations"]["preload"]:
+        for prepath in settings.PRELOAD:
             print("Pre-Caching: ", prepath)
             read_from_disk(prepath.strip())  # startup
 
-            for ignored in configdata["filetypes"]["files_to_ignore"]:
-                test = index_data.objects.filter(name__iexact=ignored.title())
-                if test.exists():
-                    print("%s - %s" % (ignored, test.count()))
-                    test.delete()
+            # for ignored in configdata["filetypes"]["files_to_ignore"]:
+            #    test = index_data.objects.filter(name__iexact=ignored.title())
+            #    if test.exists():
+            #        print("%s - %s" % (ignored, test.count()))
+            #        test.delete()
     except:
         pass

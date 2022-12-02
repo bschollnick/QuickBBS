@@ -35,7 +35,9 @@ class Command(BaseCommand):
             filetypes.objects.update_or_create(fileext=ext,
                                                defaults={"generic":True,
                                                "icon_filename":"1431973779_html.png",
-                                               "color":"fef7df", "filetype":ftypes['html']})
+                                               "color":"fef7df",
+                                               "filetype":ftypes['html'],
+                                               "is_text":True})
 
         for ext in constants._graphics:
             filetypes.objects.update_or_create(fileext=ext,
@@ -47,7 +49,9 @@ class Command(BaseCommand):
             filetypes.objects.update_or_create(fileext=ext,
                                                defaults={"generic":True,
                                                "icon_filename":"1431973815_text.PNG",
-                                               "color":"FAEBF4", "filetype":ftypes['image']})
+                                               "color":"FAEBF4",
+                                               "filetype":ftypes['image'],
+                                               "is_text": True})
 
         filetypes.objects.update_or_create(fileext=".pdf",
                                            defaults={"generic":False,
