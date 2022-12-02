@@ -1,4 +1,3 @@
-# coding: utf-8
 """
 Utilities for QuickBBS, the python edition.
 """
@@ -58,7 +57,7 @@ class filetypes(models.Model):
             fileext = ".none"
 
         data = filetypes.objects.filter(fileext=fileext)
-        if data.exists() and data[0].icon_filename is not "":
+        if data.exists() and data[0].icon_filename != "":
             return os.path.join(settings.IMAGES_PATH, data[0].icon_filename)
         # else return None
 
@@ -75,8 +74,8 @@ class filetypes(models.Model):
         return filetypes.objects.filter(fileext=fileext)
 
     class Meta:
-        verbose_name = u'File Type'
-        verbose_name_plural = u'File Types'
+        verbose_name = 'File Type'
+        verbose_name_plural = 'File Types'
 
 
 def get_ftype_dict():

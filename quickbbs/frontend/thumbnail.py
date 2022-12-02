@@ -1,4 +1,3 @@
-# coding: utf-8
 """
 Thumbnail routines for QuickBBS
 """
@@ -17,7 +16,7 @@ from filetypes.models import FILETYPE_DATA
 
 def ensures_endswith(string_to_check, value):
     if not string_to_check.endswith(value):
-        string_to_check = "%s%s" % (string_to_check, value)
+        string_to_check = "{}{}".format(string_to_check, value)
     return string_to_check
 
 
@@ -85,7 +84,7 @@ def new_process_dir(db_index):
         #   inaccurate or the image does not pass verify.
         #   Reset the existing thumbnails to ensure that they will be
         #   regenerated
-        print("size mismatch, %s - %s" % (db_index.directory.FileSize,
+        print("size mismatch, {} - {}".format(db_index.directory.FileSize,
                                           db_index.name))
 
         db_index.directory.FileSize = -1
@@ -249,7 +248,7 @@ def new_process_archive(ind_entry, request, page=0):
                                                         settings.IMAGE_SIZE[thumbsize],
                                                         fext=fext)
                 specific_page.save()
-            except IOError:
+            except OSError:
                 im_data = return_image_obj(os.path.join(
                     settings.RESOURCES_PATH,
                     "images", FILETYPE_DATA["archive"]["icon_filename"]),
@@ -269,7 +268,7 @@ def new_process_archive(ind_entry, request, page=0):
                                                          settings.IMAGE_SIZE[thumbsize],
                                                          fext=fext)
                 specific_page.save()
-            except IOError:
+            except OSError:
                 im_data = return_image_obj(os.path.join(
                     settings.RESOURCES_PATH,
                     "images",
@@ -289,7 +288,7 @@ def new_process_archive(ind_entry, request, page=0):
                                                         settings.IMAGE_SIZE[thumbsize],
                                                         fext=fext)
                 specific_page.save()
-            except IOError:
+            except OSError:
                 im_data = return_image_obj(os.path.join(
                     settings.RESOURCES_PATH,
                     "images",

@@ -1,4 +1,3 @@
-# coding: utf-8
 """
 Django views for QuickBBS Gallery
 """
@@ -441,11 +440,11 @@ def downloadFile(request, filename=None):
     else:
         print("Attempting to find page %s in archive" % page)
 
-    print("\tDownloading - %s, %s" % (download.fqpndirectory.lower(),
+    print("\tDownloading - {}, {}".format(download.fqpndirectory.lower(),
                                       download.name))
 
     return respond_as_inline(request,
-                             "%s%s%s" % (settings.ALBUMS_PATH,
+                             "{}{}{}".format(settings.ALBUMS_PATH,
                                          # configdata["locations"]["albums_path"],
                                          os.sep,
                                          download.fqpndirectory),
@@ -562,19 +561,19 @@ def new_archive_item(request, i_uuid):
     context["page_contents"] = item_list.page(context["current_page"] + 1)
 
     if context["page_contents"].has_next():
-        context["next"] = "view_archive_item/%s?page=%s" % (
+        context["next"] = "view_archive_item/{}?page={}".format(
             entry.uuid, context["page_contents"].next_page_number() - 1)  # 1 based
     else:
         context["next"] = ""
 
     if context["page_contents"].has_previous():
-        context["previous"] = "view_archive_item/%s?page=%s" % (
+        context["previous"] = "view_archive_item/{}?page={}".format(
             entry.uuid, context["page_contents"].previous_page_number() - 1)  # 1 based
     else:
         context["previous"] = ""
     #
-    context["first"] = "view_archive_item/%s?page=%s" % (entry.uuid, 0)
-    context["last"] = "view_archive_item/%s?page=%s" % (entry.uuid, context["pagecount"])
+    context["first"] = "view_archive_item/{}?page={}".format(entry.uuid, 0)
+    context["last"] = "view_archive_item/{}?page={}".format(entry.uuid, context["pagecount"])
 
     response = render(request,
                       "frontend/archive_item.html",
