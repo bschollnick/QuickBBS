@@ -572,7 +572,7 @@ def new_archive_item(request, i_uuid):
     else:
         context["previous"] = ""
     #
-    context["first"] = "view_archive_item/{}?page={}".format(entry.uuid, 0)
+    context["first"] = f"view_archive_item/{entry.uuid}?page={0}"
     context["last"] = "view_archive_item/{}?page={}".format(entry.uuid, context["pagecount"])
 
     response = render(request,

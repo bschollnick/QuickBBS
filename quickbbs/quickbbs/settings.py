@@ -17,8 +17,8 @@ from quickbbs.quickbbs_settings import *
 import quickbbs.jinjaenv
 
 #ALLOWED_HOSTS = [u'nerv.local', u'localhost', u'127.0.0.1']
-ALLOWED_HOSTS = [u'nerv.local', u'localhost', u'127.0.0.1']
-INTERNAL_IPS = [u'localhost', '127.0.0.1', u'nerv.local']
+ALLOWED_HOSTS = ['nerv.local', 'localhost', '127.0.0.1']
+INTERNAL_IPS = ['localhost', '127.0.0.1', 'nerv.local']
 machine_name = socket.gethostname().lower()
 print ("Running on %s" % machine_name)
 

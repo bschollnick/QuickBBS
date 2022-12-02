@@ -52,7 +52,7 @@ def detect_mobile(request):
     Raises:
         None
     """
-    return "Mobile" in request.META["HTTP_USER_AGENT"]
+    return "Mobile" in request.headers["user-agent"]
 
 
 def return_inline_attach(filename, binaryblob):

@@ -50,7 +50,7 @@ def rename_file(old_filename, new_filename):
 
 def ensures_endswith(string_to_check, value):
     if not string_to_check.endswith(value):
-        string_to_check = "{}{}".format(string_to_check, value)
+        string_to_check = f"{string_to_check}{value}"
     return string_to_check
 
 
@@ -600,7 +600,7 @@ def return_breadcrumbs(uri_path=""):  # , crumbsize=3):
         url = "/".join(uris[0:count + 1])
         if name == "":
             continue
-        data.append([name, url, "<a href='{}'>{}</a>".format(url, name)])
+        data.append([name, url, f"<a href='{url}'>{name}</a>"])
     return data
 
 

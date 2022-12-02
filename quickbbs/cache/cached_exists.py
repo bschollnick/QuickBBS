@@ -156,7 +156,7 @@ class cached_exist():
             if not is_valid_filename(filename, platform=self.sanitize_plat):
                 new_filename = sanitize_filename(filename,
                                                  platform=self.sanitize_plat)
-                print("Invalid Filename: {} --> {}".format(filename, new_filename))
+                print(f"Invalid Filename: {filename} --> {new_filename}")
                 if allow_rename:
                     refresh = True
                     os.rename(os.path.join(dirpath, filename),
