@@ -131,7 +131,7 @@ class cached_exist():
         self.image_hash_size = 64
         self._graphics = [".bmp", ".gif", ".jpg", ".jpeg", ".png", "webp"]
         self._archives = [".zip", ".rar", ".7z", ".lzh", ".gz"]
-        self._movies = [".mp4", ".mpg", ".mkv", ".mov", ".avi"]
+        self._movies = [".mp4", ".mpg", ".mkv", ".mov", ".avi", ".mp3"]
 
     def sanitize_filenames(self, dirpath, allow_rename=False):
         """

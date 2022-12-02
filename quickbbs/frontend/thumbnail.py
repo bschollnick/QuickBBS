@@ -2,28 +2,17 @@
 """
 Thumbnail routines for QuickBBS
 """
-from __future__ import absolute_import, print_function, unicode_literals
-
 import os
-# import sys
-# from PIL import Image
 import frontend.archives3 as archives
-from frontend.config import configdata
+# from frontend.config import configdata
 from frontend.database import get_xth_image
 from frontend.utilities import (cr_tnail_img, return_image_obj,
                                 read_from_disk)
 from frontend.web import return_img_attach, g_option, return_inline_attach  # , respond_as_attachment
 from quickbbs.models import (index_data,
                              Thumbnails_Archives)
-
-# from io import BytesIO
-
-sizes = {
-    "small": configdata["configuration"]["small"],
-    "medium": configdata["configuration"]["medium"],
-    "large": configdata["configuration"]["large"],
-    "unknown": configdata["configuration"]["small"]
-}
+from django.conf import settings
+from filetypes.models import FILETYPE_DATA
 
 
 def ensures_endswith(string_to_check, value):
@@ -109,14 +98,13 @@ def new_process_dir(db_index):
     #                                       db_index.name).lower(), files)
     if files:  # found an file in the directory to use for thumbnail purposes
         # print ("Files found in directory")
-        fs_d_fname = configdata["locations"]["albums_path"] + \
-                     os.path.join(db_index.fqpndirectory.lower(),
-                                  db_index.name, files.name)
+        fs_d_fname = settings.ALBUMS_PATH + os.path.join(db_index.fqpndirectory.lower(),
+                                                         db_index.name, files.name)
         # file system location of directory
         fext = os.path.splitext(files.name)[1][1:].lower()
 
         temp = cr_tnail_img(return_image_obj(fs_d_fname),
-                            sizes["small"],
+                            settings.IMAGE_SIZE["small"],
                             fext=fext)
         # imagedata = temp
         db_index.directory.SmallThumb = temp
@@ -125,11 +113,10 @@ def new_process_dir(db_index):
         #
         #   There are no files in the directory
         #
-        temp = return_image_obj(configdata["locations"]["images_path"] + \
-                                os.sep + configdata["filetypes"]["dir"][1])
-        #            if db_index.size != os.path.getsize(temp):
-        img_icon = cr_tnail_img(temp, sizes["small"],
-                                configdata["filetypes"]["dir"][2])
+        temp = return_image_obj(settings.IMAGES_PATH + os.sep + FILETYPE_DATA["dir"]["icon_filename"])
+        img_icon = cr_tnail_img(temp, settings.IMAGE_SIZE["small"],
+                                FILETYPE_DATA["dir"]["icon_filename"])
+        # configdata["filetypes"]["dir"][2])
         db_index.directory.SmallThumb = img_icon
         db_index.directory.FileSize = db_index.size
     #            print("Set size to %s for %s" % (db_index.directory.FileSize,
@@ -171,9 +158,7 @@ def new_process_img(entry, request, imagesize="Small"):
 
         else:
             print("Cache is invalid")
-    fs_fname = configdata["locations"]["albums_path"] + \
-               os.path.join(entry.fqpndirectory.lower(),
-                            entry.name)
+    fs_fname = settings.ALBUMS_PATH + os.path.join(entry.fqpndirectory.lower(), entry.name)
     fs_fname = fs_fname.replace("//", "/")
     # file system location of directory
 
@@ -189,7 +174,7 @@ def new_process_img(entry, request, imagesize="Small"):
     temp = return_image_obj(fs_fname)
     setattr(entry.file_tnail,
             "%sThumb" % thumb_size, cr_tnail_img(temp,
-                                                 sizes[thumb_size.lower()],
+                                                 settings.IMAGE_SIZE[thumb_size.lower()],
                                                  fext=fext)
             )
     print("Creating ", entry.name)
@@ -208,9 +193,7 @@ def new_process_archive(ind_entry, request, page=0):
     Process an archive, and return the thumbnail
     """
     thumbsize = g_option(request, "size", "small").lower().strip()
-    fs_archname = configdata["locations"]["albums_path"] + \
-                  os.path.join(ind_entry.fqpndirectory.lower(),
-                               ind_entry.name)
+    fs_archname = settings.ALBUMS_PATH + os.path.join(ind_entry.fqpndirectory.lower(), ind_entry.name)
     fs_archname = fs_archname.replace("//", "/").strip()
 
     # file system location of directory
@@ -240,11 +223,10 @@ def new_process_archive(ind_entry, request, page=0):
         # Add Caching
         #
 
-        im_data = return_image_obj(os.path.join(
-            configdata["locations"]["resources_path"],
-            "images", configdata["filetypes"]["archive"][1]),
-            memory=True)
-        return return_img_attach("1431973824_compressed.png", im_data,
+        im_data = return_image_obj(os.path.join(settings.RESOURCES_PATH, "images",
+                                                FILETYPE_DATA["archive"]["icon_filename"]),
+                                   memory=True)
+        return return_img_attach(FILETYPE_DATA["archive"]["icon_filename"], im_data,
                                  fext_override="JPEG")
 
     if specific_page.FileSize != os.path.getsize(fs_archname):
@@ -264,13 +246,13 @@ def new_process_archive(ind_entry, request, page=0):
         if specific_page.LargeThumb == b"":
             try:
                 specific_page.LargeThumb = cr_tnail_img(im_data,
-                                                        sizes[thumbsize],
+                                                        settings.IMAGE_SIZE[thumbsize],
                                                         fext=fext)
                 specific_page.save()
             except IOError:
                 im_data = return_image_obj(os.path.join(
-                    configdata["locations"]["resources_path"],
-                    "images", configdata["filetypes"]["archive"][1]),
+                    settings.RESOURCES_PATH,
+                    "images", FILETYPE_DATA["archive"]["icon_filename"]),
                     memory=True)
 
             return return_img_attach(os.path.basename(fs_archname),
@@ -284,14 +266,14 @@ def new_process_archive(ind_entry, request, page=0):
         if specific_page.MediumThumb == b"":
             try:
                 specific_page.MediumThumb = cr_tnail_img(im_data,
-                                                         sizes[thumbsize],
+                                                         settings.IMAGE_SIZE[thumbsize],
                                                          fext=fext)
                 specific_page.save()
             except IOError:
                 im_data = return_image_obj(os.path.join(
-                    configdata["locations"]["resources_path"],
+                    settings.RESOURCES_PATH,
                     "images",
-                    configdata["filetypes"]["archive"][1]),
+                    FILETYPE_DATA["archive"]["icon_filename"]),
                     memory=True)
             return_img_attach(os.path.basename(fs_archname),
                               specific_page.MediumThumb,
@@ -304,14 +286,14 @@ def new_process_archive(ind_entry, request, page=0):
         if specific_page.SmallThumb == b"":
             try:
                 specific_page.SmallThumb = cr_tnail_img(im_data,
-                                                        sizes[thumbsize],
+                                                        settings.IMAGE_SIZE[thumbsize],
                                                         fext=fext)
                 specific_page.save()
             except IOError:
                 im_data = return_image_obj(os.path.join(
-                    configdata["locations"]["resources_path"],
+                    settings.RESOURCES_PATH,
                     "images",
-                    configdata["filetypes"]["archive"][1]),
+                    FILETYPE_DATA["archive"]["icon_filename"]),
                     memory=True)
             return return_img_attach(os.path.basename(fs_archname),
                                      specific_page.SmallThumb,

@@ -2,7 +2,9 @@
 """
 Utilities for QuickBBS, the python edition.
 """
+import os
 from django.db import models
+from django.conf import settings
 from django.core.exceptions import MultipleObjectsReturned
 import sys
 
@@ -11,7 +13,7 @@ class filetypes(models.Model):
     fileext = models.CharField(primary_key=True,
                                db_index=True,
                                max_length=10,
-                               unique=True)  # File Extension (eg. html)
+                               unique=True)  # File Extension (eg. .html, is lowercase, and includes the DOT)
     generic = models.BooleanField(default=False, db_index=True)
 
     icon_filename = models.CharField(db_index=True, max_length=384, default='', blank=True)  # FQFN of the file itself
@@ -32,19 +34,41 @@ class filetypes(models.Model):
     is_movie = models.BooleanField(default=False, db_index=True)
     is_audio = models.BooleanField(default=False, db_index=True)
     is_dir = models.BooleanField(default=False, db_index=True)
+    is_text = models.BooleanField(default=False, db_index=True)
 
     def __unicode__(self):
-        return '%s' % self.fileext
+        return f'{self.fileext}'
+
+    def return_icon_filename(self, fileext):
+        """
+        The return_icon_filename function takes a file extension as an argument and returns the filename of the
+        icon that corresponds to that file extension.
+
+        If no icon is found for a given file type, then it will return None.
+
+        :param self: Allow the function to refer to the calling object
+        :param fileext: Find the file extension of the file, lower case, and includes the DOT (e.g. .html, not html)
+        :return: The icon filename for the given file extension (IMAGES_PATH + filename), or NONE if not found or
+            the filename for the fileext is blank (e.g. JPEG, since JPEG will always be created based off the file)
+        """
+        fileext = fileext.lower()
+        if not fileext.startswith("."):
+            fileext = f'.{fileext}'
+        if fileext in ['', None, 'unknown']:
+            fileext = ".none"
+
+        data = filetypes.objects.filter(fileext=fileext)
+        if data.exists() and data[0].icon_filename is not "":
+            return os.path.join(settings.IMAGES_PATH, data[0].icon_filename)
+        # else return None
 
     def return_filetype(self, fileext):
         """
             fileext = gif, jpg, mp4 (lower case, and without prefix .)
         """
         fileext = fileext.lower()
-
-        if fileext.startswith("."):
-            fileext = fileext[1:]
-
+        #if fileext.startswith("."):
+        #    fileext = fileext[1:]
         if fileext in ['', None, 'unknown']:
             fileext = ".none"
 
@@ -53,16 +77,6 @@ class filetypes(models.Model):
     class Meta:
         verbose_name = u'File Type'
         verbose_name_plural = u'File Types'
-
-
-def return_filetype(fileext):
-    """
-        Return the filetype data for a particular file extension
-
-        fileext: String, the extension of the file type with ., in lowercase
-                eg .doc, .txt
-    """
-    return filetype.return_filetype(fileext)
 
 
 def get_ftype_dict():
@@ -83,8 +97,8 @@ def return_identifier(ext):
     Return the extension portion of the filename (minus the .)
     """
     ext = ext.lower().strip()
-    if ext.startswith("."):
-        ext = ext[1:]
+#    if ext.startswith("."):
+#        ext = ext[1:]
     return ext
 
 
@@ -100,7 +114,7 @@ def load_filetypes():
     try:
         # refresh_filetypes()
         return get_ftype_dict()
-    except :
+    except:
         print("Unable to validate or create FileType database table.")
         print("\nPlease use manage.py --refresh-filetypes\n")
         print("This will rebuild and/or update the FileType table.")

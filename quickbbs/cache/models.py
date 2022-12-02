@@ -3,10 +3,11 @@ import sys
 import time
 
 from django.db import models
-from frontend.config import configdata
+#from frontend.config import configdata
 from cache.watchdogmon import watchdog
 from cache.cached_exists import cached_exist
 from filetypes.models import FILETYPE_DATA
+from django.conf import settings
 
 CACHE = cached_exist(use_modify=True, use_extended=True, FilesOnly=False,
                      use_filtering=True)
@@ -14,6 +15,7 @@ CACHE.IgnoreDotFiles = True
 CACHE.FilesOnly = False
 
 try:
+    print("Acceptable extensions", list(FILETYPE_DATA.keys()))
     CACHE.AcceptableExtensions = list(FILETYPE_DATA.keys())
 except AttributeError:
     pass
@@ -40,8 +42,8 @@ class fs_Cache_Tracking(models.Model):
 
 
 if 'runserver' in sys.argv or "--host" in sys.argv:
-    print("Starting Watchdog - ", os.path.join(configdata["locations"]["albums_path"], "albums"))
-    watchdog.startup(monitor_path=os.path.join(configdata["locations"]["albums_path"],
+    print("Starting Watchdog - ", os.path.join(settings.ALBUMS_PATH, "albums"))
+    watchdog.startup(monitor_path=os.path.join(settings.ALBUMS_PATH,
                                                "albums"),
                      created=delete_from_cache_tracking,
                      deleted=delete_from_cache_tracking,

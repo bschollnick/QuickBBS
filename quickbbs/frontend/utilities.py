@@ -17,7 +17,8 @@ import uuid
 from io import BytesIO
 
 # from moviepy.video.io import VideoFileClip
-# from moviepy.editor import VideoFileClip #* # import everythings (variables, classes, methods...) inside moviepy.editor
+# from moviepy.editor import VideoFileClip #* # import everythings (variables, classes, methods...)
+# inside moviepy.editor
 import av  # Video Previews
 import fitz  # PDF previews
 from django.core.exceptions import MultipleObjectsReturned
@@ -25,22 +26,21 @@ from pathvalidate import sanitize_filename
 from PIL import Image
 
 import frontend.constants as constants
-import filetypes.constants as ftype_constants
+# import filetypes.constants as ftype_constants
 import filetypes.models as filetype_models
 import frontend.pdf_utilities as pdf_utilities
 from frontend.database import check_dup_thumbs  # , validate_database
 from quickbbs.models import (Thumbnails_Archives, filetypes, index_data)
 from cache.models import fs_Cache_Tracking as Cache_Tracking
+import frontend.archives3 as archives
+from django.conf import settings
 from cache.models import CACHE
 
 log = logging.getLogger(__name__)
 
-import frontend.archives3 as archives
-
 Image.MAX_IMAGE_PIXELS = None
-
-
 # Disable PILLOW DecompressionBombError errors.
+
 
 def rename_file(old_filename, new_filename):
     try:
@@ -225,15 +225,19 @@ def cr_tnail_img(source_image, size, fext):
     """
     if source_image == None:
         return None
-
-    if ".%s" % fext in ftype_constants._movie:
-        fext = "jpg"
+    fext = fext.lower().strip()
+    if not fext.startswith("."):
+        fext = f".{fext}"
+    #  if ".%s" % fext in ftype_constants._movie:
+    if fext in settings.MOVIE_FILE_TYPES:
+        fext = ".jpg"
 
     image_data = BytesIO()
     source_image.thumbnail((size, size), Image.ANTIALIAS)
     try:
         source_image.save(fp=image_data,
-                          format=configdata["filetypes"][fext][2].strip(),
+                          format="PNG", # Need alpha channel support for icons, etc.
+                                    # configdata["filetypes"][fext][2].strip(),
                           optimize=False)
     except IOError:
         source_image = source_image.convert('RGB')
@@ -273,7 +277,7 @@ def return_disk_listing(fqpn, enable_rename=False):
     data = {}
     # data_list = []
     loaded = True
-    #    webpath = (fqpn.title().replace(configdata["locations"]["albums_path"].title(),
+    #    webpath = (fqpn.title().replace(settings.ALBUMS_PATH.title(),
     #                                    "")).replace("//", "/")
     for entry in os.scandir(fqpn):
         titlecase = entry.name.title()
@@ -289,11 +293,11 @@ def return_disk_listing(fqpn, enable_rename=False):
 
         if fext not in filetype_models.FILETYPE_DATA:
             continue
-        elif (fext in configdata["filetypes"]["extensions_to_ignore"]) or \
-                (lower_filename in configdata["filetypes"]["files_to_ignore"]):
+        elif (fext in settings.EXTENSIONS_TO_IGNORE) or \
+                (lower_filename in settings.FILES_TO_IGNORE):
             continue
 
-        elif configdata["filetypes"]["ignore_dotfiles"] and lower_filename.startswith("."):
+        elif settings.IGNORE_DOT_FILES and lower_filename.startswith("."):
             continue
 
         if enable_rename:
@@ -365,34 +369,6 @@ def read_from_disk(dir_to_scan, skippable=True):
                           "FileName": fname, "page": page})[0]
         return db_entry
 
-    #     def link_dir_rec(sd_entry, webpath, uuid_entry):
-    #         fs_name = os.path.join(configdata["locations"]["albums_path"],
-    #                                webpath[1:],
-    #                                sd_entry[filename]["filename"])
-    #         fname = os.path.basename(fs_name).title()
-    #         db_entry = Thumbnails_Dirs.objects.update_or_create(
-    #             uuid=uuid_entry, FilePath=webpath, DirName=fname,
-    #             defaults={"uuid":uuid_entry,
-    #                       "FilePath":webpath,
-    #                       "DirName":fname})[0]
-    #         return db_entry
-    #
-    #     def link_file_rec(sd_entry, webpath, uuid_entry):
-    #         fs_name = os.path.join(configdata["locations"]["albums_path"],
-    #                                webpath[1:],
-    #                                sd_entry[filename]["filename"])#.name)
-    #         fname = os.path.basename(fs_name).title()
-    #
-    #         db_entry = Thumbnails_Files.objects.update_or_create(
-    #             uuid=uuid_entry,
-    #             FilePath=webpath,
-    #             FileName=fname,
-    #             defaults={"uuid":uuid_entry,
-    #                       "FilePath":webpath,
-    #                       "FileName":fname,
-    #                      })[0]
-    #         return db_entry
-
     ###############################
     # Read_from_disk - main
     #
@@ -406,13 +382,13 @@ def read_from_disk(dir_to_scan, skippable=True):
     global CACHE
     lastmoded = ""
     dir_to_scan = ensures_endswith(dir_to_scan.strip().lower(), os.sep)
-    fqpn = (configdata["locations"]["albums_path"] + dir_to_scan).replace("//", "/")
+    fqpn = (settings.ALBUMS_PATH + dir_to_scan).replace("//", "/")
     if not os.path.exists(fqpn):
         print("%s does not exist" % fqpn)
         return None
 
     webpath = fqpn.lower().replace(
-        configdata["locations"]["albums_path"].lower(),
+        settings.ALBUMS_PATH.lower(),
         "")
 
     dirpath = os.path.normpath(fqpn.title().strip())
@@ -484,8 +460,7 @@ def read_from_disk(dir_to_scan, skippable=True):
         numdirs = 0
         numfiles = 0
         force_save = False
-        disk_data = {}
-        disk_data[filename] = filedata
+        disk_data = {filename: filedata}
         animated = False
         if filedata.is_dir():
             fext = ".dir"
@@ -493,7 +468,7 @@ def read_from_disk(dir_to_scan, skippable=True):
             fext = os.path.splitext(filename)[1].lower()
             if fext == "":
                 fext = ".none"
-        fs_item = os.path.join(configdata["locations"]["albums_path"],
+        fs_item = os.path.join(settings.ALBUMS_PATH,
                                webpath[1:],
                                filename)
 
@@ -581,7 +556,7 @@ def read_from_disk(dir_to_scan, skippable=True):
 
             ta_listings = Thumbnails_Archives.objects.filter(uuid=ind_data.uuid)
             if ta_listings.count() != ind_data.count_subfiles:
-                archive_file = archives.id_cfile_by_sig(os.path.join(configdata["locations"]["albums_path"],
+                archive_file = archives.id_cfile_by_sig(os.path.join(settings.ALBUMS_PATH,
                                                                      webpath[1:],
                                                                      filename))
                 archive_file.get_listings()
@@ -630,8 +605,6 @@ def return_breadcrumbs(uri_path=""):  # , crumbsize=3):
     return data
 
 
-if __name__ == '__main__':
-    pass
 #     from frontend.config import configdata, load_data
 #     cfg_path = os.path.abspath(r"../../cfg")
 #     config.load_data(os.path.join(cfg_path, "paths.ini"))
@@ -639,7 +612,5 @@ if __name__ == '__main__':
 #     config.load_data(os.path.join(cfg_path, "filetypes.ini"))
 #     import doctest
 #     doctest.testmod()
-else:
-    from frontend.config import configdata
+#from frontend.config import configdata
 
-    print(sys.version)
