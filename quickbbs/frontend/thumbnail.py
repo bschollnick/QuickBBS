@@ -16,7 +16,7 @@ from filetypes.models import FILETYPE_DATA
 
 def ensures_endswith(string_to_check, value):
     if not string_to_check.endswith(value):
-        string_to_check = "{}{}".format(string_to_check, value)
+        string_to_check = f"{string_to_check}{value}"
     return string_to_check
 
 
@@ -190,6 +190,8 @@ def new_process_img(entry, request, imagesize="Small"):
 def new_process_archive(ind_entry, request, page=0):
     """
     Process an archive, and return the thumbnail
+
+    TBD: Broken, needs rewrite, it's been broken for a *while*.
     """
     thumbsize = g_option(request, "size", "small").lower().strip()
     fs_archname = settings.ALBUMS_PATH + os.path.join(ind_entry.fqpndirectory.lower(), ind_entry.name)
@@ -221,11 +223,10 @@ def new_process_archive(ind_entry, request, page=0):
         #
         # Add Caching
         #
-
         im_data = return_image_obj(os.path.join(settings.RESOURCES_PATH, "images",
-                                                FILETYPE_DATA["archive"]["icon_filename"]),
+                                                FILETYPE_DATA[fext]["icon_filename"]),
                                    memory=True)
-        return return_img_attach(FILETYPE_DATA["archive"]["icon_filename"], im_data,
+        return return_img_attach(FILETYPE_DATA[fext]["icon_filename"], im_data,
                                  fext_override="JPEG")
 
     if specific_page.FileSize != os.path.getsize(fs_archname):

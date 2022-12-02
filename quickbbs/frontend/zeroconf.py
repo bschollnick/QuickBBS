@@ -5,11 +5,11 @@ import signal
 class MyListener:
 
     def remove_service(self, zeroconf, type, name):
-        print("Service {} removed".format(name))
+        print(f"Service {name} removed")
 
     def add_service(self, zeroconf, type, name):
         info = zeroconf.get_service_info(type, name)
-        print("Service {} added, service info: {}".format(name, info))
+        print(f"Service {name} added, service info: {info}")
 
 
 zeroconf = Zeroconf()

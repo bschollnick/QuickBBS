@@ -46,8 +46,8 @@ class owners(models.Model):
                                         default=None)
 
     class Meta:
-        verbose_name = u'Ownership'
-        verbose_name_plural = u'Ownership'
+        verbose_name = 'Ownership'
+        verbose_name_plural = 'Ownership'
 
 
 class Favorites(models.Model):
@@ -66,8 +66,8 @@ class Thumbnails_Dirs(models.Model):
     SmallThumb = models.BinaryField(default=b"")
 
     class Meta:
-        verbose_name = u'Directory Thumbnails Cache'
-        verbose_name_plural = u'Directory Thumbnails Cache'
+        verbose_name = 'Directory Thumbnails Cache'
+        verbose_name_plural = 'Directory Thumbnails Cache'
 
 
 class Thumbnails_Small(models.Model):
@@ -79,8 +79,8 @@ class Thumbnails_Small(models.Model):
     FileSize = models.BigIntegerField(default=-1)
 
     class Meta:
-        verbose_name = u'Image File Small Thumbnail Cache'
-        verbose_name_plural = u'Image File Small Thumbnails Cache'
+        verbose_name = 'Image File Small Thumbnail Cache'
+        verbose_name_plural = 'Image File Small Thumbnails Cache'
 
 
 class Thumbnails_Medium(models.Model):
@@ -92,8 +92,8 @@ class Thumbnails_Medium(models.Model):
     FileSize = models.BigIntegerField(default=-1)
 
     class Meta:
-        verbose_name = u'Image File Medium Thumbnail Cache'
-        verbose_name_plural = u'Image File Medium Thumbnails Cache'
+        verbose_name = 'Image File Medium Thumbnail Cache'
+        verbose_name_plural = 'Image File Medium Thumbnails Cache'
 
 
 class Thumbnails_Large(models.Model):
@@ -105,8 +105,8 @@ class Thumbnails_Large(models.Model):
     FileSize = models.BigIntegerField(default=-1)
 
     class Meta:
-        verbose_name = u'Image File Large Thumbnail Cache'
-        verbose_name_plural = u'Image File Large Thumbnails Cache'
+        verbose_name = 'Image File Large Thumbnail Cache'
+        verbose_name_plural = 'Image File Large Thumbnails Cache'
 
 
 class Thumbnails_Files(models.Model):
@@ -122,8 +122,8 @@ class Thumbnails_Files(models.Model):
     LargeThumb = models.BinaryField(default=b"")
 
     class Meta:
-        verbose_name = u'Image File Thumbnails Cache'
-        verbose_name_plural = u'Image File Thumbnails Cache'
+        verbose_name = 'Image File Thumbnails Cache'
+        verbose_name_plural = 'Image File Thumbnails Cache'
         # File Workflow:
         #
         #   When checking for a thumbnail, if Thumbnail_ID == 0, then generate the new thumbnails,
@@ -152,8 +152,8 @@ class Thumbnails_Archives(models.Model):
     LargeThumb = models.BinaryField(default=b"")
 
     class Meta:
-        verbose_name = u'Archive Thumbnails Cache'
-        verbose_name_plural = u'Archive Thumbnails Cache'
+        verbose_name = 'Archive Thumbnails Cache'
+        verbose_name_plural = 'Archive Thumbnails Cache'
 
 
 class index_data(models.Model):
@@ -232,5 +232,5 @@ class index_data(models.Model):
         # null = System Owned
 
     class Meta:
-        verbose_name = u'Master Index'
-        verbose_name_plural = u'Master Index'
+        verbose_name = 'Master Index'
+        verbose_name_plural = 'Master Index'
