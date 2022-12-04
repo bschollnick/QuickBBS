@@ -13,14 +13,14 @@ Including another URLconf
     1. Import the include() function: from django.conf.urls import url, include
     2. Add a URL to urlpatterns:  url(r'^blog/', include('blog.urls'))
 """
-from django.urls import include, path, re_path
+import frontend
+import frontend.serve_up
+import frontend.views
+from django.conf import settings
 #from django.conf.urls import url
 from django.contrib import admin
+from django.urls import include, path, re_path
 from django.views.generic import RedirectView
-import frontend
-import frontend.views
-import frontend.serve_up
-from django.conf import settings
 
 urlpatterns = []
 if settings.DEBUG_TOOLBAR:
@@ -35,9 +35,7 @@ urlpatterns += [
     path(r'', RedirectView.as_view(url="/albums"), name="home"),
     path("download/<str:filename>", frontend.views.downloadFile, name="download"),
     path("info/<uuid:i_uuid>/", frontend.views.item_info, name="item_info"),
-#    path("view_json_item/<uuid:i_uuid>/", frontend.views.new_json_viewitem, name="new_json_viewitem"),
     path("view_item/<uuid:i_uuid>/", frontend.views.new_json_viewitem, name="new_viewitem"),
- #    path("view_item/<uuid:i_uuid>/", frontend.views.new_viewitem, name="new_viewitem"),
     path('view_archive/<uuid:i_uuid>', frontend.views.new_view_archive, name="new_view_archive"),
     path("view_archive_item/<uuid:i_uuid>", frontend.views.new_archive_item, name="new_archive_item"),
     re_path('^albums/', frontend.views.new_viewgallery),
@@ -48,4 +46,4 @@ urlpatterns += [
     path('accounts/', include('allauth.urls')),
 ]
 
-REGISTRATION_OPEN = True
+# REGISTRATION_OPEN = True

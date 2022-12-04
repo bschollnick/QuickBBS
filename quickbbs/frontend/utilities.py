@@ -14,26 +14,27 @@ import time
 import urllib.parse
 import uuid
 from io import BytesIO
+from pathlib import Path
 
 # from moviepy.video.io import VideoFileClip
 # from moviepy.editor import VideoFileClip #* # import everythings (variables, classes, methods...)
 # inside moviepy.editor
 import av  # Video Previews
+# import filetypes.constants as ftype_constants
+import filetypes.models as filetype_models
 import fitz  # PDF previews
+from cache.models import CACHE
+from cache.models import fs_Cache_Tracking as Cache_Tracking
+from django.conf import settings
 from django.core.exceptions import MultipleObjectsReturned
 from pathvalidate import sanitize_filename
 from PIL import Image
+from quickbbs.models import Thumbnails_Archives, filetypes, index_data
 
+import frontend.archives3 as archives
 import frontend.constants as constants
-# import filetypes.constants as ftype_constants
-import filetypes.models as filetype_models
 import frontend.pdf_utilities as pdf_utilities
 from frontend.database import check_dup_thumbs  # , validate_database
-from quickbbs.models import (Thumbnails_Archives, filetypes, index_data)
-from cache.models import fs_Cache_Tracking as Cache_Tracking
-import frontend.archives3 as archives
-from django.conf import settings
-from cache.models import CACHE
 
 log = logging.getLogger(__name__)
 
@@ -603,6 +604,70 @@ def return_breadcrumbs(uri_path=""):  # , crumbsize=3):
         data.append([name, url, f"<a href='{url}'>{name}</a>"])
     return data
 
+def fs_counts(fs_dir):
+    fs_path = Path(fs_dir)
+    files = 0
+    dirs = 0
+    for fs_item in fsPath:
+        is_file = fs_item.is_file()
+        files += is_file
+        dirs += not is_file
+    return (files, dirs)
+
+def compare_db_to_fs(directoryname, fs_entries):
+    """
+
+    Parameters
+    ----------
+    directoryname : The "webpath", the fragment of the directory name to load, lowercased, and
+        double '//' is replaced with '/'
+    fs_entries : dictionary of the directory listings (see return_disk_listing)
+
+    Returns
+    -------
+    dictionary : That contains *only* the updated entries (e.g. deleted entries will be flagged
+        with ignore and deleted.)  Otherwise, the dictionary will contain the updated records that
+        need to be pushed to the database.
+
+    Example
+    -------
+    success, diskstore = return_disk_listing("/albums")
+    updated_recs = compare_db_to_fs("/albums", diskstore)
+    for updated in updated_recs:
+        ... push updated to database ...
+
+    """
+    webpath = directoryname.lower().replace("//", "/")
+    db_data = index_data.objects.filter(fqpndirectory=webpath)
+    for db_entry in db_data:
+        if db_entry.name not in fs_entries:
+            # The entry just is not in the file system.  Delete it.
+            db_entry.ignore = True
+            db_entry.delete_pending = True
+            db_entry.save()
+        else:
+            # The db_entry does exist in the file system.
+            # Does the lastmod match?
+            # Does size match?
+            # If directory, does the numfiles, numdirs, count_subfiles match?
+
+            update = False
+            entry = fsentries[db_entry.name]
+            if db_entry.last_mod != entry.lastmod:
+                print("LastMod mismatch")
+                db_entry.last_mod = entry.lastmod
+                update = True
+            if db_entry.size != entry['size']:
+                print("Size mismatch")
+                db_entry.size = entry["size"]
+                update = True
+            if db_entry["directory"] or db_entry["unified_dirs"]:
+                fs_file_count, fs_dir_count = fs_counts(webpath)
+                if db_entry["numfiles"] != fs_fs_file_count or db_entry["numdirs"] != fs_dir_count:
+                    db_entry["numfiles"], db_entry["numdirs"] = fs_file_count, fs_dir_count
+                    update = True
+            if update:
+                db_entry.save()
 
 #     from frontend.config import configdata, load_data
 #     cfg_path = os.path.abspath(r"../../cfg")

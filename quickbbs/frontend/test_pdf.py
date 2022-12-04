@@ -1,5 +1,6 @@
-import fitz
 import sys
+
+import fitz
 #import pdf_utilities
 from PIL import Image
 

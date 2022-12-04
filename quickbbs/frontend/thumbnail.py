@@ -2,16 +2,17 @@
 Thumbnail routines for QuickBBS
 """
 import os
+
+from django.conf import settings
+from filetypes.models import FILETYPE_DATA
+from quickbbs.models import Thumbnails_Archives, index_data
+
 import frontend.archives3 as archives
 # from frontend.config import configdata
 from frontend.database import get_xth_image
-from frontend.utilities import (cr_tnail_img, return_image_obj,
-                                read_from_disk)
-from frontend.web import return_img_attach, g_option, return_inline_attach  # , respond_as_attachment
-from quickbbs.models import (index_data,
-                             Thumbnails_Archives)
-from django.conf import settings
-from filetypes.models import FILETYPE_DATA
+from frontend.utilities import cr_tnail_img, read_from_disk, return_image_obj
+from frontend.web import (g_option,  # , respond_as_attachment
+                          return_img_attach, return_inline_attach)
 
 
 def ensures_endswith(string_to_check, value):

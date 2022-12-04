@@ -2,12 +2,13 @@ import os
 import sys
 import time
 
+from django.conf import settings
 from django.db import models
+from filetypes.models import FILETYPE_DATA
+
+from cache.cached_exists import cached_exist
 #from frontend.config import configdata
 from cache.watchdogmon import watchdog
-from cache.cached_exists import cached_exist
-from filetypes.models import FILETYPE_DATA
-from django.conf import settings
 
 CACHE = cached_exist(use_modify=True, use_extended=True, FilesOnly=False,
                      use_filtering=True)
@@ -15,11 +16,10 @@ CACHE.IgnoreDotFiles = True
 CACHE.FilesOnly = False
 
 try:
-    print("Acceptable extensions", list(FILETYPE_DATA.keys()))
+    # print("Acceptable extensions", list(FILETYPE_DATA.keys()))
     CACHE.AcceptableExtensions = list(FILETYPE_DATA.keys())
 except AttributeError:
     pass
-
 CACHE.AcceptableExtensions.append("")
 
 
@@ -30,9 +30,7 @@ def delete_from_cache_tracking(event):
         CACHE.clear_path(path_to_clear=dirpath)
         if fs_Cache_Tracking.objects.filter(DirName=dirpath).exists():
             fs_Cache_Tracking.objects.filter(DirName=dirpath).delete()
-            print("\n\n", time.ctime(), " Deleted %s" % dirpath, "\n\n")
-
-
+            print("\n", time.ctime(), " Deleted %s" % dirpath, "\n")
 #        else:
 #            print("Does not exist in Cache Tracking %s" % dirpath)
 

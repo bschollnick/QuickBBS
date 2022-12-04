@@ -1,14 +1,13 @@
 import os
 # from io import BytesIO
 import uuid
-from uuid import uuid4
 
-from django.db import models
-# from django.urls import reverse
-# from PIL import Image
-
-from frontend.thumbnail import cr_tnail_img
 from django.conf import settings
+from django.db import models
+# from frontend.thumbnail import cr_tnail_img
+
+# from uuid import uuid4
+
 
 __version__ = '1.5'
 
@@ -40,7 +39,7 @@ create_file_entry(filename, filesize, is_default)
 """
 
 
-def is_valid_uuid(uuid_to_test, version=4) -> uuid4:
+def is_valid_uuid(uuid_to_test, version=4) -> uuid.UUID:
     """
     Check if uuid_to_test is a valid UUID.
     https://stackoverflow.com/questions/19989481
@@ -111,6 +110,7 @@ class SmallThumb(models.Model):
         :return: The path to the thumbnail image
         :doc-author: Trelent
         """
+        import cr_tnail_img
         self.Thumbnail = cr_tnail_img(imagedata,
                                       settings.IMAGE_SIZES["small"],
                                       fext=fext)
@@ -154,6 +154,7 @@ class MediumThumb(models.Model):
         :return: The thumbnail image
         :doc-author: Trelent
         """
+        import cr_tnail_img
         self.Thumbnail = cr_tnail_img(imagedata,
                                       settings.IMAGE_SIZES["medium"],
                                       fext=fext)
@@ -178,8 +179,7 @@ class MediumThumb(models.Model):
 
 class LargeThumb(models.Model):
     id = models.AutoField(primary_key=True, db_index=True)
-    uuid = models.UUIDField(
-        default=None, null=True, editable=False, unique=True, db_index=True, blank=True)
+    uuid = models.UUIDField(default=None, null=True, editable=False, unique=True, db_index=True, blank=True)
     Thumbnail = models.BinaryField(default=b"")
     FileSize = models.BigIntegerField(default=-1)
 
@@ -195,6 +195,7 @@ class LargeThumb(models.Model):
         :return: A thumbnail image
         :doc-author: Trelent
         """
+        import cr_tnail_img
         self.Thumbnail = cr_tnail_img(imagedata,
                                       settings.IMAGE_SIZES["large"],
                                       fext=fext)
@@ -216,8 +217,9 @@ class LargeThumb(models.Model):
         verbose_name_plural = 'Image File Large Thumbnails Cache'
 
 
-def create_file_entry(filename, filesize=None, is_default=False) -> object:
+def create_file_entry(filename, filesize=None, is_default=False, version=4) -> object:
     record_id = uuid4()
+    record_id = uuid.UUID(uuid_to_test, version=version)
     # filename = filename
     if filesize is None:
         filesize = os.path.getsize(filename)

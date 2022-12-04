@@ -64,3 +64,5 @@ FILES_TO_IGNORE = ["thumbs.db", "downloaded_site.webloc", "update_capture.comman
 EXTENSIONS_TO_IGNORE = [".pdf_png_preview", ".log", ".webloc", ".command", ".sh", ".swf"]
 
 IGNORE_DOT_FILES = True
+
+REGISTRATION_OPEN = True
