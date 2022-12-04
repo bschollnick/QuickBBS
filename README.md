@@ -93,8 +93,7 @@ http://www.example.com/view_arc_item/7109b28a-80f6-4a8f-8b48-ae86e052cdaa?page=4
 Version 3
 ============
 
-The primary reason that I am changing the version number, is simply due to the structural changes.  The design is effectively the 
-same as Version 2, but I am splitting the Database structure by utilizing Django Apps.  
+The design is similar to Version 2, but I am splitting the Database structure by utilizing Django Apps.  
 
 For example, the File Types are now in the FileTypes application, instead of being in the frontend app.  
 I am restructuring the code to use this best practice, and I am expecting to be able to simplify the code in the frontend.
@@ -118,3 +117,13 @@ Small, Medium, and Large Thumbnail table which does contain the binary data.
 
 Real World Testing needs to be done to see what impact the SmallThumbnail, MediumThumbnail, and LargeThumbnail foreign tables
 will have, but I suspect that the speed to the Thumbnail Index would be extremely beneficial. 
+
+There are a few experimental changes being made.
+
+* Eliminating Cached_Exists.  The concept of the Cached_Exist engine was simply to cache the reads to the file system.  The Watchdog system basically eliminates the need for that, and removing the cached_exists engine could dramatically simplify the code.
+* Completely embracing the watchdog system for detecting the changes happening in the gallery directories.  It was used in v2 to invalidate the cached_exist cache, but it would be easier to use that watchdog table to detect if we need to read from the file system instead.
+
+But I will need to see if there is a performance degradation with this change.
+
+In addition, as part of the change, I am planning to add code to eliminate left-overs in the database.  For example, situations where the file has removed from the directory, but is still in the database.  The current process has the entire directory removed from the database, and then rescanned to be re-added into the database.
+The new logic will only delete or add the elements that need to be added.
