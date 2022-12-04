@@ -13,34 +13,34 @@ import warnings
 from pathlib import Path
 
 import bleach
-import markdown2
 import django_icons.templatetags.icons
+import filetypes.models
+import markdown2
+from cache.models import CACHE
+from cache.models import fs_Cache_Tracking as Cache_Tracking
+from cache.watchdogmon import watchdog
+from django.conf import settings
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
-from django.http import (Http404,  # FileResponse, HttpResponse,
-                         HttpResponseBadRequest, HttpResponseNotFound,
+from django.db.utils import ProgrammingError
+from django.http import Http404  # FileResponse, HttpResponse,
+from django.http import (HttpResponseBadRequest, HttpResponseNotFound,
                          JsonResponse)
 from django.shortcuts import render
 # from django.template import loader
 from django.utils.cache import patch_vary_headers
-from django.views.decorators.vary import vary_on_headers
 from django.views.decorators.cache import cache_page
-from django.db.utils import ProgrammingError
-from django.conf import settings
+from django.views.decorators.vary import vary_on_headers
 from PIL import Image, ImageFile
+from quickbbs.models import Thumbnails_Dirs, Thumbnails_Files, index_data
 
 import frontend.archives3 as archives
-import filetypes.models
 # from frontend.config import configdata
 from frontend.database import check_dup_thumbs, get_db_files  # SORT_MATRIX,
 from frontend.thumbnail import (new_process_archive, new_process_dir,
                                 new_process_img)
-from frontend.utilities import (ensures_endswith,
-                                is_valid_uuid, read_from_disk,
-                                return_breadcrumbs, sort_order)
-from cache.watchdogmon import watchdog
-from frontend.web import respond_as_inline, detect_mobile, g_option
-from quickbbs.models import (Thumbnails_Dirs, Thumbnails_Files, index_data)
-from cache.models import fs_Cache_Tracking as Cache_Tracking, CACHE
+from frontend.utilities import (ensures_endswith, is_valid_uuid,
+                                read_from_disk, return_breadcrumbs, sort_order)
+from frontend.web import detect_mobile, g_option, respond_as_inline
 
 log = logging.getLogger(__name__)
 warnings.simplefilter('ignore', Image.DecompressionBombWarning)
@@ -118,16 +118,10 @@ def thumbnails(request, t_url_name=None):
 
         entry = index_qs[0]
 
-        # fs_item = os.path.join(configdata["locations"]["albums_path"],
-        #                        entry.fqpndirectory[1:].lower(),
-        #                        entry.name)
         fs_item = os.path.join(settings.ALBUMS_PATH,
                                entry.fqpndirectory[1:].lower(),
                                entry.name)
 
-        # fqpn = fs_item #(configdata["locations"]["albums_path"] + dir_to_scan).replace("//", "/")
-        # webpath = os.path.join(configdata["locations"]["albums_path"],
-        #                        entry.fqpndirectory[1:].lower())
         webpath = fs_item
 
         # fs_name = os.path.join(configdata["locations"]["albums_path"],

@@ -37,13 +37,14 @@ code::
 """
 #####################################################
 #   Batteries Included imports
-from __future__ import absolute_import
-from __future__ import print_function
+from __future__ import absolute_import, print_function
+
 #import six.moves.configparser
 import configparser
-from configparser import ConfigParser
 import os
 import os.path
+from configparser import ConfigParser
+
 #import sys
 import fastnumbers
 

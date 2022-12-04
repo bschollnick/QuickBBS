@@ -1,9 +1,12 @@
-# from __future__ import unicode_literals
+import os
+import time
+import uuid
+
 from django.contrib.auth.models import User
 from django.db import models
 from django.urls import reverse
-import uuid
 from filetypes.models import filetypes
+import thumbnails.models
 
 
 def is_valid_uuid(uuid_to_test, version=4):
@@ -158,25 +161,42 @@ class Thumbnails_Archives(models.Model):
 
 class index_data(models.Model):
     id = models.AutoField(primary_key=True)
-    uuid = models.UUIDField(
-        default=None, null=True, editable=False, db_index=True, blank=True
-    )
+    uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True, blank=True)
     lastscan = models.FloatField(db_index=True)  # Stored as Unix TimeStamp (ms)
     lastmod = models.FloatField(db_index=True)  # Stored as Unix TimeStamp (ms)
-    name = models.CharField(db_index=True, max_length=384, default=None)  # FQFN of the file itself
-    sortname = models.CharField(db_index=True, editable=False, max_length=384, default='')  # FQFN of the file itself
+    name = models.CharField(db_index=True, max_length=384, default=None)
+        # FQFN of the file itself
+    sortname = models.CharField(db_index=True, editable=False, max_length=384, default='')
     size = models.BigIntegerField(default=0)  # File size
     numfiles = models.IntegerField(default=0)  # The # of files in this directory
     numdirs = models.IntegerField(default=0)  # The # of Children Directories in this directory
     count_subfiles = models.BigIntegerField(default=0)  # the # of subfiles in archive
-    fqpndirectory = models.CharField(default=0, db_index=True,
-                                     max_length=384)
+    fqpndirectory = models.CharField(default=0, db_index=True, max_length=384)
+        # Directory of the file, lower().replace("//", "/")
     parent_dir_id = models.IntegerField(default=0)  # Directory that it is contained in
     is_animated = models.BooleanField(default=False, db_index=True)
     ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
     delete_pending = models.BooleanField(default=False, db_index=True)  # File is to be deleted,
     filetype = models.ForeignKey(filetypes, to_field='fileext', on_delete=models.CASCADE,
                                  db_index=True, default=".none")
+    unified_thumb = models.OneToOneField(
+        thumbnails.models.Thumbnails_Files,
+        on_delete=models.CASCADE,
+        db_index=True,
+        default=None,
+        null=True,
+        blank=True,
+    )
+
+    unified_dirs = models.OneToOneField(
+        thumbnails.models.Thumbnails_Dir,
+        on_delete=models.CASCADE,
+        db_index=True,
+        default=None,
+        null=True,
+        blank=True,
+    )
+
     # select * from public.quickbbs_indexdata where "Ignore" is True;
     file_tnail = models.OneToOneField(
         Thumbnails_Files,
@@ -209,6 +229,38 @@ class index_data(models.Model):
         owners, on_delete=models.CASCADE, db_index=True, default=None, null=True, blank=True
     )
 
+    def write_to_db_entry(self, fileentry, fqpn, version=4):
+        if self.uuid is None:
+            self.uuid = uuid.uuid(version=version)
+        if fileentry.is_dir():
+            self.filetypes(fileext=".dir")
+        else:
+            fext = os.path.splitext(fileentry.name)[1].lower()
+            if fext == "":
+                fext = ".none"
+            self.filetypes(fileext=fext)
+
+        if fext in [".gif"] and filetype_models.FILETYPE_DATA[fext]["is_image"]:
+            try:
+                animated = Image.open(os.path.join(fqpn, filename)).is_animated
+                force_save = True
+            except AttributeError:
+                print("%s is not an animated GIF" % fext)
+
+            try:
+                animated = Image.open(os.path.join(fqpn, filename)).is_animated
+                force_save = True
+            except AttributeError:
+                print("%s is not an animated GIF" % fext)
+        numfiles = 0
+        numdirs = 0
+        lastscan = time.time()
+
+
+
+
+
+
     def get_bg_color(self):
         return self.filetype.color
 
@@ -234,3 +286,4 @@ class index_data(models.Model):
     class Meta:
         verbose_name = 'Master Index'
         verbose_name_plural = 'Master Index'
+

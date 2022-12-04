@@ -6,9 +6,8 @@ import re
 import shutil
 from struct import unpack
 
-from xattr import xattr
-
 from cached_exists import *
+from xattr import xattr
 
 colornames = {
     0: 'none',

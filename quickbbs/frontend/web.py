@@ -2,12 +2,14 @@
 Web functionality
 """
 
+import io
 import mimetypes
 import os
-import io
-from django.http import (HttpResponse, Http404, FileResponse)  # , StreamingHttpResponse)
+
 # from django.conf import settings
 from django.contrib.auth import authenticate, login
+from django.http import (FileResponse, Http404,  # , StreamingHttpResponse)
+                         HttpResponse)
 from ranged_response import RangedFileResponse
 
 

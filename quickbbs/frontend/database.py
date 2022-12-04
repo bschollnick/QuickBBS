@@ -2,13 +2,13 @@
 Database Specific Functions
 """
 import os
+
+from django.conf import settings
 #sdimport sys
 #from django.core.exceptions import ValidationError
 # from frontend.config import configdata
-from quickbbs.models import (index_data, Thumbnails_Archives, Thumbnails_Files,
-                             Thumbnails_Dirs)
-from django.conf import settings
-
+from quickbbs.models import (Thumbnails_Archives, Thumbnails_Dirs,
+                             Thumbnails_Files, index_data)
 
 DF_VDBASE = ["sortname", "lastscan", "lastmod", "size"]
 

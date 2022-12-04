@@ -9,6 +9,7 @@ https://docs.djangoproject.com/en/1.9/howto/deployment/wsgi/
 
 import os
 import sys
+
 quickbbs_path = r'/Volumes/4TB_Drive/gallery/quickbbs'
 sys.path.append(quickbbs_path)
 #sys.path.append("quickbbs")

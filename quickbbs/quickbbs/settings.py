@@ -13,8 +13,9 @@ https://docs.djangoproject.com/en/1.9/ref/settings/
 import os
 import socket
 from pathlib import Path
-from quickbbs.quickbbs_settings import *
+
 import quickbbs.jinjaenv
+from quickbbs.quickbbs_settings import *
 
 #ALLOWED_HOSTS = [u'nerv.local', u'localhost', u'127.0.0.1']
 ALLOWED_HOSTS = ['nerv.local', 'localhost', '127.0.0.1']

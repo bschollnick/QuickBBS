@@ -1,8 +1,7 @@
-import os
 import logging
+import os
 
-from .settings import BASE_DIR
-from .settings import DEBUG
+from .settings import BASE_DIR, DEBUG
 
 # https://github.com/metakermit/fail-nicely-django
 #

@@ -1,5 +1,4 @@
 from django.contrib import admin
-
 # Register your models here.
 from quickbbs.models import *
 
@@ -17,8 +16,8 @@ class AdminThumbnail_Dirs(admin.ModelAdmin):
 @admin.register(Thumbnails_Files)
 class AdminThumbnail_Files(admin.ModelAdmin):
     readonly_fields = ('id', 'uuid',)
-    list_display = ('FileName', 'FilePath', 'FileSize')#g, 'is_pdf', 'is_image')
-    fields = ('uuid', 'FileName', 'FilePath', 'FileSize')#, 'is_pdf', 'is_image')
+    list_display = ('id', 'uuid', 'FileName', 'FilePath', 'FileSize')#g, 'is_pdf', 'is_image')
+    fields = ('id', 'uuid', 'FileName', 'FilePath', 'FileSize')#, 'is_pdf', 'is_image')
 
 @admin.register(Thumbnails_Archives)
 class AdminThumbnail_Archives(admin.ModelAdmin):
@@ -29,8 +28,8 @@ class AdminThumbnail_Archives(admin.ModelAdmin):
 @admin.register(index_data)
 class AdminMaster_Index(admin.ModelAdmin):
     readonly_fields = ('id', 'uuid',)
-    list_display = ('name', 'lastscan', 'lastmod', 'size', 'fqpndirectory', 'ignore', 'delete_pending', 'file_tnail', 'directory', 'archives', 'ownership')
-    fields = ('name', 'sortname', 'lastscan', 'lastmod', 'size', 'fqpndirectory', 'ignore', 'delete_pending', 'file_tnail', 'directory', 'archives', 'ownership')
+    list_display = ('id', 'uuid', 'name', 'lastscan', 'lastmod', 'size', 'fqpndirectory', 'ignore', 'delete_pending', 'file_tnail', 'directory', 'archives', 'ownership')
+    fields = ('id', 'uuid', 'name', 'sortname', 'lastscan', 'lastmod', 'size', 'fqpndirectory', 'ignore', 'delete_pending', 'file_tnail', 'directory', 'archives', 'ownership')
 
 # @admin.register(Cache_Tracking)
 # class Cache_dir_tracking_Index(admin.ModelAdmin):
