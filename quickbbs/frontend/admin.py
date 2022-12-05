@@ -27,9 +27,9 @@ class AdminThumbnail_Archives(admin.ModelAdmin):
 
 @admin.register(index_data)
 class AdminMaster_Index(admin.ModelAdmin):
-    readonly_fields = ('id', 'uuid',)
+    readonly_fields = ('id', 'uuid', 'sortname')
     list_display = ('id', 'uuid', 'name', 'lastscan', 'lastmod', 'size', 'fqpndirectory', 'ignore', 'delete_pending', 'file_tnail', 'directory', 'archives', 'ownership')
-    fields = ('id', 'uuid', 'name', 'sortname', 'lastscan', 'lastmod', 'size', 'fqpndirectory', 'ignore', 'delete_pending', 'file_tnail', 'directory', 'archives', 'ownership')
+    fields = ('id', 'uuid', 'name', 'lastscan', 'lastmod', 'size', 'fqpndirectory', 'ignore', 'delete_pending', 'file_tnail', 'directory', 'archives', 'ownership')
 
 # @admin.register(Cache_Tracking)
 # class Cache_dir_tracking_Index(admin.ModelAdmin):

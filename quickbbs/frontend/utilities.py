@@ -39,6 +39,8 @@ from frontend.database import check_dup_thumbs  # , validate_database
 log = logging.getLogger(__name__)
 
 Image.MAX_IMAGE_PIXELS = None
+
+
 # Disable PILLOW DecompressionBombError errors.
 
 
@@ -236,8 +238,8 @@ def cr_tnail_img(source_image, size, fext):
     source_image.thumbnail((size, size), Image.ANTIALIAS)
     try:
         source_image.save(fp=image_data,
-                          format="PNG", # Need alpha channel support for icons, etc.
-                                    # configdata["filetypes"][fext][2].strip(),
+                          format="PNG",  # Need alpha channel support for icons, etc.
+                          # configdata["filetypes"][fext][2].strip(),
                           optimize=False)
     except OSError:
         source_image = source_image.convert('RGB')
@@ -425,9 +427,9 @@ def read_from_disk(dir_to_scan, skippable=True):
 
     if existing_data_size > disk_count:
         print("existing size {}       on disk {}".format(existing_data_size,
-                                                     disk_count))
+                                                         disk_count))
         for entry in existing_data:
-            if not entry.name in diskstore:  # name is already title cased
+            if entry.name not in diskstore:  # name is already title cased
                 print("Deleting %s" % entry.name)
                 entry.delete()
         skippable = False
@@ -604,6 +606,7 @@ def return_breadcrumbs(uri_path=""):  # , crumbsize=3):
         data.append([name, url, f"<a href='{url}'>{name}</a>"])
     return data
 
+
 def fs_counts(fs_dir):
     fs_path = Path(fs_dir)
     files = 0
@@ -613,6 +616,7 @@ def fs_counts(fs_dir):
         files += is_file
         dirs += not is_file
     return (files, dirs)
+
 
 def compare_db_to_fs(directoryname, fs_entries):
     """
@@ -676,5 +680,4 @@ def compare_db_to_fs(directoryname, fs_entries):
 #     config.load_data(os.path.join(cfg_path, "filetypes.ini"))
 #     import doctest
 #     doctest.testmod()
-#from frontend.config import configdata
-
+# from frontend.config import configdata
