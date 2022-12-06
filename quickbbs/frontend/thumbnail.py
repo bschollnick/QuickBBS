@@ -158,7 +158,8 @@ def new_process_img(entry, request, imagesize="Small"):
 
         else:
             print("Cache is invalid")
-    fs_fname = settings.ALBUMS_PATH + os.path.join(entry.fqpndirectory.lower(), entry.name)
+    #fs_fname = settings.ALBUMS_PATH + os.path.join(entry.fqpndirectory.lower(), entry.name)
+    fs_fname = os.path.join(entry.fqpndirectory, entry.name)
     fs_fname = fs_fname.replace("//", "/")
     # file system location of directory
 

@@ -106,10 +106,9 @@ def is_valid_uuid(uuid_to_test, version=4):
     False
     """
     try:
-        uuid_obj = uuid.UUID(uuid_to_test, version=version)
-    except:
+        uuid_obj = str(uuid.UUID(uuid_to_test, version=version))
+    except ValueError:
         return False
-
     return str(uuid_obj) == uuid_to_test
 
 
@@ -614,6 +613,7 @@ def fs_counts(fs_entries):
     files = 0
     dirs = 0
     for fs_item in fs_entries:
+        print(fs_item)
         is_file = fs_entries[fs_item]["is_file"]
         files += is_file
         dirs += not is_file
@@ -650,7 +650,7 @@ def sync_database_disk(directoryname):
                 to use new data structures for v3.
            * There's little path work done here, but look to rewrite to pass in Path from Pathlib?
     """
-    webpath = directoryname.lower().replace("//", "/")
+    webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
     dirpath = os.path.abspath(directoryname.title().strip())
     if Cache_Tracking.objects.filter(DirName=dirpath).count() == 0:
         # The path has not been seen since the Cache Tracking has been enabled
@@ -663,7 +663,6 @@ def sync_database_disk(directoryname):
     success, fs_entries = return_disk_listing(webpath)
 
     db_data = index_data.objects.filter(fqpndirectory=webpath)
-    print("db records:", db_data)
     for db_entry in db_data:
         if db_entry.name not in fs_entries:
             print("Database contains a file not in the fs: ", db_entry.name)
@@ -679,18 +678,18 @@ def sync_database_disk(directoryname):
 
             update = False
             entry = fs_entries[db_entry.name]
-            if db_entry.last_mod != entry.lastmod:
+            if db_entry.lastmod != entry["lastmod"]:
                 print("LastMod mismatch")
-                db_entry.last_mod = entry.lastmod
+                db_entry.lastmod = entry["lastmod"]
                 update = True
             if db_entry.size != entry['size']:
                 print("Size mismatch")
                 db_entry.size = entry["size"]
                 update = True
-            if db_entry["directory"] or db_entry["unified_dirs"]:
-                fs_file_count, fs_dir_count = fs_counts(webpath)
-                if db_entry["numfiles"] != fs_fs_file_count or db_entry["numdirs"] != fs_dir_count:
-                    db_entry["numfiles"], db_entry["numdirs"] = fs_file_count, fs_dir_count
+            if db_entry.directory: # or db_entry["unified_dirs"]:
+                fs_file_count, fs_dir_count = fs_counts(fs_entries)
+                if db_entry.numfiles != fs_file_count or db_entry.numdirs != fs_dir_count:
+                    db_entry.numfiles, db_entry.numdirs = fs_file_count, fs_dir_count
                     update = True
             if update:
                 print("Database record being updated: ", db_entry.name)
@@ -700,7 +699,7 @@ def sync_database_disk(directoryname):
     db_data = index_data.objects.filter(fqpndirectory=webpath)
     # fetch an updated set of records, since we may have changed it from above.
     names = [record.name for record in db_data]
-    print("Names found in ",webpath, names)
+#    print("Names found in ",webpath, names)
     for fs_filename in fs_entries:
         entry = fs_entries[fs_filename]
         # iterate through the file system entries.
@@ -711,7 +710,7 @@ def sync_database_disk(directoryname):
 
             record = index_data()
             record.uuid = uuid.uuid4()
-            record.fqpndirectory = os.path.split(entry["path"])[0].lower()
+            record.fqpndirectory = ensures_endswith(os.path.split(entry["path"])[0].lower(), os.sep)
             record.name = test_name
             record.sortname = naturalize(test_name)
             record.size = entry["size"]
@@ -730,7 +729,8 @@ def sync_database_disk(directoryname):
                 fext = ".dir"
             if fext in [".", ""]:
                 fext = ".none"
-            if record.is_dir:
+            if record.is_dir and record.name not in ["", "/"]:
+                print("fs count entering", record.name)
                 record.numfiles, record.numdirs = fs_counts(fs_entries)
             record.filetype = filetypes(fileext=fext)
 
@@ -749,8 +749,11 @@ def sync_database_disk(directoryname):
 
 
 def read_from_disk(dir_to_scan, skippable=True):
-    if dir_to_scan.startswith("/"):
-        dir_to_scan = dir_to_scan[1:]
-    dir_path = Path(os.path.join(settings.ALBUMS_PATH, dir_to_scan))
+    if not os.path.exists(dir_to_scan):
+        if dir_to_scan.startswith("/"):
+            dir_to_scan = dir_to_scan[1:]
+        dir_path = Path(os.path.join(settings.ALBUMS_PATH, dir_to_scan))
+    else:
+        dir_path = Path(ensures_endswith(dir_to_scan, os.sep))
     print("fqpn?", dir_path)
     sync_database_disk(str(dir_path))
