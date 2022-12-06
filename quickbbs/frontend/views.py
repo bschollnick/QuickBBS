@@ -95,33 +95,30 @@ def return_prev_next(fqpn, currentpath, sorder):
     return (prevdir, nextdir)
 
 
-@cache_page(500)
-@vary_on_headers('User-Agent', 'Cookie', 'Request')
-def thumbnails(request, t_url_name=None):
+#@cache_page(500)
+#@vary_on_headers('User-Agent', 'Cookie', 'Request')
+def thumbnails(request, tnail_id=None):
     """
     Serve the thumbnail resources
 
     URL -> thumbnails/(?P<t_url_name>.*)
     """
     #
-    t_url_name = str(t_url_name).strip().replace("/", "")
-    if is_valid_uuid(t_url_name):
-        index_qs = index_data.objects.filter(uuid=t_url_name,
+    print("id:",tnail_id, type(tnail_id))
+    if is_valid_uuid(str(tnail_id)):
+        index_qs = index_data.objects.filter(uuid=tnail_id,
                                              ignore=False, delete_pending=False)
         count = index_qs.count()
         if count == 0:
-            print(t_url_name, "is 0 ")
+            # does not exist
+            print(tnail_id, "is 0 ")
             return None
 
-        check_dup_thumbs(t_url_name)
-        index_qs = index_data.objects.filter(uuid=t_url_name)
-
+        index_qs = index_data.objects.filter(uuid=tnail_id)
         entry = index_qs[0]
 
-        fs_item = os.path.join(settings.ALBUMS_PATH,
-                               entry.fqpndirectory[1:].lower(),
-                               entry.name)
-
+        fs_item = os.path.join(entry.fqpndirectory, entry.name)
+        print("fs item : ", fs_item)
         webpath = fs_item
 
         # fs_name = os.path.join(configdata["locations"]["albums_path"],
@@ -153,39 +150,37 @@ def thumbnails(request, t_url_name=None):
                 entry.save()
             return new_process_img(entry, request)
 
-        if entry.archives:
-            page = int(g_option(request, "page", 0))
-            return new_process_archive(entry, request, page)
+        #if entry.archives:
+        #    page = int(g_option(request, "page", 0))
+        #    return new_process_archive(entry, request, page)
     return HttpResponseBadRequest(content="Bad UUID or %s Unidentifable file." % fs_item)
 
 
-@cache_page(500)
-@vary_on_headers('User-Agent', 'Cookie', 'Request')
+#@cache_page(500)
+#@vary_on_headers('User-Agent', 'Cookie', 'Request')
 def new_viewgallery(request):
     """
     View the requested Gallery page
     """
+    print("NEW VIEW GALLERY")
     start_time = time.time()
     context = {}
     paths = {}
     context["small"] = g_option(request,
                                 "size",
-                                #                            configdata["configuration"]["small"])
                                 settings.IMAGE_SIZE["small"])
     context["medium"] = g_option(request,
                                  "size",
-                                 #                                 configdata["configuration"]["medium"])
                                  settings.IMAGE_SIZE["medium"])
 
     context["large"] = g_option(request,
                                 "size",
                                 settings.IMAGE_SIZE["large"])
-    #    configdata["configuration"]["large"])
     context["user"] = request.user
     context["mobile"] = detect_mobile(request)
     request.path = request.path.lower().replace(os.sep, r"/")
-    paths["webpath"] = ensures_endswith(request.path, "/")
-
+    paths["webpath"] = request.path
+    print("WebPath, View:",paths["webpath"])
     request, context = sort_order(request, context)
     context["webpath"] = paths["webpath"]
     context["breadcrumbs"] = return_breadcrumbs(paths["webpath"])[:-1]
@@ -203,9 +198,12 @@ def new_viewgallery(request):
         return HttpResponseNotFound('<h1>Page not found</h1>')
 
     # The only thing left is a directory.
-    read_from_disk(paths["webpath"], skippable=True)  # new_viewgallery
-    index = get_db_files(context["sort"], paths["webpath"])
-
+    print("Reading from ", paths["webpath"])
+    fs_path = ensures_endswith(os.path.abspath(os.path.join(settings.ALBUMS_PATH, paths["webpath"][1:])), os.sep)
+    print("fs_path", fs_path)
+    read_from_disk(fs_path, skippable=True)  # new_viewgallery
+    index = get_db_files(context["sort"], fs_path)
+    print("index: ", index)
     #    index = list(index.order_by(*SORT_MATRIX[context["sort"]]))
     #   already sorted by get_db_files call.
 
