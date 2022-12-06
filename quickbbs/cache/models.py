@@ -36,6 +36,8 @@ def delete_from_cache_tracking(event):
 
 class fs_Cache_Tracking(models.Model):
     DirName = models.CharField(db_index=True, max_length=384, default='', blank=True)
+        # the path from watchdog, titlecased, stripped, and normpathed
+        # dirpath = os.path.normpath(event.src_path.title().strip())
     lastscan = models.FloatField()  # Stored as Unix TimeStamp (ms)
 
 

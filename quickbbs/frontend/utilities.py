@@ -172,7 +172,7 @@ def return_image_obj(fs_path, memory=False):
         extension = ".none"
     if extension == ".pdf":
         results = pdf_utilities.check_pdf(fs_path)
-        if results[0] == False:
+        if results[0] is False:
             pdf_utilities.repair_pdf(fs_path, fs_path)
 
         pdf_file = fitz.open(fs_path)
@@ -225,7 +225,7 @@ def cr_tnail_img(source_image, size, fext):
     Return the binary representation of the file that
     was saved to memory
     """
-    if source_image == None:
+    if source_image is None:
         return None
     fext = fext.lower().strip()
     if not fext.startswith("."):
@@ -329,6 +329,7 @@ def return_disk_listing(fqpn, enable_rename=False):
                            'is_archive': filetype_models.FILETYPE_DATA[fext]["is_archive"],
                            'is_image': filetype_models.FILETYPE_DATA[fext]["is_image"],
                            'is_movie': filetype_models.FILETYPE_DATA[fext]["is_movie"],
+                           'is_audio': filetype_models.FILETYPE_DATA[fext]["is_audio"],
                            'is_animated': animated
                            }
     return (loaded, data)
@@ -522,7 +523,7 @@ def read_from_disk(dir_to_scan, skippable=True):
                           'numdirs': numdirs,
                           'lastscan': time.time(),
                           'filetype': filetypes(fileext=fext),
-                          'is_animated': animated
+                          'is_animated': animated,
                           }
             )
         if ind_data.filetype == filetypes(fileext=None):
@@ -611,14 +612,14 @@ def fs_counts(fs_dir):
     fs_path = Path(fs_dir)
     files = 0
     dirs = 0
-    for fs_item in fsPath:
+    for fs_item in fs_path:
         is_file = fs_item.is_file()
         files += is_file
         dirs += not is_file
     return (files, dirs)
 
 
-def compare_db_to_fs(directoryname, fs_entries):
+def update_database_records(directoryname, fs_entries):
     """
 
     Parameters
@@ -640,8 +641,20 @@ def compare_db_to_fs(directoryname, fs_entries):
     for updated in updated_recs:
         ... push updated to database ...
 
+    Note:
+            This does not currently contend with Archives.
+            Archive logic will need to be broken out elsewhere
     """
     webpath = directoryname.lower().replace("//", "/")
+    dirpath = os.path.abspath(directoryname.title().strip())
+    if Cache_Tracking.objects.filter(DirName=dirpath).count() == 0:
+        # The path has not been seen since the Cache Tracking has been enabled
+        # (eg Startup, or the entry has been nullified)
+        # Add to table, and allow a rescan to occur.
+        print("\n", "\nSaving, %s to cache tracking\n" % dirpath, "\n")
+        new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
+        new_rec.save()
+
     db_data = index_data.objects.filter(fqpndirectory=webpath)
     for db_entry in db_data:
         if db_entry.name not in fs_entries:
@@ -656,7 +669,7 @@ def compare_db_to_fs(directoryname, fs_entries):
             # If directory, does the numfiles, numdirs, count_subfiles match?
 
             update = False
-            entry = fsentries[db_entry.name]
+            entry = fs_entries[db_entry.name]
             if db_entry.last_mod != entry.lastmod:
                 print("LastMod mismatch")
                 db_entry.last_mod = entry.lastmod
@@ -673,11 +686,47 @@ def compare_db_to_fs(directoryname, fs_entries):
             if update:
                 db_entry.save()
 
-#     from frontend.config import configdata, load_data
-#     cfg_path = os.path.abspath(r"../../cfg")
-#     config.load_data(os.path.join(cfg_path, "paths.ini"))
-#     config.load_data(os.path.join(cfg_path, "settings.ini"))
-#     config.load_data(os.path.join(cfg_path, "filetypes.ini"))
-#     import doctest
-#     doctest.testmod()
-# from frontend.config import configdata
+    # Check for entries that are not in the database, but do exist in the file system
+    db_data = index_data.objects.filter(fqpndirectory=webpath)
+    # fetch an updated set of records, since we may have changed it from above.
+    names = [record.name for record in db_data]
+    for entry in fs_entries:
+        # iterate through the file system entries.
+        test_name = entry.name.lower().replace("//", "/")
+        if test_name not in names:
+            # The record has not been found
+            # add it.
+
+            fext = os.path.splitext(test_name)[1]
+            if not fext.startswith("."):
+                fext = f".{fext}"
+            record = index_data()
+            record.uuid = uuid.uuid(version=4)
+            record.fqpndirectory = os.path.split()
+            record.name = entry.path
+            record.sortname = naturalize(test_name)
+            record.size = entry["size"]
+            record.lastmod = entry["lastmod"]
+            record.lastscan = time.time()
+            record.filetype = filetypes(fileext=fext)
+            record.is_dir = entry["is_dir"]
+            record.is_file = entry["is_file"]
+            record.is_archive = entry["is_archive"]
+            record.is_image = entry["is_image"]
+            record.is_movie = entry["is_movie"]
+            record.is_audio = entry["is_audio"]
+            if record.is_dir:
+                record.numfiles, record.numdirs = fs_counts(os.path.join(settings.ALBUMS_PATH,
+                                                                         record.fqpndirectory))
+
+            record.is_animated = False
+            if filetype_models.FILETYPE_DATA[fext]["is_image"] and fext in [".gif"]:
+                try:
+                    record.is_animated = Image.open(os.path.join(fqpn, filename)).is_animated
+                except AttributeError:
+                    record.is_animated = False
+            record.save()
+        # else:
+            # The record is in the database, so it's already been vetted in the database comparison
+            # Skip
+            # continue
