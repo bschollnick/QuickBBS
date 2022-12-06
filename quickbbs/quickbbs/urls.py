@@ -40,7 +40,7 @@ urlpatterns += [
     path("view_archive_item/<uuid:i_uuid>", frontend.views.new_archive_item, name="new_archive_item"),
     re_path('^albums/', frontend.views.new_viewgallery),
     path('thumbnails/<uuid:tnail_id>', frontend.views.thumbnails, name="thumbnails"),
-    #path('thumbnails/', frontend.views.thumbnails, name="thumbnailspath"),
+    path('thumbnails/', frontend.views.thumbnails, name="thumbnailspath"),
     path('resources/<path:pathstr>', frontend.serve_up.resources),
     path('static/<path:pathstr>', frontend.serve_up.static),
     path('accounts/', include('allauth.urls')),

@@ -66,7 +66,9 @@ class Command(BaseCommand):
 
         filetypes.objects.update_or_create(fileext=".dir",
                                             defaults={"generic":False,
-                                           "color":"DAEFF5", "filetype":settings.FTYPES['dir'],
+                                           "color":"DAEFF5",
+                                           "icon_filename":"1431973840_folder.png",
+                                           "filetype":settings.FTYPES['dir'],
                                            "is_dir":True})
 
         filetypes.objects.update_or_create(fileext=".none", defaults={"generic":True,
