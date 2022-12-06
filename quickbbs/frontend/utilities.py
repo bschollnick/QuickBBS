@@ -285,6 +285,8 @@ def return_disk_listing(fqpn, enable_rename=False):
         titlecase = entry.name.title()
         unescaped = html.unescape(titlecase)
         lower_filename = entry.name.lower()
+        if lower_filename in settings.FILES_TO_IGNORE:
+            continue
         #        rename = False
         animated = False
         fext = os.path.splitext(lower_filename)[1]
@@ -346,7 +348,7 @@ def return_disk_listing(fqpn, enable_rename=False):
 # #        else:
 # #            print("Does not exist in Cache Tracking %s" % dirpath)
 
-def read_from_disk(dir_to_scan, skippable=True):
+def old_read_from_disk(dir_to_scan, skippable=True):
     """
     Pass in FQFN, and the database stores the path as the URL path.
     """
@@ -608,18 +610,17 @@ def return_breadcrumbs(uri_path=""):  # , crumbsize=3):
     return data
 
 
-def fs_counts(fs_dir):
-    fs_path = Path(fs_dir)
+def fs_counts(fs_entries):
     files = 0
     dirs = 0
-    for fs_item in fs_path:
-        is_file = fs_item.is_file()
+    for fs_item in fs_entries:
+        is_file = fs_entries[fs_item]["is_file"]
         files += is_file
         dirs += not is_file
     return (files, dirs)
 
 
-def update_database_records(directoryname, fs_entries):
+def sync_database_disk(directoryname):
     """
 
     Parameters
@@ -642,8 +643,12 @@ def update_database_records(directoryname, fs_entries):
         ... push updated to database ...
 
     Note:
-            This does not currently contend with Archives.
-            Archive logic will need to be broken out elsewhere
+           * This does not currently contend with Archives.
+           * Archive logic will need to be built-out or broken out elsewhere
+           * This is still currently using the v2 data structures.  First test is
+                to ensure that the logic works as expected.  Second is to then update
+                to use new data structures for v3.
+           * There's little path work done here, but look to rewrite to pass in Path from Pathlib?
     """
     webpath = directoryname.lower().replace("//", "/")
     dirpath = os.path.abspath(directoryname.title().strip())
@@ -655,9 +660,13 @@ def update_database_records(directoryname, fs_entries):
         new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
         new_rec.save()
 
+    success, fs_entries = return_disk_listing(webpath)
+
     db_data = index_data.objects.filter(fqpndirectory=webpath)
+    print("db records:", db_data)
     for db_entry in db_data:
         if db_entry.name not in fs_entries:
+            print("Database contains a file not in the fs: ", db_entry.name)
             # The entry just is not in the file system.  Delete it.
             db_entry.ignore = True
             db_entry.delete_pending = True
@@ -684,49 +693,64 @@ def update_database_records(directoryname, fs_entries):
                     db_entry["numfiles"], db_entry["numdirs"] = fs_file_count, fs_dir_count
                     update = True
             if update:
+                print("Database record being updated: ", db_entry.name)
                 db_entry.save()
 
     # Check for entries that are not in the database, but do exist in the file system
     db_data = index_data.objects.filter(fqpndirectory=webpath)
     # fetch an updated set of records, since we may have changed it from above.
     names = [record.name for record in db_data]
-    for entry in fs_entries:
+    print("Names found in ",webpath, names)
+    for fs_filename in fs_entries:
+        entry = fs_entries[fs_filename]
         # iterate through the file system entries.
-        test_name = entry.name.lower().replace("//", "/")
+        test_name = entry["filename"].title().replace("//", "/")
         if test_name not in names:
             # The record has not been found
             # add it.
 
-            fext = os.path.splitext(test_name)[1]
-            if not fext.startswith("."):
-                fext = f".{fext}"
             record = index_data()
-            record.uuid = uuid.uuid(version=4)
-            record.fqpndirectory = os.path.split()
-            record.name = entry.path
+            record.uuid = uuid.uuid4()
+            record.fqpndirectory = os.path.split(entry["path"])[0].lower()
+            record.name = test_name
             record.sortname = naturalize(test_name)
             record.size = entry["size"]
             record.lastmod = entry["lastmod"]
             record.lastscan = time.time()
-            record.filetype = filetypes(fileext=fext)
             record.is_dir = entry["is_dir"]
             record.is_file = entry["is_file"]
             record.is_archive = entry["is_archive"]
             record.is_image = entry["is_image"]
             record.is_movie = entry["is_movie"]
             record.is_audio = entry["is_audio"]
+            fext = os.path.splitext(test_name)[1].lower()
+            if not fext.startswith("."):
+                fext = f".{fext}"
             if record.is_dir:
-                record.numfiles, record.numdirs = fs_counts(os.path.join(settings.ALBUMS_PATH,
-                                                                         record.fqpndirectory))
+                fext = ".dir"
+            if fext in [".", ""]:
+                fext = ".none"
+            if record.is_dir:
+                record.numfiles, record.numdirs = fs_counts(fs_entries)
+            record.filetype = filetypes(fileext=fext)
 
             record.is_animated = False
             if filetype_models.FILETYPE_DATA[fext]["is_image"] and fext in [".gif"]:
                 try:
-                    record.is_animated = Image.open(os.path.join(fqpn, filename)).is_animated
+                    record.is_animated = Image.open(os.path.join(record.fqpndirectory, record.name)).is_animated
                 except AttributeError:
                     record.is_animated = False
+            print("FS contains file not in database, saving ",fs_filename)
             record.save()
         # else:
-            # The record is in the database, so it's already been vetted in the database comparison
-            # Skip
-            # continue
+        # The record is in the database, so it's already been vetted in the database comparison
+        # Skip
+        # continue
+
+
+def read_from_disk(dir_to_scan, skippable=True):
+    if dir_to_scan.startswith("/"):
+        dir_to_scan = dir_to_scan[1:]
+    dir_path = Path(os.path.join(settings.ALBUMS_PATH, dir_to_scan))
+    print("fqpn?", dir_path)
+    sync_database_disk(str(dir_path))
