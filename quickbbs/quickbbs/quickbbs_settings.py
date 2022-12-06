@@ -59,7 +59,7 @@ IMAGE_SAFE_FILES = GRAPHIC_FILE_TYPES + PDF_FILE_TYPES + ARCHIVE_FILE_TYPES
 
 FILES_TO_CACHE = GRAPHIC_FILE_TYPES + PDF_FILE_TYPES + ARCHIVE_FILE_TYPES
 
-FILES_TO_IGNORE = ["thumbs.db", "downloaded_site.webloc", "update_capture.command", ".ds_store", "icon?"]
+FILES_TO_IGNORE = [".", "..", "thumbs.db", "downloaded_site.webloc", "update_capture.command", ".ds_store", "icon?"]
 
 EXTENSIONS_TO_IGNORE = [".pdf_png_preview", ".log", ".webloc", ".command", ".sh", ".swf"]
 

@@ -34,10 +34,10 @@ class AdminMaster_Index(admin.ModelAdmin):
     readonly_fields = ('id', 'uuid', 'sortname')
     list_display = (
         'id', 'uuid', 'name', 'lastscan', 'lastmod', 'size', 'fqpndirectory', 'ignore', 'delete_pending', 'file_tnail',
-        'directory', 'archives', 'ownership')
+        'directory', 'archives', 'ownership', 'filetype')
     fields = (
         'id', 'uuid', 'name', 'lastscan', 'lastmod', 'size', 'fqpndirectory', 'ignore', 'delete_pending', 'file_tnail',
-        'directory', 'archives', 'ownership')
+        'directory', 'archives', 'ownership','filetype')
 
 
 # @admin.register(Cache_Tracking)

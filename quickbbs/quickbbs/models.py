@@ -172,7 +172,7 @@ class index_data(models.Model):
     numdirs = models.IntegerField(default=0)  # The # of Children Directories in this directory
     count_subfiles = models.BigIntegerField(default=0)  # the # of subfiles in archive
     fqpndirectory = models.CharField(default=0, db_index=True, max_length=384)
-        # Directory of the file, lower().replace("//", "/")
+        # Directory of the file, lower().replace("//", "/"), ensure it is path, and not path + filename
     parent_dir_id = models.IntegerField(default=0)  # Directory that it is contained in
     is_animated = models.BooleanField(default=False, db_index=True)
     ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
