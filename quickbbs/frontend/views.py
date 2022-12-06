@@ -104,7 +104,6 @@ def thumbnails(request, tnail_id=None):
     URL -> thumbnails/(?P<t_url_name>.*)
     """
     #
-    print("id:",tnail_id, type(tnail_id))
     if is_valid_uuid(str(tnail_id)):
         index_qs = index_data.objects.filter(uuid=tnail_id,
                                              ignore=False, delete_pending=False)
@@ -118,7 +117,6 @@ def thumbnails(request, tnail_id=None):
         entry = index_qs[0]
 
         fs_item = os.path.join(entry.fqpndirectory, entry.name)
-        print("fs item : ", fs_item)
         webpath = fs_item
 
         # fs_name = os.path.join(configdata["locations"]["albums_path"],
@@ -182,7 +180,7 @@ def new_viewgallery(request):
     paths["webpath"] = request.path
     print("WebPath, View:",paths["webpath"])
     request, context = sort_order(request, context)
-    context["webpath"] = paths["webpath"]
+    context["webpath"] = ensures_endswith(paths["webpath"], os.sep)
     context["breadcrumbs"] = return_breadcrumbs(paths["webpath"])[:-1]
     context["fromtimestamp"] = datetime.datetime.fromtimestamp
     # paths["album_viewing"] = configdata["locations"]["albums_path"] + paths["webpath"]
@@ -198,12 +196,9 @@ def new_viewgallery(request):
         return HttpResponseNotFound('<h1>Page not found</h1>')
 
     # The only thing left is a directory.
-    print("Reading from ", paths["webpath"])
     fs_path = ensures_endswith(os.path.abspath(os.path.join(settings.ALBUMS_PATH, paths["webpath"][1:])), os.sep)
-    print("fs_path", fs_path)
     read_from_disk(fs_path, skippable=True)  # new_viewgallery
     index = get_db_files(context["sort"], fs_path)
-    print("index: ", index)
     #    index = list(index.order_by(*SORT_MATRIX[context["sort"]]))
     #   already sorted by get_db_files call.
 
