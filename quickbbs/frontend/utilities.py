@@ -163,9 +163,7 @@ def return_image_obj(fs_path, memory=False):
     --------
     """
     source_image = None
-    #    print(fs_path[1], type(fs_path))
     extension = os.path.splitext(fs_path)[1].lower()
-    # print(fs_path[:20], extension)
 
     if extension in ("", b"", None):
         extension = ".none"
@@ -188,7 +186,6 @@ def return_image_obj(fs_path, memory=False):
 
     if extension in filetype_models.FILETYPE_DATA:
         if filetype_models.FILETYPE_DATA[extension]["is_movie"]:
-            # print(memory)
             with av.open(fs_path) as container:
                 stream = container.streams.video[0]
                 frame = next(container.decode(stream))
@@ -408,12 +405,10 @@ def old_read_from_disk(dir_to_scan, skippable=True):
     #        # The entry is in the cache table
     #        return webpath.replace(os.sep, r"/")
 
-    #    print("dp", dirpath)
     CACHE.read_path(fqpn)
     CACHE.sanitize_filenames(dirpath, allow_rename=True)  # , quiet=False)
     disk_count = CACHE.return_fileCount(dirpath)
     diskstore = CACHE.extended[dirpath]
-    #    print("diskstore",diskstore)
     existing_data = index_data.objects.filter(fqpndirectory=ensures_endswith(dir_to_scan, os.sep),
                                               ignore=False,
                                               delete_pending=False)
@@ -432,7 +427,7 @@ def old_read_from_disk(dir_to_scan, skippable=True):
                                                          disk_count))
         for entry in existing_data:
             if entry.name not in diskstore:  # name is already title cased
-                print("Deleting %s" % entry.name)
+#                print("Deleting %s" % entry.name)
                 entry.delete()
         skippable = False
 
@@ -548,7 +543,6 @@ def old_read_from_disk(dir_to_scan, skippable=True):
                 # index_data.objects.filter(fqpndirectory=subdir_path).filter(ind_data.filetype.fileext=='.dir').delete()
 
         if ind_data.lastmod != filedata.stat().st_mtime:  # .stat()[stat.ST_MTIME]:
-            print(filename, ind_data.lastmod, filedata.stat().st_mtime)
             ind_data.lastmod = filedata.stat().st_mtime
             print("LastMod update", filedata.name)
             force_save = True
@@ -613,7 +607,6 @@ def fs_counts(fs_entries):
     files = 0
     dirs = 0
     for fs_item in fs_entries:
-        print(fs_item)
         is_file = fs_entries[fs_item]["is_file"]
         files += is_file
         dirs += not is_file
@@ -650,8 +643,12 @@ def sync_database_disk(directoryname):
                 to use new data structures for v3.
            * There's little path work done here, but look to rewrite to pass in Path from Pathlib?
     """
+
+    if directoryname in [os.sep, r"/"]:
+        directoryname = settings.ALBUMS_PATH
     webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
     dirpath = os.path.abspath(directoryname.title().strip())
+
     if Cache_Tracking.objects.filter(DirName=dirpath).count() == 0:
         # The path has not been seen since the Cache Tracking has been enabled
         # (eg Startup, or the entry has been nullified)
@@ -679,15 +676,16 @@ def sync_database_disk(directoryname):
             update = False
             entry = fs_entries[db_entry.name]
             if db_entry.lastmod != entry["lastmod"]:
-                print("LastMod mismatch")
+#                print("LastMod mismatch")
                 db_entry.lastmod = entry["lastmod"]
                 update = True
             if db_entry.size != entry['size']:
-                print("Size mismatch")
+#                print("Size mismatch")
                 db_entry.size = entry["size"]
                 update = True
             if db_entry.directory: # or db_entry["unified_dirs"]:
-                fs_file_count, fs_dir_count = fs_counts(fs_entries)
+                success, subdirectory = return_disk_listing(entry["path"])
+                fs_file_count, fs_dir_count = fs_counts(subdirectory)
                 if db_entry.numfiles != fs_file_count or db_entry.numdirs != fs_dir_count:
                     db_entry.numfiles, db_entry.numdirs = fs_file_count, fs_dir_count
                     update = True
@@ -699,7 +697,6 @@ def sync_database_disk(directoryname):
     db_data = index_data.objects.filter(fqpndirectory=webpath)
     # fetch an updated set of records, since we may have changed it from above.
     names = [record.name for record in db_data]
-#    print("Names found in ",webpath, names)
     for fs_filename in fs_entries:
         entry = fs_entries[fs_filename]
         # iterate through the file system entries.
@@ -730,8 +727,8 @@ def sync_database_disk(directoryname):
             if fext in [".", ""]:
                 fext = ".none"
             if record.is_dir and record.name not in ["", "/"]:
-                print("fs count entering", record.name)
-                record.numfiles, record.numdirs = fs_counts(fs_entries)
+                success, fs_subdirectory = return_disk_listing(os.path.join(webpath, test_name))
+                record.numfiles, record.numdirs = fs_counts(fs_subdirectory)
             record.filetype = filetypes(fileext=fext)
 
             record.is_animated = False
@@ -755,5 +752,4 @@ def read_from_disk(dir_to_scan, skippable=True):
         dir_path = Path(os.path.join(settings.ALBUMS_PATH, dir_to_scan))
     else:
         dir_path = Path(ensures_endswith(dir_to_scan, os.sep))
-    print("fqpn?", dir_path)
     sync_database_disk(str(dir_path))
