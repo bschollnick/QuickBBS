@@ -17,24 +17,23 @@ from pathlib import Path
 import quickbbs.jinjaenv
 from quickbbs.quickbbs_settings import *
 
-#ALLOWED_HOSTS = [u'nerv.local', u'localhost', u'127.0.0.1']
 ALLOWED_HOSTS = ['nerv.local', 'localhost', '127.0.0.1']
 INTERNAL_IPS = ['localhost', '127.0.0.1', 'nerv.local']
 machine_name = socket.gethostname().lower()
-print ("Running on %s" % machine_name)
+print("Running on %s" % machine_name)
 
 DEBUG = True
-#DEBUG = not DEBUG
+# DEBUG = not DEBUG
 print("Debug is ", DEBUG)
 
 # DEBUG_TOOLBAR = True
 DEBUG_TOOLBAR = False
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
-#BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-#print(BASE_DIR)
+# BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# print(BASE_DIR)
 BASE_DIR = Path(__file__).resolve().parent.parent
-#print(BASE_DIR)
+# print(BASE_DIR)
 
 if not DEBUG:
     CACHES = {
@@ -55,13 +54,11 @@ USER_AGENTS_CACHE = 'default'
 
 
 TEMPLATE_PATH = BASE_DIR / 'templates'
-#TEMPLATE_PATH = os.path.join(BASE_DIR, 'templates')
+# TEMPLATE_PATH = os.path.join(BASE_DIR, 'templates')
 
-#MEDIA_ROOT = os.sep.join((str(BASE_DIR).split(os.sep)[0:-1]))
+# MEDIA_ROOT = os.sep.join((str(BASE_DIR).split(os.sep)[0:-1]))
 MEDIA_ROOT = BASE_DIR.resolve().parent
 # MEDIA_ROOT =
-
-
 
 
 # Quick-start development settings - unsuitable for production
@@ -72,8 +69,8 @@ SECRET_KEY = 'isk^$ye4rx0m!p#0147tcmmmtcz1u&suzp2+z+6#gpjx^1lz4t'
 
 # SECURITY WARNING: don't run with debug turned on in production!
 
-#session_cookie_expiration = 43200
-#session_logout_timeout = 43200
+# session_cookie_expiration = 43200
+# session_logout_timeout = 43200
 
 
 # Application definition
@@ -95,7 +92,7 @@ INSTALLED_APPS += [
     'django.contrib.sites',
     'django_user_agents',
     'django_jinja',
-    ]
+]
 
 INSTALLED_APPS += [
     'allauth',
@@ -106,11 +103,10 @@ INSTALLED_APPS += [
     'frontend',
     'thumbnails',
     'filetypes',
-#    'fontawesome-free',
+    #    'fontawesome-free',
     'django_icons',
     'django_jinja.contrib._humanize'
 ]
-
 
 SITE_ID = 1
 
@@ -145,7 +141,7 @@ TEMPLATES = [
     {
         'NAME': "Django",
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [TEMPLATE_PATH,],
+        'DIRS': [TEMPLATE_PATH, ],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -159,40 +155,40 @@ TEMPLATES = [
 
     # https://docs.djangoproject.com/en/2.1/ref/templates/api/#django.template.loaders.cached.Loader
 
-    {   'NAME': "Jinja2",
-        "BACKEND": "django_jinja.backend.Jinja2",
-        "APP_DIRS": True,
-        'DIRS': [TEMPLATE_PATH,],
-        "OPTIONS": {'environment': "quickbbs.jinjaenv.environment",
-            # Match the template names ending in .html but not the ones in the admin folder.
-            "match_extension": ".jinja",
-            "extensions": [
-                "jinja2.ext.do",
-                "jinja2.ext.loopcontrols",
-#                "jinja2.ext.with_",
-                "jinja2.ext.i18n",
-#                "jinja2.ext.autoescape",
-                "django_jinja.builtins.extensions.CsrfExtension",
-                "django_jinja.builtins.extensions.CacheExtension",
-                "django_jinja.builtins.extensions.TimezoneExtension",
-                "django_jinja.builtins.extensions.UrlsExtension",
-                "django_jinja.builtins.extensions.StaticFilesExtension",
-                "django_jinja.builtins.extensions.DjangoFiltersExtension",
-            ],
-             "bytecode_cache": {
-                 "name": "default",
-                 "backend": "django_jinja.cache.BytecodeCache",
-                 "enabled": True,
-             },
-             "autoescape": True,
-             "auto_reload": True,
-             "translation_engine": "django.utils.translation",
-         }
-    },
+    {'NAME': "Jinja2",
+     "BACKEND": "django_jinja.backend.Jinja2",
+     "APP_DIRS": True,
+     'DIRS': [TEMPLATE_PATH, ],
+     "OPTIONS": {'environment': "quickbbs.jinjaenv.environment",
+                 # Match the template names ending in .html but not the ones in the admin folder.
+                 "match_extension": ".jinja",
+                 "extensions": [
+                     "jinja2.ext.do",
+                     "jinja2.ext.loopcontrols",
+                     #                "jinja2.ext.with_",
+                     "jinja2.ext.i18n",
+                     #                "jinja2.ext.autoescape",
+                     "django_jinja.builtins.extensions.CsrfExtension",
+                     "django_jinja.builtins.extensions.CacheExtension",
+                     "django_jinja.builtins.extensions.TimezoneExtension",
+                     "django_jinja.builtins.extensions.UrlsExtension",
+                     "django_jinja.builtins.extensions.StaticFilesExtension",
+                     "django_jinja.builtins.extensions.DjangoFiltersExtension",
+                 ],
+                 "bytecode_cache": {
+                     "name": "default",
+                     "backend": "django_jinja.cache.BytecodeCache",
+                     "enabled": True,
+                 },
+                 "autoescape": True,
+                 "auto_reload": True,
+                 "translation_engine": "django.utils.translation",
+                 }
+     },
 ]
 
 WSGI_APPLICATION = 'quickbbs.wsgi.application'
-#WSGI_APPLICATION = 'wsgi.application'
+# WSGI_APPLICATION = 'wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/1.9/ref/settings/#databases
@@ -203,13 +199,12 @@ DATABASES = {'default': {'ENGINE': 'django.db.backends.postgresql',
                          'PASSWORD': 'hentai2020',
                          'HOST': 'localhost',
                          'PORT': '5432',
-                         'CONN_MAX_AGE':300,
-                        }
+                         'CONN_MAX_AGE': 300,
+                         }
              }
 
-
 SOUTH_DATABASE_ADAPTERS = {
-'default': 'south.db.postgresql_psycopg2',
+    'default': 'south.db.postgresql_psycopg2',
 }
 AUTHENTICATION_BACKENDS = (
     # Needed to login by username in Django admin, regardless of `allauth`
@@ -224,28 +219,26 @@ AUTHENTICATION_BACKENDS = (
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-    'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
     },
     {
-    'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
     },
     {
-    'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
     },
     {
-    'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
 ]
-
 
 # Internationalization
 # https://docs.djangoproject.com/en/1.9/topics/i18n/
 LANGUAGE_CODE = 'en-us'
 # TIME_ZONE = 'UTC'
-#TIME_ZONE = 'UTC'
+# TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
-
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/1.9/howto/static-files/
@@ -258,14 +251,14 @@ STATICFILES_DIRS = [
     os.path.join(BASE_DIR, "static", "javascript"),
     os.path.join(BASE_DIR, "static", "css"),
     os.path.join(BASE_DIR, "static", "fonts"),
-#    os.path.join(BASE_DIR, "static", "thumbnails"),
+    #    os.path.join(BASE_DIR, "static", "thumbnails"),
 ]
 
 ACCOUNT_AUTHENTICATED_LOGIN_REDIRECTS = True
 ACCOUNT_LOGOUT_REDIRECT_URL = "/albums"
 LOGIN_REDIRECT_URL = '/albums'
 
-#from .logger import LOGGING
+# from .logger import LOGGING
 
 DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
 

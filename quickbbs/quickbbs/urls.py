@@ -30,9 +30,6 @@ if settings.DEBUG_TOOLBAR:
     ]
 
 urlpatterns += [
-    path('grappelli/', include('grappelli.urls')), # grappelli URLS
-    path(r'Admin/', admin.site.urls),
-    path(r'', RedirectView.as_view(url="/albums"), name="home"),
     path("download/<str:filename>", frontend.views.downloadFile, name="download"),
     path("info/<uuid:i_uuid>/", frontend.views.item_info, name="item_info"),
     path("view_item/<uuid:i_uuid>/", frontend.views.new_json_viewitem, name="new_viewitem"),
@@ -44,6 +41,9 @@ urlpatterns += [
     path('resources/<path:pathstr>', frontend.serve_up.resources),
     path('static/<path:pathstr>', frontend.serve_up.static),
     path('accounts/', include('allauth.urls')),
+    path('grappelli/', include('grappelli.urls')),  # grappelli URLS
+    path(r'Admin/', admin.site.urls),
+    path(r'', RedirectView.as_view(url="/albums"), name="home"),
 ]
 
 # REGISTRATION_OPEN = True

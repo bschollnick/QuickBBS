@@ -168,17 +168,15 @@ def return_image_obj(fs_path, memory=False):
     if extension in ("", b"", None):
         extension = ".none"
     if extension == ".pdf":
-        results = pdf_utilities.check_pdf(fs_path)
-        if results[0] is False:
-            pdf_utilities.repair_pdf(fs_path, fs_path)
+        # results = pdf_utilities.check_pdf(fs_path)
+        # if results[0] is False:
+        #    pdf_utilities.repair_pdf(fs_path, fs_path)
 
         pdf_file = fitz.open(fs_path)
         pdf_page = pdf_file.load_page(0)
-        #        pix = pdf_page.getPixmap(alpha=True)#matrix=fitz.Identity, alpha=True)
         pix = pdf_page.get_pixmap(alpha=True)  # matrix=fitz.Identity, alpha=True)
 
         try:
-            # source_image = Image.open(BytesIO(pix.getPNGData()))
             source_image = Image.open(BytesIO(pix.tobytes()))
         except UserWarning:
             print("UserWarning!")
@@ -344,246 +342,246 @@ def return_disk_listing(fqpn, enable_rename=False):
 # #        else:
 # #            print("Does not exist in Cache Tracking %s" % dirpath)
 
-def old_read_from_disk(dir_to_scan, skippable=True):
-    """
-    Pass in FQFN, and the database stores the path as the URL path.
-    """
-
-    def link_arc_rec(fs_name, webpath, uuid_entry, page=0):
-        fname = os.path.basename(fs_name).title()
-        try:
-            db_entry = Thumbnails_Archives.objects.update_or_create(
-                uuid=uuid_entry,
-                FilePath=ensures_endswith(webpath, os.sep),
-                FileName=fname,
-                page=page,
-                defaults={"uuid": uuid_entry, "FilePath": ensures_endswith(webpath, os.sep),
-                          "FileName": fname, "page": page})[0]
-        except MultipleObjectsReturned:
-            check_dup_thumbs(uuid_entry, page)
-            db_entry = Thumbnails_Archives.objects.update_or_create(
-                uuid=uuid_entry,
-                FilePath=ensures_endswith(webpath, os.sep),
-                FileName=fname,
-                page=page,
-                defaults={"uuid": uuid_entry, "FilePath": webpath,
-                          "FileName": fname, "page": page})[0]
-        return db_entry
-
-    ###############################
-    # Read_from_disk - main
-    #
-    # rewrite to use update_or_create? - No the logic doesn't work.
-
-    # Get_or_create, could work for the read_from_disk main.
-
-    # get all the filenames, and pass into update.
-
-    # so that update can if not filename in listing, to check for deleted files.
-    global CACHE
-    lastmoded = ""
-    dir_to_scan = ensures_endswith(dir_to_scan.strip().lower(), os.sep)
-    fqpn = (settings.ALBUMS_PATH + dir_to_scan).replace("//", "/")
-    if not os.path.exists(fqpn):
-        print("%s does not exist" % fqpn)
-        return None
-
-    webpath = fqpn.lower().replace(
-        settings.ALBUMS_PATH.lower(),
-        "")
-
-    dirpath = os.path.normpath(fqpn.title().strip())
-    if Cache_Tracking.objects.filter(DirName=dirpath).count() == 0:
-        # The path has not been seen since the Cache Tracking has been enabled
-        # (eg Startup, or the entry has been nullified)
-        # Add to table, and allow a rescan to occur.
-        print("\n\n", "\nSaving, %s to cache tracking\n" % dirpath, "\n\n")
-        new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
-        new_rec.save()
-    #    else:
-    #        print("Skipping (%s) due to CT" % dirpath)
-    #        # The entry is in the cache table
-    #        return webpath.replace(os.sep, r"/")
-
-    CACHE.read_path(fqpn)
-    CACHE.sanitize_filenames(dirpath, allow_rename=True)  # , quiet=False)
-    disk_count = CACHE.return_fileCount(dirpath)
-    diskstore = CACHE.extended[dirpath]
-    existing_data = index_data.objects.filter(fqpndirectory=ensures_endswith(dir_to_scan, os.sep),
-                                              ignore=False,
-                                              delete_pending=False)
-    existing_data_size = existing_data.count()
-
-    # Scenarios
-    #
-    # 1) All files and directories are the same = Nothing needs to be done
-    #       - Validate all files
-
-    # 2) More files or directories exist, need to validate existing, and add new files/dirs
-    # 3) Less files or directories exist, need to validate existing, and remove non-existant
-
-    if existing_data_size > disk_count:
-        print("existing size {}       on disk {}".format(existing_data_size,
-                                                         disk_count))
-        for entry in existing_data:
-            if entry.name not in diskstore:  # name is already title cased
-#                print("Deleting %s" % entry.name)
-                entry.delete()
-        skippable = False
-
-    elif disk_count > existing_data_size:
-        skippable = False
-
-    if existing_data_size > 0:  # and existing_data_size is not None:
-        lastmoded = existing_data.order_by("-lastmod")[0]
-        fs_lm_name, fs_lm_value, fs_ls_value = CACHE.return_newest(dirpath)
-        if not lastmoded.name == fs_lm_name:
-            print("Unable to skip, due to last mod name. fs {} vs C {}, {} - {}".format(
-                fs_lm_name, lastmoded.name, CACHE.last_mods[dirpath], lastmoded.id))
-            diskstore = CACHE.extended[dirpath]
-            skippable = False
-        elif lastmoded.lastmod != fs_lm_value:
-            print("Unable to skip, due to last mod value")
-            skippable = False
-
-    bulk_db_elements = []
-    count = 0
-    if filetype_models.FILETYPE_DATA == {}:
-        try:
-            filetype_models.reload_filetypes()
-        except KeyError:
-            print("Unable to validate or create FileType database table.")
-            sys.exit(1)
-
-    for filename, filedata in diskstore.items():
-        numdirs = 0
-        numfiles = 0
-        force_save = False
-        disk_data = {filename: filedata}
-        animated = False
-        if filedata.is_dir():
-            fext = ".dir"
-        else:
-            fext = os.path.splitext(filename)[1].lower()
-            if fext == "":
-                fext = ".none"
-        fs_item = os.path.join(settings.ALBUMS_PATH,
-                               webpath[1:],
-                               filename)
-
-        if (filedata.is_dir()):
-            CACHE.read_path(os.path.join(fqpn, filename))
-            numfiles, numdirs = CACHE.return_extended_count(os.path.join(fqpn, filename))
-
-        new_uuid = uuid.uuid4()
-        if filetype_models.FILETYPE_DATA[fext]["is_image"] and fext in [".gif"]:
-            try:
-                animated = Image.open(os.path.join(fqpn, filename)).is_animated
-                force_save = True
-            except AttributeError:
-                print("%s is not an animated GIF" % fext)
-        try:
-            ind_data, created = index_data.objects.get_or_create(
-                name=filename,
-                fqpndirectory=webpath,
-                ignore=False,
-                delete_pending=False,
-                defaults={'name': filename,
-                          'fqpndirectory': webpath,
-                          'sortname': naturalize(filename),
-                          'size': filedata.stat().st_size,
-                          'lastmod': filedata.stat().st_mtime,
-                          'numfiles': numfiles,
-                          'numdirs': numdirs,
-                          'lastscan': time.time(),
-                          'filetype': filetypes(fileext=fext),
-                          'is_animated': animated
-                          }
-            )
-        except MultipleObjectsReturned:
-            print("Multiple Objects Returned")
-            index_data.objects.filter(
-                name=filename,
-                fqpndirectory=webpath).delete()
-            ind_data, created = index_data.objects.get_or_create(
-                name=filename,
-                fqpndirectory=webpath,
-                ignore=False,
-                delete_pending=False,
-                defaults={'name': filename,
-                          'fqpndirectory': webpath,
-                          'sortname': naturalize(filename),
-                          'size': filedata.stat().st_size,
-                          'lastmod': filedata.stat().st_mtime,
-                          'numfiles': numfiles,
-                          'numdirs': numdirs,
-                          'lastscan': time.time(),
-                          'filetype': filetypes(fileext=fext),
-                          'is_animated': animated,
-                          }
-            )
-        if ind_data.filetype == filetypes(fileext=None):
-            # print("Updating due to file_ext")
-            force_save = True
-
-        #        print(ind_data.filetype.fileext, webpath, filename)
-        #        print ("Numdir ", ind_data.numdirs, numdirs)
-        #        print("numfiles ", ind_data.numfiles, numfiles)
-        if ind_data.filetype.fileext == ".dir":
-            subdir_path = os.path.join(webpath, filename)
-            if (ind_data.numdirs != numdirs or
-                    ind_data.numfiles != numfiles):
-                force_save = True
-                ind_data.numdirs = numdirs
-                ind_data.numfiles = numfiles
-                print("Mismatch for subdir - ", webpath, filename)
-            if numdirs == -1 and index_data.objects.filter(fqpndirectory=subdir_path,
-                                                           filetype__fileext='.dir').exists():  # count() >= 1:
-                print("Attempting to delete, dirs from ", subdir_path)
-                # index_data.objects.filter(fqpndirectory=subdir_path).filter(ind_data.filetype.fileext=='.dir').delete()
-
-        if ind_data.lastmod != filedata.stat().st_mtime:  # .stat()[stat.ST_MTIME]:
-            ind_data.lastmod = filedata.stat().st_mtime
-            print("LastMod update", filedata.name)
-            force_save = True
-
-        if ind_data.archives is None and ind_data.filetype.is_archive:
-            # is archive, link as archive
-            ind_data.archives = link_arc_rec(fs_item, webpath, new_uuid)
-            force_save = True
-
-            ta_listings = Thumbnails_Archives.objects.filter(uuid=ind_data.uuid)
-            if ta_listings.count() != ind_data.count_subfiles:
-                archive_file = archives.id_cfile_by_sig(os.path.join(settings.ALBUMS_PATH,
-                                                                     webpath[1:],
-                                                                     filename))
-                archive_file.get_listings()
-                ind_data.count_subfiles = ta_listings.count()
-                for zipcount, entry in enumerate(archive_file.listings):
-                    if not ta_listings.filter(page=zipcount).exists():
-                        Thumbnails_Archives.objects.create(uuid=ind_data.uuid,
-                                                           FileName=filename,  # .replace("#",""),
-                                                           FilePath=webpath,
-                                                           page=zipcount,
-                                                           FileSize=-1)
-
-        if created or ind_data.uuid is None:
-            ind_data.uuid = new_uuid
-            force_save = True
-
-        if force_save:
-            #            print("Force saving")
-            ind_data.save()
-            # bulk_db_elements.append(ind_data)
-
-        if ind_data.filetype.is_image and skippable:
-            # if ftypes.FILETYPE_DATA[fext]["is_image"] and skippable:
-            #
-            # Create up to the first image record (eg. Directory thumbnail) and then
-            # break.
-            print("Skippable, Image Break")
-            break
-    return webpath.replace(os.sep, r"/")
+# def old_read_from_disk(dir_to_scan, skippable=True):
+#     """
+#     Pass in FQFN, and the database stores the path as the URL path.
+#     """
+#
+#     def link_arc_rec(fs_name, webpath, uuid_entry, page=0):
+#         fname = os.path.basename(fs_name).title()
+#         try:
+#             db_entry = Thumbnails_Archives.objects.update_or_create(
+#                 uuid=uuid_entry,
+#                 FilePath=ensures_endswith(webpath, os.sep),
+#                 FileName=fname,
+#                 page=page,
+#                 defaults={"uuid": uuid_entry, "FilePath": ensures_endswith(webpath, os.sep),
+#                           "FileName": fname, "page": page})[0]
+#         except MultipleObjectsReturned:
+#             check_dup_thumbs(uuid_entry, page)
+#             db_entry = Thumbnails_Archives.objects.update_or_create(
+#                 uuid=uuid_entry,
+#                 FilePath=ensures_endswith(webpath, os.sep),
+#                 FileName=fname,
+#                 page=page,
+#                 defaults={"uuid": uuid_entry, "FilePath": webpath,
+#                           "FileName": fname, "page": page})[0]
+#         return db_entry
+#
+#     ###############################
+#     # Read_from_disk - main
+#     #
+#     # rewrite to use update_or_create? - No the logic doesn't work.
+#
+#     # Get_or_create, could work for the read_from_disk main.
+#
+#     # get all the filenames, and pass into update.
+#
+#     # so that update can if not filename in listing, to check for deleted files.
+#     global CACHE
+#     lastmoded = ""
+#     dir_to_scan = ensures_endswith(dir_to_scan.strip().lower(), os.sep)
+#     fqpn = (settings.ALBUMS_PATH + dir_to_scan).replace("//", "/")
+#     if not os.path.exists(fqpn):
+#         print("%s does not exist" % fqpn)
+#         return None
+#
+#     webpath = fqpn.lower().replace(
+#         settings.ALBUMS_PATH.lower(),
+#         "")
+#
+#     dirpath = os.path.normpath(fqpn.title().strip())
+#     if Cache_Tracking.objects.filter(DirName=dirpath).count() == 0:
+#         # The path has not been seen since the Cache Tracking has been enabled
+#         # (eg Startup, or the entry has been nullified)
+#         # Add to table, and allow a rescan to occur.
+#         print("\n\n", "\nSaving, %s to cache tracking\n" % dirpath, "\n\n")
+#         new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
+#         new_rec.save()
+#     #    else:
+#     #        print("Skipping (%s) due to CT" % dirpath)
+#     #        # The entry is in the cache table
+#     #        return webpath.replace(os.sep, r"/")
+#
+#     CACHE.read_path(fqpn)
+#     CACHE.sanitize_filenames(dirpath, allow_rename=True)  # , quiet=False)
+#     disk_count = CACHE.return_fileCount(dirpath)
+#     diskstore = CACHE.extended[dirpath]
+#     existing_data = index_data.objects.filter(fqpndirectory=ensures_endswith(dir_to_scan, os.sep),
+#                                               ignore=False,
+#                                               delete_pending=False)
+#     existing_data_size = existing_data.count()
+#
+#     # Scenarios
+#     #
+#     # 1) All files and directories are the same = Nothing needs to be done
+#     #       - Validate all files
+#
+#     # 2) More files or directories exist, need to validate existing, and add new files/dirs
+#     # 3) Less files or directories exist, need to validate existing, and remove non-existant
+#
+#     if existing_data_size > disk_count:
+#         print("existing size {}       on disk {}".format(existing_data_size,
+#                                                          disk_count))
+#         for entry in existing_data:
+#             if entry.name not in diskstore:  # name is already title cased
+#                 # print("Deleting %s" % entry.name)
+#                 entry.delete()
+#         skippable = False
+#
+#     elif disk_count > existing_data_size:
+#         skippable = False
+#
+#     if existing_data_size > 0:  # and existing_data_size is not None:
+#         lastmoded = existing_data.order_by("-lastmod")[0]
+#         fs_lm_name, fs_lm_value, fs_ls_value = CACHE.return_newest(dirpath)
+#         if not lastmoded.name == fs_lm_name:
+#             print("Unable to skip, due to last mod name. fs {} vs C {}, {} - {}".format(
+#                 fs_lm_name, lastmoded.name, CACHE.last_mods[dirpath], lastmoded.id))
+#             diskstore = CACHE.extended[dirpath]
+#             skippable = False
+#         elif lastmoded.lastmod != fs_lm_value:
+#             print("Unable to skip, due to last mod value")
+#             skippable = False
+#
+#     bulk_db_elements = []
+#     count = 0
+#     if filetype_models.FILETYPE_DATA == {}:
+#         try:
+#             filetype_models.reload_filetypes()
+#         except KeyError:
+#             print("Unable to validate or create FileType database table.")
+#             sys.exit(1)
+#
+#     for filename, filedata in diskstore.items():
+#         numdirs = 0
+#         numfiles = 0
+#         force_save = False
+#         disk_data = {filename: filedata}
+#         animated = False
+#         if filedata.is_dir():
+#             fext = ".dir"
+#         else:
+#             fext = os.path.splitext(filename)[1].lower()
+#             if fext == "":
+#                 fext = ".none"
+#         fs_item = os.path.join(settings.ALBUMS_PATH,
+#                                webpath[1:],
+#                                filename)
+#
+#         if (filedata.is_dir()):
+#             CACHE.read_path(os.path.join(fqpn, filename))
+#             numfiles, numdirs = CACHE.return_extended_count(os.path.join(fqpn, filename))
+#
+#         new_uuid = uuid.uuid4()
+#         if filetype_models.FILETYPE_DATA[fext]["is_image"] and fext in [".gif"]:
+#             try:
+#                 animated = Image.open(os.path.join(fqpn, filename)).is_animated
+#                 force_save = True
+#             except AttributeError:
+#                 print("%s is not an animated GIF" % fext)
+#         try:
+#             ind_data, created = index_data.objects.get_or_create(
+#                 name=filename,
+#                 fqpndirectory=webpath,
+#                 ignore=False,
+#                 delete_pending=False,
+#                 defaults={'name': filename,
+#                           'fqpndirectory': webpath,
+#                           'sortname': naturalize(filename),
+#                           'size': filedata.stat().st_size,
+#                           'lastmod': filedata.stat().st_mtime,
+#                           'numfiles': numfiles,
+#                           'numdirs': numdirs,
+#                           'lastscan': time.time(),
+#                           'filetype': filetypes(fileext=fext),
+#                           'is_animated': animated
+#                           }
+#             )
+#         except MultipleObjectsReturned:
+#             print("Multiple Objects Returned")
+#             index_data.objects.filter(
+#                 name=filename,
+#                 fqpndirectory=webpath).delete()
+#             ind_data, created = index_data.objects.get_or_create(
+#                 name=filename,
+#                 fqpndirectory=webpath,
+#                 ignore=False,
+#                 delete_pending=False,
+#                 defaults={'name': filename,
+#                           'fqpndirectory': webpath,
+#                           'sortname': naturalize(filename),
+#                           'size': filedata.stat().st_size,
+#                           'lastmod': filedata.stat().st_mtime,
+#                           'numfiles': numfiles,
+#                           'numdirs': numdirs,
+#                           'lastscan': time.time(),
+#                           'filetype': filetypes(fileext=fext),
+#                           'is_animated': animated,
+#                           }
+#             )
+#         if ind_data.filetype == filetypes(fileext=None):
+#             # print("Updating due to file_ext")
+#             force_save = True
+#
+#         #        print(ind_data.filetype.fileext, webpath, filename)
+#         #        print ("Numdir ", ind_data.numdirs, numdirs)
+#         #        print("numfiles ", ind_data.numfiles, numfiles)
+#         if ind_data.filetype.fileext == ".dir":
+#             subdir_path = os.path.join(webpath, filename)
+#             if (ind_data.numdirs != numdirs or
+#                     ind_data.numfiles != numfiles):
+#                 force_save = True
+#                 ind_data.numdirs = numdirs
+#                 ind_data.numfiles = numfiles
+#                 print("Mismatch for subdir - ", webpath, filename)
+#             if numdirs == -1 and index_data.objects.filter(fqpndirectory=subdir_path,
+#                                                            filetype__fileext='.dir').exists():  # count() >= 1:
+#                 print("Attempting to delete, dirs from ", subdir_path)
+#              # index_data.objects.filter(fqpndirectory=subdir_path).filter(ind_data.filetype.fileext=='.dir').delete()
+#
+#         if ind_data.lastmod != filedata.stat().st_mtime:  # .stat()[stat.ST_MTIME]:
+#             ind_data.lastmod = filedata.stat().st_mtime
+#             print("LastMod update", filedata.name)
+#             force_save = True
+#
+#         if ind_data.archives is None and ind_data.filetype.is_archive:
+#             # is archive, link as archive
+#             ind_data.archives = link_arc_rec(fs_item, webpath, new_uuid)
+#             force_save = True
+#
+#             ta_listings = Thumbnails_Archives.objects.filter(uuid=ind_data.uuid)
+#             if ta_listings.count() != ind_data.count_subfiles:
+#                 archive_file = archives.id_cfile_by_sig(os.path.join(settings.ALBUMS_PATH,
+#                                                                      webpath[1:],
+#                                                                      filename))
+#                 archive_file.get_listings()
+#                 ind_data.count_subfiles = ta_listings.count()
+#                 for zipcount, entry in enumerate(archive_file.listings):
+#                     if not ta_listings.filter(page=zipcount).exists():
+#                         Thumbnails_Archives.objects.create(uuid=ind_data.uuid,
+#                                                            FileName=filename,  # .replace("#",""),
+#                                                            FilePath=webpath,
+#                                                            page=zipcount,
+#                                                            FileSize=-1)
+#
+#         if created or ind_data.uuid is None:
+#             ind_data.uuid = new_uuid
+#             force_save = True
+#
+#         if force_save:
+#             #            print("Force saving")
+#             ind_data.save()
+#             # bulk_db_elements.append(ind_data)
+#
+#         if ind_data.filetype.is_image and skippable:
+#             # if ftypes.FILETYPE_DATA[fext]["is_image"] and skippable:
+#             #
+#             # Create up to the first image record (eg. Directory thumbnail) and then
+#             # break.
+#             print("Skippable, Image Break")
+#             break
+#     return webpath.replace(os.sep, r"/")
 
 
 def break_down_urls(uri_path):
@@ -620,7 +618,6 @@ def sync_database_disk(directoryname):
     ----------
     directoryname : The "webpath", the fragment of the directory name to load, lowercased, and
         double '//' is replaced with '/'
-    fs_entries : dictionary of the directory listings (see return_disk_listing)
 
     Returns
     -------
@@ -676,14 +673,14 @@ def sync_database_disk(directoryname):
             update = False
             entry = fs_entries[db_entry.name]
             if db_entry.lastmod != entry["lastmod"]:
-#                print("LastMod mismatch")
+                # print("LastMod mismatch")
                 db_entry.lastmod = entry["lastmod"]
                 update = True
             if db_entry.size != entry['size']:
-#                print("Size mismatch")
+                # print("Size mismatch")
                 db_entry.size = entry["size"]
                 update = True
-            if db_entry.directory: # or db_entry["unified_dirs"]:
+            if db_entry.directory:  # or db_entry["unified_dirs"]:
                 success, subdirectory = return_disk_listing(entry["path"])
                 fs_file_count, fs_dir_count = fs_counts(subdirectory)
                 if db_entry.numfiles != fs_file_count or db_entry.numdirs != fs_dir_count:
@@ -737,7 +734,7 @@ def sync_database_disk(directoryname):
                     record.is_animated = Image.open(os.path.join(record.fqpndirectory, record.name)).is_animated
                 except AttributeError:
                     record.is_animated = False
-            print("FS contains file not in database, saving ",fs_filename)
+            print("FS contains file not in database, saving ", fs_filename)
             record.save()
         # else:
         # The record is in the database, so it's already been vetted in the database comparison
