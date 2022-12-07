@@ -4,29 +4,28 @@ Utilities for QuickBBS, the python edition.
 """
 from __future__ import absolute_import, print_function, unicode_literals
 
+import html
+import logging
 import os
 import os.path
-from io import BytesIO
-import uuid
 #import urllib
 import re
 import stat
 import sys
 import time
-import html
+import uuid
+from io import BytesIO
 
-from PIL import Image
 import fitz
 import scandir
-
-from pathvalidate import sanitize_filename
-
-from frontend.database import check_dup_thumbs
-from frontend.database import (validate_database)
-from quickbbs.models import (index_data, Thumbnails_Files, Thumbnails_Archives,
-                             Thumbnails_Dirs)
 from django.core.exceptions import MultipleObjectsReturned
-import logging
+from pathvalidate import sanitize_filename
+from PIL import Image
+from quickbbs.models import (Thumbnails_Archives, Thumbnails_Dirs,
+                             Thumbnails_Files, index_data)
+
+from frontend.database import check_dup_thumbs, validate_database
+
 log = logging.getLogger(__name__)
 
 import frontend.archives3 as archives
@@ -581,8 +580,8 @@ def read_from_disk(dir_to_scan, skippable=False):
 
 
 if __name__ == '__main__':
-    from config import configdata
     import config
+    from config import configdata
     cfg_path = os.path.abspath(r"../cfg")
     config.load_data(os.path.join(cfg_path, "paths.ini"))
     config.load_data(os.path.join(cfg_path, "settings.ini"))

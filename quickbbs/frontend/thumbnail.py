@@ -2,16 +2,17 @@
 Thumbnail routines for QuickBBS
 """
 import os
+
+from django.conf import settings
+from filetypes.models import FILETYPE_DATA
+from quickbbs.models import Thumbnails_Archives, index_data
+
 import frontend.archives3 as archives
 # from frontend.config import configdata
 from frontend.database import get_xth_image
-from frontend.utilities import (cr_tnail_img, return_image_obj,
-                                read_from_disk)
-from frontend.web import return_img_attach, g_option, return_inline_attach  # , respond_as_attachment
-from quickbbs.models import (index_data,
-                             Thumbnails_Archives)
-from django.conf import settings
-from filetypes.models import FILETYPE_DATA
+from frontend.utilities import cr_tnail_img, read_from_disk, return_image_obj
+from frontend.web import (g_option,  # , respond_as_attachment
+                          return_img_attach, return_inline_attach)
 
 
 def ensures_endswith(string_to_check, value):
@@ -91,16 +92,16 @@ def new_process_dir(db_index):
         db_index.directory.SmallThumb = b""
 
     files = images_in_dir(index_data,
-                          os.path.join(db_index.fqpndirectory,
-                                       db_index.name).lower())
+                          ensures_endswith(os.path.join(db_index.fqpndirectory,
+                                       db_index.name).lower(), os.sep))
     #    print("\n\n !!! = ",os.path.join(db_index.fqpndirectory,
     #                                       db_index.name).lower(), files)
     if files:  # found an file in the directory to use for thumbnail purposes
         # print ("Files found in directory")
-        fs_d_fname = settings.ALBUMS_PATH + os.path.join(db_index.fqpndirectory.lower(),
-                                                         db_index.name, files.name)
+        fs_d_fname = os.path.join(db_index.fqpndirectory.lower(),
+                                  db_index.name, files.name)
         # file system location of directory
-        fext = os.path.splitext(files.name)[1][1:].lower()
+        fext = os.path.splitext(files.name)[1].lower()
 
         temp = cr_tnail_img(return_image_obj(fs_d_fname),
                             settings.IMAGE_SIZE["small"],
@@ -112,10 +113,11 @@ def new_process_dir(db_index):
         #
         #   There are no files in the directory
         #
-        temp = return_image_obj(settings.IMAGES_PATH + os.sep + FILETYPE_DATA["dir"]["icon_filename"])
+        temp = return_image_obj(os.path.join(settings.IMAGES_PATH,FILETYPE_DATA[".dir"]["icon_filename"]))
         img_icon = cr_tnail_img(temp, settings.IMAGE_SIZE["small"],
-                                FILETYPE_DATA["dir"]["icon_filename"])
+                                FILETYPE_DATA[".dir"]["icon_filename"])
         # configdata["filetypes"]["dir"][2])
+        #db_index.is_generic = True
         db_index.directory.SmallThumb = img_icon
         db_index.directory.FileSize = db_index.size
     #            print("Set size to %s for %s" % (db_index.directory.FileSize,
@@ -157,7 +159,8 @@ def new_process_img(entry, request, imagesize="Small"):
 
         else:
             print("Cache is invalid")
-    fs_fname = settings.ALBUMS_PATH + os.path.join(entry.fqpndirectory.lower(), entry.name)
+    #fs_fname = settings.ALBUMS_PATH + os.path.join(entry.fqpndirectory.lower(), entry.name)
+    fs_fname = os.path.join(entry.fqpndirectory, entry.name)
     fs_fname = fs_fname.replace("//", "/")
     # file system location of directory
 
@@ -176,7 +179,6 @@ def new_process_img(entry, request, imagesize="Small"):
                                                  settings.IMAGE_SIZE[thumb_size.lower()],
                                                  fext=fext)
             )
-    print("Creating ", entry.name)
     entry.file_tnail.FileSize = entry.size
     entry.file_tnail.save()
     entry.save()

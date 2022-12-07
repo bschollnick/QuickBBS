@@ -1,5 +1,5 @@
-from django.http import HttpResponseForbidden
 from django.conf import settings
+from django.http import HttpResponseForbidden
 
 
 class FilterHostMiddleware(object):

@@ -1,7 +1,8 @@
-from django.views.static import serve
+import os.path
+
 # from frontend.config import configdata as configdata
 from django.conf import settings
-import os.path
+from django.views.static import serve
 
 
 def resources(request, pathstr=None):
