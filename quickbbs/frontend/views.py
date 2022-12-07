@@ -267,7 +267,7 @@ def item_info(request, i_uuid):
     catalog_qs = get_db_files(context["sort"], context["webpath"])
     pages = [str(record.uuid) for record in catalog_qs]
     context["page"] = pages.index(e_uuid)+1
-    context["page_locale"] = int(context["page"] / settings.GALLERY_ITEMS_PER_PAGE)
+    context["page_locale"] = int(context["page"] / settings.GALLERY_ITEMS_PER_PAGE)+1
 
     item_list = Paginator(catalog_qs, 1)
     context["pagecount"] = item_list.count

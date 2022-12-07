@@ -19,7 +19,7 @@ def is_valid_uuid(uuid_to_test, version=4):
         version (int) - UUID version to validate against (eg  1, 2, 3, 4)
 
     Returns:
-        boolean::
+        boolean:
             `True` if uuid_to_test is a valid UUID, otherwise `False`.
 
     Raises:
@@ -165,14 +165,14 @@ class index_data(models.Model):
     lastscan = models.FloatField(db_index=True)  # Stored as Unix TimeStamp (ms)
     lastmod = models.FloatField(db_index=True)  # Stored as Unix TimeStamp (ms)
     name = models.CharField(db_index=True, max_length=384, default=None)
-        # FQFN of the file itself
+    # FQFN of the file itself
     sortname = models.CharField(db_index=True, editable=False, max_length=384, default='')
     size = models.BigIntegerField(default=0)  # File size
     numfiles = models.IntegerField(default=0)  # The # of files in this directory
     numdirs = models.IntegerField(default=0)  # The # of Children Directories in this directory
     count_subfiles = models.BigIntegerField(default=0)  # the # of subfiles in archive
     fqpndirectory = models.CharField(default=0, db_index=True, max_length=384)
-        # Directory of the file, lower().replace("//", "/"), ensure it is path, and not path + filename
+    # Directory of the file, lower().replace("//", "/"), ensure it is path, and not path + filename
     parent_dir_id = models.IntegerField(default=0)  # Directory that it is contained in
     is_animated = models.BooleanField(default=False, db_index=True)
     ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
@@ -230,6 +230,20 @@ class index_data(models.Model):
     )
 
     def write_to_db_entry(self, fileentry, fqpn, version=4):
+        """
+        Start of Unified code.  WIP
+        Intended to be the glue that writes the database entry.
+        Parameters
+        ----------
+        fileentry
+        fqpn
+        version
+
+        Returns
+        -------
+            None:
+
+        """
         if self.uuid is None:
             self.uuid = uuid.uuid(version=version)
         if fileentry.is_dir():
@@ -256,20 +270,29 @@ class index_data(models.Model):
         numdirs = 0
         lastscan = time.time()
 
-
-
-
-
-
     def get_bg_color(self):
+        """
+
+        Returns
+        -------
+        * The background hex color code of the current database entry
+        """
         return self.filetype.color
 
     def get_view_url(self):
+        """
+        Generate the URL for the viewing of the current database item
+
+        Returns
+        -------
+            Django URL object
+
+        """
         options = {}
         options["i_uuid"] = str(self.uuid)
 
         parameters = []
-        parameters.append("?small")
+        #parameters.append("?small")
         if self.filetype.is_pdf:
             parameters.append("&pdf")
         elif self.filetype.is_archive:
@@ -280,10 +303,17 @@ class index_data(models.Model):
             return reverse('new_viewitem', kwargs=options) + "".join(parameters)
 
     def get_download_url(self):
+        """
+        Generate the URL for the downloading of the current database item
+
+        Returns
+        -------
+            Django URL object
+
+        """
         return reverse('download', kwargs={"filename": self.name}) + "?UUID=" + str(self.uuid)
         # null = System Owned
 
     class Meta:
         verbose_name = 'Master Index'
         verbose_name_plural = 'Master Index'
-
