@@ -200,7 +200,7 @@ var setDATA = function(data) {
     document.title = data.filename
     document.getElementById("title").innerHTML = data.filename
     document.getElementById("breadcrumbs").innerHTML = data.breadcrumbs
-    document.getElementById("up_uri").href = data.up_uri+'?page='+data.page+'&sort=' + data.sort
+    document.getElementById("up_uri").href = data.up_uri+'?page='+data.page_locale+'&sort=' + data.sort
 
     console.log("Setting Previous block")
     document.getElementById("first_uuid").onclick = function (){loadDATA(data.first_uuid, data.sort);return false;}
