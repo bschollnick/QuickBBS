@@ -1,6 +1,7 @@
-import time
-import requests
 import statistics
+import time
+
+import requests
 
 number_of_repeats = 100
 wait_for = 10

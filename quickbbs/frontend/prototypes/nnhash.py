@@ -13,8 +13,9 @@
 # permissions and limitations under the License.
 
 import sys
-import onnxruntime
+
 import numpy as np
+import onnxruntime
 from PIL import Image
 
 # Load ONNX model

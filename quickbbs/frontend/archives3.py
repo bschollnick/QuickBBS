@@ -46,8 +46,9 @@ Zip, RAR are supported, what other formats might be useful?
 import base64
 import os
 import os.path
-from operator import itemgetter
 import zipfile
+from operator import itemgetter
+
 import rarfile
 
 

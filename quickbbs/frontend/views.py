@@ -13,34 +13,34 @@ import warnings
 from pathlib import Path
 
 import bleach
-import markdown2
 import django_icons.templatetags.icons
+import filetypes.models
+import markdown2
+from cache.models import CACHE
+from cache.models import fs_Cache_Tracking as Cache_Tracking
+from cache.watchdogmon import watchdog
+from django.conf import settings
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
-from django.http import (Http404,  # FileResponse, HttpResponse,
-                         HttpResponseBadRequest, HttpResponseNotFound,
+from django.db.utils import ProgrammingError
+from django.http import Http404  # FileResponse, HttpResponse,
+from django.http import (HttpResponseBadRequest, HttpResponseNotFound,
                          JsonResponse)
 from django.shortcuts import render
 # from django.template import loader
 from django.utils.cache import patch_vary_headers
-from django.views.decorators.vary import vary_on_headers
 from django.views.decorators.cache import cache_page
-from django.db.utils import ProgrammingError
-from django.conf import settings
+from django.views.decorators.vary import vary_on_headers
 from PIL import Image, ImageFile
+from quickbbs.models import Thumbnails_Dirs, Thumbnails_Files, index_data
 
 import frontend.archives3 as archives
-import filetypes.models
 # from frontend.config import configdata
 from frontend.database import check_dup_thumbs, get_db_files  # SORT_MATRIX,
 from frontend.thumbnail import (new_process_archive, new_process_dir,
                                 new_process_img)
-from frontend.utilities import (ensures_endswith,
-                                is_valid_uuid, read_from_disk,
-                                return_breadcrumbs, sort_order)
-from cache.watchdogmon import watchdog
-from frontend.web import respond_as_inline, detect_mobile, g_option
-from quickbbs.models import (Thumbnails_Dirs, Thumbnails_Files, index_data)
-from cache.models import fs_Cache_Tracking as Cache_Tracking, CACHE
+from frontend.utilities import (ensures_endswith, is_valid_uuid,
+                                read_from_disk, return_breadcrumbs, sort_order)
+from frontend.web import detect_mobile, g_option, respond_as_inline
 
 log = logging.getLogger(__name__)
 warnings.simplefilter('ignore', Image.DecompressionBombWarning)
@@ -62,72 +62,59 @@ def return_prev_next(fqpn, currentpath, sorder):
     Replace the old system, with Django pagination.
     """
     # Parent_path = Path(fqpn).parent
-    current_folder_name = os.path.basename(Path(fqpn)).lower()
-    prevdir = ""
-    nextdir = ""
-    currentpath = currentpath.lower().strip()
-    if currentpath == (r"/albums/"):
-        return ("", "")
-    # url_parent = fqpn.replace(configdata["locations"]["albums_path"], "").lower()
-    url_parent = fqpn.replace(settings.ALBUMS_PATH, "").lower()
-    url_parent = ensures_endswith(os.path.split(url_parent)[0], os.sep)
-    read_from_disk(url_parent, skippable=True)
-    #    print (*SORT_MATRIX[sorder])
-    index = get_db_files(sorder, url_parent)  # .order_by("lastmod")
-    # dirs_only = index.filter(ignore=False, file_tnail=None, archives=None).exclude(is_dir=False)
+    fqpn = ensures_endswith(fqpn.lower(), os.sep)
+#    current_folder_name = os.path.basename(Path(fqpn)).lower()
+    currentpath = os.path.split(currentpath.lower().strip())[1]
+    #if currentpath.endswith(r"/albums/"):
+    #    return ("", "")
+    read_from_disk(fqpn, skippable=True)
+    index = get_db_files(sorder, fqpn)
     dirs_only = index.filter(ignore=False,
-                             filetype__is_dir=True)  # file_tnail=None, archives=None).exclude(is_dir=False)
-    found = None
-    directories = Paginator(dirs_only, 1)
-    low_path = current_folder_name
+                             filetype__is_dir=True)
+    dir_names = [dname.name.lower() for dname in dirs_only]
+    nextdir = "" # unnecessary since going beyond the max offset will cause indexerror.
+    prevdir = ""
     try:
-        search = next(i for i, v in enumerate(directories.object_list)
-                      if v.name.lower() == low_path) + 1
-    except StopIteration:
-        search = 1
-    found = directories.page(search)
-    if found.has_next():
-        nextdir = dirs_only[found.next_page_number() - 1].name
+        current_offset = dir_names.index(currentpath)+1
+    except ValueError:
+        return (prevdir, nextdir)
 
-    if found.has_previous():
-        prevdir = dirs_only[found.previous_page_number() - 1].name
+    try:
+        nextdir = dir_names[current_offset]
+    except IndexError:
+        nextdir = ""
+
+    try:
+        if current_offset >= 2:
+            prevdir = dir_names[current_offset-2]
+    except IndexError:
+        prevdir = ""
 
     return (prevdir, nextdir)
 
 
 @cache_page(500)
 @vary_on_headers('User-Agent', 'Cookie', 'Request')
-def thumbnails(request, t_url_name=None):
+def thumbnails(request, tnail_id=None):
     """
     Serve the thumbnail resources
 
     URL -> thumbnails/(?P<t_url_name>.*)
     """
     #
-    t_url_name = str(t_url_name).strip().replace("/", "")
-    if is_valid_uuid(t_url_name):
-        index_qs = index_data.objects.filter(uuid=t_url_name,
+    if is_valid_uuid(str(tnail_id)):
+        index_qs = index_data.objects.filter(uuid=tnail_id,
                                              ignore=False, delete_pending=False)
         count = index_qs.count()
         if count == 0:
-            print(t_url_name, "is 0 ")
+            # does not exist
+            print(tnail_id, "is 0 ")
             return None
 
-        check_dup_thumbs(t_url_name)
-        index_qs = index_data.objects.filter(uuid=t_url_name)
-
+        index_qs = index_data.objects.filter(uuid=tnail_id)
         entry = index_qs[0]
 
-        # fs_item = os.path.join(configdata["locations"]["albums_path"],
-        #                        entry.fqpndirectory[1:].lower(),
-        #                        entry.name)
-        fs_item = os.path.join(settings.ALBUMS_PATH,
-                               entry.fqpndirectory[1:].lower(),
-                               entry.name)
-
-        # fqpn = fs_item #(configdata["locations"]["albums_path"] + dir_to_scan).replace("//", "/")
-        # webpath = os.path.join(configdata["locations"]["albums_path"],
-        #                        entry.fqpndirectory[1:].lower())
+        fs_item = os.path.join(entry.fqpndirectory, entry.name)
         webpath = fs_item
 
         # fs_name = os.path.join(configdata["locations"]["albums_path"],
@@ -159,41 +146,39 @@ def thumbnails(request, t_url_name=None):
                 entry.save()
             return new_process_img(entry, request)
 
-        if entry.archives:
-            page = int(g_option(request, "page", 0))
-            return new_process_archive(entry, request, page)
-    return HttpResponseBadRequest(content="Bad UUID or %s Unidentifable file." % fs_item)
+        # if entry.archives:
+        #    page = int(g_option(request, "page", 0))
+        #    return new_process_archive(entry, request, page)
+    return HttpResponseBadRequest(content="Bad UUID or Unidentifable file.")
 
 
-@cache_page(500)
-@vary_on_headers('User-Agent', 'Cookie', 'Request')
+# @cache_page(500)
+# @vary_on_headers('User-Agent', 'Cookie', 'Request')
 def new_viewgallery(request):
     """
     View the requested Gallery page
     """
+    print("NEW VIEW GALLERY")
     start_time = time.time()
     context = {}
     paths = {}
     context["small"] = g_option(request,
                                 "size",
-                                #                            configdata["configuration"]["small"])
                                 settings.IMAGE_SIZE["small"])
     context["medium"] = g_option(request,
                                  "size",
-                                 #                                 configdata["configuration"]["medium"])
                                  settings.IMAGE_SIZE["medium"])
 
     context["large"] = g_option(request,
                                 "size",
                                 settings.IMAGE_SIZE["large"])
-    #    configdata["configuration"]["large"])
     context["user"] = request.user
     context["mobile"] = detect_mobile(request)
     request.path = request.path.lower().replace(os.sep, r"/")
-    paths["webpath"] = ensures_endswith(request.path, "/")
-
+    paths["webpath"] = request.path
+    print("WebPath, View:", paths["webpath"])
     request, context = sort_order(request, context)
-    context["webpath"] = paths["webpath"]
+    context["webpath"] = ensures_endswith(paths["webpath"], os.sep)
     context["breadcrumbs"] = return_breadcrumbs(paths["webpath"])[:-1]
     context["fromtimestamp"] = datetime.datetime.fromtimestamp
     # paths["album_viewing"] = configdata["locations"]["albums_path"] + paths["webpath"]
@@ -209,9 +194,9 @@ def new_viewgallery(request):
         return HttpResponseNotFound('<h1>Page not found</h1>')
 
     # The only thing left is a directory.
-    read_from_disk(paths["webpath"], skippable=True)  # new_viewgallery
-    index = get_db_files(context["sort"], paths["webpath"])
-
+    fs_path = ensures_endswith(os.path.abspath(os.path.join(settings.ALBUMS_PATH, paths["webpath"][1:])), os.sep)
+    read_from_disk(fs_path, skippable=True)  # new_viewgallery
+    index = get_db_files(context["sort"], fs_path)
     #    index = list(index.order_by(*SORT_MATRIX[context["sort"]]))
     #   already sorted by get_db_files call.
 
@@ -256,14 +241,12 @@ def item_info(request, i_uuid):
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
     breadcrumbs = return_breadcrumbs(context["webpath"])
     context["breadcrumbs"] = ""
-    #    for pt_name, pt_url, pt_html in breadcrumbs:
-    #        context["breadcrumbs"] += r"<li>%s</li>" % pt_html
     for bcrumb in breadcrumbs:
         context["breadcrumbs"] += r"<li>%s</li>" % bcrumb[2]
 
     if entry.filetype.fileext in [".txt", ".html", ".htm", ".markdown"]:
         # filename = configdata["locations"]["albums_path"] + \
-        filename = settings.ALBUMS_PATH + context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
+        filename = context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
         if entry.filetype.fileext in [".html"]:
             context["html"] = bleach.linkify("\n".join(open(filename).readlines()))
         elif entry.filetype.fileext in [".markdown"]:
@@ -275,17 +258,17 @@ def item_info(request, i_uuid):
     else:
         context["html"] = ""
 
-    context["up_uri"] = entry.fqpndirectory.lower()
+    pathmaster = Path(os.path.join(entry.fqpndirectory, entry.name))
+    context["up_uri"] = str(pathmaster.parent).lower().replace(settings.ALBUMS_PATH.lower(), "")
     while context["up_uri"].endswith("/"):
         context["up_uri"] = context["up_uri"][:-1]
 
     read_from_disk(context["webpath"].strip(), skippable=True)
     catalog_qs = get_db_files(context["sort"], context["webpath"])
-    context["page"] = 1
-    for counter, data in enumerate(catalog_qs, start=1):
-        if str(data.uuid) == e_uuid:
-            context["page"] = counter
-            break
+    pages = [str(record.uuid) for record in catalog_qs]
+    context["page"] = pages.index(e_uuid)+1
+    context["page_locale"] = int(context["page"] / settings.GALLERY_ITEMS_PER_PAGE)
+
     item_list = Paginator(catalog_qs, 1)
     context["pagecount"] = item_list.count
     page_contents = item_list.page(context["page"])
@@ -346,74 +329,8 @@ def new_json_viewitem(request, i_uuid):
     return response
 
 
-@cache_page(500)
-@vary_on_headers('User-Agent', 'Cookie', 'Request', 'i_uuid')
-def new_viewitem(request, i_uuid):
-    i_uuid = str(i_uuid).strip().replace("/", "")
-    context = {}
-    if not is_valid_uuid(i_uuid):
-        return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
-
-    request, context = sort_order(request, context)
-    e_uuid = i_uuid
-    index_qs = index_data.objects.filter(uuid=e_uuid)
-    entry = index_qs[0]
-    context["user"] = request.user
-    context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
-    context["breadcrumbs"] = return_breadcrumbs(context["webpath"])
-    if entry.filetype.fileext in [".txt", ".html"]:
-        # filename = configdata["locations"]["albums_path"] + \
-        filename = settings.ALBUMS_PATH + context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
-        if entry.filetype.fileext in [".html"]:
-            context["html"] = bleach.linkify("\n".join(open(filename).readlines()))
-        else:
-            context["html"] = "<br>".join(open(filename, encoding="latin-1"))
-
-    #    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
-    context["up_uri"] = entry.fqpndirectory.lower()
-    while context["up_uri"].endswith("/"):
-        context["up_uri"] = context["up_uri"][:-1]
-
-    context["fromtimestamp"] = datetime.datetime.fromtimestamp
-    read_from_disk(context["webpath"].strip(), skippable=True)
-    catalog_qs = get_db_files(context["sort"], context["webpath"])
-    context["page"] = 1
-    for counter, data in enumerate(catalog_qs, start=1):
-        if str(data.uuid) == e_uuid:
-            context["page"] = counter
-            break
-    # possibly replace for loop with
-    # def getIndexOfAnswer(user, question):
-    # answer = user.answer_set.filter(question=question).get()
-    # return user.answer_set.filter(pk__lte=answer.pk).count() - 1
-
-    item_list = Paginator(catalog_qs, 1)
-    context["pagecount"] = item_list.count
-    context["page_contents"] = item_list.page(context["page"])
-    context["item"] = entry
-    # print(entry.filetype.is_movie)
-    if context["page_contents"].has_next():
-        context["next"] = catalog_qs[context["page_contents"].next_page_number() - 1].uuid
-    else:
-        context["next"] = ""
-
-    if context["page_contents"].has_previous():
-        context["previous"] = catalog_qs[context["page_contents"].previous_page_number() - 1].uuid
-    else:
-        context["previous"] = ""
-
-    context["first"] = catalog_qs[0].uuid
-    context["last"] = catalog_qs[catalog_qs.count() - 1].uuid
-
-    response = render(request,
-                      "frontend/gallery_newitem.jinja",
-                      context,
-                      using="Jinja2")
-    patch_vary_headers(response, ["sort-%s" % context["sort"]])
-    return response
-
-
 # @cache_page(60)  # Caching actually slows down the download, at least for small files.
+@vary_on_headers('User-Agent', 'Cookie', 'Request', 'i_uuid')
 def downloadFile(request, filename=None):
     """
     Replaces new_download.
@@ -441,13 +358,10 @@ def downloadFile(request, filename=None):
         print("Attempting to find page %s in archive" % page)
 
     print("\tDownloading - {}, {}".format(download.fqpndirectory.lower(),
-                                      download.name))
+                                          download.name))
 
     return respond_as_inline(request,
-                             "{}{}{}".format(settings.ALBUMS_PATH,
-                                         # configdata["locations"]["albums_path"],
-                                         os.sep,
-                                         download.fqpndirectory),
+                             download.fqpndirectory.lower(),
                              download.name,
                              ranged=download.filetype.is_movie)
 

@@ -33,14 +33,15 @@ print(db.return_imagehash_name(img_hash=z))
 """
 import os
 import os.path
+import time
 # from hashlib import md5
 from hashlib import sha224, sha256  # , sha512
-import time
-from PIL import Image, UnidentifiedImageError
-import imagehash
 
+import imagehash
 # import operator
-from pathvalidate import is_valid_filename, sanitize_filename, sanitize_filepath
+from pathvalidate import (is_valid_filename, sanitize_filename,
+                          sanitize_filepath)
+from PIL import Image, UnidentifiedImageError
 
 SCANNED_PATHS = {}
 VERIFY_COUNT = 0

@@ -1,10 +1,10 @@
-import signal
-import time
 import os
+import signal
 import sys
+import time
 
-from watchdog.observers import Observer
 from watchdog.events import PatternMatchingEventHandler
+from watchdog.observers import Observer
 
 __version__ = '1.5'
 

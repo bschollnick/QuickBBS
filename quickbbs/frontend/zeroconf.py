@@ -1,5 +1,6 @@
-from zeroconf import ServiceBrowser, Zeroconf
 import signal
+
+from zeroconf import ServiceBrowser, Zeroconf
 
 
 class MyListener:

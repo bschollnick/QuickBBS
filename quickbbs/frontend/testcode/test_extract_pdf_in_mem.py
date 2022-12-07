@@ -1,8 +1,10 @@
 # test PDF extraction to memory
 
 from io import BytesIO
-from PIL import Image
+
 import fitz
+from PIL import Image
+
 warnings.simplefilter('ignore', Image.DecompressionBombWarning)
 pdf_file=fitz.open("chart.pdf")
 pdf_page = pdf_file.loadPage(0)
