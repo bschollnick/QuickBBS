@@ -380,7 +380,7 @@ def break_down_urls(uri_path):
 
 
 def return_breadcrumbs(uri_path=""):  # , crumbsize=3):
-    uris = break_down_urls(uri_path)
+    uris = break_down_urls(uri_path.lower().replace(settings.ALBUMS_PATH.lower(), ""))
     data = []
     for count in range(1, len(uris)):
         name = uris[count].split("/")[-1]
