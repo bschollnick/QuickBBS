@@ -7,26 +7,21 @@ import os
 import os.path
 import sys
 import time
-# import uuid
 import warnings
-# from itertools import chain
 from pathlib import Path
 
 import bleach
 import django_icons.templatetags.icons
-import filetypes.models
 import markdown2
-from cache.models import CACHE
+# from cache.models import CACHE
 from cache.models import fs_Cache_Tracking as Cache_Tracking
 from cache.watchdogmon import watchdog
 from django.conf import settings
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
 from django.db.utils import ProgrammingError
-from django.http import Http404  # FileResponse, HttpResponse,
-from django.http import (HttpResponseBadRequest, HttpResponseNotFound,
+from django.http import (Http404, HttpResponseBadRequest, HttpResponseNotFound,
                          JsonResponse)
 from django.shortcuts import render
-# from django.template import loader
 from django.utils.cache import patch_vary_headers
 from django.views.decorators.cache import cache_page
 from django.views.decorators.vary import vary_on_headers
@@ -34,7 +29,6 @@ from PIL import Image, ImageFile
 from quickbbs.models import Thumbnails_Dirs, Thumbnails_Files, index_data
 
 import frontend.archives3 as archives
-# from frontend.config import configdata
 from frontend.database import check_dup_thumbs, get_db_files  # SORT_MATRIX,
 from frontend.thumbnail import (new_process_archive, new_process_dir,
                                 new_process_img)
@@ -63,19 +57,16 @@ def return_prev_next(fqpn, currentpath, sorder):
     """
     # Parent_path = Path(fqpn).parent
     fqpn = ensures_endswith(fqpn.lower(), os.sep)
-#    current_folder_name = os.path.basename(Path(fqpn)).lower()
     currentpath = os.path.split(currentpath.lower().strip())[1]
-    #if currentpath.endswith(r"/albums/"):
-    #    return ("", "")
     read_from_disk(fqpn, skippable=True)
     index = get_db_files(sorder, fqpn)
     dirs_only = index.filter(ignore=False,
                              filetype__is_dir=True)
     dir_names = [dname.name.lower() for dname in dirs_only]
-    nextdir = "" # unnecessary since going beyond the max offset will cause indexerror.
+    nextdir = ""  # unnecessary since going beyond the max offset will cause indexerror.
     prevdir = ""
     try:
-        current_offset = dir_names.index(currentpath)+1
+        current_offset = dir_names.index(currentpath) + 1
     except ValueError:
         return (prevdir, nextdir)
 
@@ -86,7 +77,7 @@ def return_prev_next(fqpn, currentpath, sorder):
 
     try:
         if current_offset >= 2:
-            prevdir = dir_names[current_offset-2]
+            prevdir = dir_names[current_offset - 2]
     except IndexError:
         prevdir = ""
 
@@ -115,20 +106,14 @@ def thumbnails(request, tnail_id=None):
         entry = index_qs[0]
 
         fs_item = os.path.join(entry.fqpndirectory, entry.name)
-        webpath = fs_item
-
-        # fs_name = os.path.join(configdata["locations"]["albums_path"],
-        #                        entry.fqpndirectory[1:],
-        #                        entry.name)
-        fs_name = fs_item
-        fname = os.path.basename(fs_name).title()
+        fname = os.path.basename(fs_item).title()
         # thumb_size = g_option(request, "size", "Small").title()
         if entry.filetype.is_dir:
             if entry.directory is None:  # == None:
                 entry.directory = Thumbnails_Dirs.objects.update_or_create(
-                    uuid=entry.uuid, FilePath=webpath, DirName=fname,
+                    uuid=entry.uuid, FilePath=fs_item, DirName=fname,
                     defaults={"uuid": entry.uuid,
-                              "FilePath": webpath,
+                              "FilePath": fs_item,
                               "DirName": fname})[0]
                 entry.save()
             return new_process_dir(entry)
@@ -137,10 +122,10 @@ def thumbnails(request, tnail_id=None):
             if entry.file_tnail is None:  # == None:
                 entry.file_tnail = Thumbnails_Files.objects.update_or_create(
                     uuid=entry.uuid,
-                    FilePath=webpath,
+                    FilePath=fs_item,
                     FileName=fname,
                     defaults={"uuid": entry.uuid,
-                              "FilePath": webpath,
+                              "FilePath": fs_item,
                               "FileName": fname,
                               })[0]
                 entry.save()
@@ -194,7 +179,8 @@ def new_viewgallery(request):
         return HttpResponseNotFound('<h1>Page not found</h1>')
 
     # The only thing left is a directory.
-    fs_path = ensures_endswith(os.path.abspath(os.path.join(settings.ALBUMS_PATH, paths["webpath"][1:])), os.sep)
+    fs_path = ensures_endswith(os.path.abspath(os.path.join(settings.ALBUMS_PATH,
+                                                            paths["webpath"][1:])), os.sep)
     read_from_disk(fs_path, skippable=True)  # new_viewgallery
     index = get_db_files(context["sort"], fs_path)
     #    index = list(index.order_by(*SORT_MATRIX[context["sort"]]))
@@ -222,7 +208,7 @@ def new_viewgallery(request):
                       "frontend/gallery_listing.jinja",
                       context,
                       using="Jinja2")
-    patch_vary_headers(response, ["sort-%s" % context["sort"]])
+    patch_vary_headers(response, [f"sort-{context['sort']}"])
     print("Gallery View, processing time: ", time.time() - start_time)
     return response
 
@@ -230,6 +216,19 @@ def new_viewgallery(request):
 @cache_page(500)
 @vary_on_headers('User-Agent', 'Cookie', 'Request', 'i_uuid')
 def item_info(request, i_uuid):
+    """
+    Create the JSON package for item view.  All Json item requests come here to
+    get their data.
+
+    Parameters
+    ----------
+    request : Django requests object
+    i_uuid : The UUID4 id of the item to get the information on.
+
+    Returns
+    -------
+    JsonResponse : The Json response from the web query.
+    """
     start_time = time.time()
     e_uuid = str(i_uuid).strip().replace("/", "")
     context = {}
@@ -238,25 +237,34 @@ def item_info(request, i_uuid):
 
     request, context = sort_order(request, context)
     entry = index_data.objects.filter(uuid=e_uuid)[0]
+    context["html"] = ""
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
     breadcrumbs = return_breadcrumbs(context["webpath"])
     context["breadcrumbs"] = ""
     for bcrumb in breadcrumbs:
         context["breadcrumbs"] += r"<li>%s</li>" % bcrumb[2]
 
-    if entry.filetype.fileext in [".txt", ".html", ".htm", ".markdown"]:
-        # filename = configdata["locations"]["albums_path"] + \
+    if entry.filetype.is_text or entry.filetype.is_markdown:
         filename = context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
-        if entry.filetype.fileext in [".html"]:
-            context["html"] = bleach.linkify("\n".join(open(filename).readlines()))
-        elif entry.filetype.fileext in [".markdown"]:
-            markdowner = markdown2.Markdown()
-            context["html"] = markdowner.convert("\n".join(open(filename).readlines()))
+        markdowner = markdown2.Markdown()
+        context["html"] = markdowner.convert("\n".join(open(filename).readlines()))
 
-        else:
-            context["html"] = "<br>".join(open(filename, encoding="latin-1"))
-    else:
-        context["html"] = ""
+    if entry.filetype.is_html:
+        context["html"] = "<br>".join(open(filename, encoding="latin-1"))
+
+    # if entry.filetype.fileext in [".txt", ".html", ".htm", ".markdown"]:
+    #     # filename = configdata["locations"]["albums_path"] + \
+    #     filename = context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
+    #     if entry.filetype.fileext in [".html"]:
+    #         context["html"] = bleach.linkify("\n".join(open(filename).readlines()))
+    #     elif entry.filetype.fileext in [".markdown"]:
+    #         markdowner = markdown2.Markdown()
+    #         context["html"] = markdowner.convert("\n".join(open(filename).readlines()))
+    #
+    #     else:
+    #         context["html"] = "<br>".join(open(filename, encoding="latin-1"))
+    # else:
+    #     context["html"] = ""
 
     pathmaster = Path(os.path.join(entry.fqpndirectory, entry.name))
     context["up_uri"] = str(pathmaster.parent).lower().replace(settings.ALBUMS_PATH.lower(), "")
@@ -266,8 +274,8 @@ def item_info(request, i_uuid):
     read_from_disk(context["webpath"].strip(), skippable=True)
     catalog_qs = get_db_files(context["sort"], context["webpath"])
     pages = [str(record.uuid) for record in catalog_qs]
-    context["page"] = pages.index(e_uuid)+1
-    context["page_locale"] = int(context["page"] / settings.GALLERY_ITEMS_PER_PAGE)+1
+    context["page"] = pages.index(e_uuid) + 1
+    context["page_locale"] = int(context["page"] / settings.GALLERY_ITEMS_PER_PAGE) + 1
 
     item_list = Paginator(catalog_qs, 1)
     context["pagecount"] = item_list.count
@@ -310,7 +318,7 @@ def item_info(request, i_uuid):
     return response
 
 
-@cache_page(500)
+@cache_page(300)
 @vary_on_headers('User-Agent', 'Cookie', 'Request', 'i_uuid')
 def new_json_viewitem(request, i_uuid):
     i_uuid = str(i_uuid).strip().replace("/", "")
@@ -406,8 +414,8 @@ def new_view_archive(request, i_uuid):
     context["fromtimestamp"] = datetime.datetime.fromtimestamp
     # context["djicons"] = django_icons.templatetags.icons.icon
     context["djicons"] = django_icons.templatetags.icons.icon_tag
-    # arc_filename = configdata["locations"]["albums_path"] + \
-    arc_filename = settings.ALBUMS_PATH + context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
+    arc_filename = settings.ALBUMS_PATH + \
+                   context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
     archive_file = archives.id_cfile_by_sig(arc_filename)
     archive_file.get_listings()
     context["db_entry"] = entry

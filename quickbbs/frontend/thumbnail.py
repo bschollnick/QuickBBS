@@ -11,8 +11,8 @@ import frontend.archives3 as archives
 # from frontend.config import configdata
 from frontend.database import get_xth_image
 from frontend.utilities import cr_tnail_img, read_from_disk, return_image_obj
-from frontend.web import (g_option,  # , respond_as_attachment
-                          return_img_attach, return_inline_attach)
+from frontend.web import g_option  # , respond_as_attachment
+from frontend.web import return_img_attach, return_inline_attach
 
 
 def ensures_endswith(string_to_check, value):
