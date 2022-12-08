@@ -30,8 +30,6 @@ from quickbbs.models import Thumbnails_Archives, filetypes, index_data
 
 import frontend.archives3 as archives
 import frontend.constants as constants
-import frontend.pdf_utilities as pdf_utilities
-from frontend.database import check_dup_thumbs  # , validate_database
 
 log = logging.getLogger(__name__)
 
@@ -79,20 +77,17 @@ def ensures_endswith(string_to_check, value):
     return string_to_check
 
 
-def sort_order(request, context):
+def sort_order(request):
     """
     Grab the sort order from the request (cookie)
     and apply it to the session, and to the context for the web page.
 
     Args:
         request (obj) - The request object
-        context (dict) - The dictionary for the web page template
 
     Returns:
-        obj::
-            The request object
-        dict::
-            The context dictionary
+        int::
+            The sort value from the request, or 0 if not supplied in the request.
 
     Raises:
         None
@@ -100,8 +95,7 @@ def sort_order(request, context):
     Examples
     --------
     """
-    context["sort"] = int(request.GET.get("sort", default=0))
-    return request, context
+    return int(request.GET.get("sort", default=0))
 
 
 def is_valid_uuid(uuid_to_test, version=4):
@@ -188,47 +182,71 @@ def return_image_obj(fs_path, memory=False):
     extension = os.path.splitext(fs_path)[1].lower()
 
     if extension in ("", b"", None):
+        # There is currently no concept of a "None" in filetypes
         extension = ".none"
-    if extension == ".pdf":
+    if filetype_models.FILETYPE_DATA[extension]["is_pdf"]:
+        # Do not repair the PDF / validate the PDF.  If it's bad, it should be repaired, not band-aided by
+        # a patch from the web server.
         # results = pdf_utilities.check_pdf(fs_path)
         # if results[0] is False:
         #    pdf_utilities.repair_pdf(fs_path, fs_path)
+        with fitz.open(fs_path) as pdf_file:
+            # pdf_file = fitz.open(fs_path)
+            pdf_page = pdf_file.load_page(0)
+            pix = pdf_page.get_pixmap(alpha=True)  # matrix=fitz.Identity, alpha=True)
 
-        pdf_file = fitz.open(fs_path)
-        pdf_page = pdf_file.load_page(0)
-        pix = pdf_page.get_pixmap(alpha=True)  # matrix=fitz.Identity, alpha=True)
+            try:
+                source_image = Image.open(BytesIO(pix.tobytes()))
+            except UserWarning:
+                print("UserWarning!")
+                source_image = None
 
-        try:
-            source_image = Image.open(BytesIO(pix.tobytes()))
-        except UserWarning:
-            print("UserWarning!")
-            source_image = None
+    elif filetype_models.FILETYPE_DATA[extension]["is_movie"]:
+        with av.open(fs_path) as container:
+            stream = container.streams.video[0]
+            frame = next(container.decode(stream))
+            source_image = frame.to_image()
 
-    if extension in filetype_models.FILETYPE_DATA:
-        if filetype_models.FILETYPE_DATA[extension]["is_movie"]:
-            with av.open(fs_path) as container:
-                stream = container.streams.video[0]
-                frame = next(container.decode(stream))
-                source_image = frame.to_image()
+    elif filetype_models.FILETYPE_DATA[extension]["is_image"]:
+        if not memory:
+            try:
+                source_image = Image.open(fs_path)
+            except OSError:
+                print("Unable to load source file")
+        else:
+            try:  # fs_path is a byte stream
+                source_image = Image.open(BytesIO(fs_path))
+            #                source_image = None
+            except OSError:
+                print("IOError")
+                log.debug("PIL was unable to identify as an image file")
+            #               source_image = None
+            except UserWarning:
+                print("UserWarning!")
+#              source_image = None
+    if filetype_models.FILETYPE_DATA[extension]["is_movie"]:
+        with av.open(fs_path) as container:
+            stream = container.streams.video[0]
+            frame = next(container.decode(stream))
+            source_image = frame.to_image()
 
-        elif filetype_models.FILETYPE_DATA[extension]["is_image"]:
-            if not memory:
-                try:
-                    source_image = Image.open(fs_path)
-                except OSError:
-                    print("Unable to load source file")
-
-            else:
-                try:  # fs_path is a byte stream
-                    source_image = Image.open(BytesIO(fs_path))
-                #                source_image = None
-                except OSError:
-                    print("IOError")
-                    log.debug("PIL was unable to identify as an image file")
-                #               source_image = None
-                except UserWarning:
-                    print("UserWarning!")
-    #              source_image = None
+    elif filetype_models.FILETYPE_DATA[extension]["is_image"]:
+        if not memory:
+            try:
+                source_image = Image.open(fs_path)
+            except OSError:
+                print("Unable to load source file")
+        else:
+            try:  # fs_path is a byte stream
+                source_image = Image.open(BytesIO(fs_path))
+            #                source_image = None
+            except OSError:
+                print("IOError")
+                log.debug("PIL was unable to identify as an image file")
+            #               source_image = None
+            except UserWarning:
+                print("UserWarning!")
+#              source_image = None
     return source_image
 
 
@@ -255,15 +273,13 @@ def cr_tnail_img(source_image, size, fext):
     try:
         source_image.save(fp=image_data,
                           format="PNG",  # Need alpha channel support for icons, etc.
-                          # configdata["filetypes"][fext][2].strip(),
                           optimize=False)
     except OSError:
         source_image = source_image.convert('RGB')
         source_image.save(fp=image_data,
-                          format="JPEG",  # configdata["filetypes"][fext][2].strip(),
+                          format="JPEG",
                           optimize=False
                           )
-
     image_data.seek(0)
     return image_data.getvalue()
 
@@ -301,9 +317,7 @@ def return_disk_listing(fqpn, enable_rename=False):
         titlecase = entry.name.title()
         unescaped = html.unescape(titlecase)
         lower_filename = entry.name.lower()
-        if lower_filename in settings.FILES_TO_IGNORE:
-            continue
-        #        rename = False
+
         animated = False
         fext = os.path.splitext(lower_filename)[1]
         if fext == "":
@@ -312,12 +326,16 @@ def return_disk_listing(fqpn, enable_rename=False):
             fext = ".dir"
 
         if fext not in filetype_models.FILETYPE_DATA:
+            # The file extension is not in FILETYPE_DATA, so ignore it.
             continue
         elif (fext in settings.EXTENSIONS_TO_IGNORE) or \
                 (lower_filename in settings.FILES_TO_IGNORE):
+            # file extension is in EXTENSIONS_TO_IGNORE, so skip it.
+            # or the filename is in FILES_TO_IGNORE, so skip it.
             continue
 
         elif settings.IGNORE_DOT_FILES and lower_filename.startswith("."):
+            # IGNORE_DOT_FLES is enabled, *and* the filename startswith an ., skip it.
             continue
 
         if enable_rename:
@@ -452,8 +470,8 @@ def sync_database_disk(directoryname):
                 # print("Size mismatch")
                 db_entry.size = entry["size"]
                 update = True
-#            if db_entry.filetypes.fileext not in filetypes.filetype[db_entry.filetypes.fileext]:
-#                pass
+            #            if db_entry.filetypes.fileext not in filetypes.filetype[db_entry.filetypes.fileext]:
+            #                pass
             if db_entry.directory:  # or db_entry["unified_dirs"]:
                 success, subdirectory = return_disk_listing(entry["path"])
                 fs_file_count, fs_dir_count = fs_counts(subdirectory)

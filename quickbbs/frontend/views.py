@@ -13,9 +13,6 @@ from pathlib import Path
 import bleach
 import django_icons.templatetags.icons
 import markdown2
-# from cache.models import CACHE
-from cache.models import fs_Cache_Tracking as Cache_Tracking
-from cache.watchdogmon import watchdog
 from django.conf import settings
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
 from django.db.utils import ProgrammingError
@@ -26,10 +23,11 @@ from django.utils.cache import patch_vary_headers
 from django.views.decorators.cache import cache_page
 from django.views.decorators.vary import vary_on_headers
 from PIL import Image, ImageFile
+from cache.models import fs_Cache_Tracking as Cache_Tracking
 from quickbbs.models import Thumbnails_Dirs, Thumbnails_Files, index_data
 
 import frontend.archives3 as archives
-from frontend.database import check_dup_thumbs, get_db_files  # SORT_MATRIX,
+from frontend.database import get_db_files  # check_dup_thumbs
 from frontend.thumbnail import (new_process_archive, new_process_dir,
                                 new_process_img)
 from frontend.utilities import (ensures_endswith, is_valid_uuid,
@@ -162,7 +160,7 @@ def new_viewgallery(request):
     request.path = request.path.lower().replace(os.sep, r"/")
     paths["webpath"] = request.path
     print("WebPath, View:", paths["webpath"])
-    request, context = sort_order(request, context)
+    context["sort"] = sort_order(request)
     context["webpath"] = ensures_endswith(paths["webpath"], os.sep)
     context["breadcrumbs"] = return_breadcrumbs(paths["webpath"])[:-1]
     context["fromtimestamp"] = datetime.datetime.fromtimestamp
@@ -229,42 +227,30 @@ def item_info(request, i_uuid):
     -------
     JsonResponse : The Json response from the web query.
     """
-    start_time = time.time()
-    e_uuid = str(i_uuid).strip().replace("/", "")
     context = {}
+    context["start_time"] = time.time()
+    e_uuid = str(i_uuid).strip().replace("/", "")
     if not is_valid_uuid(e_uuid):
         return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
 
-    request, context = sort_order(request, context)
+    context["sort"] = sort_order(request)
     entry = index_data.objects.filter(uuid=e_uuid)[0]
+
     context["html"] = ""
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
     breadcrumbs = return_breadcrumbs(context["webpath"])
     context["breadcrumbs"] = ""
     for bcrumb in breadcrumbs:
-        context["breadcrumbs"] += r"<li>%s</li>" % bcrumb[2]
+        context["breadcrumbs"] += f"<li>{bcrumb[2]}</li>"
 
+    filename = context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
     if entry.filetype.is_text or entry.filetype.is_markdown:
-        filename = context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
-        markdowner = markdown2.Markdown()
-        context["html"] = markdowner.convert("\n".join(open(filename).readlines()))
-
+        # context["html"] = markdown2.Markdown().convert("\n".join(open(filename).readlines()))
+        with open(filename, 'r', encoding="latin-1") as textfile:
+            context["html"] = markdown2.Markdown().convert("\n".join(textfile.readlines()))
     if entry.filetype.is_html:
-        context["html"] = "<br>".join(open(filename, encoding="latin-1"))
-
-    # if entry.filetype.fileext in [".txt", ".html", ".htm", ".markdown"]:
-    #     # filename = configdata["locations"]["albums_path"] + \
-    #     filename = context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
-    #     if entry.filetype.fileext in [".html"]:
-    #         context["html"] = bleach.linkify("\n".join(open(filename).readlines()))
-    #     elif entry.filetype.fileext in [".markdown"]:
-    #         markdowner = markdown2.Markdown()
-    #         context["html"] = markdowner.convert("\n".join(open(filename).readlines()))
-    #
-    #     else:
-    #         context["html"] = "<br>".join(open(filename, encoding="latin-1"))
-    # else:
-    #     context["html"] = ""
+        with open(filename, 'r', encoding="latin-1") as htmlfile:
+            context["html"] = bleach.clean("<br>".join(htmlfile.readlines()))
 
     pathmaster = Path(os.path.join(entry.fqpndirectory, entry.name))
     context["up_uri"] = str(pathmaster.parent).lower().replace(settings.ALBUMS_PATH.lower(), "")
@@ -273,16 +259,14 @@ def item_info(request, i_uuid):
 
     read_from_disk(context["webpath"].strip(), skippable=True)
     catalog_qs = get_db_files(context["sort"], context["webpath"])
+    item_list = Paginator(catalog_qs, 1)
+
     pages = [str(record.uuid) for record in catalog_qs]
     context["page"] = pages.index(e_uuid) + 1
     context["page_locale"] = int(context["page"] / settings.GALLERY_ITEMS_PER_PAGE) + 1
-
-    item_list = Paginator(catalog_qs, 1)
     context["pagecount"] = item_list.count
-    page_contents = item_list.page(context["page"])
-
-    context["webpath"] = context["webpath"]  # .replace("/", "//")
-    context["up_uri"] = context["up_uri"]  # .replace("/", "//")
+    context["next_uuid"] = ""
+    context["prev_uuid"] = ""
     context["uuid"] = entry.uuid
     context["filename"] = entry.name
     context["filesize"] = entry.size
@@ -291,7 +275,8 @@ def item_info(request, i_uuid):
     context["subdircount"] = entry.count_subfiles
     context["is_animated"] = entry.is_animated
     context["lastmod"] = entry.lastmod
-    context["lastmod_ds"] = datetime.datetime.fromtimestamp(entry.lastmod).strftime("%m/%d/%y %H:%M:%S")
+    context["lastmod_ds"] = datetime.datetime.fromtimestamp(entry.lastmod). \
+        strftime("%m/%d/%y %H:%M:%S")
     context["ft_filename"] = entry.filetype.icon_filename
     context["ft_color"] = entry.filetype.color
     context["ft_is_image"] = entry.filetype.is_image
@@ -301,19 +286,16 @@ def item_info(request, i_uuid):
     context["ft_is_dir"] = entry.filetype.is_dir
     context["mobile"] = detect_mobile(request)
 
+    page_contents = item_list.page(context["page"])
     if page_contents.has_next():
         context["next_uuid"] = catalog_qs[page_contents.next_page_number() - 1].uuid
-    else:
-        context["next_uuid"] = ""
 
     if page_contents.has_previous():
         context["previous_uuid"] = catalog_qs[page_contents.previous_page_number() - 1].uuid
-    else:
-        context["previous_uuid"] = ""
 
     context["first_uuid"] = catalog_qs[0].uuid
     context["last_uuid"] = catalog_qs[catalog_qs.count() - 1].uuid
-    print("Process time: ", time.time() - start_time, "secs")
+    print("Process time: ", time.time() - context["start_time"], "secs")
     response = JsonResponse(context, status=200)
     return response
 
@@ -321,19 +303,30 @@ def item_info(request, i_uuid):
 @cache_page(300)
 @vary_on_headers('User-Agent', 'Cookie', 'Request', 'i_uuid')
 def new_json_viewitem(request, i_uuid):
+    """
+
+    Parameters
+    ----------
+    request
+    i_uuid
+
+    Returns
+    -------
+
+    """
     i_uuid = str(i_uuid).strip().replace("/", "")
     context = {}
     if not is_valid_uuid(i_uuid):
         return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
 
-    request, context = sort_order(request, context)
+    context["sort"] = sort_order(request)
     context["uuid"] = i_uuid
     context["user"] = request.user
     response = render(request,
                       "frontend/gallery_json_item.jinja",
                       context,
                       using="Jinja2")
-    patch_vary_headers(response, ["sort-%s" % context["sort"]])
+    patch_vary_headers(response, [f"sort-{context['sort']}"])
     return response
 
 
@@ -363,10 +356,9 @@ def downloadFile(request, filename=None):
                                              ignore=False,
                                              delete_pending=False)[0]
     else:
-        print("Attempting to find page %s in archive" % page)
+        print(f"Attempting to find page {page} in archive")
 
-    print("\tDownloading - {}, {}".format(download.fqpndirectory.lower(),
-                                          download.name))
+    print(f"\tDownloading - {download.fqpndirectory.lower()}, {download.name}")
 
     return respond_as_inline(request,
                              download.fqpndirectory.lower(),
@@ -385,7 +377,7 @@ def new_view_archive(request, i_uuid):
     if not is_valid_uuid(i_uuid):
         return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
 
-    #    request, context = sort_order(request, context)
+    #    context["sort"] = sort_order(request)
     e_uuid = i_uuid
     index_qs = index_data.objects.filter(uuid=e_uuid)
     entry = index_qs[0]
@@ -405,7 +397,7 @@ def new_view_archive(request, i_uuid):
                                 settings.IMAGE_SIZE["large"])
     context["user"] = request.user
     context["mobile"] = detect_mobile(request)
-    request, context = sort_order(request, context)
+    context["sort"] = sort_order(request)
 
     context["next"] = ""
     context["previous"] = ""
@@ -414,8 +406,8 @@ def new_view_archive(request, i_uuid):
     context["fromtimestamp"] = datetime.datetime.fromtimestamp
     # context["djicons"] = django_icons.templatetags.icons.icon
     context["djicons"] = django_icons.templatetags.icons.icon_tag
-    arc_filename = settings.ALBUMS_PATH + \
-                   context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
+    arc_filename = settings.ALBUMS_PATH + context["webpath"].replace("/",
+                                                                     os.sep).replace("//", "/") + entry.name
     archive_file = archives.id_cfile_by_sig(arc_filename)
     archive_file.get_listings()
     context["db_entry"] = entry
@@ -444,7 +436,7 @@ def new_view_archive(request, i_uuid):
                       "frontend/archive_newgallery.jinja",
                       context,
                       using="Jinja2")
-    patch_vary_headers(response, ["sort-%s" % context["sort"]])
+    patch_vary_headers(response, [f"sort-{context['sort']}"])
     return response
 
 
@@ -459,7 +451,7 @@ def new_archive_item(request, i_uuid):
     if not is_valid_uuid(i_uuid):
         return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
 
-    request, context = sort_order(request, context)
+    context["sort"] = sort_order(request)
     e_uuid = i_uuid
     index_qs = index_data.objects.filter(uuid=e_uuid)
     entry = index_qs[0]
@@ -483,14 +475,13 @@ def new_archive_item(request, i_uuid):
     context["page_contents"] = item_list.page(context["current_page"] + 1)
 
     if context["page_contents"].has_next():
-        context["next"] = "view_archive_item/{}?page={}".format(
-            entry.uuid, context["page_contents"].next_page_number() - 1)  # 1 based
+        context["next"] = f"view_archive_item/{entry.uuid}?page={context['page_contents'].next_page_number() - 1}"
     else:
         context["next"] = ""
 
     if context["page_contents"].has_previous():
-        context["previous"] = "view_archive_item/{}?page={}".format(
-            entry.uuid, context["page_contents"].previous_page_number() - 1)  # 1 based
+        context[
+            "previous"] = f"view_archive_item/{entry.uuid}?page={context['page_contents'].previous_page_number() - 1}"
     else:
         context["previous"] = ""
     #

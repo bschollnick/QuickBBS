@@ -86,14 +86,14 @@ def new_process_dir(db_index):
         #   Reset the existing thumbnails to ensure that they will be
         #   regenerated
         print("size mismatch, {} - {}".format(db_index.directory.FileSize,
-                                          db_index.name))
+                                              db_index.name))
 
         db_index.directory.FileSize = -1
         db_index.directory.SmallThumb = b""
 
     files = images_in_dir(index_data,
                           ensures_endswith(os.path.join(db_index.fqpndirectory,
-                                       db_index.name).lower(), os.sep))
+                                                        db_index.name).lower(), os.sep))
     #    print("\n\n !!! = ",os.path.join(db_index.fqpndirectory,
     #                                       db_index.name).lower(), files)
     if files:  # found an file in the directory to use for thumbnail purposes
@@ -113,11 +113,11 @@ def new_process_dir(db_index):
         #
         #   There are no files in the directory
         #
-        temp = return_image_obj(os.path.join(settings.IMAGES_PATH,FILETYPE_DATA[".dir"]["icon_filename"]))
+        temp = return_image_obj(os.path.join(settings.IMAGES_PATH, FILETYPE_DATA[".dir"]["icon_filename"]))
         img_icon = cr_tnail_img(temp, settings.IMAGE_SIZE["small"],
                                 FILETYPE_DATA[".dir"]["icon_filename"])
         # configdata["filetypes"]["dir"][2])
-        #db_index.is_generic = True
+        # db_index.is_generic = True
         db_index.directory.SmallThumb = img_icon
         db_index.directory.FileSize = db_index.size
     #            print("Set size to %s for %s" % (db_index.directory.FileSize,
@@ -156,24 +156,18 @@ def new_process_img(entry, request, imagesize="Small"):
         # Does the thumbnail exist?
         if entry.size == entry.file_tnail.FileSize:
             return return_inline_attach(entry.name, existing_data)
-
         else:
             print("Cache is invalid")
-    #fs_fname = settings.ALBUMS_PATH + os.path.join(entry.fqpndirectory.lower(), entry.name)
-    fs_fname = os.path.join(entry.fqpndirectory, entry.name)
-    fs_fname = fs_fname.replace("//", "/")
+    fs_fname = os.path.join(entry.fqpndirectory, entry.name).replace("//", "/")
     # file system location of directory
 
     fext = os.path.splitext(fs_fname)[1][1:].lower()
     imagedata = None
-    # entry.file_tnail.FileSize = -1
-    # entry.file_tnail.SmallThumb = b""
-    # entry.file_tnail.MediumThumb = b""
-    # entry.file_tnail.LargeThumb = b""
     entry.file_tnail = invalidate_thumb(entry.file_tnail)
 
     # https://stackoverflow.com/questions/1167398/python-access-class-property-from-string
     temp = return_image_obj(fs_fname)
+    temp_image = cr_tnail_img(temp, settings.IMAGE_SIZE[thumb_size.lower()], fext=fext)
     setattr(entry.file_tnail,
             "%sThumb" % thumb_size, cr_tnail_img(temp,
                                                  settings.IMAGE_SIZE[thumb_size.lower()],
@@ -184,9 +178,6 @@ def new_process_img(entry, request, imagesize="Small"):
     entry.save()
     imagedata = getattr(entry.file_tnail, "%sThumb" % thumb_size)
     return return_img_attach(entry.name, imagedata, fext_override="JPEG")
-
-
-#    return return_img_attach(db_index.name, db_index.directory.SmallThumb)
 
 
 def new_process_archive(ind_entry, request, page=0):
@@ -221,10 +212,7 @@ def new_process_archive(ind_entry, request, page=0):
     fext = os.path.splitext(fn_to_extract)[1][1:].lower()
     data = archive_file.extract_mem_file(fn_to_extract)
     im_data = return_image_obj(data, memory=True)
-    if im_data == None:
-        #
-        # Add Caching
-        #
+    if im_data is None:
         im_data = return_image_obj(os.path.join(settings.RESOURCES_PATH, "images",
                                                 FILETYPE_DATA[fext]["icon_filename"]),
                                    memory=True)
