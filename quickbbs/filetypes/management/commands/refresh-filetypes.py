@@ -1,8 +1,6 @@
 from django.core.management.base import BaseCommand, CommandError
 
 from filetypes.models import *
-# from filetypes.constants import ftypes
-# import filetypes.settings as settings
 from django.conf import settings
 
 class Command(BaseCommand):
@@ -38,7 +36,8 @@ class Command(BaseCommand):
                                                "icon_filename":"1431973779_html.png",
                                                "color":"fef7df",
                                                "filetype":settings.FTYPES['html'],
-                                               "is_text":True})
+                                               "is_html":True,
+                                               "is_text":False})
 
         for ext in settings.GRAPHIC_FILE_TYPES:
             filetypes.objects.update_or_create(fileext=ext,
@@ -53,6 +52,15 @@ class Command(BaseCommand):
                                                "color":"FAEBF4",
                                                "filetype":settings.FTYPES['image'],
                                                "is_text": True})
+
+        for ext in settings.MARKDOWN_FILE_TYPES:
+            filetypes.objects.update_or_create(fileext=ext,
+                                               defaults={"generic":True,
+                                               "icon_filename":"1431973815_text.PNG",
+                                               "color":"FAEBF4",
+                                               "filetype":settings.FTYPES['image'],
+                                               "is_markdown": True,
+                                               "is_text": False})
 
         filetypes.objects.update_or_create(fileext=".pdf",
                                            defaults={"generic":False,

@@ -40,7 +40,8 @@ FTYPES = {'unknown': 0,
           'html': 7,
           'epub': 8,
           'flash': 9,
-          'audio': 10}
+          'audio': 10,
+          'markdown': 11}
 # TBD: Need to confirm ftypes is still in use.
 
 GRAPHIC_FILE_TYPES = [".bmp", ".gif", ".jpg", ".jpeg", ".png", '.webp']
@@ -52,6 +53,7 @@ TEXT_FILE_TYPES = [".txt", ".markdown", ".text"]
 MOVIE_FILE_TYPES = [".mp4", ".mpg", ".mpg4", ".mpeg", ".mpeg4", ".wmv", '.flv', '.avi']
 AUDIO_FILE_TYPES = [".MP3", ]
 BOOK_FILE_TYPES = [".epub", ]
+MARKDOWN_FILE_TYPES = [".markdown", ]
 
 ARCHIVE_FILE_TYPES = RAR_FILE_TYPES + ZIP_FILE_TYPES
 
