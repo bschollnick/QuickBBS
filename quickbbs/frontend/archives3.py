@@ -163,7 +163,7 @@ print filename, 'is a', cf.mime_type, 'file'
 
         Returns - Handler as assigned by self.handler
        """
-        if self.handler != None:
+        if self.handler is not None:
             # pylint: disable=E1102
             try:
                 return self.handler(self.filename, 'r')
@@ -183,7 +183,7 @@ print filename, 'is a', cf.mime_type, 'file'
         Returns - If a recognized archive file is loaded, the mimetype of
                   said archive.  Otherwise, None.
         """
-        if self.mime_type != None:
+        if self.mime_type is not None:
             return self.mime_type
         raise NotInitializedYet
 
@@ -280,21 +280,21 @@ signatures = {'\x50\x4b\x03\x04': (['zip', 'cbz', 'pk3', 'pk4'],
               '\x50\x4b\x07\x08': (['zip', 'cbz', 'pk3', 'pk4'],
                                    'compressed/zip',
                                    zipfile.ZipFile),
-              b'PK\x03\x04': (['zip', 'cbz', 'pk3', 'pk4'],
-                              'compressed/zip',
-                              zipfile.ZipFile),
-              '\x52\x61\x72\x21': (['rar', 'cbr'],
-                                   'application/x-rar-compressed',
-                                   rarfile.RarFile),
+              # b'PK\x03\x04': (['zip', 'cbz', 'pk3', 'pk4'],
+              #                 'compressed/zip',
+              #                 zipfile.ZipFile),
+              # '\x52\x61\x72\x21': (['rar', 'cbr'],
+              #                      'application/x-rar-compressed',
+              #                      rarfile.RarFile),
               b'Rar!': (['rar', 'cbr'],
                         'application/x-rar-compressed',
                         rarfile.RarFile),
               b'\x1F\\9D': (['lzh'],
-                           'tar lzh compression',
-                           None),
+                            'tar lzh compression',
+                            None),
               b'\x1F\\A0': (['lzh'],
-                           'tar lzh compression',
-                           None),
+                            'tar lzh compression',
+                            None),
               b'\x42\x5A\x68': (['bzip', 'bz'],
                                 'bzip compression',
                                 None),
