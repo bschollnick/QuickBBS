@@ -13,7 +13,7 @@ import xattr
 app_dir = os.path.split(sys.argv[0])[0]
 print(app_dir)
 sys.path.append(os.path.join(app_dir, '..'))
-from cache.cached_exists import *
+from cache.old.cached_exists import *
 
 colornames = {
     0: 'none',

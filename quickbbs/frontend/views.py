@@ -227,8 +227,7 @@ def item_info(request, i_uuid):
     -------
     JsonResponse : The Json response from the web query.
     """
-    context = {}
-    context["start_time"] = time.time()
+    context = {"start_time": time.time()}
     e_uuid = str(i_uuid).strip().replace("/", "")
     if not is_valid_uuid(e_uuid):
         return HttpResponseBadRequest(content="Non-UUID thumbnail request.")

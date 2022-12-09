@@ -6,28 +6,28 @@ from django.conf import settings
 from django.db import models
 from filetypes.models import FILETYPE_DATA
 
-from cache.cached_exists import cached_exist
+# from cache.cached_exists import cached_exist
 #from frontend.config import configdata
 from cache.watchdogmon import watchdog
 
-CACHE = cached_exist(use_modify=True, use_extended=True, FilesOnly=False,
-                     use_filtering=True)
-CACHE.IgnoreDotFiles = True
-CACHE.FilesOnly = False
-
-try:
-    # print("Acceptable extensions", list(FILETYPE_DATA.keys()))
-    CACHE.AcceptableExtensions = list(FILETYPE_DATA.keys())
-except AttributeError:
-    pass
-CACHE.AcceptableExtensions.append("")
+# CACHE = cached_exist(use_modify=True, use_extended=True, FilesOnly=False,
+#                      use_filtering=True)
+# CACHE.IgnoreDotFiles = True
+# CACHE.FilesOnly = False
+#
+# try:
+#     # print("Acceptable extensions", list(FILETYPE_DATA.keys()))
+#     CACHE.AcceptableExtensions = list(FILETYPE_DATA.keys())
+# except AttributeError:
+#     pass
+# CACHE.AcceptableExtensions.append("")
 
 
 def delete_from_cache_tracking(event):
-    global CACHE
+    # global CACHE
     if event.is_directory:
         dirpath = os.path.normpath(event.src_path.title().strip())
-        CACHE.clear_path(path_to_clear=dirpath)
+        # CACHE.clear_path(path_to_clear=dirpath)
         if fs_Cache_Tracking.objects.filter(DirName=dirpath).exists():
             fs_Cache_Tracking.objects.filter(DirName=dirpath).delete()
             print("\n", time.ctime(), " Deleted %s" % dirpath, "\n")

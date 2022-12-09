@@ -1,14 +1,8 @@
-import argparse
-import os
 #import scandir
-import re
-import shutil
 import sys
-from struct import unpack
 
 #from xattr import xattr
-import xattr
-from cached_exists import *
+from old.cached_exists import *
 
 filedb = cached_exist(use_shas=True, FilesOnly=True)
 filedb.MAX_SHA_SIZE = 1024*1024*5
