@@ -6,7 +6,7 @@ autopep8==2.0.0
 av==10.0.0
 black==22.10.0
 bleach==5.0.1
-certifi==2022.9.24
+certifi==2022.12.7
 cffi==1.15.1
 chardet==5.1.0
 charset-normalizer==3.0.1
