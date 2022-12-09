@@ -1,6 +1,5 @@
 import os.path
 
-# from frontend.config import configdata as configdata
 from django.conf import settings
 from django.views.static import serve
 

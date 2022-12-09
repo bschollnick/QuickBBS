@@ -5,15 +5,16 @@ QuickBBS Gallery
 What is QuickBBS?
 =========
 
-This Django based version of QuickBBS, re-interpretation of the original QuickBBS Bulletin Board Software, for 
+This Django based version of QuickBBS, an re-interpretation of the original QuickBBS Bulletin Board Software, for 
 the modern era. 
 
 Ideally, it will offer:
 
 * Forums
 * File Areas / Image Galleries - These are combined, and are mostly complete.
-* Wiki Support - Limited support at this time, you can view HTML, Markdown, ASCII Text Files directly in the File Areas.
-* TBD
+* Wiki Support - Limited support at this time, you can view HTML, Markdown, and ASCII Text Files directly in the File Areas.  There currently is no 
+support for *editing* files at this time.
+* TBD?
 
 
 What's the design
@@ -23,9 +24,18 @@ The gallery application is intended to be a high performance, low resource, desi
 file system, and a user configurable database.  The database is used to store details about the files, along with their
 thumbnails.  
 
-How?  A request comes in for a directory to be displayed, the code scans the directory, checking for files.  
-If the file has not been seen, the Index data is stored for the file.  When a thumbnail request comes in, 
-the application then checks to see if the thumbnail exists, and if not, creates it.
+How?  A request comes in for a directory to be displayed, and the database looks up the directory in the database.  If
+the directory has been previously scanned the cached data in the database is used, if it has not been previously
+cached in the database (or the cache has been invalidated) the code scans the directory, checking for files. 
+
+* If the file(s) are not in the database they will be added
+* If the database has file(s) that are not in the directory, they will be removed
+* If the file has been changed (Filesize, Last Modified Date) the database will be updated.
+
+The cache is maintained by the Watchdog File System Monitor https://github.com/gorakhargosh/watchdog/.  Watchdog monitors the
+entirety of the ALBUMS path, and if any file system changes are detected, the directory's is marked as being eligible to
+be rescanned.  The data is not removed from the database, the next time that directory is viewed, it will be 
+re-validated against the file system.
 
 [![](https://mermaid.ink/img/pako:eNp1U8tOwzAQ_JWVT0GCH-gBqY2DxIFS9SEOBFVbZ5NYTexiO4KK8O84TlKghZwi78zs7I79wYTOiE1YYfBQwpqnCvz3RLslvTZkHdzc3ELLpSHhtDmCNnAnK7ItzKK4JLGH3G5jFCVt1wbFXqriqteYnVOVdiAVpL58wWkfopVABSf0IPLQi1zgg0o4gs0hQ0dZC_yZS3uo8AhvtDtgQS-_jNzpRmWdgZ72tw3gP_vOo4XRgqyFuERVkO3o5xbnAfoYxYa8j25BvaOwJ1iS0Caz4-AcHe7QEtyrjN63HoeDzGOQWYwy67KpdwplNSiMAqdzuw05dP1-nHlzdhBcBMF_Av2mtNPpEGRvqXMIuVftum029xx0Du7kxqEpyA0tptNebe6TDev1t2IWjSkkxmjzGxnH0TBOgA_FOD4zBVz7ybr7krxL61rOL9byLzUwbJsk0Yp83t8Fp0FUktRonvNATRJ2zWoyNcrMv4OPrpgyV1JNKZv434xybCqXslR9eig2Tq-OSrCJMw1dsyaEzSX6F1SzSY6Vpc8vj8oXmw?type=png)](https://mermaid.live/edit#pako:eNp1U8tOwzAQ_JWVT0GCH-gBqY2DxIFS9SEOBFVbZ5NYTexiO4KK8O84TlKghZwi78zs7I79wYTOiE1YYfBQwpqnCvz3RLslvTZkHdzc3ELLpSHhtDmCNnAnK7ItzKK4JLGH3G5jFCVt1wbFXqriqteYnVOVdiAVpL58wWkfopVABSf0IPLQi1zgg0o4gs0hQ0dZC_yZS3uo8AhvtDtgQS-_jNzpRmWdgZ72tw3gP_vOo4XRgqyFuERVkO3o5xbnAfoYxYa8j25BvaOwJ1iS0Caz4-AcHe7QEtyrjN63HoeDzGOQWYwy67KpdwplNSiMAqdzuw05dP1-nHlzdhBcBMF_Av2mtNPpEGRvqXMIuVftum029xx0Du7kxqEpyA0tptNebe6TDev1t2IWjSkkxmjzGxnH0TBOgA_FOD4zBVz7ybr7krxL61rOL9byLzUwbJsk0Yp83t8Fp0FUktRonvNATRJ2zWoyNcrMv4OPrpgyV1JNKZv434xybCqXslR9eig2Tq-OSrCJMw1dsyaEzSX6F1SzSY6Vpc8vj8oXmw)
 
