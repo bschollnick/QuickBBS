@@ -16,7 +16,7 @@ http://stackoverflow.com/questions/13044562/
 Which gave me the spark on a sensible manner to deal with signature and
 managing via the object model.
 
-More File signatures are avialable here:
+More File signatures are available here:
 
     http://www.garykessler.net/library/file_sigs.html
 
