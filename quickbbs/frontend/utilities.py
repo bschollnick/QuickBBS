@@ -486,6 +486,7 @@ def sync_database_disk(directoryname):
     db_data = index_data.objects.filter(fqpndirectory=webpath)
     # fetch an updated set of records, since we may have changed it from above.
     names = [record.name for record in db_data]
+    records_to_create = []
     for fs_filename in fs_entries:
         entry = fs_entries[fs_filename]
         # iterate through the file system entries.
@@ -526,8 +527,11 @@ def sync_database_disk(directoryname):
                     record.is_animated = Image.open(os.path.join(record.fqpndirectory, record.name)).is_animated
                 except AttributeError:
                     record.is_animated = False
-            print("FS contains file not in database, saving ", fs_filename)
-            record.save()
+            # print("FS contains file not in database, saving ", fs_filename)
+            #record.save()
+            records_to_create.append(record)
+    if records_to_create:
+        index_data.objects.bulk_create(records_to_create, 100)
         # else:
         # The record is in the database, so it's already been vetted in the database comparison
         # Skip
