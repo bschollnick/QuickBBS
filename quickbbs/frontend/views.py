@@ -239,8 +239,10 @@ def item_info(request, i_uuid):
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
     breadcrumbs = return_breadcrumbs(context["webpath"])
     context["breadcrumbs"] = ""
+    context["breadcrumbs_list"] = []
     for bcrumb in breadcrumbs:
         context["breadcrumbs"] += f"<li>{bcrumb[2]}</li>"
+        context["breadcrumbs_list"].append(breadcrumbs[2])
 
     filename = context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
     if entry.filetype.is_text or entry.filetype.is_markdown:
