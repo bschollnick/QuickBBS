@@ -23,7 +23,7 @@ machine_name = socket.gethostname().lower()
 print("Running on %s" % machine_name)
 
 DEBUG = True
-# DEBUG = not DEBUG
+DEBUG = not DEBUG
 print("Debug is ", DEBUG)
 
 # DEBUG_TOOLBAR = True
@@ -179,7 +179,7 @@ TEMPLATES = [
                  "bytecode_cache": {
                      "name": "default",
                      "backend": "django_jinja.cache.BytecodeCache",
-                     "enabled": True,
+                     "enabled": not DEBUG,      # needs to be negated, since TRUE for debug should be enabled - False
                  },
                  "autoescape": True,
                  "auto_reload": True,
