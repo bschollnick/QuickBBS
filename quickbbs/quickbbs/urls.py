@@ -30,6 +30,7 @@ if settings.DEBUG_TOOLBAR:
     ]
 
 urlpatterns += [
+    path("search/", frontend.views.search_viewresults, name="search_viewresults"),
     path("download/<str:filename>", frontend.views.downloadFile, name="download"),
     path("info/<uuid:i_uuid>/", frontend.views.item_info, name="item_info"),
     path("view_item/<uuid:i_uuid>/", frontend.views.new_json_viewitem, name="new_viewitem"),

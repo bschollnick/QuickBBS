@@ -2,6 +2,7 @@ import os
 import sys
 import time
 
+from django.core.cache import cache
 from django.conf import settings
 from django.db import models
 from filetypes.models import FILETYPE_DATA
@@ -31,6 +32,7 @@ def delete_from_cache_tracking(event):
         if fs_Cache_Tracking.objects.filter(DirName=dirpath).exists():
             fs_Cache_Tracking.objects.filter(DirName=dirpath).delete()
             print("\n", time.ctime(), " Deleted %s" % dirpath, "\n")
+        cache.clear()
 #        else:
 #            print("Does not exist in Cache Tracking %s" % dirpath)
 
