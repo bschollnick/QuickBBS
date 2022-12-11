@@ -154,8 +154,7 @@ def search_viewresults(request):
     context["sort"] = sort_order(request)
     context["fromtimestamp"] = datetime.datetime.fromtimestamp
     context["searchtext"] = request.GET.get("searchtext", default=None)
-    print(context)
-    print(request.GET.dict())
+
     index = index_data.objects.filter(name__icontains=context["searchtext"])
     #    index = list(index.order_by(*SORT_MATRIX[context["sort"]]))
     #   already sorted by get_db_files call.
@@ -164,6 +163,7 @@ def search_viewresults(request):
     chk_list = Paginator(index, 30)
     context["page_cnt"] = list(range(1, chk_list.num_pages + 1))
 
+    context["up_uri"] = ""
     #    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
     # context["up_uri"] = "/".join(request.build_absolute_uri().split("/")[0:-1])
 
@@ -176,7 +176,7 @@ def search_viewresults(request):
     except EmptyPage:
         context["pagelist"] = chk_list.page(chk_list.num_pages)
 
-#    context["prev_uri"], context["next_uri"] = return_prev_next(
+    context["prev_uri"], context["next_uri"] = "", "" #return_prev_next(
 #        os.path.dirname(paths["album_viewing"]),
 #        paths["webpath"], context["sort"])
     response = render(request,
