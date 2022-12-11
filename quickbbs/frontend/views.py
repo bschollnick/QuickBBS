@@ -131,6 +131,61 @@ def thumbnails(request, tnail_id=None):
     return HttpResponseBadRequest(content="Bad UUID or Unidentifable file.")
 
 
+def search_viewresults(request):
+    """
+    View the requested search results Gallery page
+    """
+    print("NEW search GALLERY")
+    start_time = time.time()
+    context = {}
+    paths = {}
+    context["small"] = g_option(request,
+                                "size",
+                                settings.IMAGE_SIZE["small"])
+    context["medium"] = g_option(request,
+                                 "size",
+                                 settings.IMAGE_SIZE["medium"])
+
+    context["large"] = g_option(request,
+                                "size",
+                                settings.IMAGE_SIZE["large"])
+    context["user"] = request.user
+    context["mobile"] = detect_mobile(request)
+    context["sort"] = sort_order(request)
+    context["fromtimestamp"] = datetime.datetime.fromtimestamp
+    context["searchtext"] = request.GET.get("searchtext", default=None)
+    print(context)
+    print(request.GET.dict())
+    index = index_data.objects.filter(name__icontains=context["searchtext"])
+    #    index = list(index.order_by(*SORT_MATRIX[context["sort"]]))
+    #   already sorted by get_db_files call.
+
+    context["current_page"] = request.GET.get("page", 1)
+    chk_list = Paginator(index, 30)
+    context["page_cnt"] = list(range(1, chk_list.num_pages + 1))
+
+    #    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
+    # context["up_uri"] = "/".join(request.build_absolute_uri().split("/")[0:-1])
+
+    context["gallery_name"] = f"Searching for {context['searchtext']}"
+    try:
+        context["pagelist"] = chk_list.page(context["current_page"])
+    except PageNotAnInteger:
+        context["pagelist"] = chk_list.page(1)
+        context["current_page"] = 1
+    except EmptyPage:
+        context["pagelist"] = chk_list.page(chk_list.num_pages)
+
+#    context["prev_uri"], context["next_uri"] = return_prev_next(
+#        os.path.dirname(paths["album_viewing"]),
+#        paths["webpath"], context["sort"])
+    response = render(request,
+                      "frontend/search_listing.jinja",
+                      context,
+                      using="Jinja2")
+    print("search View, processing time: ", time.time() - start_time)
+    return response
+
 def new_viewgallery(request):
     """
     View the requested Gallery page
@@ -158,7 +213,6 @@ def new_viewgallery(request):
     context["webpath"] = ensures_endswith(paths["webpath"], os.sep)
     context["breadcrumbs"] = return_breadcrumbs(paths["webpath"])[:-1]
     context["fromtimestamp"] = datetime.datetime.fromtimestamp
-    # paths["album_viewing"] = configdata["locations"]["albums_path"] + paths["webpath"]
     paths["album_viewing"] = settings.ALBUMS_PATH + paths["webpath"]
 
     paths["thumbpath"] = paths["webpath"].replace(r"/albums/",

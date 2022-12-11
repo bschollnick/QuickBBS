@@ -23,11 +23,20 @@ machine_name = socket.gethostname().lower()
 print("Running on %s" % machine_name)
 
 DEBUG = True
-DEBUG = not DEBUG
+#DEBUG = not DEBUG
 print("Debug is ", DEBUG)
 
 # DEBUG_TOOLBAR = True
 DEBUG_TOOLBAR = False
+
+JQUERY_VERSION = '3.6.1'
+JQUERY_URI = f'https://cdnjs.cloudflare.com/ajax/libs/jquery/{JQUERY_VERSION}/jquery.slim.min.js'
+
+BULMA_VERSION = '0.9.4'
+BULMA_URI = f'https://cdnjs.cloudflare.com/ajax/libs/bulma/{BULMA_VERSION}/css/bulma.min.css'
+
+FONTAWESOME_VERSION = '6.2.1'
+FONTAWESOME_URI = f'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/{FONTAWESOME_VERSION}/css/all.min.css'
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 # BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
