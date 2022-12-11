@@ -7,7 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.8.2/css/bulma.min.css">
     <script src="https://use.fontawesome.com/releases/v5.3.1/js/all.js"></script>
-    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.1/jquery.slim.min.js"></script>
     <title></title>
 </head>
 
@@ -198,7 +198,7 @@ var setDATA = function(data) {
     document.title = data.filename
     document.getElementById("title").innerHTML = data.filename
     document.getElementById("breadcrumbs").innerHTML = data.breadcrumbs
-    document.getElementById("up_uri").href = data.up_uri+'?page='+data.page_locale+'&sort=' + data.sort
+    document.getElementById("up_uri").href = data.up_uri+'?page='+data.page_locale+'&sort=' + data.sort;
 
     console.log("Setting Previous block")
     document.getElementById("first_uuid").onclick = function (){loadDATA(data.first_uuid, data.sort);return false;}
@@ -277,16 +277,16 @@ var setDATA = function(data) {
         }
     else
         {
-        document.getElementById("image_link").href = "none"
+        document.getElementById("image_link").href = '/download/'+data.filename+'?UUID='+data.uuid
         }
 
     if (data.ft_is_image || data.ft_is_pdf || data.ft_is_archive){
         document.getElementById("thumbnail_frame").style.display = "block"
         document.getElementById("text_frame").style.display = "none"
         if (data.is_animated) {
-                document.getElementById("display_image").src = '/download/'+data.filename+'?UUID='+data.uuid
+                 $('#display_image').attr("src", '/download/'+data.filename+'?UUID='+data.uuid);
             } else {
-                document.getElementById("display_image").src = "/thumbnails/"+data.uuid+"?size="+imagesize+filetype
+                $('#display_image').attr("src", "/thumbnails/"+data.uuid+"?size="+imagesize+filetype);
             }
         document.getElementById("movie_frame").style.display = "none"
         }
@@ -305,27 +305,15 @@ var getJSON = function(url, callback) {
     xhr.responseType = 'json';
 
     xhr.onload = function() {
-
         var status = xhr.status;
-
         if (status == 200) {
             callback(null, xhr.response);
         } else {
             callback(status);
         }
     };
-
     xhr.send();
 };
-
-// getJSON('/info/{{uuid}}?sort={{sort}}',  function(err, data) {
-//
-//     if (err != null) {
-//         console.error(err);
-//     } else {
-//         setDATA(data)
-//     }
-// });
 
 var loadDATA = function(uuid, sort){
     getJSON('/info/'+uuid + '?sort='+sort,  function(err, data) {
@@ -340,7 +328,7 @@ var loadDATA = function(uuid, sort){
     return false;
 };
 
-loadDATA('{{uuid}}','{{sort}}')
+$(document).ready(loadDATA('{{uuid}}','{{sort}}'))
 </script>
 </body>
 </html>
