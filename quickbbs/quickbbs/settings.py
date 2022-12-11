@@ -42,7 +42,8 @@ if not DEBUG:
             'LOCATION': 'cache_data_db_table',
             'TIMEOUT': 300,
             'OPTIONS': {
-                'MAX_ENTRIES': 22000
+                'MAX_ENTRIES': 22000,
+                # 'CULL_FREQUENCY':3,  # This is default
             }
         }
     }
@@ -74,10 +75,6 @@ SECRET_KEY = 'isk^$ye4rx0m!p#0147tcmmmtcz1u&suzp2+z+6#gpjx^1lz4t'
 
 
 # Application definition
-
-if DEBUG_TOOLBAR:
-    INSTALLED_APPS += ('debug_toolbar',)
-
 STATIC_URL = '/static/'
 
 INSTALLED_APPS = []
@@ -93,6 +90,9 @@ INSTALLED_APPS += [
     'django_user_agents',
     'django_jinja',
 ]
+
+if DEBUG_TOOLBAR:
+    INSTALLED_APPS += ('debug_toolbar',)
 
 INSTALLED_APPS += [
     'allauth',
@@ -131,8 +131,12 @@ MIDDLEWARE += [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'django_user_agents.middleware.UserAgentMiddleware',
 ]
-if DEBUG_TOOLBAR:
-    MIDDLEWARE += ('debug_toolbar.middleware.DebugToolbarMiddleware')
+
+if not DEBUG:
+    MIDDLEWARE += [
+        'django.middleware.cache.UpdateCacheMiddleware',
+        'django.middleware.cache.FetchFromCacheMiddleware',
+        ]
 
 X_FRAME_OPTIONS = 'SAMEORIGIN'
 

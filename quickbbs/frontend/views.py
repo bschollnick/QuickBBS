@@ -19,9 +19,7 @@ from django.db.utils import ProgrammingError
 from django.http import (Http404, HttpResponseBadRequest, HttpResponseNotFound,
                          JsonResponse)
 from django.shortcuts import render
-from django.utils.cache import patch_vary_headers
 from django.views.decorators.cache import cache_page
-from django.views.decorators.vary import vary_on_headers
 from PIL import Image, ImageFile
 from cache.models import fs_Cache_Tracking as Cache_Tracking
 from quickbbs.models import Thumbnails_Dirs, Thumbnails_Files, index_data
@@ -82,8 +80,6 @@ def return_prev_next(fqpn, currentpath, sorder):
     return (prevdir, nextdir)
 
 
-@cache_page(500)
-@vary_on_headers('User-Agent', 'Cookie', 'Request')
 def thumbnails(request, tnail_id=None):
     """
     Serve the thumbnail resources
@@ -135,8 +131,6 @@ def thumbnails(request, tnail_id=None):
     return HttpResponseBadRequest(content="Bad UUID or Unidentifable file.")
 
 
-# @cache_page(500)
-# @vary_on_headers('User-Agent', 'Cookie', 'Request')
 def new_viewgallery(request):
     """
     View the requested Gallery page
@@ -206,13 +200,10 @@ def new_viewgallery(request):
                       "frontend/gallery_listing.jinja",
                       context,
                       using="Jinja2")
-    patch_vary_headers(response, [f"sort-{context['sort']}"])
     print("Gallery View, processing time: ", time.time() - start_time)
     return response
 
 
-@cache_page(500)
-@vary_on_headers('User-Agent', 'Cookie', 'Request', 'i_uuid')
 def item_info(request, i_uuid):
     """
     Create the JSON package for item view.  All Json item requests come here to
@@ -267,7 +258,7 @@ def item_info(request, i_uuid):
     context["page_locale"] = int(context["page"] / settings.GALLERY_ITEMS_PER_PAGE) + 1
     context["pagecount"] = item_list.count
     context["next_uuid"] = ""
-    context["prev_uuid"] = ""
+    context["previous_uuid"] = ""
     context["uuid"] = entry.uuid
     context["filename"] = entry.name
     context["filesize"] = entry.size
@@ -293,7 +284,6 @@ def item_info(request, i_uuid):
 
     if page_contents.has_previous():
         context["previous_uuid"] = catalog_qs[page_contents.previous_page_number() - 1].uuid
-
     context["first_uuid"] = catalog_qs[0].uuid
     context["last_uuid"] = catalog_qs[catalog_qs.count() - 1].uuid
     print("Process time: ", time.time() - context["start_time"], "secs")
@@ -301,8 +291,6 @@ def item_info(request, i_uuid):
     return response
 
 
-@cache_page(300)
-@vary_on_headers('User-Agent', 'Cookie', 'Request', 'i_uuid')
 def new_json_viewitem(request, i_uuid):
     """
 
@@ -327,12 +315,9 @@ def new_json_viewitem(request, i_uuid):
                       "frontend/gallery_json_item.jinja",
                       context,
                       using="Jinja2")
-    patch_vary_headers(response, [f"sort-{context['sort']}"])
     return response
 
 
-# @cache_page(60)  # Caching actually slows down the download, at least for small files.
-@vary_on_headers('User-Agent', 'Cookie', 'Request', 'i_uuid')
 def downloadFile(request, filename=None):
     """
     Replaces new_download.
@@ -367,8 +352,6 @@ def downloadFile(request, filename=None):
                              ranged=download.filetype.is_movie)
 
 
-# @cache_page(500)
-# @vary_on_headers('User-Agent', 'Cookie', 'Request', 'i_uuid')
 def new_view_archive(request, i_uuid):
     """
     Show the gallery from the archive contents
@@ -437,12 +420,9 @@ def new_view_archive(request, i_uuid):
                       "frontend/archive_newgallery.jinja",
                       context,
                       using="Jinja2")
-    patch_vary_headers(response, [f"sort-{context['sort']}"])
     return response
 
 
-# @cache_page(500)
-# @vary_on_headers('User-Agent', 'Cookie', 'Request', 'i_uuid')
 def new_archive_item(request, i_uuid):
     """
     Show item in an archive
@@ -493,7 +473,6 @@ def new_archive_item(request, i_uuid):
                       "frontend/archive_item.html",
                       context)  # ,
     # using="Jinja2")
-    patch_vary_headers(response, ["sort-%s" % context["sort"]])
     return response
 
 
