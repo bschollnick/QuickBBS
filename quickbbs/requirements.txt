@@ -4,8 +4,10 @@ asttokens==2.2.1
 async-timeout==4.0.2
 autopep8==2.0.0
 av==10.0.0
+beautifulsoup4==4.11.1
 black==22.12.0
 bleach==5.0.1
+cachetools==5.2.0
 certifi==2022.12.7
 cffi==1.15.1
 chardet==5.1.0
@@ -27,6 +29,7 @@ django-grappelli==3.0.4
 django-icons==22.1
 django-jinja==2.10.2
 django-ranged-response==0.2.0
+django-unicorn==0.49.2
 django-upgrade==1.12.0
 django-user-agents==0.4.0
 django_debug_toolbar==3.8.1
@@ -35,6 +38,7 @@ dnspython==2.2.1
 dparse==0.6.2
 fastnumbers==3.2.1
 flake8==6.0.0
+greenlet==2.0.1
 gunicorn==20.1.0
 h11==0.14.0
 idna==3.4
@@ -58,8 +62,9 @@ natsort==8.2.0
 naturalsort==1.5.1
 numpy==1.23.5
 oauthlib==3.2.2
+orjson==3.8.3
 packaging==22.0
-pathspec==0.10.2
+pathspec==0.10.3
 pathvalidate==2.5.2
 pdfrw==0.4
 pikepdf==6.2.5
@@ -88,8 +93,9 @@ requests==2.28.1
 requests-oauthlib==1.3.1
 rich==12.6.0
 scipy==1.9.3
-setuptools==65.6.3
+shortuuid==1.0.11
 six==1.16.0
+soupsieve==2.3.2.post1
 sqlparse==0.4.3
 tokenize-rt==5.0.0
 toml==0.10.2
