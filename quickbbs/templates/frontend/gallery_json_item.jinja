@@ -211,6 +211,9 @@ var setDATA = function(data) {
     document.getElementById("next_tab_uuid").href = command + data.next_uuid + '?sort='+data.sort
     //console.log(data.page, data.page == 1, data.page == "1")
 
+    console.log("--------------------")
+    console.log("data.pagecount - " + data.pagecount)
+    console.log("data.page - " + data.page)
     if (data.pagecount == data.page){
         document.getElementById("next_tab_uuid").style.visibility = "hidden"
         document.getElementById("last_uuid").style.visibility = "hidden"
@@ -228,8 +231,6 @@ var setDATA = function(data) {
     document.getElementById("file_size").innerHTML = data.filesize
     document.getElementById("last_mod").innerHTML = data.lastmod_ds
 
-
-    console.log("Setting hiding block")
     if (data.previous_uuid == "") {
         document.getElementById("previous_icon").style.visibility = "hidden";
         document.getElementById("first_uuid").style.visibility = "hidden";}
