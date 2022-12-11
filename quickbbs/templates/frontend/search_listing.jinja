@@ -69,14 +69,14 @@
 
         <!--         Sidebar -->
         <div class="column is-1 is-narrow" style="border:2px solid black;position: fixed;" >
-           <p align=center><a href="{{ up_uri }}?page=1&sort={{sort}} ">{{ icon("arrow-up fa-2x")}}</a></p>
+           <p align=center><a href="{{ originator }}">{{ icon("arrow-up fa-2x")}}</a></p>
                 <hr>
-                <a href="?page=1">
+                <a href="?page=1&searchtext={{searchtext}}&originator={{originator}}">
                     <p align=center>{{ icon("angle-double-left fa-3x")}}</a></p>
                 <hr>
                 <span class="step-links">
                     {% if pagelist.has_previous() %}
-                        <a href="?page={{ pagelist.previous_page_number() }}&sort={{sort}}">
+                        <a href="?page={{ pagelist.previous_page_number() }}&sort={{sort}}&searchtext={{searchtext}}&originator={{originator}}">
                         <p align=center>{{ icon("angle-left fa-3x")}}</a></p>
                     {% else %}
                             <p align=center><img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/></p>
@@ -96,19 +96,21 @@
                 <hr>
 
                     {% if pagelist.has_next() %}
-                        <a href="?page={{ pagelist.next_page_number() }}&sort={{sort}}">
+                        <a href="?page={{ pagelist.next_page_number() }}&sort={{sort}}&searchtext={{searchtext}}&originator={{originator}}">
                         <p align=center>{{ icon("angle-right fa-3x")}}</a></p>
                     {% else %}
                             <img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/>
                     {% endif %}
                 <hr>
 
-                <a href="?page={{ pagelist.paginator.num_pages }}&sort={{sort}}">
+                <a href="?page={{ pagelist.paginator.num_pages }}&sort={{sort}}&searchtext={{searchtext}}&originator={{originator}}">
                         <p align=center>{{ icon("angle-double-right fa-3x")}}</a></p>
                 </span>
                 <hr>
                     <form action="" method="GET">
+                        <input type="hidden" id="searchtext" name="searchtext" value="{{searchtext}}">
                         <input type="hidden" id="page" name="page" value="{{current_page}}">
+                        <input type="hidden" id="originator" name="originator" value="{{originator}}">
                         <select name="sort" onchange='this.form.submit()'>
                             <option value="0" {% if sort == 0 %}selected{% endif %}>A..Z</option>
                             <option value="1" {% if sort == 1 %}selected{% endif %}>LastM</option>

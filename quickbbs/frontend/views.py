@@ -25,7 +25,7 @@ from cache.models import fs_Cache_Tracking as Cache_Tracking
 from quickbbs.models import Thumbnails_Dirs, Thumbnails_Files, index_data
 
 import frontend.archives3 as archives
-from frontend.database import get_db_files  # check_dup_thumbs
+from frontend.database import get_db_files, SORT_MATRIX # check_dup_thumbs
 from frontend.thumbnail import (new_process_archive, new_process_dir,
                                 new_process_img)
 from frontend.utilities import (ensures_endswith, is_valid_uuid,
@@ -155,17 +155,16 @@ def search_viewresults(request):
     context["fromtimestamp"] = datetime.datetime.fromtimestamp
     context["searchtext"] = request.GET.get("searchtext", default=None)
 
-    index = index_data.objects.filter(name__icontains=context["searchtext"])
-    #    index = list(index.order_by(*SORT_MATRIX[context["sort"]]))
-    #   already sorted by get_db_files call.
+    index = index_data.objects.filter(name__icontains=context["searchtext"]).order_by(*SORT_MATRIX[context["sort"]])
 
     context["current_page"] = request.GET.get("page", 1)
     chk_list = Paginator(index, 30)
     context["page_cnt"] = list(range(1, chk_list.num_pages + 1))
 
-    context["up_uri"] = ""
-    #    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
-    # context["up_uri"] = "/".join(request.build_absolute_uri().split("/")[0:-1])
+    context["originator"] = request.META.get("HTTP_REFERER")
+    if "/search/" in context["originator"] or context["originator"] is None:
+        context["originator"] = request.GET.get("originator", "/albums")
+
 
     context["gallery_name"] = f"Searching for {context['searchtext']}"
     try:
