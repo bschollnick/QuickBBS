@@ -59,7 +59,6 @@ def return_prev_next(fqpn, currentpath, sorder) -> tuple:
     dirs_only = index.filter(ignore=False,
                              filetype__is_dir=True)
 
-
     dir_names = [dname.name.lower() for dname in dirs_only]
     nextdir = ""  # unnecessary since going beyond the max offset will cause indexerror.
     prevdir = ""
@@ -333,14 +332,14 @@ def item_info(request, i_uuid):
     page_uuids = [str(record.uuid) for record in catalog_qs]
     context["page"] = page_uuids.index(e_uuid) + 1
     context["first_uuid"] = page_uuids[0]
-    context["last_uuid"] = page_uuids[len(page_uuids)-1] # catalog_qs[catalog_qs.count() - 1].uuid
+    context["last_uuid"] = page_uuids[len(page_uuids) - 1]  # catalog_qs[catalog_qs.count() - 1].uuid
     # previously the uuid's were grabbed by performing actions against the paginated records
     # instead the list comp. appears to be faster, and more efficient.
 
     item_list = Paginator(catalog_qs, 1)
     context["page_locale"] = int(context["page"] / settings.GALLERY_ITEMS_PER_PAGE) + 1
-        # up_uri uses this to return you to the same page offset you were viewing
-    context["pagecount"] = item_list.count # Switch this to math only, no paginator?
+    # up_uri uses this to return you to the same page offset you were viewing
+    context["pagecount"] = item_list.count  # Switch this to math only, no paginator?
     context["uuid"] = entry.uuid
     context["filename"] = entry.name
     context["filesize"] = entry.size
@@ -572,25 +571,30 @@ def new_archive_item(request, i_uuid):
     return response
 
 
-print("Clearing all entries from Cache Tracking")
-try:
-    Cache_Tracking.objects.all().delete()
-except ProgrammingError:
-    print("Unable to clear Cache Table")
-
-if 'runserver' in sys.argv or "--host" in sys.argv:
-    print("Starting cleanup")
-    #    check_for_deletes()
-    print("Cleanup is done.")
+def view_setup():
+    print("Clearing all entries from Cache Tracking")
     try:
-        for prepath in settings.PRELOAD:
-            print("Pre-Caching: ", prepath)
-            read_from_disk(prepath.strip())  # startup
+        Cache_Tracking.objects.all().delete()
+    except ProgrammingError:
+        print("Unable to clear Cache Table")
 
-            # for ignored in configdata["filetypes"]["files_to_ignore"]:
-            #    test = index_data.objects.filter(name__iexact=ignored.title())
-            #    if test.exists():
-            #        print("%s - %s" % (ignored, test.count()))
-            #        test.delete()
-    except:
-        pass
+    if 'runserver' in sys.argv or "--host" in sys.argv:
+        print("Starting cleanup")
+        #    check_for_deletes()
+        print("Cleanup is done.")
+        try:
+            for prepath in settings.PRELOAD:
+                print("Pre-Caching: ", prepath)
+                read_from_disk(prepath.strip())  # startup
+
+                # for ignored in configdata["filetypes"]["files_to_ignore"]:
+                #    test = index_data.objects.filter(name__iexact=ignored.title())
+                #    if test.exists():
+                #        print("%s - %s" % (ignored, test.count()))
+                #        test.delete()
+        except:
+            pass
+
+
+if __name__ != "__main__":
+    view_setup()

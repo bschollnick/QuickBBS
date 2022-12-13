@@ -13,9 +13,16 @@ from django.http import (FileResponse, Http404,  # , StreamingHttpResponse)
 from ranged_response import RangedFileResponse
 
 
-def verify_login_status(request, force_login=False):
+def verify_login_status(request, force_login=False) -> bool:
     """
-    Verify login status
+    Verify login status, if not logged in redirect to login screen.
+
+    args:
+        request (obj) : Django Request object
+        force_login (bool) : tbd
+
+
+
     """
     username = request.POST['username']
     password = request.POST['password']
@@ -35,6 +42,14 @@ def verify_login_status(request, force_login=False):
 def g_option(request, option_name, def_value):
     """
     Return the option from the request.get?
+
+    Args:
+        request (obj) : Django Request Object
+        option_name (str) : The option name to read from the request
+        def_value (str) : The default value to use, if not defined in request.
+
+    returns:
+        Str : The string read from the request object (or default value)
     """
     return request.GET.get(option_name, def_value)
 
@@ -51,8 +66,6 @@ def detect_mobile(request):
             `True` if Mobile is found in the request's META headers
             specifically in HTTP USER AGENT.  If not found, returns False.
 
-    Raises:
-        None
     """
     return "Mobile" in request.headers["user-agent"]
 

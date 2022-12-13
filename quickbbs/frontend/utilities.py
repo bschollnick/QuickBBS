@@ -43,13 +43,9 @@ def rename_file(old_filename, new_filename):
     """
     Wrapper function for renaming files.
 
-    Parameters
-    ----------
-    old_filename
-    new_filename
-
-    Returns
-    -------
+    Args
+        old_filename (str) : The original filename
+        new_filename (str) : The new filename to rename
 
     """
     try:
@@ -63,10 +59,10 @@ def ensures_endswith(string_to_check, value):
     Check the string (string_to_check) to see if value is the last character in string_to_check.
     If not, then add it to the end of the string.
 
-    Parameters
-    ----------
-    string_to_check
-    value
+    Args:
+        string_to_check (str): The source string to process
+        value (str): The string to check against, and to add to the end of the string
+            if it doesn't already exist.
 
     Returns
     -------
@@ -258,6 +254,17 @@ def cr_tnail_img(source_image, size, fext):
 
     Return the binary representation of the file that
     was saved to memory
+
+    Args:
+        source_image (PIL.Image): Pillow Image Object to modify
+        size (Str) : The size to resize the image to (e.g. 200 for 200x200)
+            This always is set as (size, size)
+        fext (str): The file extension of the file that is to be processed
+            e.g. .jpg, .mp4
+
+    returns:
+        blob: The binary blog of the thumbnail
+
     """
     if source_image is None:
         return None
@@ -287,6 +294,12 @@ def cr_tnail_img(source_image, size, fext):
 def naturalize(string):
     """
         return <STRING> as a english sortable <STRING>
+
+        args:
+            str: String
+
+        returns:
+            str: The now english sortable string
     """
 
     def naturalize_int_match(match):
@@ -308,6 +321,46 @@ def multiple_replace(repl_dict, text):  # , compiled):
 
 
 def return_disk_listing(fqpn, enable_rename=False):
+    """
+    Return a dictionary that contains the scandir data (& some extra data) for the directory.
+
+    each entry will be in this vein:
+
+    data[titlecase] = {"filename": titlecase,
+                           "lower_filename": titlecase.lower(),
+                           "path": os.path.join(fqpn, titlecase),
+                           'sortname': naturalize(titlecase),
+                           'size': entry.stat()[stat.ST_SIZE],
+                           'lastmod': entry.stat()[stat.ST_MTIME],
+                           'is_dir': entry.is_dir(),  # fext == ".dir",
+                           'is_file': not entry.is_dir(),  # fext != ".dir",
+                           'is_archive': filetype_models.FILETYPE_DATA[fext]["is_archive"],
+                           'is_image': filetype_models.FILETYPE_DATA[fext]["is_image"],
+                           'is_movie': filetype_models.FILETYPE_DATA[fext]["is_movie"],
+                           'is_audio': filetype_models.FILETYPE_DATA[fext]["is_audio"],
+                           'is_text': filetype_models.FILETYPE_DATA[fext]["is_text"],
+                           'is_html': filetype_models.FILETYPE_DATA[fext]["is_html"],
+                           'is_markdown': filetype_models.FILETYPE_DATA[fext]["is_markdown"],
+                           'is_animated': animated
+                           }
+    This code obeys the following quickbbs_settings, settings:
+
+    * EXTENSIONS_TO_IGNORE
+    * FILES_TO_IGNORE
+    * IGNORE_DOT_FILES
+
+    Parameters
+    ----------
+    fqpn (str): The fully qualified pathname of the directory to scan
+    enable_rename (bool): Do we rename files that could cause issues
+        (e.g. filesname that have special characters (!?::, etc)).  True for rename,
+        false to skip renaming.
+
+    Returns
+    -------
+        dict of dicts - See above
+
+    """
     data = {}
     # data_list = []
     loaded = True
