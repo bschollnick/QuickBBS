@@ -25,7 +25,7 @@ from cache.models import fs_Cache_Tracking as Cache_Tracking
 from quickbbs.models import Thumbnails_Dirs, Thumbnails_Files, index_data
 
 import frontend.archives3 as archives
-from frontend.database import get_db_files, SORT_MATRIX # check_dup_thumbs
+from frontend.database import get_db_files, SORT_MATRIX  # check_dup_thumbs
 from frontend.thumbnail import (new_process_archive, new_process_dir,
                                 new_process_img)
 from frontend.utilities import (ensures_endswith, is_valid_uuid,
@@ -165,7 +165,6 @@ def search_viewresults(request):
     if "/search/" in context["originator"] or context["originator"] is None:
         context["originator"] = request.GET.get("originator", "/albums")
 
-
     context["gallery_name"] = f"Searching for {context['searchtext']}"
     try:
         context["pagelist"] = chk_list.page(context["current_page"])
@@ -175,15 +174,16 @@ def search_viewresults(request):
     except EmptyPage:
         context["pagelist"] = chk_list.page(chk_list.num_pages)
 
-    context["prev_uri"], context["next_uri"] = "", "" #return_prev_next(
-#        os.path.dirname(paths["album_viewing"]),
-#        paths["webpath"], context["sort"])
+    context["prev_uri"], context["next_uri"] = "", ""  # return_prev_next(
+    #        os.path.dirname(paths["album_viewing"]),
+    #        paths["webpath"], context["sort"])
     response = render(request,
                       "frontend/search_listing.jinja",
                       context,
                       using="Jinja2")
     print("search View, processing time: ", time.time() - start_time)
     return response
+
 
 def new_viewgallery(request):
     """
