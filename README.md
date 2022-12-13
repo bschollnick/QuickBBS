@@ -20,11 +20,18 @@ support for *editing* files at this time.
 What's the design
 =================
 
-The gallery application is intended to be a high performance, low resource, design.  It is a hybrid design using the 
-file system, and a user configurable database.  The database is used to store details about the files, along with their
-thumbnails.  
+V3 & v2
 
-How?  A request comes in for a directory to be displayed, and the database looks up the directory in the database.  If
+The gallery application is intended to be a high performance, low resource, design.  It is a hybrid design using the 
+file system, and a user configurable database.  The database is used to store details about the files, *along with their
+thumbnails*.  That's correct, the thumbnail is stored as a binary blob in the PostgreSQL database for each file.  
+
+Why?  Because creating 3 separate files in the file system for each file (Small, Medium, and Large thumbnails) can be done, but
+you'll be limited to the speed of disk IO for the creation, searching for, and sending of the data.  Storing it in the database 
+means that the bottle neck is the database, not necessarily your disk.  And these aren't big thumbnails, by default, 200x200, 
+740x740, 1024x1024.  
+
+How's it work?  A request comes in for a directory to be displayed, and the database looks up the directory in the database.  If
 the directory has been previously scanned the cached data in the database is used, if it has not been previously
 cached in the database (or the cache has been invalidated) the code scans the directory, checking for files. 
 
@@ -75,14 +82,19 @@ Version 2 vs Version 1
 
 Version two is a significant rewrite of the gallery.  Version 1 was hampered by disk speed issues, since there was no disk cache in v1.
 
-Version 1 was written utilizing only a file system, so it would attempt to cache the directory in memory, and the thumbnails were created on disk, and stored as seperate files.  It worked decently, but had issues with folders that had a significant (eg 3-4K) number of files in them.  In addition:
+Version 1 was written utilizing only a file system, so it would attempt to cache the directory in memory, and the thumbnails 
+were created on disk, and stored as seperate files.  It worked decently, but had issues with folders that had a significant 
+(eg 3-4K) number of files in them.  In addition:
 
 There were significant issues that impacted the speed of the software.
 
 1) Creating the thumbnails in the webpage view was significantly impacting the speed, and delaying the rendering of the page
   * v2 resolves this by having the thumbnail view contain the code for the thumbnail creation.
   
-v2 and v3 use UUIDs (Universal Unique IDentifier) for all objects?  Why?  Because it simplifies the code significantly.  Previously I would have to lookup a file by searching the database by it's FileName, and Pathname.  Now when the Index Data is created, a UUID is created and assigned to it.  All content related to that file is mapped using that UUID, both internally and via the web request.  
+v2 and v3 use UUIDs (Universal Unique IDentifier) for all objects?  Why?  Because it simplifies the code significantly.  
+Previously I would have to lookup a file by searching the database by it's FileName, and Pathname.  Now when the Index Data is 
+created, a UUID is created and assigned to it.  All content related to that file is mapped using that UUID, both internally 
+and via the web request.  
 
 Any reference to that file, is handled by sending the UUID.  
 
@@ -129,14 +141,26 @@ Small, Medium, and Large Thumbnail table which does contain the binary data.
 [![](https://mermaid.ink/img/pako:eNp9z8EKwjAMBuBXKTlV2F6gB0-7CHrajgVJm2wrtJ3UFpSxd7eyg4hgToH_-yFZwS7EoGBKeJvF0Oko6pwi8ePaYUbRtkeBKIe5BBPR-T077A733BjZB_T-gwY0nr-RtfLC5Er4q4jkGdPEvwgaCJwCOqrnru-ShjxzYA2qrsQjFp816LhViiUv_TNaUDkVbqDcCDN3DuujAdSI_s7bCwJMUnY?type=png)](https://mermaid.live/edit#pako:eNp9z8EKwjAMBuBXKTlV2F6gB0-7CHrajgVJm2wrtJ3UFpSxd7eyg4hgToH_-yFZwS7EoGBKeJvF0Oko6pwi8ePaYUbRtkeBKIe5BBPR-T077A733BjZB_T-gwY0nr-RtfLC5Er4q4jkGdPEvwgaCJwCOqrnru-ShjxzYA2qrsQjFp816LhViiUv_TNaUDkVbqDcCDN3DuujAdSI_s7bCwJMUnY)
 
 Real World Testing needs to be done to see what impact the SmallThumbnail, MediumThumbnail, and LargeThumbnail foreign tables
-will have, but I suspect that the speed to the Thumbnail Index would be extremely beneficial. 
+will have, but I suspect that the speed to the Thumbnail Index would be extremely beneficial. Since at the same time we would
+be reducing the size of the record for the index meta container.
 
 There are a few experimental changes being made.
 
 * Eliminating Cached_Exists.  The concept of the Cached_Exist engine was simply to cache the reads to the file system.  The Watchdog system basically eliminates the need for that, and removing the cached_exists engine could dramatically simplify the code.
+  * Finished.
 * Completely embracing the watchdog system for detecting the changes happening in the gallery directories.  It was used in v2 to invalidate the cached_exist cache, but it would be easier to use that watchdog table to detect if we need to read from the file system instead.
+  * Finished.  A tremendous improvement in speed.  The first time an *large* directory of files is seen, there is a noticeable delay,
+but after that, the speed is faster than the previous implementation with cached_exists.   
 
-But I will need to see if there is a performance degradation with this change.
+I am still performing code cleanup and removal of old redundant code.  
 
-In addition, as part of the change, I am planning to add code to eliminate left-overs in the database.  For example, situations where the file has removed from the directory, but is still in the database.  The current process has the entire directory removed from the database, and then rescanned to be re-added into the database.
-The new logic will only delete or add the elements that need to be added.
+To Dos:
+
+* investigate HTMX?  Django-HTMX?
+* Investigate django-unicorn
+  * Appears to be incompatible with using jinja templates
+* Continue code cleanup
+* Switch over to the v3 structures for templating
+* Finish Title Search - Done for Gallery listing, need to update individual item page.
+* Repair Archive Gallery & Individual item page(s)
+  * It's been broken for a while under v2, I just rewritten it yet.
