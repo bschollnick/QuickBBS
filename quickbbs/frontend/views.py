@@ -44,12 +44,12 @@ DF_PNEXT = ["lastscan", "lastmod",
             "numdirs", "parent_dir_id"]
 
 
-def return_prev_next(fqpn, currentpath, sorder):
+def return_prev_next(fqpn, currentpath, sorder) -> tuple:
     """
     Read the parent directory, get the index of the current path,
     return the previous & next paths.
 
-    Replace the old system, with Django pagination.
+
     """
     # Parent_path = Path(fqpn).parent
     fqpn = ensures_endswith(fqpn.lower(), os.sep)
@@ -58,6 +58,8 @@ def return_prev_next(fqpn, currentpath, sorder):
     index = get_db_files(sorder, fqpn)
     dirs_only = index.filter(ignore=False,
                              filetype__is_dir=True)
+
+
     dir_names = [dname.name.lower() for dname in dirs_only]
     nextdir = ""  # unnecessary since going beyond the max offset will cause indexerror.
     prevdir = ""
@@ -84,7 +86,17 @@ def thumbnails(request, tnail_id=None):
     """
     Serve the thumbnail resources
 
-    URL -> thumbnails/(?P<t_url_name>.*)
+    Args:
+        request : Django Request object
+        tnail_id : The UUID for the thumbnail item
+
+    returns:
+
+        image of the thumbnail to send
+
+    raises:
+
+        HttpResponseBadRequest - If the uuid can not be found
     """
     #
     if is_valid_uuid(str(tnail_id)):
@@ -133,7 +145,15 @@ def thumbnails(request, tnail_id=None):
 
 def search_viewresults(request):
     """
-    View the requested search results Gallery page
+    View the search results Gallery page
+
+    Args:
+        request : Django Request object
+
+    Returns:
+        respons : Django response
+
+
     """
     print("NEW search GALLERY")
     start_time = time.time()
@@ -174,9 +194,7 @@ def search_viewresults(request):
     except EmptyPage:
         context["pagelist"] = chk_list.page(chk_list.num_pages)
 
-    context["prev_uri"], context["next_uri"] = "", ""  # return_prev_next(
-    #        os.path.dirname(paths["album_viewing"]),
-    #        paths["webpath"], context["sort"])
+    context["prev_uri"], context["next_uri"] = "", ""
     response = render(request,
                       "frontend/search_listing.jinja",
                       context,
@@ -188,6 +206,13 @@ def search_viewresults(request):
 def new_viewgallery(request):
     """
     View the requested Gallery page
+
+    Args:
+        request : Django Request object
+
+    Returns:
+        respons : Django response
+
     """
     print("NEW VIEW GALLERY")
     start_time = time.time()
@@ -304,14 +329,18 @@ def item_info(request, i_uuid):
 
     read_from_disk(context["webpath"].strip(), skippable=True)
     catalog_qs = get_db_files(context["sort"], context["webpath"])
-    item_list = Paginator(catalog_qs, 1)
 
-    pages = [str(record.uuid) for record in catalog_qs]
-    context["page"] = pages.index(e_uuid) + 1
+    page_uuids = [str(record.uuid) for record in catalog_qs]
+    context["page"] = page_uuids.index(e_uuid) + 1
+    context["first_uuid"] = page_uuids[0]
+    context["last_uuid"] = page_uuids[len(page_uuids)-1] # catalog_qs[catalog_qs.count() - 1].uuid
+    # previously the uuid's were grabbed by performing actions against the paginated records
+    # instead the list comp. appears to be faster, and more efficient.
+
+    item_list = Paginator(catalog_qs, 1)
     context["page_locale"] = int(context["page"] / settings.GALLERY_ITEMS_PER_PAGE) + 1
-    context["pagecount"] = item_list.count
-    context["next_uuid"] = ""
-    context["previous_uuid"] = ""
+        # up_uri uses this to return you to the same page offset you were viewing
+    context["pagecount"] = item_list.count # Switch this to math only, no paginator?
     context["uuid"] = entry.uuid
     context["filename"] = entry.name
     context["filesize"] = entry.size
@@ -331,14 +360,15 @@ def item_info(request, i_uuid):
     context["ft_is_dir"] = entry.filetype.is_dir
     context["mobile"] = detect_mobile(request)
 
+    # generate next uuid pointers, switch this away from paginator?
+    context["next_uuid"] = ""
+    context["previous_uuid"] = ""
     page_contents = item_list.page(context["page"])
     if page_contents.has_next():
         context["next_uuid"] = catalog_qs[page_contents.next_page_number() - 1].uuid
 
     if page_contents.has_previous():
         context["previous_uuid"] = catalog_qs[page_contents.previous_page_number() - 1].uuid
-    context["first_uuid"] = catalog_qs[0].uuid
-    context["last_uuid"] = catalog_qs[catalog_qs.count() - 1].uuid
     print("Process time: ", time.time() - context["start_time"], "secs")
     response = JsonResponse(context, status=200)
     return response
@@ -346,14 +376,17 @@ def item_info(request, i_uuid):
 
 def new_json_viewitem(request, i_uuid):
     """
+    This is the new view item.  It's a view stub, that calls item_info via json, to load the
+    data for the record.
 
     Parameters
     ----------
-    request
-    i_uuid
+    request : Django request object
+    i_uuid : the items uuid
 
     Returns
     -------
+    json : Json payload that contains the information regarding the item
 
     """
     i_uuid = str(i_uuid).strip().replace("/", "")
@@ -379,6 +412,11 @@ def downloadFile(request, filename=None):
 
     This fakes the browser into displaying the filename as the title of the
     download.
+
+    Args:
+        request : Django request object
+        filename (str): Optional, will force the web browser to use filename as the
+            filename for saving the file.  (This is the fix for the UUID filenames)
 
     """
     # Is this from an archive?  If so, get the Page ID.
@@ -408,6 +446,8 @@ def downloadFile(request, filename=None):
 def new_view_archive(request, i_uuid):
     """
     Show the gallery from the archive contents
+
+    *need to rewrite*
     """
     context = {}
     i_uuid = str(i_uuid).strip().replace("/", "")
@@ -479,6 +519,9 @@ def new_view_archive(request, i_uuid):
 def new_archive_item(request, i_uuid):
     """
     Show item in an archive
+
+    *need to rewrite*
+
     """
     i_uuid = str(i_uuid).strip().replace("/", "")
     context = {}
