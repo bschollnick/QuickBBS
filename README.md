@@ -37,44 +37,43 @@ entirety of the ALBUMS path, and if any file system changes are detected, the di
 be rescanned.  The data is not removed from the database, the next time that directory is viewed, it will be 
 re-validated against the file system.
 
-[![](https://mermaid.ink/img/pako:eNp1U8tOwzAQ_JWVT0GCH-gBqY2DxIFS9SEOBFVbZ5NYTexiO4KK8O84TlKghZwi78zs7I79wYTOiE1YYfBQwpqnCvz3RLslvTZkHdzc3ELLpSHhtDmCNnAnK7ItzKK4JLGH3G5jFCVt1wbFXqriqteYnVOVdiAVpL58wWkfopVABSf0IPLQi1zgg0o4gs0hQ0dZC_yZS3uo8AhvtDtgQS-_jNzpRmWdgZ72tw3gP_vOo4XRgqyFuERVkO3o5xbnAfoYxYa8j25BvaOwJ1iS0Caz4-AcHe7QEtyrjN63HoeDzGOQWYwy67KpdwplNSiMAqdzuw05dP1-nHlzdhBcBMF_Av2mtNPpEGRvqXMIuVftum029xx0Du7kxqEpyA0tptNebe6TDev1t2IWjSkkxmjzGxnH0TBOgA_FOD4zBVz7ybr7krxL61rOL9byLzUwbJsk0Yp83t8Fp0FUktRonvNATRJ2zWoyNcrMv4OPrpgyV1JNKZv434xybCqXslR9eig2Tq-OSrCJMw1dsyaEzSX6F1SzSY6Vpc8vj8oXmw?type=png)](https://mermaid.live/edit#pako:eNp1U8tOwzAQ_JWVT0GCH-gBqY2DxIFS9SEOBFVbZ5NYTexiO4KK8O84TlKghZwi78zs7I79wYTOiE1YYfBQwpqnCvz3RLslvTZkHdzc3ELLpSHhtDmCNnAnK7ItzKK4JLGH3G5jFCVt1wbFXqriqteYnVOVdiAVpL58wWkfopVABSf0IPLQi1zgg0o4gs0hQ0dZC_yZS3uo8AhvtDtgQS-_jNzpRmWdgZ72tw3gP_vOo4XRgqyFuERVkO3o5xbnAfoYxYa8j25BvaOwJ1iS0Caz4-AcHe7QEtyrjN63HoeDzGOQWYwy67KpdwplNSiMAqdzuw05dP1-nHlzdhBcBMF_Av2mtNPpEGRvqXMIuVftum029xx0Du7kxqEpyA0tptNebe6TDev1t2IWjSkkxmjzGxnH0TBOgA_FOD4zBVz7ybr7krxL61rOL9byLzUwbJsk0Yp83t8Fp0FUktRonvNATRJ2zWoyNcrMv4OPrpgyV1JNKZv434xybCqXslR9eig2Tq-OSrCJMw1dsyaEzSX6F1SzSY6Vpc8vj8oXmw)
+[![](https://mermaid.ink/img/pako:eNp1U9Fq4zAQ_JVFTyq0P5CHg8RyoXBJQ5NwcBjCWt7EoraUk2RoqPvvJ8lO2qSNn9a7M6PdHemdSVMRm7C9xUMNa1FoCN-TruhtK9AjPDz8AkS-rru21KiaoXY34HColyVftdg0CQRrLBu6BEjJ51Sprr2JqCr-G-0-Zof8Hypf6F9Hzqd6L5Ql6Y09grHwqBpyPcx4VpN8hZ3bZihr2q4tylel96P27JqqjQeloQjlb5x-zlcSNZzRlyKPptNVJCfWDQkY9zdPnAVfWiPJOchq1HtykX4tv0jQZ55ZQk9xuM2hilGcEV5IGlu5U9PRkRIdjQYFHI4yz0lmeZL5tGtQOAmc826bdhjP-5ILzblRcJkEBV9RGFsa7Ul78AZko0J097NJn1L9dDqa8-Uu7cJpsYvN5kmA2YE_d-mj9yfV6XRQWwS30tqD0zMulDs0eITcWmMvkVnGxzETfCxm2VVTIEyYON6B_E053wvxbV03qYnh-jwfFvJZuF6JEIma5-yetWRbVFV4Xu-xWDBfU0sFm4Swoh12jS9YoT8CFDtvVkct2cTbju5Zly6BUBgeZssmO2xcyB5Q_zXm9P_xH0P-Nos?type=png)](https://mermaid.live/edit#pako:eNp1U9Fq4zAQ_JVFTyq0P5CHg8RyoXBJQ5NwcBjCWt7EoraUk2RoqPvvJ8lO2qSNn9a7M6PdHemdSVMRm7C9xUMNa1FoCN-TruhtK9AjPDz8AkS-rru21KiaoXY34HColyVftdg0CQRrLBu6BEjJ51Sprr2JqCr-G-0-Zof8Hypf6F9Hzqd6L5Ql6Y09grHwqBpyPcx4VpN8hZ3bZihr2q4tylel96P27JqqjQeloQjlb5x-zlcSNZzRlyKPptNVJCfWDQkY9zdPnAVfWiPJOchq1HtykX4tv0jQZ55ZQk9xuM2hilGcEV5IGlu5U9PRkRIdjQYFHI4yz0lmeZL5tGtQOAmc826bdhjP-5ILzblRcJkEBV9RGFsa7Ul78AZko0J097NJn1L9dDqa8-Uu7cJpsYvN5kmA2YE_d-mj9yfV6XRQWwS30tqD0zMulDs0eITcWmMvkVnGxzETfCxm2VVTIEyYON6B_E053wvxbV03qYnh-jwfFvJZuF6JEIma5-yetWRbVFV4Xu-xWDBfU0sFm4Swoh12jS9YoT8CFDtvVkct2cTbju5Zly6BUBgeZssmO2xcyB5Q_zXm9P_xH0P-Nos)
 
 The gallery uses 3 different sizes of thumbnails, Large (Desktop web browser), Medium (Intended for Mobile), and 
 Small (eg. Gallery thumbnails).  Each of the sizes is configurable.  
 
-This is built-upon the Django Python web/cms database framework.  
-PILLOW, is used for the majority of the thumbnail/image creation, and FITZ is used for PDF thumbnailing.  
+Currently these categories, and file formats / extensions are supported for automatic detection and processing:
 
-The gallery can automatically view the following file types:
+* GRAPHIC_FILE_TYPES - [".bmp", ".gif", ".jpg", ".jpeg", ".png", '.webp']
+* PDF_FILE_TYPES - [".pdf", ]
+* ARCHIVE_FILE_TYPES, which consists of:
+   * RAR_FILE_TYPES - [".cbr", ".rar"]
+   * ZIP_FILE_TYPES - [".cbz", ".zip"]
+* HTML_FILE_TYPES - [".html", ".htm"]
+* TEXT_FILE_TYPES - [".txt", ".markdown", ".text"]
+* MOVIE_FILE_TYPES - [".mp4", ".mpg", ".mpg4", ".mpeg", ".mpeg4", ".wmv", '.flv', '.avi']
+* AUDIO_FILE_TYPES - [".MP3", ]
+* BOOK_FILE_TYPES - [".epub", ]
+* MARKDOWN_FILE_TYPES - [".markdown", ]
 
-* Jpeg - supports automatic thumbnail creation
-* Png - supports automatic thumbnail creation
-* gif - supports automatic thumbnail creation
-* bmp - supports automatic thumbnail creation
-* pdf - supports automatic thumbnail creation
-* cbz, zip - supports automatic thumbnail creation
-* cbr, rar - supports automatic thumbnail creation
+For these types of files, a generic icon will be used, since there is no thumbnail available.
 
+* HTML
+* Text
+* Audio
 
-Other requirements:
-========
+For these types of files, currently a generic icon will be used, thumbnail support will be a further enhancement or require a optional feature of the file.
 
-* Pillow - Used for Graphical conversions / Thumbnailing
-   * libjpeg
-   * zlib
-   * libtiff
-   * libfreetype
-   * littlecms
-   * libwebp
-* Fitz - Used for creating thumbnails for PDF files
-* Unrar - Used for accessing RAR files
-* Jinja2 is the templating engine
+* Epub - A thumbnail is included in the Epub
+* Movies - "Your mileage may vary".  A thumbnail is created, but if the frame that is selected does not contain a useful 
+thumbnail (e.g. is entirely black, white, or just non-euclidean in nature) then it may not be useful.
+
 
 
 Version 2 vs Version 1
 ==========
 
-Version two is a significant rewrite of the gallery.  Version 1 was hampered by disk speed issues.
+Version two is a significant rewrite of the gallery.  Version 1 was hampered by disk speed issues, since there was no disk cache in v1.
 
 Version 1 was written utilizing only a file system, so it would attempt to cache the directory in memory, and the thumbnails were created on disk, and stored as seperate files.  It worked decently, but had issues with folders that had a significant (eg 3-4K) number of files in them.  In addition:
 
@@ -83,11 +82,9 @@ There were significant issues that impacted the speed of the software.
 1) Creating the thumbnails in the webpage view was significantly impacting the speed, and delaying the rendering of the page
   * v2 resolves this by having the thumbnail view contain the code for the thumbnail creation.
   
-In addition, I am currently converting the system over to using UUIDs (Universal Unique IDentifier)?  Why?  Because it simplifies the code significantly.  Previously I would have to lookup a file by searching the database by it's FileName, and Pathname.  Now when the Index Data is created, a UUID is created and assigned to it.  
+v2 and v3 use UUIDs (Universal Unique IDentifier) for all objects?  Why?  Because it simplifies the code significantly.  Previously I would have to lookup a file by searching the database by it's FileName, and Pathname.  Now when the Index Data is created, a UUID is created and assigned to it.  All content related to that file is mapped using that UUID, both internally and via the web request.  
 
 Any reference to that file, is handled by sending the UUID.  
-
-For example:
 
 http://www.example.com/albums/catpixs   - Would give gallery listing of the catpixs directory
 
@@ -103,16 +100,22 @@ http://www.example.com/view_arc_item/7109b28a-80f6-4a8f-8b48-ae86e052cdaa?page=4
 Version 3
 ============
 
-The design is similar to Version 2, but I am splitting the Database structure by utilizing Django Apps.  
+Version 3 is still being worked on, but significant portions of the upgrade have already been added to the MASTER repository.  
+The design is similar to Version 2, but many features and functions in the core of v2 are being split into separate Django Apps.  
 
-For example, the File Types are now in the FileTypes application, instead of being in the frontend app.  
-I am restructuring the code to use this best practice, and I am expecting to be able to simplify the code in the frontend.
-How?  I am moving more logic into the model, for example, the Thumbnails model now includes all of the code to manipulate the
-thumbnails, and to Save and Delete thumbnails.
+What is being split into a separate application?
 
-The database tables have been optimized more, and some redundancy has been removed.
+* Cache and Cache Management - Now dramatically simplified in comparison to v2.  A Watchdog monitor is now being used to 
+monitor for disk changes in the ALBUMS_PATH.  Any changes will invalidate that directory, and force a rescan.
+Cached_Exists, exists no longer!!
+* FileTypes
+* Frontend - Still contains the program logic, but now calls for the functions in the other apps.
+* quickbbs - Configuration is now in quickbbs_settings.py, there is no longer a standalone CFG directory.
+* thumbnails - contains the actual code for creating and managing the thumbnails (files and database cache)
+   * Please note, do not confuse this for the thumbnails file in the frontend.  That currently contains the 
+logic for using the thumbnails apps models, etc.  (I need to rename it to prevent confusion, eventually.)
 
-The thumbnail tables have been most impacted.
+v3 is roughly 60-70% done, but significant improvements in speed, performance, have been made.
 
 * Index Data - Contains the overall index (e.g. File1, File2, Image1, Image2, Directory1, Directory2, etc)
 * Thumbnails_Files - Contains the Index meta container for all Files (But not directories)
