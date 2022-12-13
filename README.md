@@ -164,3 +164,13 @@ To Dos:
 * Finish Title Search - Done for Gallery listing, need to update individual item page.
 * Repair Archive Gallery & Individual item page(s)
   * It's been broken for a while under v2, I just rewritten it yet.
+
+
+Version History
+================
+
+* Pre-v1 - Based on Twisted Matrix's Twisted Framework
+* v1 - Before April of 2014
+* v2 - October 30, 2017
+* v3 (WIP) - Release date - TBD, started ~ 12/01/2022
+
