@@ -39,9 +39,9 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 # Sending File or zipfile - https://djangosnippets.org/snippets/365/
 
 
-DF_PNEXT = ["lastscan", "lastmod",
-            "size", "numfiles",
-            "numdirs", "parent_dir_id"]
+# DF_PNEXT = ["lastscan", "lastmod",
+#             "size", "numfiles",
+#             "numdirs", "parent_dir_id"]
 
 
 def return_prev_next(fqpn, currentpath, sorder) -> tuple:
@@ -157,7 +157,7 @@ def search_viewresults(request):
     print("NEW search GALLERY")
     start_time = time.time()
     context = {}
-    paths = {}
+    # paths = {}
     context["small"] = g_option(request,
                                 "size",
                                 settings.IMAGE_SIZE["small"])
@@ -174,7 +174,8 @@ def search_viewresults(request):
     context["fromtimestamp"] = datetime.datetime.fromtimestamp
     context["searchtext"] = request.GET.get("searchtext", default=None)
 
-    index = index_data.objects.filter(name__icontains=context["searchtext"]).order_by(*SORT_MATRIX[context["sort"]])
+    index = index_data.objects.filter(name__icontains=context["searchtext"]).\
+        order_by(*SORT_MATRIX[context["sort"]])
 
     context["current_page"] = request.GET.get("page", 1)
     chk_list = Paginator(index, 30)
@@ -295,13 +296,14 @@ def item_info(request, i_uuid):
     -------
     JsonResponse : The Json response from the web query.
     """
-    context = {"start_time": time.time()}
-    e_uuid = str(i_uuid).strip().replace("/", "")
-    if not is_valid_uuid(e_uuid):
+    context = {"start_time": time.time(),
+               "uuid": str(i_uuid).strip().replace("/", ""),
+               }
+    if not is_valid_uuid(context["uuid"]):
         return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
 
     context["sort"] = sort_order(request)
-    entry = index_data.objects.filter(uuid=e_uuid)[0]
+    entry = index_data.objects.filter(uuid=context["uuid"])[0]
 
     context["html"] = ""
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
@@ -330,9 +332,10 @@ def item_info(request, i_uuid):
     catalog_qs = get_db_files(context["sort"], context["webpath"])
 
     page_uuids = [str(record.uuid) for record in catalog_qs]
-    context["page"] = page_uuids.index(e_uuid) + 1
+    context["page"] = page_uuids.index(context["uuid"]) + 1
     context["first_uuid"] = page_uuids[0]
-    context["last_uuid"] = page_uuids[len(page_uuids) - 1]  # catalog_qs[catalog_qs.count() - 1].uuid
+    context["last_uuid"] = page_uuids[len(page_uuids) - 1]
+    # catalog_qs[catalog_qs.count() - 1].uuid
     # previously the uuid's were grabbed by performing actions against the paginated records
     # instead the list comp. appears to be faster, and more efficient.
 
@@ -414,8 +417,11 @@ def downloadFile(request, filename=None):
 
     Args:
         request : Django request object
-        filename (str): Optional, will force the web browser to use filename as the
-            filename for saving the file.  (This is the fix for the UUID filenames)
+        filename (str): This is unused, and only captured in django URLS to allow
+            the web browser to "see" a default filename.  That's why the uuid is
+            an argument passed in (?uuid=xxxxxx), so that the web browser doesn't
+            see the uuid, and use that as the filename (which is an issue that was
+            found during v2 development).
 
     """
     # Is this from an archive?  If so, get the Page ID.
@@ -482,8 +488,8 @@ def new_view_archive(request, i_uuid):
     context["fromtimestamp"] = datetime.datetime.fromtimestamp
     # context["djicons"] = django_icons.templatetags.icons.icon
     context["djicons"] = django_icons.templatetags.icons.icon_tag
-    arc_filename = settings.ALBUMS_PATH + context["webpath"].replace("/",
-                                                                     os.sep).replace("//", "/") + entry.name
+    arc_filename = settings.ALBUMS_PATH + context["webpath"].\
+        replace("/", os.sep).replace("//", "/") + entry.name
     archive_file = archives.id_cfile_by_sig(arc_filename)
     archive_file.get_listings()
     context["db_entry"] = entry
@@ -572,6 +578,10 @@ def new_archive_item(request, i_uuid):
 
 
 def view_setup():
+    """
+    Wrapper for view startup
+
+    """
     print("Clearing all entries from Cache Tracking")
     try:
         Cache_Tracking.objects.all().delete()
@@ -587,11 +597,6 @@ def view_setup():
                 print("Pre-Caching: ", prepath)
                 read_from_disk(prepath.strip())  # startup
 
-                # for ignored in configdata["filetypes"]["files_to_ignore"]:
-                #    test = index_data.objects.filter(name__iexact=ignored.title())
-                #    if test.exists():
-                #        print("%s - %s" % (ignored, test.count()))
-                #        test.delete()
         except:
             pass
 
