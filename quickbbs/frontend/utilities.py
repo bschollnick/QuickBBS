@@ -181,8 +181,8 @@ def return_image_obj(fs_path, memory=False):
         # There is currently no concept of a "None" in filetypes
         extension = ".none"
     if filetype_models.FILETYPE_DATA[extension]["is_pdf"]:
-        # Do not repair the PDF / validate the PDF.  If it's bad, it should be repaired, not band-aided by
-        # a patch from the web server.
+        # Do not repair the PDF / validate the PDF.  If it's bad,
+        # it should be repaired, not band-aided by a patch from the web server.
         # results = pdf_utilities.check_pdf(fs_path)
         # if results[0] is False:
         #    pdf_utilities.repair_pdf(fs_path, fs_path)
@@ -219,7 +219,7 @@ def return_image_obj(fs_path, memory=False):
             #               source_image = None
             except UserWarning:
                 print("UserWarning!")
-#              source_image = None
+    #              source_image = None
     if filetype_models.FILETYPE_DATA[extension]["is_movie"]:
         with av.open(fs_path) as container:
             stream = container.streams.video[0]
@@ -242,7 +242,7 @@ def return_image_obj(fs_path, memory=False):
             #               source_image = None
             except UserWarning:
                 print("UserWarning!")
-#              source_image = None
+    #              source_image = None
     return source_image
 
 
@@ -313,9 +313,20 @@ def naturalize(string):
     return string
 
 
-def multiple_replace(repl_dict, text):  # , compiled):
-    # Create a regular expression  from the dictionary keys
+def multiple_replace(repl_dict, text):
+    """
+    Regex to quickly replace multiple entries at the same time.
 
+    Parameters
+    ----------
+    repl_dict (dict): Dictionary containing the pairs of values to replace
+    text (str): The string to be modifying
+
+    Returns
+    -------
+        Str : The potentially modified string
+    """
+    # Create a regular expression  from the dictionary keys
     # For each match, look-up corresponding value in dictionary
     return constants.regex.sub(lambda mo: repl_dict[mo.string[mo.start():mo.end()]], text)
 
@@ -326,23 +337,25 @@ def return_disk_listing(fqpn, enable_rename=False):
 
     each entry will be in this vein:
 
-    data[titlecase] = {"filename": titlecase,
-                           "lower_filename": titlecase.lower(),
-                           "path": os.path.join(fqpn, titlecase),
-                           'sortname': naturalize(titlecase),
-                           'size': entry.stat()[stat.ST_SIZE],
-                           'lastmod': entry.stat()[stat.ST_MTIME],
-                           'is_dir': entry.is_dir(),  # fext == ".dir",
-                           'is_file': not entry.is_dir(),  # fext != ".dir",
-                           'is_archive': filetype_models.FILETYPE_DATA[fext]["is_archive"],
-                           'is_image': filetype_models.FILETYPE_DATA[fext]["is_image"],
-                           'is_movie': filetype_models.FILETYPE_DATA[fext]["is_movie"],
-                           'is_audio': filetype_models.FILETYPE_DATA[fext]["is_audio"],
-                           'is_text': filetype_models.FILETYPE_DATA[fext]["is_text"],
-                           'is_html': filetype_models.FILETYPE_DATA[fext]["is_html"],
-                           'is_markdown': filetype_models.FILETYPE_DATA[fext]["is_markdown"],
-                           'is_animated': animated
-                           }
+    data[<filename in titlecase>] = {"filename": the filename in titlecase,
+                                       "lower_filename": the filename in lowercase (depreciated?),
+                                            # Most likely depreciated in v3
+                                       "path": The fully qualified pathname and filename
+                                       'sortname': A naturalized sort ready filename
+                                       'size': FileSize
+                                       'lastmod': Last modified timestamp
+                                       'is_dir': Is this entry a directory?
+                                       'is_file': Is this entry a file?
+                                       'is_archive': is this entry an archive
+                                       'is_image': is this entry an image
+                                       'is_movie': is this entry a movie file (not animated gif)
+                                       'is_audio': is this entry an audio file
+                                       'is_text': is this entry a text file
+                                       'is_html': is this entry a html file
+                                       'is_markdown': is this entry a markdown file
+                                       'is_animated': Is this an animated file (e.g. animated GIF),
+                                            not a movie file
+                                       }
     This code obeys the following quickbbs_settings, settings:
 
     * EXTENSIONS_TO_IGNORE
@@ -381,13 +394,14 @@ def return_disk_listing(fqpn, enable_rename=False):
         if fext not in filetype_models.FILETYPE_DATA:
             # The file extension is not in FILETYPE_DATA, so ignore it.
             continue
-        elif (fext in settings.EXTENSIONS_TO_IGNORE) or \
+
+        if (fext in settings.EXTENSIONS_TO_IGNORE) or \
                 (lower_filename in settings.FILES_TO_IGNORE):
             # file extension is in EXTENSIONS_TO_IGNORE, so skip it.
             # or the filename is in FILES_TO_IGNORE, so skip it.
             continue
 
-        elif settings.IGNORE_DOT_FILES and lower_filename.startswith("."):
+        if settings.IGNORE_DOT_FILES and lower_filename.startswith("."):
             # IGNORE_DOT_FLES is enabled, *and* the filename startswith an ., skip it.
             continue
 
@@ -404,7 +418,7 @@ def return_disk_listing(fqpn, enable_rename=False):
             if titlecase != original_filename:
                 rename_file(os.path.join(fqpn, original_filename),
                             os.path.join(fqpn, titlecase))
-                print("rejected - %s" % titlecase)
+                print(f"rejected - {titlecase}")
                 # loaded = False
 
         data[titlecase] = {"filename": titlecase,
@@ -428,11 +442,36 @@ def return_disk_listing(fqpn, enable_rename=False):
 
 
 def break_down_urls(uri_path):
+    """
+    Split URL into it's component parts
+
+    Parameters
+    ----------
+    uri_path (str): The URI to break down
+
+    Returns
+    -------
+        list : A list containing all of the parts of the URI
+
+    >>> break_down_urls("http://www.google.com")
+    """
     path = urllib.parse.urlsplit(uri_path).path
     return path.split('/')
 
 
-def return_breadcrumbs(uri_path=""):  # , crumbsize=3):
+def return_breadcrumbs(uri_path=""):
+    """
+    Return the breadcrumps for uri_path
+
+    Parameters
+    ----------
+    uri_path (str): The URI to break down into breadcrumbs
+
+    Returns
+    -------
+        list of tuples - consisting of [name, url, html url link]
+
+    """
     uris = break_down_urls(uri_path.lower().replace(settings.ALBUMS_PATH.lower(), ""))
     data = []
     for count in range(1, len(uris)):
@@ -445,6 +484,19 @@ def return_breadcrumbs(uri_path=""):  # , crumbsize=3):
 
 
 def fs_counts(fs_entries):
+    """
+    Quickly count the files vs directories in a list of scandir entries
+    Used primary by sync_database_disk to count a path's files & directories
+
+    Parameters
+    ----------
+    fs_entries (list) - list of scandir entries
+
+    Returns
+    -------
+    tuple - (# of files, # of dirs)
+
+    """
     files = 0
     dirs = 0
     for fs_item in fs_entries:
@@ -523,8 +575,6 @@ def sync_database_disk(directoryname):
                 # print("Size mismatch")
                 db_entry.size = entry["size"]
                 update = True
-            #            if db_entry.filetypes.fileext not in filetypes.filetype[db_entry.filetypes.fileext]:
-            #                pass
             if db_entry.directory:  # or db_entry["unified_dirs"]:
                 success, subdirectory = return_disk_listing(entry["path"])
                 fs_file_count, fs_dir_count = fs_counts(subdirectory)
@@ -577,11 +627,12 @@ def sync_database_disk(directoryname):
             record.is_animated = False
             if filetype_models.FILETYPE_DATA[fext]["is_image"] and fext in [".gif"]:
                 try:
-                    record.is_animated = Image.open(os.path.join(record.fqpndirectory, record.name)).is_animated
+                    record.is_animated = Image.open(os.path.join(record.fqpndirectory,
+                                                                 record.name)).is_animated
                 except AttributeError:
                     record.is_animated = False
             # print("FS contains file not in database, saving ", fs_filename)
-            #record.save()
+            # record.save()
             records_to_create.append(record)
     if records_to_create:
         index_data.objects.bulk_create(records_to_create, 100)
@@ -592,6 +643,19 @@ def sync_database_disk(directoryname):
 
 
 def read_from_disk(dir_to_scan, skippable=True):
+    """
+    Stub function to bridge between v2 and v3 mechanisms.
+    This is just a temporary bridge to prevent the need for a rewrite on
+    functions that read_from_disk.
+
+    This just redirects the read_from_disk call -> sync_database_disk.
+
+    Parameters
+    ----------
+    dir_to_scan (str): The Fully Qualified pathname of the directory to scan
+    skippable (bool): Is this allowed to skip, depreciated for v3.
+
+    """
     if not os.path.exists(dir_to_scan):
         if dir_to_scan.startswith("/"):
             dir_to_scan = dir_to_scan[1:]
