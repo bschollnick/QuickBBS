@@ -15,7 +15,7 @@ import django_icons.templatetags.icons
 import markdown2
 from django.conf import settings
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
-from django.db.utils import ProgrammingError
+from django.db.utils import ProgrammingError, OperationalError
 from django.http import (Http404, HttpResponseBadRequest, HttpResponseNotFound,
                          JsonResponse)
 from django.shortcuts import render
@@ -46,9 +46,13 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 def return_prev_next(fqpn, currentpath, sorder) -> tuple:
     """
-    Read the parent directory, get the index of the current path,
-    return the previous & next paths.
+    The return_prev_next function takes a fully qualified pathname,
+    and the current path as parameters. It returns the previous and next paths in a tuple.
 
+    :param fqpn: Get the path of the parent directory
+    :param currentpath: Determine the current offset in the list of files
+    :param sorder: Determine whether the index is sorted by name or size
+    :return: A tuple of two strings,
 
     """
     # Parent_path = Path(fqpn).parent
@@ -83,19 +87,16 @@ def return_prev_next(fqpn, currentpath, sorder) -> tuple:
 
 def thumbnails(request, tnail_id=None):
     """
-    Serve the thumbnail resources
+    The thumbnails function is used to serve the thumbnail memory image.
+    It takes a request and an optional uuid as arguments.
+    If no uuid is provided, it will return the default image for thumbnails.
+    Otherwise, it will attempt to find a matching UUID in the database and return that file's thumbnail.
 
-    Args:
-        request : Django Request object
-        tnail_id : The UUID for the thumbnail item
+    :param request: Django Request object
+    :param tnail_id=None: the uuid of the original file / thumbnail uuid
+    :return: The image of the thumbnail to send
 
-    returns:
-
-        image of the thumbnail to send
-
-    raises:
-
-        HttpResponseBadRequest - If the uuid can not be found
+    :raises: HttpResponseBadRequest - If the uuid can not be found
     """
     #
     if is_valid_uuid(str(tnail_id)):
@@ -232,7 +233,6 @@ def new_viewgallery(request):
     context["mobile"] = detect_mobile(request)
     request.path = request.path.lower().replace(os.sep, r"/")
     paths["webpath"] = request.path
-    print("WebPath, View:", paths["webpath"])
     context["sort"] = sort_order(request)
     context["webpath"] = ensures_endswith(paths["webpath"], os.sep)
     context["breadcrumbs"] = return_breadcrumbs(paths["webpath"])[:-1]
@@ -587,6 +587,8 @@ def view_setup():
         Cache_Tracking.objects.all().delete()
     except ProgrammingError:
         print("Unable to clear Cache Table")
+    except OperationalError:
+        print("Cache table doesn't exist")
 
     if 'runserver' in sys.argv or "--host" in sys.argv:
         print("Starting cleanup")
@@ -599,6 +601,7 @@ def view_setup():
 
         except:
             pass
+    index_data.objects.filter(delete_pending=True).delete()
 
 
 if __name__ != "__main__":

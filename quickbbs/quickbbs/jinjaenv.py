@@ -16,6 +16,15 @@ from django.conf import settings
 
 
 def environment(**options):
+    """
+    The environment function is used to create a Jinja2 environment for rendering
+    templates. It sets up the global context with some basic variables that all templates
+    need, like `static` and `url`. It also takes care of loading the settings file.
+
+    :param **options: Pass in the settings of the application
+    :return: The environment object
+    :doc-author: Trelent
+    """
     env = Environment(**options)
     env.globals.update({
         'static': static,
