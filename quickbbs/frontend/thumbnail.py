@@ -15,6 +15,21 @@ from frontend.web import return_img_attach, return_inline_attach
 
 
 def ensures_endswith(string_to_check, value):
+    """
+    The ensures_endswith function ensures that the string_to_check ends with value.
+    If it does not, then value is appended to the end of string_to_check.
+
+    :param string_to_check: Store the string that is being checked
+    :param value: Add a value to the end of the string_to_check if it doesn't already have that value at its end
+    :return: A string with the value appended to it
+
+    Examples
+    --------
+    >>> ensures_endswith("test", os.sep)
+    test/
+    >>> ensures_endswith("balony", os.sep)
+    balony/
+    """
     if not string_to_check.endswith(value):
         string_to_check = f"{string_to_check}{value}"
     return string_to_check
@@ -39,10 +54,6 @@ def images_in_dir(database, webpath):
 
     Examples
     --------
-    #>>> is_valid_uuid('c9bf9e57-1685-4c89-bafb-ff5af830be8a')
-    #True
-    #>>> is_valid_uuid('c9bf9e58')
-    #False
     """
 
     #   What files exist in this directory?
@@ -51,7 +62,7 @@ def images_in_dir(database, webpath):
     files = get_xth_image(database, 0, filters)
     if files is None:
         # No files exist in the database for this directory
-        print("* scanning due to No files exist, %s" % webpath)
+        print(f"* scanning due to No files exist, {webpath}")
         read_from_disk(webpath, skippable=True)
         # process_dir
         files = get_xth_image(database, 0, filters)
@@ -84,9 +95,7 @@ def new_process_dir(db_index):
         #   inaccurate or the image does not pass verify.
         #   Reset the existing thumbnails to ensure that they will be
         #   regenerated
-        print("size mismatch, {} - {}".format(db_index.directory.FileSize,
-                                              db_index.name))
-
+        print(f"size mismatch, {db_index.name} - {db_index.directory.FileSize}")
         db_index.directory.FileSize = -1
         db_index.directory.SmallThumb = b""
 
@@ -127,6 +136,15 @@ def new_process_dir(db_index):
 
 
 def invalidate_thumb(thumbnail):
+    """
+    The invalidate_thumb function accepts a Thumbnail object and sets all of its attributes to an empty byte string.
+    It is used when the thumbnail file cannot be found on disk, or when the thumbnail file has been corrupted.
+
+    :param thumbnail: Store the thumbnail data
+    :return: The thumbnail object
+    >>> test = quickbbs.models.index_data()
+    >>> test = invalidate_thumb(test)
+    """
     thumbnail.FileSize = -1
     thumbnail.SmallThumb = b""
     thumbnail.MediumThumb = b""
@@ -150,13 +168,11 @@ def new_process_img(entry, request, imagesize="Small"):
     """
     thumb_size = g_option(request, "size", "Small").title()
 
-    existing_data = getattr(entry.file_tnail, "%sThumb" % thumb_size)  # .tobytes()
+    existing_data = getattr(entry.file_tnail, f"{thumb_size}Thumb")
     if existing_data != b'':
         # Does the thumbnail exist?
         if entry.size == entry.file_tnail.FileSize:
             return return_inline_attach(entry.name, existing_data)
-        else:
-            print("Cache is invalid")
     fs_fname = os.path.join(entry.fqpndirectory, entry.name).replace("//", "/")
     # file system location of directory
 
@@ -168,14 +184,14 @@ def new_process_img(entry, request, imagesize="Small"):
     temp = return_image_obj(fs_fname)
     temp_image = cr_tnail_img(temp, settings.IMAGE_SIZE[thumb_size.lower()], fext=fext)
     setattr(entry.file_tnail,
-            "%sThumb" % thumb_size, cr_tnail_img(temp,
+            f"{thumb_size}Thumb", cr_tnail_img(temp,
                                                  settings.IMAGE_SIZE[thumb_size.lower()],
                                                  fext=fext)
             )
     entry.file_tnail.FileSize = entry.size
     entry.file_tnail.save()
     entry.save()
-    imagedata = getattr(entry.file_tnail, "%sThumb" % thumb_size)
+    imagedata = getattr(entry.file_tnail, f"{thumb_size}Thumb")
     return return_img_attach(entry.name, imagedata, fext_override="JPEG")
 
 
@@ -247,10 +263,9 @@ def new_process_archive(ind_entry, request, page=0):
             return return_img_attach(os.path.basename(fs_archname),
                                      specific_page.LargeThumb,
                                      fext_override="JPEG")
-        else:
-            return return_img_attach(os.path.basename(fs_archname),
-                                     specific_page.LargeThumb.tobytes(),
-                                     fext_override="JPEG")
+        return return_img_attach(os.path.basename(fs_archname),
+                                 specific_page.LargeThumb.tobytes(),
+                                 fext_override="JPEG")
     elif thumbsize == "medium":
         if specific_page.MediumThumb == b"":
             try:
@@ -267,10 +282,9 @@ def new_process_archive(ind_entry, request, page=0):
             return_img_attach(os.path.basename(fs_archname),
                               specific_page.MediumThumb,
                               fext_override="JPEG")
-        else:
-            return return_img_attach(os.path.basename(fs_archname),
-                                     specific_page.MediumThumb.tobytes(),
-                                     fext_override="JPEG")
+        return return_img_attach(os.path.basename(fs_archname),
+                                 specific_page.MediumThumb.tobytes(),
+                                 fext_override="JPEG")
     elif thumbsize == "small":
         if specific_page.SmallThumb == b"":
             try:
@@ -287,9 +301,8 @@ def new_process_archive(ind_entry, request, page=0):
             return return_img_attach(os.path.basename(fs_archname),
                                      specific_page.SmallThumb,
                                      fext_override="JPEG")
-        else:
-            return return_img_attach(os.path.basename(fs_archname),
-                                     specific_page.SmallThumb.tobytes(),
-                                     fext_override="JPEG")
+        return return_img_attach(os.path.basename(fs_archname),
+                                 specific_page.SmallThumb.tobytes(),
+                                 fext_override="JPEG")
     return return_img_attach(os.path.basename(fs_archname), None,
                              fext_override="JPEG")

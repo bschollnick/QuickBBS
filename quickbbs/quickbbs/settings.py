@@ -22,7 +22,11 @@ INTERNAL_IPS = ['localhost', '127.0.0.1', 'nerv.local']
 machine_name = socket.gethostname().lower()
 print("Running on %s" % machine_name)
 
-DEBUG = True
+DEMO = False
+if DEMO:
+    ALBUMS_PATH = "/Volumes/4TB_Drive/gallery_demo"
+
+DEBUG = False
 #DEBUG = not DEBUG
 print("Debug is ", DEBUG)
 
@@ -206,16 +210,26 @@ WSGI_APPLICATION = 'quickbbs.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/1.9/ref/settings/#databases
-
-DATABASES = {'default': {'ENGINE': 'django.db.backends.postgresql',
-                         'NAME': 'postgres',
-                         'USER': 'postgres',
-                         'PASSWORD': 'hentai2020',
-                         'HOST': 'localhost',
-                         'PORT': '5432',
-                         'CONN_MAX_AGE': 300,
-                         }
-             }
+if not DEMO:
+    DATABASES = {'default': {'ENGINE': 'django.db.backends.postgresql',
+                             'NAME': 'postgres',
+                             'USER': 'postgres',
+                             'PASSWORD': 'hentai2020',
+                             'HOST': 'localhost',
+                             'PORT': '5432',
+                             'CONN_MAX_AGE': 300,
+                             }
+                 }
+else:
+    DATABASES = {'default': {'ENGINE': 'django.db.backends.postgresql',
+                             'NAME': 'demo-gallery',
+                             'USER': 'postgres',
+                             'PASSWORD': 'hentai2020',
+                             'HOST': 'localhost',
+                             'PORT': '5432',
+                             'CONN_MAX_AGE': 300,
+                             }
+                 }
 
 SOUTH_DATABASE_ADAPTERS = {
     'default': 'south.db.postgresql_psycopg2',

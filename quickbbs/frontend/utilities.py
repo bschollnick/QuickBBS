@@ -534,24 +534,32 @@ def sync_database_disk(directoryname):
                 to ensure that the logic works as expected.  Second is to then update
                 to use new data structures for v3.
            * There's little path work done here, but look to rewrite to pass in Path from Pathlib?
-    """
 
+    * Logic Update
+        * If there are no database entries for the directory, the fs comparing to the database
+    """
+    bootstrap = False
     if directoryname in [os.sep, r"/"]:
         directoryname = settings.ALBUMS_PATH
     webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
     dirpath = os.path.abspath(directoryname.title().strip())
 
-    if Cache_Tracking.objects.filter(DirName=dirpath).count() == 0:
-        # The path has not been seen since the Cache Tracking has been enabled
-        # (eg Startup, or the entry has been nullified)
-        # Add to table, and allow a rescan to occur.
-        print("\n", "\nSaving, %s to cache tracking\n" % dirpath, "\n")
-        new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
-        new_rec.save()
-
     success, fs_entries = return_disk_listing(webpath)
 
     db_data = index_data.objects.filter(fqpndirectory=webpath)
+    # if db_data.count() == 0:
+    #     record = index_data()
+    #     record.uuid = uuid.uuid4()
+    #     record.name = "DeleteMe"
+    #     record.ignore = True
+    #     record.delete_pending = True
+    #     record.lastmod = time.time()
+    #     record.lastscan = time.time()
+    #     record.filetype = filetypes(fileext=".txt")
+    #     record.save()
+    #     bootstrap = True
+    # db_data = index_data.objects.filter(fqpndirectory=webpath)
+
     for db_entry in db_data:
         if db_entry.name not in fs_entries:
             print("Database contains a file not in the fs: ", db_entry.name)
@@ -584,6 +592,7 @@ def sync_database_disk(directoryname):
             if update:
                 print("Database record being updated: ", db_entry.name)
                 db_entry.save()
+                update = False
 
     # Check for entries that are not in the database, but do exist in the file system
     db_data = index_data.objects.filter(fqpndirectory=webpath)
@@ -640,7 +649,16 @@ def sync_database_disk(directoryname):
         # The record is in the database, so it's already been vetted in the database comparison
         # Skip
         # continue
+    if bootstrap:
+        index_data.objects.filter(delete_pending=True).delete()
 
+    if Cache_Tracking.objects.filter(DirName=dirpath).count() == 0:
+        # The path has not been seen since the Cache Tracking has been enabled
+        # (eg Startup, or the entry has been nullified)
+        # Add to table, and allow a rescan to occur.
+        print("\n", "\nSaving, %s to cache tracking\n" % dirpath, "\n")
+        new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
+        new_rec.save()
 
 def read_from_disk(dir_to_scan, skippable=True):
     """

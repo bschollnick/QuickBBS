@@ -231,13 +231,28 @@ class index_data(models.Model):
 
     def write_to_db_entry(self, fileentry, fqpn, version=4):
         """
+        The write_to_db_entry function writes the fileentry to the index_data database.
+        It takes a scandir entry and a fully qualified pathname as parameters.
+        The function then determines if it is dealing with a directory or not, and
+        then creates an appropriate FileType object for that file extension.
+        If it is not an image, video, audio or archive type of file (as defined in
+        the FILETYPE_DATA dictionary), then we will just create a generic FileType object
+        that has no other attributes than being there.
+
+        :param self: Reference the class instance
+        :param fileentry: scandir entry
+        :param fqpn: Pass the fully qualified pathname of the file to be scanned
+        :param version=4: Generate a uuid version 4
+        :return: None
+        """
+        """
         Start of Unified code.  WIP
         Intended to be the glue that writes the database entry.
         Parameters
         ----------
-        fileentry
-        fqpn
-        version
+        fileentry : The scandir entry 
+        fqpn : The fully qualified pathname of the file
+        version : uuid version number
 
         Returns
         -------
@@ -272,6 +287,7 @@ class index_data(models.Model):
 
     def get_bg_color(self):
         """
+        Get the html / Cell background color of the file.
 
         Returns
         -------
@@ -292,7 +308,7 @@ class index_data(models.Model):
         options["i_uuid"] = str(self.uuid)
 
         parameters = []
-        #parameters.append("?small")
+        # parameters.append("?small")
         if self.filetype.is_pdf:
             parameters.append("&pdf")
         elif self.filetype.is_archive:
