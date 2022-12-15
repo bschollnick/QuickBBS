@@ -10,12 +10,12 @@ def resources(request, pathstr=None):
     """
     if pathstr is None:
         return
-    # album_viewing = os.path.join(configdata["locations"]["resources_path"], pathstr)
     album_viewing = os.path.join(settings.RESOURCES_PATH, pathstr)
     if not os.path.exists(album_viewing):
-        print ("File Not Found - %s" % album_viewing)
+        print("File Not Found - %s" % album_viewing)
     return serve(request, os.path.basename(album_viewing),
                  os.path.dirname(album_viewing))
+
 
 def static(request, pathstr=None):
     """
@@ -23,10 +23,8 @@ def static(request, pathstr=None):
     """
     if pathstr is None:
         return
-    #album_viewing = os.path.join(configdata["locations"]["static_path"], pathstr)
     album_viewing = os.path.join(settings.STATIC_PATH, pathstr)
     if not os.path.exists(album_viewing):
-        print ("File Not Found - %s" % album_viewing)
+        print("File Not Found - %s" % album_viewing)
     return serve(request, os.path.basename(album_viewing),
                  os.path.dirname(album_viewing))
-

@@ -93,7 +93,7 @@ def thumbnails(request, tnail_id=None):
     Otherwise, it will attempt to find a matching UUID in the database and return that file's thumbnail.
 
     :param request: Django Request object
-    :param tnail_id=None: the uuid of the original file / thumbnail uuid
+    :param tnail_id: the uuid of the original file / thumbnail uuid
     :return: The image of the thumbnail to send
 
     :raises: HttpResponseBadRequest - If the uuid can not be found
@@ -153,27 +153,23 @@ def search_viewresults(request):
     Returns:
         respons : Django response
 
-
     """
     print("NEW search GALLERY")
     start_time = time.time()
-    context = {}
-    # paths = {}
-    context["small"] = g_option(request,
-                                "size",
-                                settings.IMAGE_SIZE["small"])
-    context["medium"] = g_option(request,
+    context = {"small": g_option(request,
                                  "size",
-                                 settings.IMAGE_SIZE["medium"])
-
-    context["large"] = g_option(request,
-                                "size",
-                                settings.IMAGE_SIZE["large"])
-    context["user"] = request.user
-    context["mobile"] = detect_mobile(request)
-    context["sort"] = sort_order(request)
-    context["fromtimestamp"] = datetime.datetime.fromtimestamp
-    context["searchtext"] = request.GET.get("searchtext", default=None)
+                                 settings.IMAGE_SIZE["small"]),
+               "medium": g_option(request,
+                                  "size",
+                                  settings.IMAGE_SIZE["medium"]),
+               "large": g_option(request,
+                                 "size",
+                                 settings.IMAGE_SIZE["large"]),
+               "user": request.user,
+               "mobile": detect_mobile(request),
+               "sort": sort_order(request),
+               "fromtimestamp": datetime.datetime.fromtimestamp,
+               "searchtext": request.GET.get("searchtext", default=None)}
 
     index = index_data.objects.filter(name__icontains=context["searchtext"]).\
         order_by(*SORT_MATRIX[context["sort"]])

@@ -27,9 +27,8 @@ if DEMO:
     ALBUMS_PATH = "/Volumes/4TB_Drive/gallery_demo"
 
 DEBUG = False
-#DEBUG = not DEBUG
+# DEBUG = not DEBUG
 print("Debug is ", DEBUG)
-
 
 # DEBUG_TOOLBAR = True
 DEBUG_TOOLBAR = DEBUG
@@ -150,7 +149,7 @@ if not DEBUG:
     MIDDLEWARE += [
         'django.middleware.cache.UpdateCacheMiddleware',
         'django.middleware.cache.FetchFromCacheMiddleware',
-        ]
+    ]
 
 X_FRAME_OPTIONS = 'SAMEORIGIN'
 
@@ -197,7 +196,7 @@ TEMPLATES = [
                  "bytecode_cache": {
                      "name": "default",
                      "backend": "django_jinja.cache.BytecodeCache",
-                     "enabled": not DEBUG,      # needs to be negated, since TRUE for debug should be enabled - False
+                     "enabled": not DEBUG,  # needs to be negated, since TRUE for debug should be enabled - False
                  },
                  "autoescape": True,
                  "auto_reload": True,
