@@ -7,6 +7,7 @@ from django.conf import settings
 
 FILETYPE_DATA = {}
 
+
 class filetypes(models.Model):
     fileext = models.CharField(primary_key=True,
                                db_index=True,
@@ -35,11 +36,11 @@ class filetypes(models.Model):
     is_text = models.BooleanField(default=False, db_index=True)
     is_html = models.BooleanField(default=False, db_index=True)
     is_markdown = models.BooleanField(default=False, db_index=True)
-    
+
     def __unicode__(self):
         return f'{self.fileext}'
 
-    def return_icon_filename(self, fileext):
+    def return_any_icon_filename(self, fileext):
         """
         The return_icon_filename function takes a file extension as an argument and returns the filename of the
         icon that corresponds to that file extension.
@@ -67,8 +68,8 @@ class filetypes(models.Model):
             fileext = gif, jpg, mp4 (lower case, and without prefix .)
         """
         fileext = fileext.lower()
-        #if fileext.startswith("."):
-        #    fileext = fileext[1:]
+        if not fileext.startswith("."):
+            fileext = f'.{fileext}'
         if fileext in ['', None, 'unknown']:
             fileext = ".none"
 
@@ -97,8 +98,8 @@ def return_identifier(ext):
     Return the extension portion of the filename (minus the .)
     """
     ext = ext.lower().strip()
-#    if ext.startswith("."):
-#        ext = ext[1:]
+    #    if ext.startswith("."):
+    #        ext = ext[1:]
     return ext
 
 

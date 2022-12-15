@@ -660,6 +660,7 @@ def sync_database_disk(directoryname):
         new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
         new_rec.save()
 
+
 def read_from_disk(dir_to_scan, skippable=True):
     """
     Stub function to bridge between v2 and v3 mechanisms.

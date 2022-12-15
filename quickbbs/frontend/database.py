@@ -111,7 +111,7 @@ def check_dup_thumbs(uuid_to_check, page=0):
 
     Parameters
     ----------
-    uuid : str - The uuid of the index Filerec
+    uuid_to_check : str - The uuid of the index Filerec
     page : int - The page number of the archive file that is being examined
 
 
@@ -148,7 +148,6 @@ def get_xth_image(database, positional=0, filters=None):
 
     Parameters
     ----------
-
     database : object - The django database handle
 
     positional : int - 0 is first, if positional is greater than the # of
@@ -156,8 +155,9 @@ def get_xth_image(database, positional=0, filters=None):
 
     filters : dictionary of filters
 
+    Returns
+    -------
 
-    Returns:
         boolean::
             If successful the database record in question,
                     otherwise returns None

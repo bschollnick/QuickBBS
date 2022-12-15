@@ -39,7 +39,7 @@ create_file_entry(filename, filesize, is_default)
 """
 
 
-def is_valid_uuid(uuid_to_test, version=4) -> uuid.UUID:
+def is_valid_uuid(uuid_to_test, version=4) -> bool:
     """
     Check if uuid_to_test is a valid UUID.
     https://stackoverflow.com/questions/19989481
