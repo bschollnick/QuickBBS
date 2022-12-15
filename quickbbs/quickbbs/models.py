@@ -333,3 +333,8 @@ class index_data(models.Model):
     class Meta:
         verbose_name = 'Master Index'
         verbose_name_plural = 'Master Index'
+
+#index_data.objects.select_related('filetypes')
+#index_data.objects.select_related('file_tnail')
+#index_data.objects.prefetch_related('directory')
+
