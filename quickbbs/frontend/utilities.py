@@ -545,8 +545,11 @@ def sync_database_disk(directoryname):
     dirpath = os.path.abspath(directoryname.title().strip())
 
     success, fs_entries = return_disk_listing(webpath)
-
-    db_data = index_data.objects.filter(fqpndirectory=webpath)
+    #index_data.objects.prefetch_related('filetypes')
+    #index_data.objects.select_related('filetypes')
+    #index_data.objects.select_related('file_tnail')
+    #index_data.objects.prefetch_related('directory')
+    db_data = index_data.objects.select_related("filetype").select_related("directory").filter(fqpndirectory=webpath)
     # if db_data.count() == 0:
     #     record = index_data()
     #     record.uuid = uuid.uuid4()
@@ -595,9 +598,8 @@ def sync_database_disk(directoryname):
                 update = False
 
     # Check for entries that are not in the database, but do exist in the file system
-    db_data = index_data.objects.filter(fqpndirectory=webpath)
+    names = index_data.objects.filter(fqpndirectory=webpath).values_list("name", flat=True)
     # fetch an updated set of records, since we may have changed it from above.
-    names = [record.name for record in db_data]
     records_to_create = []
     for fs_filename in fs_entries:
         entry = fs_entries[fs_filename]

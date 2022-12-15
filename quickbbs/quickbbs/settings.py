@@ -31,7 +31,8 @@ DEBUG = False
 print("Debug is ", DEBUG)
 
 # DEBUG_TOOLBAR = True
-DEBUG_TOOLBAR = DEBUG
+# DEBUG_TOOLBAR = DEBUG
+DEBUG_TOOLBAR = True
 
 JQUERY_VERSION = '3.6.1'
 JQUERY_URI = f'https://cdnjs.cloudflare.com/ajax/libs/jquery/{JQUERY_VERSION}/jquery.slim.min.js'
@@ -299,6 +300,17 @@ DJANGO_ICONS = {
 
 }
 
+def show_toolbar(request):
+    return True
+
+if DEBUG_TOOLBAR:
+    DEBUG_TOOLBAR_CONFIG = {
+        # Toolbar options
+        'RESULTS_CACHE_SIZE': 50,
+        'SHOW_COLLAPSED': False,
+        "SHOW_TOOLBAR_CALLBACK": show_toolbar,
+        'SQL_WARNING_THRESHOLD': 100,   # milliseconds
+    }
 # if DEBUG:
 #     DEBUG_TOOLBAR_PANELS = [
 #         'debug_toolbar.panels.history.HistoryPanel',

@@ -100,7 +100,7 @@ def thumbnails(request, tnail_id=None):
     """
     #
     if is_valid_uuid(str(tnail_id)):
-        index_qs = index_data.objects.filter(uuid=tnail_id,
+        index_qs = index_data.objects.select_related("filetype").filter(uuid=tnail_id,
                                              ignore=False, delete_pending=False)
         count = index_qs.count()
         if count == 0:
@@ -108,7 +108,7 @@ def thumbnails(request, tnail_id=None):
             print(tnail_id, "is 0 ")
             return None
 
-        index_qs = index_data.objects.filter(uuid=tnail_id)
+#        index_qs = index_data.objects.filter(uuid=tnail_id)
         entry = index_qs[0]
 
         fs_item = os.path.join(entry.fqpndirectory, entry.name)
@@ -208,7 +208,7 @@ def new_viewgallery(request):
         request : Django Request object
 
     Returns:
-        respons : Django response
+        response : Django response
 
     """
     print("NEW VIEW GALLERY")
@@ -255,6 +255,7 @@ def new_viewgallery(request):
     context["current_page"] = request.GET.get("page", 1)
     chk_list = Paginator(index, 30)
     context["page_cnt"] = list(range(1, chk_list.num_pages + 1))
+    #context["page_cnt"] = chk_list.page_range
 
     #    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
     context["up_uri"] = "/".join(request.build_absolute_uri().split("/")[0:-1])
@@ -299,7 +300,7 @@ def item_info(request, i_uuid):
         return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
 
     context["sort"] = sort_order(request)
-    entry = index_data.objects.filter(uuid=context["uuid"])[0]
+    entry = index_data.objects.select_related("filetype").filter(uuid=context["uuid"])[0]
 
     context["html"] = ""
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
@@ -324,7 +325,7 @@ def item_info(request, i_uuid):
     while context["up_uri"].endswith("/"):
         context["up_uri"] = context["up_uri"][:-1]
 
-    read_from_disk(context["webpath"].strip(), skippable=True)
+    #read_from_disk(context["webpath"].strip(), skippable=True)
     catalog_qs = get_db_files(context["sort"], context["webpath"])
 
     page_uuids = [str(record.uuid) for record in catalog_qs]
@@ -430,7 +431,7 @@ def downloadFile(request, filename=None):
 
     page = request.GET.get('page', None)
     if page is None:
-        download = index_data.objects.filter(uuid=d_uuid,
+        download = index_data.objects.select_related("filetype").filter(uuid=d_uuid,
                                              ignore=False,
                                              delete_pending=False)[0]
     else:
