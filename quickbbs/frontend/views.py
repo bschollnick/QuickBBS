@@ -35,6 +35,8 @@ from frontend.web import detect_mobile, g_option, respond_as_inline
 log = logging.getLogger(__name__)
 warnings.simplefilter('ignore', Image.DecompressionBombWarning)
 ImageFile.LOAD_TRUNCATED_IMAGES = True
+
+
 # https://stackoverflow.com/questions/12984426/
 # Sending File or zipfile - https://djangosnippets.org/snippets/365/
 
@@ -101,16 +103,13 @@ def thumbnails(request, tnail_id=None):
     #
     if is_valid_uuid(str(tnail_id)):
         index_qs = index_data.objects.select_related("filetype").filter(uuid=tnail_id,
-                                             ignore=False, delete_pending=False)
-        count = index_qs.count()
-        if count == 0:
+                                                                        ignore=False, delete_pending=False)
+        if index_qs.exists():
             # does not exist
-            print(tnail_id, "is 0 ")
+            print(tnail_id, "No records returned.")
             return None
 
-#        index_qs = index_data.objects.filter(uuid=tnail_id)
         entry = index_qs[0]
-
         fs_item = os.path.join(entry.fqpndirectory, entry.name)
         fname = os.path.basename(fs_item).title()
         # thumb_size = g_option(request, "size", "Small").title()
@@ -171,7 +170,7 @@ def search_viewresults(request):
                "fromtimestamp": datetime.datetime.fromtimestamp,
                "searchtext": request.GET.get("searchtext", default=None)}
 
-    index = index_data.objects.filter(name__icontains=context["searchtext"]).\
+    index = index_data.objects.filter(name__icontains=context["searchtext"]). \
         order_by(*SORT_MATRIX[context["sort"]])
 
     context["current_page"] = request.GET.get("page", 1)
@@ -255,7 +254,7 @@ def new_viewgallery(request):
     context["current_page"] = request.GET.get("page", 1)
     chk_list = Paginator(index, 30)
     context["page_cnt"] = list(range(1, chk_list.num_pages + 1))
-    #context["page_cnt"] = chk_list.page_range
+    # context["page_cnt"] = chk_list.page_range
 
     #    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
     context["up_uri"] = "/".join(request.build_absolute_uri().split("/")[0:-1])
@@ -325,7 +324,7 @@ def item_info(request, i_uuid):
     while context["up_uri"].endswith("/"):
         context["up_uri"] = context["up_uri"][:-1]
 
-    #read_from_disk(context["webpath"].strip(), skippable=True)
+    # read_from_disk(context["webpath"].strip(), skippable=True)
     catalog_qs = get_db_files(context["sort"], context["webpath"])
 
     page_uuids = [str(record.uuid) for record in catalog_qs]
@@ -432,12 +431,12 @@ def downloadFile(request, filename=None):
     page = request.GET.get('page', None)
     if page is None:
         download = index_data.objects.select_related("filetype").filter(uuid=d_uuid,
-                                             ignore=False,
-                                             delete_pending=False)[0]
+                                                                         ignore=False,
+                                                                         delete_pending=False)[0]
+
     else:
         print(f"Attempting to find page {page} in archive")
-
-    print(f"\tDownloading - {download.fqpndirectory.lower()}, {download.name}")
+    #print(f"\tDownloading - {download.fqpndirectory.lower()}, {download.name}")
 
     return respond_as_inline(request,
                              download.fqpndirectory.lower(),
@@ -485,7 +484,7 @@ def new_view_archive(request, i_uuid):
     context["fromtimestamp"] = datetime.datetime.fromtimestamp
     # context["djicons"] = django_icons.templatetags.icons.icon
     context["djicons"] = django_icons.templatetags.icons.icon_tag
-    arc_filename = settings.ALBUMS_PATH + context["webpath"].\
+    arc_filename = settings.ALBUMS_PATH + context["webpath"]. \
         replace("/", os.sep).replace("//", "/") + entry.name
     archive_file = archives.id_cfile_by_sig(arc_filename)
     archive_file.get_listings()
