@@ -39,7 +39,7 @@ cached in the database (or the cache has been invalidated) the code scans the di
 * If the database has file(s) that are not in the directory, they will be removed
 * If the file has been changed (Filesize, Last Modified Date) the database will be updated.
 
-The cache is maintained by the Watchdog File System Monitor https://github.com/gorakhargosh/watchdog/.  Watchdog monitors the
+The cache is maintained by the [Watchdog File System Monitor](https://github.com/gorakhargosh/watchdog/).  Watchdog monitors the
 entirety of the ALBUMS path, and if any file system changes are detected, the directory's is marked as being eligible to
 be rescanned.  The data is not removed from the database, the next time that directory is viewed, it will be 
 re-validated against the file system.

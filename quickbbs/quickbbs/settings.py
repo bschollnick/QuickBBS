@@ -17,8 +17,8 @@ from pathlib import Path
 import quickbbs.jinjaenv
 from quickbbs.quickbbs_settings import *
 
-ALLOWED_HOSTS = ['nerv.local', 'localhost', '127.0.0.1']
-INTERNAL_IPS = ['localhost', '127.0.0.1', 'nerv.local']
+ALLOWED_HOSTS = ['nerv.local', 'localhost', '127.0.0.1', '192.168.1.67']
+INTERNAL_IPS = ['localhost', '127.0.0.1', 'nerv.local', '192.168.1.67']
 machine_name = socket.gethostname().lower()
 print("Running on %s" % machine_name)
 
@@ -32,7 +32,7 @@ print("Debug is ", DEBUG)
 
 # DEBUG_TOOLBAR = True
 # DEBUG_TOOLBAR = DEBUG
-DEBUG_TOOLBAR = True
+DEBUG_TOOLBAR = False
 
 JQUERY_VERSION = '3.6.1'
 JQUERY_URI = f'https://cdnjs.cloudflare.com/ajax/libs/jquery/{JQUERY_VERSION}/jquery.slim.min.js'
@@ -130,27 +130,35 @@ SITE_ID = 1
 
 SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
 
-MIDDLEWARE = []
 
-if DEBUG_TOOLBAR:
-    MIDDLEWARE += ('debug_toolbar.middleware.DebugToolbarMiddleware',)
-
-MIDDLEWARE += [
-    'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'django_user_agents.middleware.UserAgentMiddleware',
-]
+MIDDLEWARE = ['django.middleware.security.SecurityMiddleware',]
 
 if not DEBUG:
     MIDDLEWARE += [
         'django.middleware.cache.UpdateCacheMiddleware',
-        'django.middleware.cache.FetchFromCacheMiddleware',
     ]
+
+MIDDLEWARE += [
+    'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.http.ConditionalGetMiddleware',
+#    'compression_middleware.middleware.CompressionMiddleware',
+    # Revisit the django-compression-middleware later, it works, but there is a
+    # perceivable slowdown on the other end (at least wireless/ipad connection on 5ghz).
+    'django.middleware.common.CommonMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
+    ]
+if not DEBUG:
+    MIDDLEWARE += ['django.middleware.cache.FetchFromCacheMiddleware',]
+
+MIDDLEWARE += [
+               'django.middleware.clickjacking.XFrameOptionsMiddleware',
+               'django_user_agents.middleware.UserAgentMiddleware',
+              ]
+
+if DEBUG_TOOLBAR:
+    MIDDLEWARE += ('debug_toolbar.middleware.DebugToolbarMiddleware',)
 
 X_FRAME_OPTIONS = 'SAMEORIGIN'
 

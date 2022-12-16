@@ -216,7 +216,7 @@ def respond_as_inline(request, file_path, original_filename, ranged=False):
 
         with open(filename, 'rb') as fh:
             if ranged:
-                response = RangedFileResponse(request, file=open(filename, 'rb'),
+                response = RangedFileResponse(request, file=fh,#open(filename, 'rb'),
                                               as_attachment=False,
                                               filename=original_filename)
                 response["Content-Type"] = mtype
@@ -224,8 +224,6 @@ def respond_as_inline(request, file_path, original_filename, ranged=False):
                 response = HttpResponse(fh.read(), content_type=mtype)
                 response['Content-Disposition'] = 'inline; filename=%s' % original_filename
         return response
-    #    else:
-    #        print("File not found")
     raise Http404
 
 
