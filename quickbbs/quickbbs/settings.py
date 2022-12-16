@@ -32,7 +32,7 @@ print("Debug is ", DEBUG)
 
 # DEBUG_TOOLBAR = True
 # DEBUG_TOOLBAR = DEBUG
-DEBUG_TOOLBAR = False
+DEBUG_TOOLBAR = True
 
 JQUERY_VERSION = '3.6.1'
 JQUERY_URI = f'https://cdnjs.cloudflare.com/ajax/libs/jquery/{JQUERY_VERSION}/jquery.slim.min.js'
@@ -130,35 +130,29 @@ SITE_ID = 1
 
 SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
 
-
-MIDDLEWARE = ['django.middleware.security.SecurityMiddleware',]
-
-if not DEBUG:
-    MIDDLEWARE += [
-        'django.middleware.cache.UpdateCacheMiddleware',
-    ]
-
-MIDDLEWARE += [
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.http.ConditionalGetMiddleware',
-#    'compression_middleware.middleware.CompressionMiddleware',
-    # Revisit the django-compression-middleware later, it works, but there is a
-    # perceivable slowdown on the other end (at least wireless/ipad connection on 5ghz).
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    ]
-if not DEBUG:
-    MIDDLEWARE += ['django.middleware.cache.FetchFromCacheMiddleware',]
-
-MIDDLEWARE += [
-               'django.middleware.clickjacking.XFrameOptionsMiddleware',
-               'django_user_agents.middleware.UserAgentMiddleware',
+MIDDLEWARE = ['django.middleware.security.SecurityMiddleware',
+              'django.middleware.cache.UpdateCacheMiddleware',
+              'django.contrib.sessions.middleware.SessionMiddleware',
+              'django.middleware.http.ConditionalGetMiddleware',
+              'django.middleware.common.CommonMiddleware',
+              'django.middleware.csrf.CsrfViewMiddleware',
+              'django.contrib.auth.middleware.AuthenticationMiddleware',
+              'django.contrib.messages.middleware.MessageMiddleware',
+              'django.middleware.cache.FetchFromCacheMiddleware',
+              'django.middleware.clickjacking.XFrameOptionsMiddleware',
+              'django_user_agents.middleware.UserAgentMiddleware',
+              'debug_toolbar.middleware.DebugToolbarMiddleware',
               ]
+#    'compression_middleware.middleware.CompressionMiddleware',
+# Revisit the django-compression-middleware later, it works, but there is a
+# perceivable slowdown on the other end (at least wireless/ipad connection on 5ghz).
 
-if DEBUG_TOOLBAR:
-    MIDDLEWARE += ('debug_toolbar.middleware.DebugToolbarMiddleware',)
+if DEBUG:
+    MIDDLEWARE.remove('django.middleware.cache.FetchFromCacheMiddleware')
+    MIDDLEWARE.remove('django.middleware.cache.UpdateCacheMiddleware')
+
+if not DEBUG_TOOLBAR:
+    MIDDLEWARE.remove('debug_toolbar.middleware.DebugToolbarMiddleware')
 
 X_FRAME_OPTIONS = 'SAMEORIGIN'
 
@@ -308,8 +302,10 @@ DJANGO_ICONS = {
 
 }
 
+
 def show_toolbar(request):
     return True
+
 
 if DEBUG_TOOLBAR:
     DEBUG_TOOLBAR_CONFIG = {
@@ -317,7 +313,7 @@ if DEBUG_TOOLBAR:
         'RESULTS_CACHE_SIZE': 50,
         'SHOW_COLLAPSED': False,
         "SHOW_TOOLBAR_CALLBACK": show_toolbar,
-        'SQL_WARNING_THRESHOLD': 100,   # milliseconds
+        'SQL_WARNING_THRESHOLD': 100,  # milliseconds
     }
 # if DEBUG:
 #     DEBUG_TOOLBAR_PANELS = [

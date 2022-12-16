@@ -104,7 +104,7 @@ def thumbnails(request, tnail_id=None):
     if is_valid_uuid(str(tnail_id)):
         index_qs = index_data.objects.select_related("filetype").filter(uuid=tnail_id,
                                                                         ignore=False, delete_pending=False)
-        if index_qs.exists():
+        if not index_qs.exists():
             # does not exist
             print(tnail_id, "No records returned.")
             return None
