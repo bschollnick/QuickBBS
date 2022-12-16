@@ -258,10 +258,7 @@ print filename, 'is a', cf.mime_type, 'file'
         with handle() as cfile:
             #
             try:
-                data = "data:image/{};base64,{}".format(
-                    translate[fileext.upper()].lower(),
-                    base64.b64encode(cfile.read(fname)))
-                # data += base64.b64encode(cfile.read(fname))
+                data = f"data:image/{translate[fileext.upper()].lower()};base64,{base64.b64encode(cfile.read(fname))}"
                 return data
             except TypeError:
                 print("Type error")

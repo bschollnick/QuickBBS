@@ -658,7 +658,7 @@ def sync_database_disk(directoryname):
         # The path has not been seen since the Cache Tracking has been enabled
         # (eg Startup, or the entry has been nullified)
         # Add to table, and allow a rescan to occur.
-        print("\n", "\nSaving, %s to cache tracking\n" % dirpath, "\n")
+        print(f"\nSaving, {dirpath} to cache tracking\n")
         new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
         new_rec.save()
 

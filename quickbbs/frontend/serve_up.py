@@ -25,6 +25,6 @@ def static(request, pathstr=None):
         return
     album_viewing = os.path.join(settings.STATIC_PATH, pathstr)
     if not os.path.exists(album_viewing):
-        print("File Not Found - %s" % album_viewing)
+        print(f"File Not Found - {album_viewing}")
     return serve(request, os.path.basename(album_viewing),
                  os.path.dirname(album_viewing))
