@@ -170,7 +170,7 @@ def img_attach_file(filename, fqfn):
     response = HttpResponse()
     with open(fqfn, 'rb') as filedata:
         response.write(filedata.read())
-    response['Content-Disposition'] = 'attachment; filename={%s}' % filename
+    response['Content-Disposition'] = f'attachment; filename={{{filename}}}'
     return response
 
 
@@ -198,7 +198,7 @@ def file_inline(filename, fqfn):
     response = HttpResponse()
     with open(fqfn, 'rb') as filedata:
         response.write(filedata.read())
-    response['Content-Disposition'] = 'inline; filename={%s}' % filename
+    response['Content-Disposition'] = f'inline; filename={{{filename}}}'
     return response
 
 
@@ -222,7 +222,7 @@ def respond_as_inline(request, file_path, original_filename, ranged=False):
                 response["Content-Type"] = mtype
             else:
                 response = HttpResponse(fh.read(), content_type=mtype)
-                response['Content-Disposition'] = 'inline; filename=%s' % original_filename
+                response['Content-Disposition'] = f'inline; filename={original_filename}'
         return response
     raise Http404
 

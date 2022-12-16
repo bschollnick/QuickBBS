@@ -261,26 +261,23 @@ class index_data(models.Model):
         """
         if self.uuid is None:
             self.uuid = uuid.uuid(version=version)
+
+        fext = os.path.splitext(fileentry.name)[1].lower()
+        if fext == "":
+            fext = ".none"
+        self.filetypes(fileext=fext)
+
         if fileentry.is_dir():
             self.filetypes(fileext=".dir")
-        else:
-            fext = os.path.splitext(fileentry.name)[1].lower()
-            if fext == "":
-                fext = ".none"
-            self.filetypes(fileext=fext)
+            fext = ".dir"
 
         if fext in [".gif"] and filetype_models.FILETYPE_DATA[fext]["is_image"]:
             try:
                 animated = Image.open(os.path.join(fqpn, filename)).is_animated
                 force_save = True
             except AttributeError:
-                print("%s is not an animated GIF" % fext)
+                print(f"{fext} is not an animated GIF")
 
-            try:
-                animated = Image.open(os.path.join(fqpn, filename)).is_animated
-                force_save = True
-            except AttributeError:
-                print("%s is not an animated GIF" % fext)
         numfiles = 0
         numdirs = 0
         lastscan = time.time()
@@ -334,7 +331,6 @@ class index_data(models.Model):
         verbose_name = 'Master Index'
         verbose_name_plural = 'Master Index'
 
-#index_data.objects.select_related('filetypes')
-#index_data.objects.select_related('file_tnail')
-#index_data.objects.prefetch_related('directory')
-
+# index_data.objects.select_related('filetypes')
+# index_data.objects.select_related('file_tnail')
+# index_data.objects.prefetch_related('directory')

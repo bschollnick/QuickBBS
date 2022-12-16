@@ -705,8 +705,8 @@ class cached_exist():
         """
         dirpath = os.path.normpath(dirpath.title().strip())
 
-        if (self.check_count(dirpath) == True and
-                self.check_lastmod(dirpath) == True):
+        if (self.check_count(dirpath) is True and
+                self.check_lastmod(dirpath) is True):
             # Skip, no need for refresh
             return True
 
@@ -748,9 +748,9 @@ class cached_exist():
                             self.last_mods[dirpath] = (entry.name.title(),
                                                        entry.stat().st_mtime, time.time())
 
-                elif entry.is_dir() and recursive == True:
+                elif entry.is_dir() and recursive is True:
                     self.read_path(os.path.join(dirpath, entry.name))
-                elif entry.is_dir() and self.FilesOnly == False:
+                elif entry.is_dir() and self.FilesOnly is False:
                     self.addFileDirEntry(entry, None)
 
 
@@ -910,7 +910,7 @@ class cached_exist():
 
         try:
             if self.use_shas:
-                if sha_hd == None and filename not in ["", None]:
+                if sha_hd is None and filename not in ["", None]:
                     sha_hd = self.generate_sha224(
                         os.path.join(dirpath, filename), hexdigest=True)
                 if rtn_size:
@@ -1153,7 +1153,7 @@ filedb.return_sha224_name(shaHD="49dbafd07e1415c383baa9f61f6381ace7c057da4f90b7e
 
         try:
             if self.use_image_hash:
-                if img_hash == None and filename not in ["", None]:
+                if img_hash is None and filename not in ["", None]:
                     img_hash = self.generate_imagehash(os.path.join(dirpath, filename))
                 if rtn_size:
                     return self.image_paths[dirpath][img_hash][0]
@@ -1267,7 +1267,7 @@ def read_path(dirpath, recursive=False):
             if entry.is_file:
                 SCANNED_PATHS[dirpath][entry.name.title()] = \
                     entry.stat().st_size
-            elif entry.is_dir() and recursive == True:
+            elif entry.is_dir() and recursive is True:
                 read_path(os.path.join(dirpath, entry.name))
 
         # SCANNED_PATHS[dirpath] = set(x.lower() for x in directory_data)

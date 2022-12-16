@@ -15,15 +15,10 @@ from cache.watchdogmon import watchdog
 def delete_from_cache_tracking(event):
     if event.is_directory:
         dirpath = os.path.normpath(event.src_path.title().strip())
-        # CACHE.clear_path(path_to_clear=dirpath)
         if fs_Cache_Tracking.objects.filter(DirName=dirpath).exists():
             fs_Cache_Tracking.objects.filter(DirName=dirpath).delete()
-            print("\n", time.ctime(), " Deleted %s" % dirpath, "\n")
+            print(f"{time.ctime()} Deleted {dirpath}\n")
         cache.clear()
-
-
-#        else:
-#            print("Does not exist in Cache Tracking %s" % dirpath)
 
 class fs_Cache_Tracking(models.Model):
     DirName = models.CharField(db_index=True, max_length=384, default='', blank=True)

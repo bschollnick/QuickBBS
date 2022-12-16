@@ -2,7 +2,7 @@ from django.conf import settings
 from django.http import HttpResponseForbidden
 
 
-class FilterHostMiddleware(object):
+class FilterHostMiddleware:
 
     def process_request(self, request):
 
