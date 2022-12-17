@@ -10,8 +10,9 @@ import os
 from django.contrib.auth import authenticate, login
 from django.http import (FileResponse, Http404,  # , StreamingHttpResponse)
                          HttpResponse)
-from ranged_response import RangedFileResponse
-
+from ranged_fileresponse import RangedFileResponse
+#import RangedFileResponse
+#from ranged_fileresponse.local import RangedLocalFileResponse
 
 def verify_login_status(request, force_login=False) -> bool:
     """
@@ -216,7 +217,7 @@ def respond_as_inline(request, file_path, original_filename, ranged=False):
 
         with open(filename, 'rb') as fh:
             if ranged:
-                response = RangedFileResponse(request, file=fh,#open(filename, 'rb'),
+                response = RangedFileResponse(request, file=open(filename, 'rb'),
                                               as_attachment=False,
                                               filename=original_filename)
                 response["Content-Type"] = mtype

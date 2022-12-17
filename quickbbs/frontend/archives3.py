@@ -277,12 +277,12 @@ signatures = {'\x50\x4b\x03\x04': (['zip', 'cbz', 'pk3', 'pk4'],
               '\x50\x4b\x07\x08': (['zip', 'cbz', 'pk3', 'pk4'],
                                    'compressed/zip',
                                    zipfile.ZipFile),
-              # b'PK\x03\x04': (['zip', 'cbz', 'pk3', 'pk4'],
-              #                 'compressed/zip',
-              #                 zipfile.ZipFile),
-              # '\x52\x61\x72\x21': (['rar', 'cbr'],
-              #                      'application/x-rar-compressed',
-              #                      rarfile.RarFile),
+              b'PK\x03\x04': (['zip', 'cbz', 'pk3', 'pk4'],
+                               'compressed/zip',
+                               zipfile.ZipFile),
+              '\x52\x61\x72\x21': (['rar', 'cbr'],
+                                    'application/x-rar-compressed',
+                                    rarfile.RarFile),
               b'Rar!': (['rar', 'cbr'],
                         'application/x-rar-compressed',
                         rarfile.RarFile),
@@ -345,6 +345,8 @@ print filename, 'is a', cf.mime_type, 'file'
                 identified.mime_type = signatures[start_of_file][1]
                 identified.handler = signatures[start_of_file][2]
                 return identified
+            #else:
+            #    print("Unidentified: ", start_of_file)
     return None
 
 
