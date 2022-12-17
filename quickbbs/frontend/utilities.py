@@ -33,10 +33,7 @@ import frontend.constants as constants
 
 log = logging.getLogger(__name__)
 
-Image.MAX_IMAGE_PIXELS = None
-
-
-# Disable PILLOW DecompressionBombError errors.
+Image.MAX_IMAGE_PIXELS = None   # Disable PILLOW DecompressionBombError errors.
 
 
 def rename_file(old_filename, new_filename):
@@ -184,10 +181,7 @@ def return_image_obj(fs_path, memory=False):
         # Do not repair the PDF / validate the PDF.  If it's bad,
         # it should be repaired, not band-aided by a patch from the web server.
         # results = pdf_utilities.check_pdf(fs_path)
-        # if results[0] is False:
-        #    pdf_utilities.repair_pdf(fs_path, fs_path)
         with fitz.open(fs_path) as pdf_file:
-            # pdf_file = fitz.open(fs_path)
             pdf_page = pdf_file.load_page(0)
             pix = pdf_page.get_pixmap(alpha=True)  # matrix=fitz.Identity, alpha=True)
 
@@ -219,7 +213,6 @@ def return_image_obj(fs_path, memory=False):
             #               source_image = None
             except UserWarning:
                 print("UserWarning!")
-    #              source_image = None
     if filetype_models.FILETYPE_DATA[extension]["is_movie"]:
         with av.open(fs_path) as container:
             stream = container.streams.video[0]
@@ -235,14 +228,11 @@ def return_image_obj(fs_path, memory=False):
         else:
             try:  # fs_path is a byte stream
                 source_image = Image.open(BytesIO(fs_path))
-            #                source_image = None
             except OSError:
                 print("IOError")
                 log.debug("PIL was unable to identify as an image file")
-            #               source_image = None
             except UserWarning:
                 print("UserWarning!")
-    #              source_image = None
     return source_image
 
 
@@ -331,6 +321,69 @@ def multiple_replace(repl_dict, text):
     return constants.regex.sub(lambda mo: repl_dict[mo.string[mo.start():mo.end()]], text)
 
 
+def convert_scandisk_to_dict(fqpn, sd_entry) -> dict:
+    fs_entry = None
+    titlecase = sd_entry.name.title()
+    unescaped = html.unescape(titlecase)
+    lower_filename = sd_entry.name.lower()
+
+    animated = False
+    fext = os.path.splitext(lower_filename)[1]
+    if fext == "":
+        fext = ".none"
+    elif entry.is_dir():
+        fext = ".dir"
+
+    if fext not in filetype_models.FILETYPE_DATA:
+        # The file extension is not in FILETYPE_DATA, so ignore it.
+        skip = True
+
+    if (fext in settings.EXTENSIONS_TO_IGNORE) or \
+            (lower_filename in settings.FILES_TO_IGNORE):
+        # file extension is in EXTENSIONS_TO_IGNORE, so skip it.
+        # or the filename is in FILES_TO_IGNORE, so skip it.
+        skip = True
+
+    if settings.IGNORE_DOT_FILES and lower_filename.startswith("."):
+        # IGNORE_DOT_FLES is enabled, *and* the filename startswith an ., skip it.
+        skip = True
+
+    # if enable_rename:
+    #     original_filename = titlecase
+    #     if titlecase != unescaped:
+    #         titlecase = unescaped.title()
+    #
+    #     after_filename = multiple_replace(constants.replacements, lower_filename)  # , regex)
+    #     if after_filename != lower_filename:
+    #         titlecase = after_filename.title()
+
+    # titlecase = sanitize_filename(titlecase)
+    # if titlecase != original_filename:
+    #     rename_file(os.path.join(fqpn, original_filename),
+    #                 os.path.join(fqpn, titlecase))
+    #     print(f"rejected - {titlecase}")
+    #     # loaded = False
+    if not skip:
+        fs_entry = {"filename": titlecase,
+                    "lower_filename": titlecase.lower(),
+                    "path": os.path.join(fqpn, titlecase),
+                    'sortname': naturalize(titlecase),
+                    'size': sd_entry.stat()[stat.ST_SIZE],
+                    'lastmod': sd_entry.stat()[stat.ST_MTIME],
+                    'is_dir': sd_entry.is_dir(),  # fext == ".dir",
+                    'is_file': not sd_entry.is_dir(),  # fext != ".dir",
+                    'is_archive': filetype_models.FILETYPE_DATA[fext]["is_archive"],
+                    'is_image': filetype_models.FILETYPE_DATA[fext]["is_image"],
+                    'is_movie': filetype_models.FILETYPE_DATA[fext]["is_movie"],
+                    'is_audio': filetype_models.FILETYPE_DATA[fext]["is_audio"],
+                    'is_text': filetype_models.FILETYPE_DATA[fext]["is_text"],
+                    'is_html': filetype_models.FILETYPE_DATA[fext]["is_html"],
+                    'is_markdown': filetype_models.FILETYPE_DATA[fext]["is_markdown"],
+                    'is_animated': animated
+                    }
+    return fs_entry
+
+
 def return_disk_listing(fqpn, enable_rename=False):
     """
     Return a dictionary that contains the scandir data (& some extra data) for the directory.
@@ -374,21 +427,12 @@ def return_disk_listing(fqpn, enable_rename=False):
         dict of dicts - See above
 
     """
-    data = {}
-    # data_list = []
-    loaded = True
-    #    webpath = (fqpn.title().replace(settings.ALBUMS_PATH.title(),
-    #                                    "")).replace("//", "/")
-    for entry in os.scandir(fqpn):
-        titlecase = entry.name.title()
-        unescaped = html.unescape(titlecase)
-        lower_filename = entry.name.lower()
-
-        animated = False
-        fext = os.path.splitext(lower_filename)[1]
+    fs_data = {}
+    for item in Path(fqpn).iterdir():
+        fext = os.path.splitext(item.name.lower())[1]
         if fext == "":
             fext = ".none"
-        elif entry.is_dir():
+        elif item.is_dir():
             fext = ".dir"
 
         if fext not in filetype_models.FILETYPE_DATA:
@@ -396,49 +440,100 @@ def return_disk_listing(fqpn, enable_rename=False):
             continue
 
         if (fext in settings.EXTENSIONS_TO_IGNORE) or \
-                (lower_filename in settings.FILES_TO_IGNORE):
+                (item.name.lower() in settings.FILES_TO_IGNORE):
             # file extension is in EXTENSIONS_TO_IGNORE, so skip it.
             # or the filename is in FILES_TO_IGNORE, so skip it.
             continue
 
-        if settings.IGNORE_DOT_FILES and lower_filename.startswith("."):
+        if settings.IGNORE_DOT_FILES and item.name.lower().startswith("."):
             # IGNORE_DOT_FLES is enabled, *and* the filename startswith an ., skip it.
             continue
 
-        if enable_rename:
-            original_filename = titlecase
-            if titlecase != unescaped:
-                titlecase = unescaped.title()
+        # if enable_rename:
+        #     original_filename = titlecase
+        #     if titlecase != unescaped:
+        #         titlecase = unescaped.title()
+        #
+        #     after_filename = multiple_replace(constants.replacements, lower_filename)  # , regex)
+        #     if after_filename != lower_filename:
+        #         titlecase = after_filename.title()
+        #
+        #     titlecase = sanitize_filename(titlecase)
+        #     if titlecase != original_filename:
+        #         rename_file(os.path.join(fqpn, original_filename),
+        #                     os.path.join(fqpn, titlecase))
+        #         print(f"rejected - {titlecase}")
+        #         # loaded = False
 
-            after_filename = multiple_replace(constants.replacements, lower_filename)  # , regex)
-            if after_filename != lower_filename:
-                titlecase = after_filename.title()
+        fs_data[item.name.title()] = item
+    return (True, fs_data)
+    # data = {}
+    # data_list = []
+    # loaded = True
+    #    webpath = (fqpn.title().replace(settings.ALBUMS_PATH.title(),
+    #                                    "")).replace("//", "/")
+    # for entry in os.scandir(fqpn):
+    #    pass
 
-            titlecase = sanitize_filename(titlecase)
-            if titlecase != original_filename:
-                rename_file(os.path.join(fqpn, original_filename),
-                            os.path.join(fqpn, titlecase))
-                print(f"rejected - {titlecase}")
-                # loaded = False
-
-        data[titlecase] = {"filename": titlecase,
-                           "lower_filename": titlecase.lower(),
-                           "path": os.path.join(fqpn, titlecase),
-                           'sortname': naturalize(titlecase),
-                           'size': entry.stat()[stat.ST_SIZE],
-                           'lastmod': entry.stat()[stat.ST_MTIME],
-                           'is_dir': entry.is_dir(),  # fext == ".dir",
-                           'is_file': not entry.is_dir(),  # fext != ".dir",
-                           'is_archive': filetype_models.FILETYPE_DATA[fext]["is_archive"],
-                           'is_image': filetype_models.FILETYPE_DATA[fext]["is_image"],
-                           'is_movie': filetype_models.FILETYPE_DATA[fext]["is_movie"],
-                           'is_audio': filetype_models.FILETYPE_DATA[fext]["is_audio"],
-                           'is_text': filetype_models.FILETYPE_DATA[fext]["is_text"],
-                           'is_html': filetype_models.FILETYPE_DATA[fext]["is_html"],
-                           'is_markdown': filetype_models.FILETYPE_DATA[fext]["is_markdown"],
-                           'is_animated': animated
-                           }
-    return (loaded, data)
+    # titlecase = entry.name.title()
+    # unescaped = html.unescape(titlecase)
+    # lower_filename = entry.name.lower()
+    #
+    # animated = False
+    # fext = os.path.splitext(lower_filename)[1]
+    # if fext == "":
+    #     fext = ".none"
+    # elif entry.is_dir():
+    #     fext = ".dir"
+    #
+    # if fext not in filetype_models.FILETYPE_DATA:
+    #     # The file extension is not in FILETYPE_DATA, so ignore it.
+    #     continue
+    #
+    # if (fext in settings.EXTENSIONS_TO_IGNORE) or \
+    #         (lower_filename in settings.FILES_TO_IGNORE):
+    #     # file extension is in EXTENSIONS_TO_IGNORE, so skip it.
+    #     # or the filename is in FILES_TO_IGNORE, so skip it.
+    #     continue
+    #
+    # if settings.IGNORE_DOT_FILES and lower_filename.startswith("."):
+    #     # IGNORE_DOT_FLES is enabled, *and* the filename startswith an ., skip it.
+    #     continue
+    #
+    # if enable_rename:
+    #     original_filename = titlecase
+    #     if titlecase != unescaped:
+    #         titlecase = unescaped.title()
+    #
+    #     after_filename = multiple_replace(constants.replacements, lower_filename)  # , regex)
+    #     if after_filename != lower_filename:
+    #         titlecase = after_filename.title()
+    #
+    #     titlecase = sanitize_filename(titlecase)
+    #     if titlecase != original_filename:
+    #         rename_file(os.path.join(fqpn, original_filename),
+    #                     os.path.join(fqpn, titlecase))
+    #         print(f"rejected - {titlecase}")
+    #         # loaded = False
+    #
+    # data[titlecase] = {"filename": titlecase,
+    #                    "lower_filename": titlecase.lower(),
+    #                    "path": os.path.join(fqpn, titlecase),
+    #                    'sortname': naturalize(titlecase),
+    #                    'size': entry.stat()[stat.ST_SIZE],
+    #                    'lastmod': entry.stat()[stat.ST_MTIME],
+    #                    'is_dir': entry.is_dir(),  # fext == ".dir",
+    #                    'is_file': not entry.is_dir(),  # fext != ".dir",
+    #                    'is_archive': filetype_models.FILETYPE_DATA[fext]["is_archive"],
+    #                    'is_image': filetype_models.FILETYPE_DATA[fext]["is_image"],
+    #                    'is_movie': filetype_models.FILETYPE_DATA[fext]["is_movie"],
+    #                    'is_audio': filetype_models.FILETYPE_DATA[fext]["is_audio"],
+    #                    'is_text': filetype_models.FILETYPE_DATA[fext]["is_text"],
+    #                    'is_html': filetype_models.FILETYPE_DATA[fext]["is_html"],
+    #                    'is_markdown': filetype_models.FILETYPE_DATA[fext]["is_markdown"],
+    #                    'is_animated': animated
+    #                    }
+    # return (loaded, data)
 
 
 def break_down_urls(uri_path):
@@ -500,10 +595,58 @@ def fs_counts(fs_entries):
     files = 0
     dirs = 0
     for fs_item in fs_entries:
-        is_file = fs_entries[fs_item]["is_file"]
+        # is_file = fs_entries[fs_item]["is_file"]
+        is_file = fs_entries[fs_item].is_file()
         files += is_file
         dirs += not is_file
     return (files, dirs)
+
+
+def add_archive(fqpn, new_uuid):
+    print("Add Archive triggered", fqpn)
+    compressed = archives.id_cfile_by_sig(fqpn)
+    compressed.get_listings()
+    for name, offset, filecount in compressed.listings:
+        pass
+
+
+#
+def process_filedata(fs_entry, db_record, v3=False):
+    db_record.fqpndirectory, db_record.name = os.path.split(fs_entry.absolute())
+    db_record.fqpndirectory = ensures_endswith(db_record.fqpndirectory.lower().replace("//", "/"), os.sep)
+    db_record.name = db_record.name.title().replace("//", "/").title()
+    db_record.fileext = fs_entry.suffix.lower()
+    db_record.is_dir = fs_entry.is_dir()  # ["is_dir"]
+    if db_record.is_dir:
+        db_record.fileext = ".dir"
+    if db_record.fileext in [".", ""]:
+        db_record.fileext = ".none"
+    if db_record.fileext in filetype_models.FILETYPE_DATA:
+        db_record.filetype = filetypes(fileext=db_record.fileext)
+    else:
+        return None
+    #    webpath = ensures_endswith(fs_entry.resolve().lower().replace("//", "/"), os.sep)
+    db_record.uuid = uuid.uuid4()
+    # db_record.fqpndirectory = ensures_endswith(os.path.split(fs_entry["path"])[0].lower(), os.sep)
+    db_record.sortname = naturalize(db_record.name)
+    db_record.size = fs_entry.stat()[stat.ST_SIZE]
+    db_record.lastmod = fs_entry.stat()[stat.ST_MTIME]
+    db_record.lastscan = time.time()
+    db_record.is_file = fs_entry.is_file  # ["is_file"]
+
+    db_record.is_archive = db_record.filetype.is_archive
+    db_record.is_image = db_record.filetype.is_image
+    db_record.is_movie = db_record.filetype.is_movie
+    db_record.is_audio = db_record.filetype.is_audio
+    db_record.is_animated = False
+    if filetype_models.FILETYPE_DATA[db_record.fileext]["is_image"] and db_record.fileext in [".gif"]:
+        try:
+            db_record.is_animated = Image.open(os.path.join(db_record.fqpndirectory,
+                                                            db_record.name)).is_animated
+        except AttributeError:
+            db_record.is_animated = False
+
+    return db_record
 
 
 def sync_database_disk(directoryname):
@@ -544,12 +687,9 @@ def sync_database_disk(directoryname):
     webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
     dirpath = os.path.abspath(directoryname.title().strip())
 
-    success, fs_entries = return_disk_listing(webpath)
-    #index_data.objects.prefetch_related('filetypes')
-    #index_data.objects.select_related('filetypes')
-    #index_data.objects.select_related('file_tnail')
-    #index_data.objects.prefetch_related('directory')
-    db_data = index_data.objects.select_related("filetype").select_related("directory").filter(fqpndirectory=webpath)
+    _, fs_entries = return_disk_listing(dirpath)
+    db_data = index_data.objects.select_related("filetype").select_related("directory").filter(
+        fqpndirectory=webpath).filter(ignore=False)
     # if db_data.count() == 0:
     #     record = index_data()
     #     record.uuid = uuid.uuid4()
@@ -577,17 +717,18 @@ def sync_database_disk(directoryname):
             # If directory, does the numfiles, numdirs, count_subfiles match?
 
             update = False
-            entry = fs_entries[db_entry.name]
-            if db_entry.lastmod != entry["lastmod"]:
+            entry = fs_entries[db_entry.name.title()]
+            if db_entry.lastmod != entry.stat()[stat.ST_MTIME]:
                 # print("LastMod mismatch")
-                db_entry.lastmod = entry["lastmod"]
+                db_entry.lastmod = entry.stat()[stat.ST_MTIME]
                 update = True
-            if db_entry.size != entry['size']:
+            if db_entry.size != entry.stat()[stat.ST_SIZE]:
                 # print("Size mismatch")
-                db_entry.size = entry["size"]
+                db_entry.size = entry.stat()[stat.ST_SIZE]
                 update = True
             if db_entry.directory:  # or db_entry["unified_dirs"]:
-                success, subdirectory = return_disk_listing(entry["path"])
+                _, subdirectory = return_disk_listing(str(entry.absolute()))
+                # fs_file_count, fs_dir_count = fs_counts(subdirectory)
                 fs_file_count, fs_dir_count = fs_counts(subdirectory)
                 if db_entry.numfiles != fs_file_count or db_entry.numdirs != fs_dir_count:
                     db_entry.numfiles, db_entry.numdirs = fs_file_count, fs_dir_count
@@ -601,66 +742,38 @@ def sync_database_disk(directoryname):
     names = index_data.objects.filter(fqpndirectory=webpath).values_list("name", flat=True)
     # fetch an updated set of records, since we may have changed it from above.
     records_to_create = []
-    for fs_filename in fs_entries:
-        entry = fs_entries[fs_filename]
-        # iterate through the file system entries.
-        test_name = entry["filename"].title().replace("//", "/")
+    for name in fs_entries:
+        entry = fs_entries[name]  # iterate through the file system entries.
+        test_name = entry.name.title().replace("//", "/")
         if test_name not in names:
             # The record has not been found
             # add it.
 
             record = index_data()
-            record.uuid = uuid.uuid4()
-            record.fqpndirectory = ensures_endswith(os.path.split(entry["path"])[0].lower(), os.sep)
-            record.name = test_name
-            record.sortname = naturalize(test_name)
-            record.size = entry["size"]
-            record.lastmod = entry["lastmod"]
-            record.lastscan = time.time()
-            record.is_dir = entry["is_dir"]
-            record.is_file = entry["is_file"]
-            record.is_archive = entry["is_archive"]
-            record.is_image = entry["is_image"]
-            record.is_movie = entry["is_movie"]
-            record.is_audio = entry["is_audio"]
-            fext = os.path.splitext(test_name)[1].lower()
-            if not fext.startswith("."):
-                fext = f".{fext}"
-            if record.is_dir:
-                fext = ".dir"
-            if fext in [".", ""]:
-                fext = ".none"
-            if record.is_dir and record.name not in ["", "/"]:
-                success, fs_subdirectory = return_disk_listing(os.path.join(webpath, test_name))
-                record.numfiles, record.numdirs = fs_counts(fs_subdirectory)
-            record.filetype = filetypes(fileext=fext)
+            record = process_filedata(entry, record, v3=False)
+            if record is None:
+                continue
+            # if record.is_archive:
+            #    add_archive(os.path.join(record.fqpndirectory, record.name), new_uuid=record.uuid)
 
-            record.is_animated = False
-            if filetype_models.FILETYPE_DATA[fext]["is_image"] and fext in [".gif"]:
-                try:
-                    record.is_animated = Image.open(os.path.join(record.fqpndirectory,
-                                                                 record.name)).is_animated
-                except AttributeError:
-                    record.is_animated = False
-            # print("FS contains file not in database, saving ", fs_filename)
-            # record.save()
             records_to_create.append(record)
     if records_to_create:
         index_data.objects.bulk_create(records_to_create, 100)
-        # else:
         # The record is in the database, so it's already been vetted in the database comparison
         # Skip
         # continue
     if bootstrap:
         index_data.objects.filter(delete_pending=True).delete()
 
-    if Cache_Tracking.objects.filter(DirName=dirpath).count() == 0:
+    if not Cache_Tracking.objects.filter(DirName=dirpath).exists():
         # The path has not been seen since the Cache Tracking has been enabled
         # (eg Startup, or the entry has been nullified)
         # Add to table, and allow a rescan to occur.
         print(f"\nSaving, {dirpath} to cache tracking\n")
         new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
         new_rec.save()
+
+    index_data.objects.filter(delete_pending=True).delete()
 
 
 def read_from_disk(dir_to_scan, skippable=True):

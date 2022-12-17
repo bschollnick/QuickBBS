@@ -1,13 +1,10 @@
 import argparse
-# import sys
 import os
-# import scandir
 import re
 import shutil
 import sys
 from struct import unpack
 
-# from xattr import xattr
 import xattr
 from cache.old.cached_exists import *
 

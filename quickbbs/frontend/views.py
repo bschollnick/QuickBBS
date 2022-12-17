@@ -29,7 +29,7 @@ from frontend.database import get_db_files, SORT_MATRIX  # check_dup_thumbs
 from frontend.thumbnail import (new_process_archive, new_process_dir,
                                 new_process_img)
 from frontend.utilities import (ensures_endswith, is_valid_uuid,
-                                read_from_disk, return_breadcrumbs, sort_order)
+                                read_from_disk, return_breadcrumbs, sort_order, sync_database_disk)
 from frontend.web import detect_mobile, g_option, respond_as_inline
 
 log = logging.getLogger(__name__)
@@ -431,12 +431,12 @@ def downloadFile(request, filename=None):
     page = request.GET.get('page', None)
     if page is None:
         download = index_data.objects.select_related("filetype").filter(uuid=d_uuid,
-                                                                         ignore=False,
-                                                                         delete_pending=False)[0]
+                                                                        ignore=False,
+                                                                        delete_pending=False)[0]
 
     else:
         print(f"Attempting to find page {page} in archive")
-    #print(f"\tDownloading - {download.fqpndirectory.lower()}, {download.name}")
+    # print(f"\tDownloading - {download.fqpndirectory.lower()}, {download.name}, {download.filetype}")
 
     return respond_as_inline(request,
                              download.fqpndirectory.lower(),
@@ -455,10 +455,7 @@ def new_view_archive(request, i_uuid):
     if not is_valid_uuid(i_uuid):
         return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
 
-    #    context["sort"] = sort_order(request)
-    e_uuid = i_uuid
-    index_qs = index_data.objects.filter(uuid=e_uuid)
-    entry = index_qs[0]
+    entry = index_data.objects.filter(uuid=i_uuid)[0]
     context["basename"] = os.path.basename
     context["splitext"] = os.path.splitext
     context["small"] = g_option(request,
@@ -594,7 +591,7 @@ def view_setup():
             for prepath in settings.PRELOAD:
                 print("Pre-Caching: ", prepath)
                 read_from_disk(prepath.strip())  # startup
-
+            read_from_disk(os.path.join(settings.ALBUMS_PATH, "albums"))
         except:
             pass
     index_data.objects.filter(delete_pending=True).delete()

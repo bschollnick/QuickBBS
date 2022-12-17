@@ -23,16 +23,17 @@ machine_name = socket.gethostname().lower()
 print("Running on %s" % machine_name)
 
 DEMO = False
+#DEMO = True
 if DEMO:
     ALBUMS_PATH = "/Volumes/4TB_Drive/gallery_demo"
 
 DEBUG = False
-# DEBUG = not DEBUG
+#DEBUG = not DEBUG
 print("Debug is ", DEBUG)
 
 # DEBUG_TOOLBAR = True
 # DEBUG_TOOLBAR = DEBUG
-DEBUG_TOOLBAR = True
+DEBUG_TOOLBAR = False
 
 JQUERY_VERSION = '3.6.1'
 JQUERY_URI = f'https://cdnjs.cloudflare.com/ajax/libs/jquery/{JQUERY_VERSION}/jquery.slim.min.js'
@@ -310,7 +311,7 @@ def show_toolbar(request):
 if DEBUG_TOOLBAR:
     DEBUG_TOOLBAR_CONFIG = {
         # Toolbar options
-        'RESULTS_CACHE_SIZE': 50,
+        'RESULTS_CACHE_SIZE': 100,
         'SHOW_COLLAPSED': False,
         "SHOW_TOOLBAR_CALLBACK": show_toolbar,
         'SQL_WARNING_THRESHOLD': 100,  # milliseconds
