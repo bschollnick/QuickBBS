@@ -324,14 +324,14 @@ def multiple_replace(repl_dict, text):
 def convert_scandisk_to_dict(fqpn, sd_entry) -> dict:
     fs_entry = None
     titlecase = sd_entry.name.title()
-    unescaped = html.unescape(titlecase)
+    # unescaped = html.unescape(titlecase)
     lower_filename = sd_entry.name.lower()
 
     animated = False
     fext = os.path.splitext(lower_filename)[1]
     if fext == "":
         fext = ".none"
-    elif entry.is_dir():
+    elif sd_entry.is_dir():
         fext = ".dir"
 
     if fext not in filetype_models.FILETYPE_DATA:
@@ -613,7 +613,8 @@ def add_archive(fqpn, new_uuid):
 #
 def process_filedata(fs_entry, db_record, v3=False):
     db_record.fqpndirectory, db_record.name = os.path.split(fs_entry.absolute())
-    db_record.fqpndirectory = ensures_endswith(db_record.fqpndirectory.lower().replace("//", "/"), os.sep)
+    db_record.fqpndirectory = ensures_endswith(db_record.fqpndirectory.\
+                                               lower().replace("//", "/"), os.sep)
     db_record.name = db_record.name.title().replace("//", "/").title()
     db_record.fileext = fs_entry.suffix.lower()
     db_record.is_dir = fs_entry.is_dir()  # ["is_dir"]
@@ -639,7 +640,14 @@ def process_filedata(fs_entry, db_record, v3=False):
     db_record.is_movie = db_record.filetype.is_movie
     db_record.is_audio = db_record.filetype.is_audio
     db_record.is_animated = False
-    if filetype_models.FILETYPE_DATA[db_record.fileext]["is_image"] and db_record.fileext in [".gif"]:
+
+    if db_record.is_dir:  # or db_entry["unified_dirs"]:
+        _, subdirectory = return_disk_listing(os.path.join(db_record.fqpndirectory, db_record.name))
+        fs_file_count, fs_dir_count = fs_counts(subdirectory)
+        db_record.numfiles, db_record.numdirs = fs_file_count, fs_dir_count
+
+    if filetype_models.FILETYPE_DATA[db_record.fileext]["is_image"] and \
+            db_record.fileext in [".gif"]:
         try:
             db_record.is_animated = Image.open(os.path.join(db_record.fqpndirectory,
                                                             db_record.name)).is_animated
@@ -753,15 +761,10 @@ def sync_database_disk(directoryname):
             record = process_filedata(entry, record, v3=False)
             if record is None:
                 continue
-            # if record.is_archive:
-            #    add_archive(os.path.join(record.fqpndirectory, record.name), new_uuid=record.uuid)
-
             records_to_create.append(record)
     if records_to_create:
         index_data.objects.bulk_create(records_to_create, 100)
         # The record is in the database, so it's already been vetted in the database comparison
-        # Skip
-        # continue
     if bootstrap:
         index_data.objects.filter(delete_pending=True).delete()
 

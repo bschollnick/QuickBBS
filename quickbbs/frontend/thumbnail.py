@@ -20,7 +20,8 @@ def ensures_endswith(string_to_check, value):
     If it does not, then value is appended to the end of string_to_check.
 
     :param string_to_check: Store the string that is being checked
-    :param value: Add a value to the end of the string_to_check if it doesn't already have that value at its end
+    :param value: Add a value to the end of the string_to_check if it doesn't
+        already have that value at its end
     :return: A string with the value appended to it
 
     Examples
@@ -121,7 +122,8 @@ def new_process_dir(db_index):
         #
         #   There are no files in the directory
         #
-        temp = return_image_obj(os.path.join(settings.IMAGES_PATH, FILETYPE_DATA[".dir"]["icon_filename"]))
+        temp = return_image_obj(os.path.join(settings.IMAGES_PATH,
+                                             FILETYPE_DATA[".dir"]["icon_filename"]))
         img_icon = cr_tnail_img(temp, settings.IMAGE_SIZE["small"],
                                 FILETYPE_DATA[".dir"]["icon_filename"])
         # configdata["filetypes"]["dir"][2])
@@ -137,8 +139,9 @@ def new_process_dir(db_index):
 
 def invalidate_thumb(thumbnail):
     """
-    The invalidate_thumb function accepts a Thumbnail object and sets all of its attributes to an empty byte string.
-    It is used when the thumbnail file cannot be found on disk, or when the thumbnail file has been corrupted.
+    The invalidate_thumb function accepts a Thumbnail object and sets all of its attributes
+    to an empty byte string. It is used when the thumbnail file cannot be found on disk,
+    or when the thumbnail file has been corrupted.
 
     :param thumbnail: Store the thumbnail data
     :return: The thumbnail object
@@ -182,11 +185,11 @@ def new_process_img(entry, request, imagesize="Small"):
 
     # https://stackoverflow.com/questions/1167398/python-access-class-property-from-string
     temp = return_image_obj(fs_fname)
-    temp_image = cr_tnail_img(temp, settings.IMAGE_SIZE[thumb_size.lower()], fext=fext)
+    # temp_image = cr_tnail_img(temp, settings.IMAGE_SIZE[thumb_size.lower()], fext=fext)
     setattr(entry.file_tnail,
             f"{thumb_size}Thumb", cr_tnail_img(temp,
-                                                 settings.IMAGE_SIZE[thumb_size.lower()],
-                                                 fext=fext)
+                                               settings.IMAGE_SIZE[thumb_size.lower()],
+                                               fext=fext)
             )
     entry.file_tnail.FileSize = entry.size
     entry.file_tnail.save()
@@ -202,7 +205,8 @@ def new_process_archive(ind_entry, request, page=0):
     TBD: Broken, needs rewrite, it's been broken for a *while*.
     """
     thumbsize = g_option(request, "size", "small").lower().strip()
-    fs_archname = settings.ALBUMS_PATH + os.path.join(ind_entry.fqpndirectory.lower(), ind_entry.name)
+    fs_archname = settings.ALBUMS_PATH + os.path.join(ind_entry.fqpndirectory.lower(),
+                                                      ind_entry.name)
     fs_archname = fs_archname.replace("//", "/").strip()
 
     # file system location of directory
@@ -212,7 +216,8 @@ def new_process_archive(ind_entry, request, page=0):
     # all existing cached pages.
 
     # Check to see if the page in question is being cached.
-    specific_page, created = Thumbnails_Archives.objects.get_or_create(
+#    specific_page, created = Thumbnails_Archives.objects.get_or_create(
+    specific_page, _ = Thumbnails_Archives.objects.get_or_create(
         uuid=ind_entry.uuid, page=page,
         defaults={'uuid': ind_entry.uuid,
                   'page': page,
@@ -266,7 +271,8 @@ def new_process_archive(ind_entry, request, page=0):
         return return_img_attach(os.path.basename(fs_archname),
                                  specific_page.LargeThumb.tobytes(),
                                  fext_override="JPEG")
-    elif thumbsize == "medium":
+
+    if thumbsize == "medium":
         if specific_page.MediumThumb == b"":
             try:
                 specific_page.MediumThumb = cr_tnail_img(im_data,
@@ -285,7 +291,8 @@ def new_process_archive(ind_entry, request, page=0):
         return return_img_attach(os.path.basename(fs_archname),
                                  specific_page.MediumThumb.tobytes(),
                                  fext_override="JPEG")
-    elif thumbsize == "small":
+
+    if thumbsize == "small":
         if specific_page.SmallThumb == b"":
             try:
                 specific_page.SmallThumb = cr_tnail_img(im_data,
