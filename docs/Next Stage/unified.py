@@ -1,10 +1,11 @@
 import os
 import os.path
-from stat import 	ST_MODE,	ST_INO,		ST_DEV,\
-					ST_NLINK,	ST_UID,		ST_GID,\
-					ST_SIZE,	ST_ATIME,	ST_MTIME,\
-					ST_CTIME
 import time
+from stat import ST_MODE, ST_INO, ST_DEV, \
+    ST_NLINK, ST_UID, ST_GID, \
+    ST_SIZE, ST_ATIME, ST_MTIME, \
+    ST_CTIME
+
 
 class	UnifiedDirectory:
 		"""

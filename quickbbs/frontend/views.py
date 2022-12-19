@@ -13,23 +13,22 @@ from pathlib import Path
 import bleach
 import django_icons.templatetags.icons
 import markdown2
+from PIL import Image, ImageFile
 from django.conf import settings
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
 from django.db.utils import ProgrammingError, OperationalError
 from django.http import (Http404, HttpResponseBadRequest, HttpResponseNotFound,
                          JsonResponse)
 from django.shortcuts import render
-from django.views.decorators.cache import cache_page
-from PIL import Image, ImageFile
-from cache.models import fs_Cache_Tracking as Cache_Tracking
 from quickbbs.models import Thumbnails_Dirs, Thumbnails_Files, index_data
 
 import frontend.archives3 as archives
+from cache.models import fs_Cache_Tracking as Cache_Tracking
 from frontend.database import get_db_files, SORT_MATRIX  # check_dup_thumbs
-from frontend.thumbnail import (new_process_archive, new_process_dir,
+from frontend.thumbnail import (new_process_dir,
                                 new_process_img)
 from frontend.utilities import (ensures_endswith, is_valid_uuid,
-                                read_from_disk, return_breadcrumbs, sort_order, sync_database_disk)
+                                read_from_disk, return_breadcrumbs, sort_order)
 from frontend.web import detect_mobile, g_option, respond_as_inline
 
 log = logging.getLogger(__name__)

@@ -1,12 +1,12 @@
 import argparse
-import os
 import re
 import shutil
 import sys
 from struct import unpack
 
 import xattr
-from cache.old.cached_exists import *
+
+from cached_exists import *
 
 app_dir = os.path.split(sys.argv[0])[0]
 print(app_dir)

@@ -1,7 +1,7 @@
 import sys
 
 import fitz
-#import pdf_utilities
+# import pdf_utilities
 from PIL import Image
 
 repeat = 200

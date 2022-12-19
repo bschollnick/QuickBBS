@@ -1,4 +1,7 @@
 """
+**NOTE** This is depreciated for QuickBBS use.  It is still contained here only for use
+of the test_colors*.py packages.
+
 Cached file exists
 
 Quick and Fast execution to avoid hitting hard drive to check if a file exists.
@@ -34,14 +37,12 @@ print(db.return_imagehash_name(img_hash=z))
 import os
 import os.path
 import time
-# from hashlib import md5
-from hashlib import sha224, sha256  # , sha512
+from hashlib import sha224, sha256
 
 import imagehash
-# import operator
+from PIL import Image, UnidentifiedImageError
 from pathvalidate import (is_valid_filename, sanitize_filename,
                           sanitize_filepath)
-from PIL import Image, UnidentifiedImageError
 
 SCANNED_PATHS = {}
 VERIFY_COUNT = 0

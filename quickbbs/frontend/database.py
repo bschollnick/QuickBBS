@@ -1,9 +1,7 @@
 """
 Database Specific Functions
 """
-import os
 
-from django.conf import settings
 from quickbbs.models import (Thumbnails_Archives, Thumbnails_Dirs,
                              Thumbnails_Files, index_data)
 

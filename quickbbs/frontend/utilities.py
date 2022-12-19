@@ -3,13 +3,11 @@ Utilities for QuickBBS, the python edition.
 """
 # from __future__ import absolute_import, print_function, unicode_literals
 
-import html
 import logging
 import os
 import os.path
 import re
 import stat
-import sys
 import time
 import urllib.parse
 import uuid
@@ -21,15 +19,14 @@ from pathlib import Path
 # inside moviepy.editor
 import av  # Video Previews
 import fitz  # PDF previews
-from django.conf import settings
-from pathvalidate import sanitize_filename
 from PIL import Image
-import filetypes.models as filetype_models
-from cache.models import fs_Cache_Tracking as Cache_Tracking
-from quickbbs.models import Thumbnails_Archives, filetypes, index_data
+from django.conf import settings
+from quickbbs.models import filetypes, index_data
 
+import filetypes.models as filetype_models
 import frontend.archives3 as archives
 import frontend.constants as constants
+from cache.models import fs_Cache_Tracking as Cache_Tracking
 
 log = logging.getLogger(__name__)
 
@@ -265,20 +262,20 @@ def cr_tnail_img(source_image, size, fext):
     if fext in settings.MOVIE_FILE_TYPES:
         fext = ".jpg"
 
-    image_data = BytesIO()
-    source_image.thumbnail((size, size), Image.ANTIALIAS)
-    try:
-        source_image.save(fp=image_data,
-                          format="PNG",  # Need alpha channel support for icons, etc.
-                          optimize=False)
-    except OSError:
-        source_image = source_image.convert('RGB')
-        source_image.save(fp=image_data,
-                          format="JPEG",
-                          optimize=False
-                          )
-    image_data.seek(0)
-    return image_data.getvalue()
+    with BytesIO() as image_data:# = BytesIO()
+        source_image.thumbnail((size, size), Image.ANTIALIAS)
+        try:
+            source_image.save(fp=image_data,
+                              format="PNG",  # Need alpha channel support for icons, etc.
+                              optimize=False)
+        except OSError:
+            source_image = source_image.convert('RGB')
+            source_image.save(fp=image_data,
+                              format="JPEG",
+                              optimize=False
+                              )
+        image_data.seek(0)
+        return image_data.getvalue()
 
 
 def naturalize(string):

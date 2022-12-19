@@ -28,7 +28,7 @@ if DEMO:
     ALBUMS_PATH = "/Volumes/4TB_Drive/gallery_demo"
 
 DEBUG = False
-#DEBUG = not DEBUG
+DEBUG = not DEBUG
 print("Debug is ", DEBUG)
 
 # DEBUG_TOOLBAR = True

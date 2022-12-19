@@ -1,5 +1,3 @@
-import signal
-
 from zeroconf import ServiceBrowser, Zeroconf
 
 

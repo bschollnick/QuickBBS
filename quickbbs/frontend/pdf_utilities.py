@@ -18,13 +18,12 @@ https://github.com/rk700/PyMuPDF/issues/160
 
 Need to upgrade to use fitz.TOOLS.mupdf_warnings() for bad file detection.
 """
-import os
 from io import BytesIO
-from os import path
 
 # import subprocess
 import fitz
 from pdfrw import PdfReader, PdfWriter
+
 
 # import img2pdf
 # import pdfkit
