@@ -1,6 +1,5 @@
 # http://stackoverflow.com/questions/14275975/creating-random-binary-files
 
-import os
 import os.path
 import random
 import sys

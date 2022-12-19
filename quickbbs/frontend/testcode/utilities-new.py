@@ -8,7 +8,7 @@ import html
 import logging
 import os
 import os.path
-#import urllib
+# import urllib
 import re
 import stat
 import sys
@@ -18,13 +18,13 @@ from io import BytesIO
 
 import fitz
 import scandir
+from PIL import Image
 from django.core.exceptions import MultipleObjectsReturned
 from pathvalidate import sanitize_filename
-from PIL import Image
 from quickbbs.models import (Thumbnails_Archives, Thumbnails_Dirs,
                              Thumbnails_Files, index_data)
 
-from frontend.database import check_dup_thumbs, validate_database
+from frontend.database import check_dup_thumbs
 
 log = logging.getLogger(__name__)
 

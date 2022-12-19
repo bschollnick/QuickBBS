@@ -1,8 +1,8 @@
 #import scandir
 import sys
 
-#from xattr import xattr
-from old.cached_exists import *
+# from xattr import xattr
+from cached_exists import *
 
 filedb = cached_exist(use_shas=True, FilesOnly=True)
 filedb.MAX_SHA_SIZE = 1024*1024*5

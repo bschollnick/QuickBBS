@@ -4,10 +4,10 @@ Thumbnail routines for QuickBBS
 import os
 
 from django.conf import settings
-from filetypes.models import FILETYPE_DATA
 from quickbbs.models import Thumbnails_Archives, index_data
 
 import frontend.archives3 as archives
+from filetypes.models import FILETYPE_DATA
 from frontend.database import get_xth_image
 from frontend.utilities import cr_tnail_img, read_from_disk, return_image_obj
 from frontend.web import g_option  # , respond_as_attachment
@@ -176,21 +176,30 @@ def new_process_img(entry, request, imagesize="Small"):
         # Does the thumbnail exist?
         if entry.size == entry.file_tnail.FileSize:
             return return_inline_attach(entry.name, existing_data)
+
     fs_fname = os.path.join(entry.fqpndirectory, entry.name).replace("//", "/")
     # file system location of directory
 
     fext = os.path.splitext(fs_fname)[1][1:].lower()
-    imagedata = None
+    # imagedata = None
     entry.file_tnail = invalidate_thumb(entry.file_tnail)
 
     # https://stackoverflow.com/questions/1167398/python-access-class-property-from-string
     temp = return_image_obj(fs_fname)
     # temp_image = cr_tnail_img(temp, settings.IMAGE_SIZE[thumb_size.lower()], fext=fext)
-    setattr(entry.file_tnail,
-            f"{thumb_size}Thumb", cr_tnail_img(temp,
-                                               settings.IMAGE_SIZE[thumb_size.lower()],
-                                               fext=fext)
-            )
+    #
+    for size in ["Large", "Medium", "Small"]:
+        imagedata = cr_tnail_img(temp,
+                                 settings.IMAGE_SIZE[size.lower()],
+                                 fext=fext)
+        setattr(entry.file_tnail,
+                f"{size}Thumb", imagedata)
+
+    # setattr(entry.file_tnail,
+    #         f"{thumb_size}Thumb", cr_tnail_img(temp,
+    #                                            settings.IMAGE_SIZE[thumb_size.lower()],
+    #                                            fext=fext)
+    #         )
     entry.file_tnail.FileSize = entry.size
     entry.file_tnail.save()
     entry.save()

@@ -1,6 +1,5 @@
 import argparse
 # import sys
-import os
 # import scandir
 import re
 import shutil
@@ -9,7 +8,8 @@ from struct import unpack
 
 # from xattr import xattr
 import xattr
-from cache.old.cached_exists import *
+
+from cached_exists import *
 
 app_dir = os.path.split(sys.argv[0])[0]
 print(app_dir)

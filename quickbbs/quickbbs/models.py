@@ -5,8 +5,9 @@ import uuid
 from django.contrib.auth.models import User
 from django.db import models
 from django.urls import reverse
-from filetypes.models import filetypes
+
 import thumbnails.models
+from filetypes.models import filetypes
 
 
 def is_valid_uuid(uuid_to_test, version=4):
@@ -197,7 +198,6 @@ class index_data(models.Model):
         blank=True,
     )
 
-    # select * from public.quickbbs_indexdata where "Ignore" is True;
     file_tnail = models.OneToOneField(
         Thumbnails_Files,
         on_delete=models.CASCADE,

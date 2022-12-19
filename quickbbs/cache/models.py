@@ -2,10 +2,9 @@ import os
 import sys
 import time
 
-from django.core.cache import cache
 from django.conf import settings
+from django.core.cache import cache
 from django.db import models
-from filetypes.models import FILETYPE_DATA
 
 # from cache.cached_exists import cached_exist
 # from frontend.config import configdata

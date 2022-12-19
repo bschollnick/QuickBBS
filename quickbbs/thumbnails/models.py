@@ -4,6 +4,7 @@ import uuid
 
 from django.conf import settings
 from django.db import models
+
 # from frontend.thumbnail import cr_tnail_img
 
 # from uuid import uuid4
