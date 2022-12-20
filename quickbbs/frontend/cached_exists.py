@@ -40,6 +40,7 @@ import time
 from hashlib import sha224, sha256
 
 import imagehash
+import dhash
 from PIL import Image, UnidentifiedImageError
 from pathvalidate import (is_valid_filename, sanitize_filename,
                           sanitize_filepath)
@@ -105,7 +106,7 @@ class cached_exist():
 
     def __init__(self, reset_count=RESET_COUNT, use_modify=False,
                  use_shas=False, FilesOnly=True, use_extended=False,
-                 use_filtering=False, use_image_hash=False, image_hasher=imagehash.average_hash):
+                 use_filtering=False, use_image_hash=False, image_hasher=dhash.dhash_int):
         self.scanned_paths = {}
         self.sha_paths = {}
         self.image_paths = {}
@@ -130,7 +131,7 @@ class cached_exist():
         self.last_mods["scanInterval"] = 90  # 60 seconds
         self.image_hasher = image_hasher
         #        self.image_hash_size=128
-        self.image_hash_size = 64
+        self.image_hash_size = 3
         self._graphics = [".bmp", ".gif", ".jpg", ".jpeg", ".png", "webp"]
         self._archives = [".zip", ".rar", ".7z", ".lzh", ".gz"]
         self._movies = [".mp4", ".mpg", ".mkv", ".mov", ".avi", ".mp3"]

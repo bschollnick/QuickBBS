@@ -2,6 +2,7 @@
 Thumbnail routines for QuickBBS
 """
 import os
+from typing import Iterator  # , Optional, Union, TypeVar, Generic
 
 from django.conf import settings
 from quickbbs.models import Thumbnails_Archives, index_data
@@ -14,7 +15,7 @@ from frontend.web import g_option  # , respond_as_attachment
 from frontend.web import return_img_attach, return_inline_attach
 
 
-def ensures_endswith(string_to_check, value):
+def ensures_endswith(string_to_check, value) -> str:
     """
     The ensures_endswith function ensures that the string_to_check ends with value.
     If it does not, then value is appended to the end of string_to_check.
@@ -36,7 +37,7 @@ def ensures_endswith(string_to_check, value):
     return string_to_check
 
 
-def images_in_dir(database, webpath):
+def images_in_dir(database, webpath) -> Iterator[index_data]:
     """
     Check for images in the directory.
     If they do not exist, try to load the directory, and test again.
@@ -225,7 +226,7 @@ def new_process_archive(ind_entry, request, page=0):
     # all existing cached pages.
 
     # Check to see if the page in question is being cached.
-#    specific_page, created = Thumbnails_Archives.objects.get_or_create(
+    #    specific_page, created = Thumbnails_Archives.objects.get_or_create(
     specific_page, _ = Thumbnails_Archives.objects.get_or_create(
         uuid=ind_entry.uuid, page=page,
         defaults={'uuid': ind_entry.uuid,

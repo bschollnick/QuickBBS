@@ -13,6 +13,7 @@ import urllib.parse
 import uuid
 from io import BytesIO
 from pathlib import Path
+from typing import Union, List  # , Iterator, Optional, TypeVar, Generic
 
 # from moviepy.video.io import VideoFileClip
 # from moviepy.editor import VideoFileClip #* # import everythings (variables, classes, methods...)
@@ -30,7 +31,7 @@ from cache.models import fs_Cache_Tracking as Cache_Tracking
 
 log = logging.getLogger(__name__)
 
-Image.MAX_IMAGE_PIXELS = None   # Disable PILLOW DecompressionBombError errors.
+Image.MAX_IMAGE_PIXELS = None  # Disable PILLOW DecompressionBombError errors.
 
 
 def rename_file(old_filename, new_filename):
@@ -48,7 +49,7 @@ def rename_file(old_filename, new_filename):
         pass
 
 
-def ensures_endswith(string_to_check, value):
+def ensures_endswith(string_to_check, value) -> str:
     """
     Check the string (string_to_check) to see if value is the last character in string_to_check.
     If not, then add it to the end of the string.
@@ -67,7 +68,7 @@ def ensures_endswith(string_to_check, value):
     return string_to_check
 
 
-def sort_order(request):
+def sort_order(request) -> int:
     """
     Grab the sort order from the request (cookie)
     and apply it to the session, and to the context for the web page.
@@ -88,7 +89,7 @@ def sort_order(request):
     return int(request.GET.get("sort", default=0))
 
 
-def is_valid_uuid(uuid_to_test, version=4):
+def is_valid_uuid(uuid_to_test, version=4) -> bool:
     """
     Check if uuid_to_test is a valid UUID.
     https://stackoverflow.com/questions/19989481
@@ -118,7 +119,7 @@ def is_valid_uuid(uuid_to_test, version=4):
     return str(uuid_obj) == uuid_to_test
 
 
-def test_extension(name, ext_list):
+def test_extension(name, ext_list) -> bool:
     """
     Check if filename has an file extension that is in passed list.
 
@@ -145,7 +146,84 @@ def test_extension(name, ext_list):
     return os.path.splitext(name)[1].lower() in ext_list
 
 
-def return_image_obj(fs_path, memory=False):
+def load_pdf(fspath):
+    """
+    The load_pdf function loads a PDF file from the filesystem and returns an image.
+
+    :param fspath: Load the file
+    :return: A pil
+    :doc-author: Trelent
+    """
+    if filetype_models.FILETYPE_DATA[os.path.splitext(fspath)]["is_pdf"]:
+        # Do not repair the PDF / validate the PDF.  If it's bad,
+        # it should be repaired, not band-aided by a patch from the web server.
+        # results = pdf_utilities.check_pdf(fs_path)
+        with fitz.open(fspath) as pdf_file:
+            pdf_page = pdf_file.load_page(0)
+            pix = pdf_page.get_pixmap(alpha=True)  # matrix=fitz.Identity, alpha=True)
+            try:
+                source_image = Image.open(BytesIO(pix.tobytes()))
+            except UserWarning:
+                print("UserWarning!")
+                source_image = None
+    return source_image
+
+
+def load_movie(fspath):
+    """
+    The load_movie function loads a movie from the file system and returns an image.
+
+    :param fspath: Specify the path to the video file
+    :return: A pillow image object
+    """
+    with av.open(fspath) as container:
+        stream = container.streams.video[0]
+        frame = next(container.decode(stream))
+        return frame.to_image()
+
+
+def load_movie_av(fspath):
+    """
+    The load_movie_av function loads a movie from the filesystem and returns an image of the first frame.
+
+    :param fspath: Specify the path of the file
+    :return: An Pillow image object
+    """
+    with av.open(fspath) as container:
+        stream = container.streams.video[0]
+        frame = next(container.decode(stream))
+        return frame.to_image()
+
+
+def load_image(fspath, mem=False):
+    """
+    The load_image function loads an image from a file path or byte stream.
+    It returns the source_image object, which is a PIL Image object.
+
+    :param fspath: Pass the path of the image file
+    :param mem: Determine if the source file is a local file or a byte stream, if true, byte stream
+    :return: A pil / Image object
+    """
+    source_image = None
+    if not mem:
+        try:
+            source_image = Image.open(fspath)
+        except OSError:
+            print("Unable to load source file")
+    else:
+        try:  # fs_path is a byte stream
+            source_image = Image.open(BytesIO(fspath))
+        #                source_image = None
+        except OSError:
+            print("IOError")
+            log.debug("PIL was unable to identify as an image file")
+        #               source_image = None
+        except UserWarning:
+            print("UserWarning!")
+    return source_image
+
+
+def return_image_obj(fs_path, memory=False) -> Image:
     """
     Given a Fully Qualified FileName/Pathname, open the image
     (or PDF) and return the PILLOW object for the image
@@ -175,65 +253,33 @@ def return_image_obj(fs_path, memory=False):
         # There is currently no concept of a "None" in filetypes
         extension = ".none"
     if filetype_models.FILETYPE_DATA[extension]["is_pdf"]:
-        # Do not repair the PDF / validate the PDF.  If it's bad,
-        # it should be repaired, not band-aided by a patch from the web server.
-        # results = pdf_utilities.check_pdf(fs_path)
-        with fitz.open(fs_path) as pdf_file:
-            pdf_page = pdf_file.load_page(0)
-            pix = pdf_page.get_pixmap(alpha=True)  # matrix=fitz.Identity, alpha=True)
-
-            try:
-                source_image = Image.open(BytesIO(pix.tobytes()))
-            except UserWarning:
-                print("UserWarning!")
-                source_image = None
+        source_image = load_pdf(fs_path)
+        # # Do not repair the PDF / validate the PDF.  If it's bad,
+        # # it should be repaired, not band-aided by a patch from the web server.
+        # # results = pdf_utilities.check_pdf(fs_path)
+        # with fitz.open(fs_path) as pdf_file:
+        #     pdf_page = pdf_file.load_page(0)
+        #     pix = pdf_page.get_pixmap(alpha=True)  # matrix=fitz.Identity, alpha=True)
+        #
+        #     try:
+        #         source_image = Image.open(BytesIO(pix.tobytes()))
+        #     except UserWarning:
+        #         print("UserWarning!")
+        #         source_image = None
 
     elif filetype_models.FILETYPE_DATA[extension]["is_movie"]:
-        with av.open(fs_path) as container:
-            stream = container.streams.video[0]
-            frame = next(container.decode(stream))
-            source_image = frame.to_image()
+        source_image = load_movie(fs_path)
 
     elif filetype_models.FILETYPE_DATA[extension]["is_image"]:
-        if not memory:
-            try:
-                source_image = Image.open(fs_path)
-            except OSError:
-                print("Unable to load source file")
-        else:
-            try:  # fs_path is a byte stream
-                source_image = Image.open(BytesIO(fs_path))
-            #                source_image = None
-            except OSError:
-                print("IOError")
-                log.debug("PIL was unable to identify as an image file")
-            #               source_image = None
-            except UserWarning:
-                print("UserWarning!")
-    if filetype_models.FILETYPE_DATA[extension]["is_movie"]:
-        with av.open(fs_path) as container:
-            stream = container.streams.video[0]
-            frame = next(container.decode(stream))
-            source_image = frame.to_image()
+        source_image = load_image(fs_path, mem=memory)
 
-    elif filetype_models.FILETYPE_DATA[extension]["is_image"]:
-        if not memory:
-            try:
-                source_image = Image.open(fs_path)
-            except OSError:
-                print("Unable to load source file")
-        else:
-            try:  # fs_path is a byte stream
-                source_image = Image.open(BytesIO(fs_path))
-            except OSError:
-                print("IOError")
-                log.debug("PIL was unable to identify as an image file")
-            except UserWarning:
-                print("UserWarning!")
+    # if filetype_models.FILETYPE_DATA[extension]["is_movie"]:
+    #      source_image = load_movie_av(fs_path)
+    #    replaced by movie
     return source_image
 
 
-def cr_tnail_img(source_image, size, fext):
+def cr_tnail_img(source_image, size, fext) -> Image:
     """
     Given the PILLOW object, resize the image to <SIZE>
     and return the saved version of the file (using FEXT
@@ -262,7 +308,7 @@ def cr_tnail_img(source_image, size, fext):
     if fext in settings.MOVIE_FILE_TYPES:
         fext = ".jpg"
 
-    with BytesIO() as image_data:# = BytesIO()
+    with BytesIO() as image_data:  # = BytesIO()
         source_image.thumbnail((size, size), Image.ANTIALIAS)
         try:
             source_image.save(fp=image_data,
@@ -278,7 +324,7 @@ def cr_tnail_img(source_image, size, fext):
         return image_data.getvalue()
 
 
-def naturalize(string):
+def naturalize(string) -> str:
     """
         return <STRING> as a english sortable <STRING>
 
@@ -319,6 +365,37 @@ def multiple_replace(repl_dict, text):
 
 
 def convert_scandisk_to_dict(fqpn, sd_entry) -> dict:
+    """
+    The convert_scandisk_to_dict function takes a fully-qualified path to a file or directory, and
+    a ScandirEntry object representing that file or directory. It returns a dictionary containing
+    the filename, lowercase filename (for sorting), the full path to the file/directory, size in bytes,
+    last modified date as seconds since epoch (time.time()), whether it is an archive (.zip/.rar/.7z)
+    file type (True/False), whether it is an image (.jpg/.jpeg/.png) type (True/False), etc.
+
+    :param fqpn: Determine the path to the file
+    :param sd_entry: Determine if the file is a directory or not
+    :return: A dictionary with the following keys:
+        data[<filename in titlecase>] = {"filename": the filename in titlecase,
+                                           "lower_filename": the filename in lowercase (depreciated?),
+                                                # Most likely depreciated in v3
+                                           "path": The fully qualified pathname and filename
+                                           'sortname': A naturalized sort ready filename
+                                           'size': FileSize
+                                           'lastmod': Last modified timestamp
+                                           'is_dir': Is this entry a directory?
+                                           'is_file': Is this entry a file?
+                                           'is_archive': is this entry an archive
+                                           'is_image': is this entry an image
+                                           'is_movie': is this entry a movie file (not animated gif)
+                                           'is_audio': is this entry an audio file
+                                           'is_text': is this entry a text file
+                                           'is_html': is this entry a html file
+                                           'is_markdown': is this entry a markdown file
+                                           'is_animated': Is this an animated file (e.g. animated GIF),
+                                                not a movie file
+                                           }
+    :doc-author: Trelent
+    """
     fs_entry = None
     titlecase = sd_entry.name.title()
     # unescaped = html.unescape(titlecase)
@@ -381,7 +458,7 @@ def convert_scandisk_to_dict(fqpn, sd_entry) -> dict:
     return fs_entry
 
 
-def return_disk_listing(fqpn, enable_rename=False):
+def return_disk_listing(fqpn, enable_rename=False) -> (bool, dict):
     """
     Return a dictionary that contains the scandir data (& some extra data) for the directory.
 
@@ -464,76 +541,9 @@ def return_disk_listing(fqpn, enable_rename=False):
 
         fs_data[item.name.title()] = item
     return (True, fs_data)
-    # data = {}
-    # data_list = []
-    # loaded = True
-    #    webpath = (fqpn.title().replace(settings.ALBUMS_PATH.title(),
-    #                                    "")).replace("//", "/")
-    # for entry in os.scandir(fqpn):
-    #    pass
-
-    # titlecase = entry.name.title()
-    # unescaped = html.unescape(titlecase)
-    # lower_filename = entry.name.lower()
-    #
-    # animated = False
-    # fext = os.path.splitext(lower_filename)[1]
-    # if fext == "":
-    #     fext = ".none"
-    # elif entry.is_dir():
-    #     fext = ".dir"
-    #
-    # if fext not in filetype_models.FILETYPE_DATA:
-    #     # The file extension is not in FILETYPE_DATA, so ignore it.
-    #     continue
-    #
-    # if (fext in settings.EXTENSIONS_TO_IGNORE) or \
-    #         (lower_filename in settings.FILES_TO_IGNORE):
-    #     # file extension is in EXTENSIONS_TO_IGNORE, so skip it.
-    #     # or the filename is in FILES_TO_IGNORE, so skip it.
-    #     continue
-    #
-    # if settings.IGNORE_DOT_FILES and lower_filename.startswith("."):
-    #     # IGNORE_DOT_FLES is enabled, *and* the filename startswith an ., skip it.
-    #     continue
-    #
-    # if enable_rename:
-    #     original_filename = titlecase
-    #     if titlecase != unescaped:
-    #         titlecase = unescaped.title()
-    #
-    #     after_filename = multiple_replace(constants.replacements, lower_filename)  # , regex)
-    #     if after_filename != lower_filename:
-    #         titlecase = after_filename.title()
-    #
-    #     titlecase = sanitize_filename(titlecase)
-    #     if titlecase != original_filename:
-    #         rename_file(os.path.join(fqpn, original_filename),
-    #                     os.path.join(fqpn, titlecase))
-    #         print(f"rejected - {titlecase}")
-    #         # loaded = False
-    #
-    # data[titlecase] = {"filename": titlecase,
-    #                    "lower_filename": titlecase.lower(),
-    #                    "path": os.path.join(fqpn, titlecase),
-    #                    'sortname': naturalize(titlecase),
-    #                    'size': entry.stat()[stat.ST_SIZE],
-    #                    'lastmod': entry.stat()[stat.ST_MTIME],
-    #                    'is_dir': entry.is_dir(),  # fext == ".dir",
-    #                    'is_file': not entry.is_dir(),  # fext != ".dir",
-    #                    'is_archive': filetype_models.FILETYPE_DATA[fext]["is_archive"],
-    #                    'is_image': filetype_models.FILETYPE_DATA[fext]["is_image"],
-    #                    'is_movie': filetype_models.FILETYPE_DATA[fext]["is_movie"],
-    #                    'is_audio': filetype_models.FILETYPE_DATA[fext]["is_audio"],
-    #                    'is_text': filetype_models.FILETYPE_DATA[fext]["is_text"],
-    #                    'is_html': filetype_models.FILETYPE_DATA[fext]["is_html"],
-    #                    'is_markdown': filetype_models.FILETYPE_DATA[fext]["is_markdown"],
-    #                    'is_animated': animated
-    #                    }
-    # return (loaded, data)
 
 
-def break_down_urls(uri_path):
+def break_down_urls(uri_path) -> Union[list[bytes], list[str]]:
     """
     Split URL into it's component parts
 
@@ -575,7 +585,7 @@ def return_breadcrumbs(uri_path=""):
     return data
 
 
-def fs_counts(fs_entries):
+def fs_counts(fs_entries) -> (int, int):
     """
     Quickly count the files vs directories in a list of scandir entries
     Used primary by sync_database_disk to count a path's files & directories
@@ -600,6 +610,14 @@ def fs_counts(fs_entries):
 
 
 def add_archive(fqpn, new_uuid):
+    """
+    The add_archive function adds a new archive to the database.
+
+    :param fqpn: Specify the fully qualified path name of the file to be added
+    :param new_uuid: Create a new uuid for the archive
+    :return: A list of the files that were added to the archive
+    :doc-author: Trelent
+    """
     print("Add Archive triggered", fqpn)
     compressed = archives.id_cfile_by_sig(fqpn)
     compressed.get_listings()
@@ -608,10 +626,25 @@ def add_archive(fqpn, new_uuid):
 
 
 #
-def process_filedata(fs_entry, db_record, v3=False):
+def process_filedata(fs_entry, db_record, v3=False) -> index_data:
+    """
+    The process_filedata function takes a file system entry and returns an index_data object.
+    The index_data object contains the following attributes:
+        fqpndirectory - The fully qualified path to the directory containing the file or folder.
+        name - The name of the file or folder (without any parent directories).
+        sortname - A normalized version of 'name' with all capital letters replaced by lower case letters,
+            spaces replaced by underscores, and punctuation removed. This is used for sorting purposes only;
+            it does not need to be unique nor must it match 'name'. It is recommended that
+
+    :param fs_entry: Get the absolute path of the file
+    :param db_record: Store the data in the database
+    :param v3=False: Force the old version of process_filedata to be used
+    :return: A dictionary of values that can be
+    :doc-author: Trelent
+    """
     db_record.fqpndirectory, db_record.name = os.path.split(fs_entry.absolute())
-    db_record.fqpndirectory = ensures_endswith(db_record.fqpndirectory.\
-                                               lower().replace("//", "/"), os.sep)
+    db_record.fqpndirectory = ensures_endswith(
+        db_record.fqpndirectory.lower().replace("//", "/"), os.sep)
     db_record.name = db_record.name.title().replace("//", "/").title()
     db_record.fileext = fs_entry.suffix.lower()
     db_record.is_dir = fs_entry.is_dir()  # ["is_dir"]
