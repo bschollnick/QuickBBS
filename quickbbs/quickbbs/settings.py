@@ -14,26 +14,39 @@ import os
 import socket
 from pathlib import Path
 
-import quickbbs.jinjaenv
+# import quickbbs.jinjaenv
 from quickbbs.quickbbs_settings import *
+import django_icons
 
 ALLOWED_HOSTS = ['nerv.local', 'localhost', '127.0.0.1', '192.168.1.67']
 INTERNAL_IPS = ['localhost', '127.0.0.1', 'nerv.local', '192.168.1.67']
 machine_name = socket.gethostname().lower()
-print("Running on %s" % machine_name)
+print(f"* Running on {machine_name}")
 
+# Demo mode, redirects the database to a different database container, and album path.
+# Useful for demonstrating the software without using your master database.
+#
 DEMO = False
-#DEMO = True
+# DEMO = True
 if DEMO:
     ALBUMS_PATH = "/Volumes/4TB_Drive/gallery_demo"
+print(f"* Demo Mode is {DEMO}")
 
+#
+#   Debug, enables the debugging mode
+#
 DEBUG = False
 DEBUG = not DEBUG
-print("Debug is ", DEBUG)
+print(f"* Debug Mode is {DEBUG}")
 
+#
+#   Django Debug Toolbar, is controlled separately from the debug mode,
+#   so that timings can be w/o debug mode performance penalty.
+#
 # DEBUG_TOOLBAR = True
 # DEBUG_TOOLBAR = DEBUG
 DEBUG_TOOLBAR = False
+print(f"* Debug-toolbar is {DEBUG_TOOLBAR}")
 
 JQUERY_VERSION = '3.6.1'
 JQUERY_URI = f'https://cdnjs.cloudflare.com/ajax/libs/jquery/{JQUERY_VERSION}/jquery.slim.min.js'
@@ -120,7 +133,7 @@ INSTALLED_APPS += [
     'filetypes',
     #    'fontawesome-free',
     'django_icons',
-    'django_unicorn',
+    #    'django_unicorn',
     'django_jinja.contrib._humanize'
 ]
 
@@ -181,31 +194,36 @@ TEMPLATES = [
      "BACKEND": "django_jinja.backend.Jinja2",
      "APP_DIRS": True,
      'DIRS': [TEMPLATE_PATH, ],
-     "OPTIONS": {'environment': "quickbbs.jinjaenv.environment",
-                 # Match the template names ending in .html but not the ones in the admin folder.
-                 "match_extension": ".jinja",
-                 "extensions": [
-                     "jinja2.ext.do",
-                     "jinja2.ext.loopcontrols",
-                     #                "jinja2.ext.with_",
-                     "jinja2.ext.i18n",
-                     #                "jinja2.ext.autoescape",
-                     "django_jinja.builtins.extensions.CsrfExtension",
-                     "django_jinja.builtins.extensions.CacheExtension",
-                     "django_jinja.builtins.extensions.TimezoneExtension",
-                     "django_jinja.builtins.extensions.UrlsExtension",
-                     "django_jinja.builtins.extensions.StaticFilesExtension",
-                     "django_jinja.builtins.extensions.DjangoFiltersExtension",
-                 ],
-                 "bytecode_cache": {
-                     "name": "default",
-                     "backend": "django_jinja.cache.BytecodeCache",
-                     "enabled": not DEBUG,  # needs to be negated, since TRUE for debug should be enabled - False
-                 },
-                 "autoescape": True,
-                 "auto_reload": True,
-                 "translation_engine": "django.utils.translation",
-                 }
+     "OPTIONS": {  # 'environment': "quickbbs.jinjaenv.environment",
+         # Match the template names ending in .html but not the ones in the admin folder.
+         "match_extension": ".jinja",
+         "extensions": [
+             "jinja2.ext.do",
+             "jinja2.ext.loopcontrols",
+             "jinja2.ext.i18n",
+             "django_jinja.builtins.extensions.CsrfExtension",
+             "django_jinja.builtins.extensions.CacheExtension",
+             "django_jinja.builtins.extensions.TimezoneExtension",
+             "django_jinja.builtins.extensions.UrlsExtension",
+             "django_jinja.builtins.extensions.StaticFilesExtension",
+             "django_jinja.builtins.extensions.DjangoFiltersExtension",
+         ],
+         "globals": {"icon": "django_icons.templatetags.icons.icon_tag",
+                     "static": "django.templatetags.static.static",
+                     "url": "django.urls.reverse",
+                     },
+         "constants": {"bulma_uri": BULMA_URI,
+                       "fontawesome_uri": FONTAWESOME_URI,
+                       "jquery_uri": JQUERY_URI},
+         "bytecode_cache": {
+             "name": "default",
+             "backend": "django_jinja.cache.BytecodeCache",
+             "enabled": not DEBUG,  # needs to be negated, since TRUE for debug should be enabled - False
+         },
+         "autoescape": True,
+         "auto_reload": True,
+         "translation_engine": "django.utils.translation",
+     }
      },
 ]
 

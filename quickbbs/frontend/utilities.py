@@ -154,18 +154,18 @@ def load_pdf(fspath):
     :return: A pil
     :doc-author: Trelent
     """
-    if filetype_models.FILETYPE_DATA[os.path.splitext(fspath)]["is_pdf"]:
-        # Do not repair the PDF / validate the PDF.  If it's bad,
-        # it should be repaired, not band-aided by a patch from the web server.
-        # results = pdf_utilities.check_pdf(fs_path)
-        with fitz.open(fspath) as pdf_file:
-            pdf_page = pdf_file.load_page(0)
-            pix = pdf_page.get_pixmap(alpha=True)  # matrix=fitz.Identity, alpha=True)
-            try:
-                source_image = Image.open(BytesIO(pix.tobytes()))
-            except UserWarning:
-                print("UserWarning!")
-                source_image = None
+    #    if filetype_models.FILETYPE_DATA[os.path.splitext(fspath).lower()]["is_pdf"]:
+    # Do not repair the PDF / validate the PDF.  If it's bad,
+    # it should be repaired, not band-aided by a patch from the web server.
+    # results = pdf_utilities.check_pdf(fs_path)
+    with fitz.open(fspath) as pdf_file:
+        pdf_page = pdf_file.load_page(0)
+        pix = pdf_page.get_pixmap(alpha=True)  # matrix=fitz.Identity, alpha=True)
+        try:
+            source_image = Image.open(BytesIO(pix.tobytes()))
+        except UserWarning:
+            print("UserWarning!")
+            source_image = None
     return source_image
 
 
@@ -635,10 +635,10 @@ def process_filedata(fs_entry, db_record, v3=False) -> index_data:
         sortname - A normalized version of 'name' with all capital letters replaced by lower case letters,
             spaces replaced by underscores, and punctuation removed. This is used for sorting purposes only;
             it does not need to be unique nor must it match 'name'. It is recommended that
-
     :param fs_entry: Get the absolute path of the file
     :param db_record: Store the data in the database
-    :param v3=False: Force the old version of process_filedata to be used
+    :param v3: Force the old version of process_filedata to be used, if True use v3 structures
+        (Not yet ready)
     :return: A dictionary of values that can be
     :doc-author: Trelent
     """
