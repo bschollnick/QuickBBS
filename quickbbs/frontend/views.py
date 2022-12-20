@@ -10,7 +10,7 @@ import time
 import warnings
 from pathlib import Path
 
-import bleach
+# import bleach
 import django_icons.templatetags.icons
 import markdown2
 from PIL import Image, ImageFile
@@ -316,7 +316,8 @@ def item_info(request, i_uuid):
             context["html"] = markdown2.Markdown().convert("\n".join(textfile.readlines()))
     if entry.filetype.is_html:
         with open(filename, 'r', encoding="latin-1") as htmlfile:
-            context["html"] = bleach.clean("<br>".join(htmlfile.readlines()))
+            # context["html"] = bleach.clean("<br>".join(htmlfile.readlines()))
+            context["html"] = "<br>".join(htmlfile.readlines())
 
     pathmaster = Path(os.path.join(entry.fqpndirectory, entry.name))
     context["up_uri"] = str(pathmaster.parent).lower().replace(settings.ALBUMS_PATH.lower(), "")
@@ -560,7 +561,7 @@ def new_archive_item(request, i_uuid):
         context["previous"] = ""
     #
     context["first"] = f"view_archive_item/{entry.uuid}?page={0}"
-    context["last"] = "view_archive_item/{}?page={}".format(entry.uuid, context["pagecount"])
+    context["last"] = f"view_archive_item/{entry.uuid}?page={context['pagecount']}"
 
     response = render(request,
                       "frontend/archive_item.html",

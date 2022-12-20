@@ -4,10 +4,9 @@ Database Specific Functions
 
 from quickbbs.models import (Thumbnails_Archives, Thumbnails_Dirs,
                              Thumbnails_Files, index_data)
-from typing import Iterator #  , Optional, Union, TypeVar, Generic
+from typing import Iterator  # , Optional, Union, TypeVar, Generic
 
 DF_VDBASE = ["sortname", "lastscan", "lastmod", "size"]
-
 
 # def validate_database(dir_to_scan):
 #     """
@@ -169,14 +168,14 @@ def get_xth_image(database, positional=0, filters=None) -> Iterator[index_data]:
         filters = []
     try:
         # exact match
-        return database.objects.select_related("filetype").filter(**filters).exclude(filetype__is_image=False).\
+        return database.objects.select_related("filetype").filter(**filters).exclude(filetype__is_image=False). \
             exclude(ignore=True).exclude(delete_pending=True)[positional]
     except IndexError:  # No matching position was found
         # it has to be either too high (greater than length), or less than 0.
-        count = database.objects.select_related("filetype").filter(**filters).exclude(filetype__is_image=False).\
+        count = database.objects.select_related("filetype").filter(**filters).exclude(filetype__is_image=False). \
             exclude(ignore=True).exclude(delete_pending=True).count()
         if positional > count:  # The requested index is too high
-            return database.objects.select_related("filetype").filter(**filters).exclude(filetype__is_image=False).\
+            return database.objects.select_related("filetype").filter(**filters).exclude(filetype__is_image=False). \
                 exclude(ignore=True).exclude(delete_pending=True)[count]
         # else, return None, because positional has to be 0 or less.
     return None

@@ -196,11 +196,6 @@ def new_process_img(entry, request, imagesize="Small"):
         setattr(entry.file_tnail,
                 f"{size}Thumb", imagedata)
 
-    # setattr(entry.file_tnail,
-    #         f"{thumb_size}Thumb", cr_tnail_img(temp,
-    #                                            settings.IMAGE_SIZE[thumb_size.lower()],
-    #                                            fext=fext)
-    #         )
     entry.file_tnail.FileSize = entry.size
     entry.file_tnail.save()
     entry.save()
