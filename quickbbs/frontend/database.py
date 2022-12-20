@@ -4,6 +4,7 @@ Database Specific Functions
 
 from quickbbs.models import (Thumbnails_Archives, Thumbnails_Dirs,
                              Thumbnails_Files, index_data)
+from typing import Iterator #  , Optional, Union, TypeVar, Generic
 
 DF_VDBASE = ["sortname", "lastscan", "lastmod", "size"]
 
@@ -79,11 +80,11 @@ SORT_MATRIX = {0: ["-filetype__is_dir", "sortname", "lastmod"],
 #     return queryset.exclude(ignore=True).exclude(delete_pending=True).filter(**filtervalues)
 
 
-def get_db_files(sorder, fpath):
+def get_db_files(sorder, fpath) -> Iterator[index_data]:
     """
         Fetch the data from the database, and then order by the current users sort
     """
-    index = index_data.objects.exclude(ignore=True).exclude(delete_pending=True).filter(
+    index = index_data.objects.select_related("filetype").exclude(ignore=True).exclude(delete_pending=True).filter(
         fqpndirectory=fpath.lower().strip()).order_by(*SORT_MATRIX[sorder])
     return index
 
@@ -140,7 +141,7 @@ def check_dup_thumbs(uuid_to_check, page=0):
         qset.delete()
 
 
-def get_xth_image(database, positional=0, filters=None):
+def get_xth_image(database, positional=0, filters=None) -> Iterator[index_data]:
     """
     Return the xth image from the database, using the passed filters
 
@@ -168,14 +169,14 @@ def get_xth_image(database, positional=0, filters=None):
         filters = []
     try:
         # exact match
-        return database.objects.filter(**filters).exclude(filetype__is_image=False).exclude(ignore=True).exclude(
-            delete_pending=True)[positional]
+        return database.objects.select_related("filetype").filter(**filters).exclude(filetype__is_image=False).\
+            exclude(ignore=True).exclude(delete_pending=True)[positional]
     except IndexError:  # No matching position was found
         # it has to be either too high (greater than length), or less than 0.
-        count = database.objects.filter(**filters).exclude(filetype__is_image=False).exclude(ignore=True).exclude(
-            delete_pending=True).count()
+        count = database.objects.select_related("filetype").filter(**filters).exclude(filetype__is_image=False).\
+            exclude(ignore=True).exclude(delete_pending=True).count()
         if positional > count:  # The requested index is too high
-            return database.objects.filter(**filters).exclude(filetype__is_image=False).exclude(ignore=True).exclude(
-                delete_pending=True)[count]
+            return database.objects.select_related("filetype").filter(**filters).exclude(filetype__is_image=False).\
+                exclude(ignore=True).exclude(delete_pending=True)[count]
         # else, return None, because positional has to be 0 or less.
     return None
