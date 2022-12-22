@@ -169,20 +169,35 @@ def load_pdf(fspath):
     return source_image
 
 
-def load_movie(fspath):
+def load_movie(fspath, offset_from=30):
     """
     The load_movie function loads a movie from the file system and returns an image.
 
+        Updated - 2022/12/21 - It will now search for the next
     :param fspath: Specify the path to the video file
+    :param offset_from: The number of frames to advance *after* detecting a non-solid
+        black or white frame.
     :return: A pillow image object
+
+    References:
+        * https://stackoverflow.com/questions/14041562/
+            python-pil-detect-if-an-image-is-completely-black-or-white
     """
     with av.open(fspath) as container:
         stream = container.streams.video[0]
-        frame = next(container.decode(stream))
-        return frame.to_image()
+        endcount = None
+        for count, frame in enumerate(container.decode(stream)):
+            image = frame.to_image()
+            extrema = image.convert("L").getextrema()
+            if extrema not in [(0,0), (255,255)]:
+                if endcount is None:
+                    endcount = count + offset_from
+            if not endcount is None and count >= endcount:
+                break
+    return image
 
 
-def load_movie_av(fspath):
+def load_movie_alt(fspath):
     """
     The load_movie_av function loads a movie from the filesystem and returns an image of the first frame.
 
@@ -364,98 +379,98 @@ def multiple_replace(repl_dict, text):
     return constants.regex.sub(lambda mo: repl_dict[mo.string[mo.start():mo.end()]], text)
 
 
-def convert_scandisk_to_dict(fqpn, sd_entry) -> dict:
-    """
-    The convert_scandisk_to_dict function takes a fully-qualified path to a file or directory, and
-    a ScandirEntry object representing that file or directory. It returns a dictionary containing
-    the filename, lowercase filename (for sorting), the full path to the file/directory, size in bytes,
-    last modified date as seconds since epoch (time.time()), whether it is an archive (.zip/.rar/.7z)
-    file type (True/False), whether it is an image (.jpg/.jpeg/.png) type (True/False), etc.
-
-    :param fqpn: Determine the path to the file
-    :param sd_entry: Determine if the file is a directory or not
-    :return: A dictionary with the following keys:
-        data[<filename in titlecase>] = {"filename": the filename in titlecase,
-                                           "lower_filename": the filename in lowercase (depreciated?),
-                                                # Most likely depreciated in v3
-                                           "path": The fully qualified pathname and filename
-                                           'sortname': A naturalized sort ready filename
-                                           'size': FileSize
-                                           'lastmod': Last modified timestamp
-                                           'is_dir': Is this entry a directory?
-                                           'is_file': Is this entry a file?
-                                           'is_archive': is this entry an archive
-                                           'is_image': is this entry an image
-                                           'is_movie': is this entry a movie file (not animated gif)
-                                           'is_audio': is this entry an audio file
-                                           'is_text': is this entry a text file
-                                           'is_html': is this entry a html file
-                                           'is_markdown': is this entry a markdown file
-                                           'is_animated': Is this an animated file (e.g. animated GIF),
-                                                not a movie file
-                                           }
-    :doc-author: Trelent
-    """
-    fs_entry = None
-    titlecase = sd_entry.name.title()
-    # unescaped = html.unescape(titlecase)
-    lower_filename = sd_entry.name.lower()
-
-    animated = False
-    fext = os.path.splitext(lower_filename)[1]
-    if fext == "":
-        fext = ".none"
-    elif sd_entry.is_dir():
-        fext = ".dir"
-
-    if fext not in filetype_models.FILETYPE_DATA:
-        # The file extension is not in FILETYPE_DATA, so ignore it.
-        skip = True
-
-    if (fext in settings.EXTENSIONS_TO_IGNORE) or \
-            (lower_filename in settings.FILES_TO_IGNORE):
-        # file extension is in EXTENSIONS_TO_IGNORE, so skip it.
-        # or the filename is in FILES_TO_IGNORE, so skip it.
-        skip = True
-
-    if settings.IGNORE_DOT_FILES and lower_filename.startswith("."):
-        # IGNORE_DOT_FLES is enabled, *and* the filename startswith an ., skip it.
-        skip = True
-
-    # if enable_rename:
-    #     original_filename = titlecase
-    #     if titlecase != unescaped:
-    #         titlecase = unescaped.title()
-    #
-    #     after_filename = multiple_replace(constants.replacements, lower_filename)  # , regex)
-    #     if after_filename != lower_filename:
-    #         titlecase = after_filename.title()
-
-    # titlecase = sanitize_filename(titlecase)
-    # if titlecase != original_filename:
-    #     rename_file(os.path.join(fqpn, original_filename),
-    #                 os.path.join(fqpn, titlecase))
-    #     print(f"rejected - {titlecase}")
-    #     # loaded = False
-    if not skip:
-        fs_entry = {"filename": titlecase,
-                    "lower_filename": titlecase.lower(),
-                    "path": os.path.join(fqpn, titlecase),
-                    'sortname': naturalize(titlecase),
-                    'size': sd_entry.stat()[stat.ST_SIZE],
-                    'lastmod': sd_entry.stat()[stat.ST_MTIME],
-                    'is_dir': sd_entry.is_dir(),  # fext == ".dir",
-                    'is_file': not sd_entry.is_dir(),  # fext != ".dir",
-                    'is_archive': filetype_models.FILETYPE_DATA[fext]["is_archive"],
-                    'is_image': filetype_models.FILETYPE_DATA[fext]["is_image"],
-                    'is_movie': filetype_models.FILETYPE_DATA[fext]["is_movie"],
-                    'is_audio': filetype_models.FILETYPE_DATA[fext]["is_audio"],
-                    'is_text': filetype_models.FILETYPE_DATA[fext]["is_text"],
-                    'is_html': filetype_models.FILETYPE_DATA[fext]["is_html"],
-                    'is_markdown': filetype_models.FILETYPE_DATA[fext]["is_markdown"],
-                    'is_animated': animated
-                    }
-    return fs_entry
+# def convert_scandisk_to_dict(fqpn, sd_entry) -> dict:
+#     """
+#     The convert_scandisk_to_dict function takes a fully-qualified path to a file or directory, and
+#     a ScandirEntry object representing that file or directory. It returns a dictionary containing
+#     the filename, lowercase filename (for sorting), the full path to the file/directory, size in bytes,
+#     last modified date as seconds since epoch (time.time()), whether it is an archive (.zip/.rar/.7z)
+#     file type (True/False), whether it is an image (.jpg/.jpeg/.png) type (True/False), etc.
+#
+#     :param fqpn: Determine the path to the file
+#     :param sd_entry: Determine if the file is a directory or not
+#     :return: A dictionary with the following keys:
+#         data[<filename in titlecase>] = {"filename": the filename in titlecase,
+#                                            "lower_filename": the filename in lowercase (depreciated?),
+#                                                 # Most likely depreciated in v3
+#                                            "path": The fully qualified pathname and filename
+#                                            'sortname': A naturalized sort ready filename
+#                                            'size': FileSize
+#                                            'lastmod': Last modified timestamp
+#                                            'is_dir': Is this entry a directory?
+#                                            'is_file': Is this entry a file?
+#                                            'is_archive': is this entry an archive
+#                                            'is_image': is this entry an image
+#                                            'is_movie': is this entry a movie file (not animated gif)
+#                                            'is_audio': is this entry an audio file
+#                                            'is_text': is this entry a text file
+#                                            'is_html': is this entry a html file
+#                                            'is_markdown': is this entry a markdown file
+#                                            'is_animated': Is this an animated file (e.g. animated GIF),
+#                                                 not a movie file
+#                                            }
+#     :doc-author: Trelent
+#     """
+#     fs_entry = None
+#     titlecase = sd_entry.name.title()
+#     # unescaped = html.unescape(titlecase)
+#     lower_filename = sd_entry.name.lower()
+#
+#     animated = False
+#     fext = os.path.splitext(lower_filename)[1]
+#     if fext == "":
+#         fext = ".none"
+#     elif sd_entry.is_dir():
+#         fext = ".dir"
+#
+#     if fext not in filetype_models.FILETYPE_DATA:
+#         # The file extension is not in FILETYPE_DATA, so ignore it.
+#         skip = True
+#
+#     if (fext in settings.EXTENSIONS_TO_IGNORE) or \
+#             (lower_filename in settings.FILES_TO_IGNORE):
+#         # file extension is in EXTENSIONS_TO_IGNORE, so skip it.
+#         # or the filename is in FILES_TO_IGNORE, so skip it.
+#         skip = True
+#
+#     if settings.IGNORE_DOT_FILES and lower_filename.startswith("."):
+#         # IGNORE_DOT_FLES is enabled, *and* the filename startswith an ., skip it.
+#         skip = True
+#
+#     # if enable_rename:
+#     #     original_filename = titlecase
+#     #     if titlecase != unescaped:
+#     #         titlecase = unescaped.title()
+#     #
+#     #     after_filename = multiple_replace(constants.replacements, lower_filename)  # , regex)
+#     #     if after_filename != lower_filename:
+#     #         titlecase = after_filename.title()
+#
+#     # titlecase = sanitize_filename(titlecase)
+#     # if titlecase != original_filename:
+#     #     rename_file(os.path.join(fqpn, original_filename),
+#     #                 os.path.join(fqpn, titlecase))
+#     #     print(f"rejected - {titlecase}")
+#     #     # loaded = False
+#     if not skip:
+#         fs_entry = {"filename": titlecase,
+#                     "lower_filename": titlecase.lower(),
+#                     "path": os.path.join(fqpn, titlecase),
+#                     'sortname': naturalize(titlecase),
+#                     'size': sd_entry.stat()[stat.ST_SIZE],
+#                     'lastmod': sd_entry.stat()[stat.ST_MTIME],
+#                     'is_dir': sd_entry.is_dir(),  # fext == ".dir",
+#                     'is_file': not sd_entry.is_dir(),  # fext != ".dir",
+#                     'is_archive': filetype_models.FILETYPE_DATA[fext]["is_archive"],
+#                     'is_image': filetype_models.FILETYPE_DATA[fext]["is_image"],
+#                     'is_movie': filetype_models.FILETYPE_DATA[fext]["is_movie"],
+#                     'is_audio': filetype_models.FILETYPE_DATA[fext]["is_audio"],
+#                     'is_text': filetype_models.FILETYPE_DATA[fext]["is_text"],
+#                     'is_html': filetype_models.FILETYPE_DATA[fext]["is_html"],
+#                     'is_markdown': filetype_models.FILETYPE_DATA[fext]["is_markdown"],
+#                     'is_animated': animated
+#                     }
+#     return fs_entry
 
 
 def return_disk_listing(fqpn, enable_rename=False) -> (bool, dict):
@@ -622,6 +637,9 @@ def add_archive(fqpn, new_uuid):
     compressed = archives.id_cfile_by_sig(fqpn)
     compressed.get_listings()
     for name, offset, filecount in compressed.listings:
+        fileext = os.path.splitext(name).lower()
+        if fileext in settings.IMAGE_SAFE_FILES:
+            pass
         pass
 
 
@@ -791,6 +809,8 @@ def sync_database_disk(directoryname):
             record = process_filedata(entry, record, v3=False)
             if record is None:
                 continue
+            if record.filetype.is_archive:
+                print("Archive detected ",record.name)
             records_to_create.append(record)
     if records_to_create:
         index_data.objects.bulk_create(records_to_create, 100)
