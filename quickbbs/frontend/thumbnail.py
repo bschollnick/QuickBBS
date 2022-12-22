@@ -245,15 +245,9 @@ def new_process_archive(ind_entry, request, page=0):
                                  fext_override="JPEG")
 
     if specific_page.FileSize != os.path.getsize(fs_archname):
-        #   The cached data is invalidated since the filesize is
-        #   inaccurate.
-        #   Reset the existing thumbnails to ensure that they will be
-        #   regenerated
+        #   The cached data is invalidated since the filesize is inaccurate.
+        #   Reset the existing thumbnails to ensure that they will be regenerated
         specific_page = invalidate_thumb(specific_page)
-        # specific_page.FileSize = -1
-        # specific_page.SmallThumb = b""
-        # specific_page.MediumThumb = b""
-        # specific_page.LargeThumb = b""
         specific_page.save()
 
     specific_page.FileSize = os.path.getsize(fs_archname)

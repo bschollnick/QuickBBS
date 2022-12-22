@@ -25,6 +25,7 @@ import frontend.views
 urlpatterns = []
 if settings.DEBUG_TOOLBAR:
     import debug_toolbar
+
     urlpatterns += [
         path('__debug__/', include(debug_toolbar.urls)),
     ]
@@ -32,9 +33,9 @@ if settings.DEBUG_TOOLBAR:
 urlpatterns += [
     path("search/", frontend.views.search_viewresults, name="search_viewresults"),
     path("download/<str:filename>", frontend.views.downloadFile, name="download"),
-        # the filename is not used, but is there for web browser to see the expected filename
-        # when it was download/<str:uuid>, the web browser would believe the filename was the
-        # uuid, and ignore the filename in the download header.
+    # the filename is not used, but is there for web browser to see the expected filename
+    # when it was download/<str:uuid>, the web browser would believe the filename was the
+    # uuid, and ignore the filename in the download header.
 
     path("info/<uuid:i_uuid>/", frontend.views.item_info, name="item_info"),
     path("view_item/<uuid:i_uuid>/", frontend.views.new_json_viewitem, name="new_viewitem"),
@@ -45,6 +46,7 @@ urlpatterns += [
     path('thumbnails/', frontend.views.thumbnails, name="thumbnailspath"),
     path('resources/<path:pathstr>', frontend.serve_up.resources),
     path('static/<path:pathstr>', frontend.serve_up.static),
+    path('test', frontend.views.test, name="test"),
     path('accounts/', include('allauth.urls')),
     path('grappelli/', include('grappelli.urls')),  # grappelli URLS
     path(r'Admin/', admin.site.urls),

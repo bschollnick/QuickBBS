@@ -513,6 +513,13 @@ def new_view_archive(request, i_uuid):
                       using="Jinja2")
     return response
 
+def test(request):
+    response = render(request,
+                      "frontend/test.html",
+                      {},
+                      using="Django")
+    return response
+
 
 def new_archive_item(request, i_uuid):
     """
