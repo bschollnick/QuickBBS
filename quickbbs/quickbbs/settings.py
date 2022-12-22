@@ -27,7 +27,7 @@ print(f"* Running on {machine_name}")
 # Useful for demonstrating the software without using your master database.
 #
 DEMO = False
-# DEMO = True
+#DEMO = True
 if DEMO:
     ALBUMS_PATH = "/Volumes/4TB_Drive/gallery_demo"
 print(f"* Demo Mode is {DEMO}")
@@ -131,16 +131,12 @@ INSTALLED_APPS += [
     'frontend',
     'thumbnails',
     'filetypes',
-    #    'fontawesome-free',
     'django_icons',
-    #    'django_unicorn',
+#    'django_unicorn',
     'django_jinja.contrib._humanize'
 ]
 
 SITE_ID = 1
-
-# Now this assumes you can safely lose any data you store in your user sessions.
-# If thats not the case, you can still get some benefit from using:
 
 SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
 
@@ -157,6 +153,7 @@ MIDDLEWARE = ['django.middleware.security.SecurityMiddleware',
               'django_user_agents.middleware.UserAgentMiddleware',
               'debug_toolbar.middleware.DebugToolbarMiddleware',
               ]
+
 #    'compression_middleware.middleware.CompressionMiddleware',
 # Revisit the django-compression-middleware later, it works, but there is a
 # perceivable slowdown on the other end (at least wireless/ipad connection on 5ghz).

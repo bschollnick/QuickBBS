@@ -7,7 +7,7 @@ autopep8==2.0.1
 av==10.0.0
 beautifulsoup4==4.11.1
 black==22.12.0
-bleach==5.0.1
+# bleach==5.0.1
 cachetools
 certifi==2022.12.7
 cffi==1.15.1
@@ -31,7 +31,7 @@ django-icons==22.1
 django-jinja==2.10.2
 django-ranged-fileresponse @ git+https://github.com/devmonkey22/django-ranged-fileresponse@b8f8136149380b7f90e20d4fd103bfbb42c48d37
 django-storages==1.13.1
-django-unicorn
+# django-unicorn #
 django-upgrade==1.12.0
 django-user-agents==0.4.0
 django_debug_toolbar==3.8.1
@@ -47,9 +47,9 @@ h11==0.14.0
 idna==3.4
 ifaddr==0.2.0
 ImageHash==4.3.1
-imageio==2.23.0
-imageio-ffmpeg==0.4.7
-img2pdf==0.4.4
+# imageio==2.23.0
+# imageio-ffmpeg==0.4.7
+# img2pdf==0.4.4
 importlib-metadata==5.2.0
 iniconfig==1.1.1
 isort==5.11.3
@@ -62,8 +62,8 @@ MarkupSafe==2.1.1
 mccabe==0.7.0
 # moviepy==1.0.3            # commenting out, since Av works, and the dependency for moviepy is significantly higher
 mypy-extensions==0.4.3
-natsort==8.2.0
-naturalsort==1.5.1
+# natsort==8.2.0
+# naturalsort==1.5.1
 numpy==1.24.0
 oauthlib==3.2.2
 orjson==3.8.3
@@ -71,7 +71,7 @@ packaging==22.0
 pathspec==0.10.3
 pathvalidate==2.5.2
 pdfrw==0.4
-pikepdf==6.2.6
+# pikepdf==6.2.6
 Pillow==9.3.0
 platformdirs==2.6.0
 pluggy==1.0.0

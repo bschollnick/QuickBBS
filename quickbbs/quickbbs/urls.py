@@ -51,7 +51,7 @@ urlpatterns += [
     path('grappelli/', include('grappelli.urls')),  # grappelli URLS
     path(r'Admin/', admin.site.urls),
     path(r'', RedirectView.as_view(url="/albums"), name="home"),
-    path("unicorn/", include("django_unicorn.urls")),
+#    path("unicorn/", include("django_unicorn.urls")),
 ]
 
 # REGISTRATION_OPEN = True
