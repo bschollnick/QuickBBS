@@ -7,6 +7,7 @@ import mimetypes
 import os
 
 # from django.conf import settings
+from django.views.decorators.cache import never_cache
 from django.contrib.auth import authenticate, login
 from django.http import (FileResponse, Http404,  # , StreamingHttpResponse)
                          HttpResponse)
@@ -149,6 +150,7 @@ def return_img_attach(filename, binaryblob, fext_override=None, use_ranged=False
     return response
 
 
+@never_cache
 def img_attach_file(filename, fqfn):
     """
     Output a http response header, for an image attachment.
@@ -177,6 +179,7 @@ def img_attach_file(filename, fqfn):
     return response
 
 
+@never_cache
 def file_inline(filename, fqfn):
     """
     Output a http response header, for an image attachment.
@@ -205,6 +208,7 @@ def file_inline(filename, fqfn):
     return response
 
 
+@never_cache
 def respond_as_inline(request, file_path, original_filename, ranged=False):
     # https://stackoverflow.com/questions/36392510/django-download-a-file
     # https://stackoverflow.com/questions/27712778/
@@ -219,7 +223,7 @@ def respond_as_inline(request, file_path, original_filename, ranged=False):
 
         with open(filename, 'rb') as fh:
             if ranged:
-                response = RangedFileResponse(request, file=open(filename, 'rb'),
+                response = RangedFileResponse(request, file=open(filename, 'rb'), #, buffering=1024*8),
                                               as_attachment=False,
                                               filename=original_filename)
                 response["Content-Type"] = mtype
@@ -230,6 +234,7 @@ def respond_as_inline(request, file_path, original_filename, ranged=False):
     raise Http404
 
 
+@never_cache
 def respond_as_attachment(request, file_path, original_filename):
     filename = os.path.join(file_path, original_filename)
     if os.path.exists(filename):
