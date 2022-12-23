@@ -357,14 +357,15 @@ def item_info(request, i_uuid):
     context["ft_is_movie"] = entry.filetype.is_movie
     context["ft_is_dir"] = entry.filetype.is_dir
     context["mobile"] = detect_mobile(request)
-
+    context["dir_link"] = f'{context["webpath"]}{entry.name}?sort={context["sort"]}'
+    context["download_uri"] = f"/download/{entry.name}?UUID={entry.uuid}"
+    context["thumbnail_uri"] = f"/thumbnails/{entry.uuid}"
     # generate next uuid pointers, switch this away from paginator?
     context["next_uuid"] = ""
     context["previous_uuid"] = ""
     page_contents = item_list.page(context["page"])
     if page_contents.has_next():
         context["next_uuid"] = catalog_qs[page_contents.next_page_number() - 1].uuid
-
     if page_contents.has_previous():
         context["previous_uuid"] = catalog_qs[page_contents.previous_page_number() - 1].uuid
     print("Process time: ", time.time() - context["start_time"], "secs")
@@ -425,19 +426,23 @@ def downloadFile(request, filename=None):
     if d_uuid is None:  # == None:
         d_uuid = request.GET.get("uuid", None)
 
-    if d_uuid in ["", None]:
+    download = index_data.objects.select_related("filetype").filter(uuid=d_uuid,
+                                                                    ignore=False,
+                                                                    delete_pending=False)
+
+    if d_uuid in ["", None] or not download.exists():
         raise Http404
 
     page = request.GET.get('page', None)
     if page is None:
         download = index_data.objects.select_related("filetype").filter(uuid=d_uuid,
                                                                         ignore=False,
-                                                                        delete_pending=False)[0]
-
+                                                                        delete_pending=False)
     else:
         print(f"Attempting to find page {page} in archive")
     # print(f"\tDownloading - {download.fqpndirectory.lower()}, {download.name}, {download.filetype}")
 
+    download = download[0]
     return respond_as_inline(request,
                              download.fqpndirectory.lower(),
                              download.name,

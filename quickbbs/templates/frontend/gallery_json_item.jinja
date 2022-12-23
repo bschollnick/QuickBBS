@@ -5,8 +5,8 @@
     <meta http-equiv="content-type" content="text/html; charset=utf-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="{{bulma_uri}}">
-    <link rel="stylesheet" href="{{fontawesome_uri}}"></script>
+    <link rel="stylesheet" href="{{bulma_uri}}" defer>
+    <link rel="stylesheet" href="{{fontawesome_uri}}" defer></script>
     <script type="text/javascript" src="{{jquery_uri}}"></script>
     <title></title>
 </head>
@@ -205,10 +205,10 @@ var setDATA = function(data) {
     document.getElementById("last_uuid").onclick = function (){loadDATA(data.last_uuid, data.sort);return false;}
     document.getElementById("previous_uuid").onclick = function (){loadDATA(data.previous_uuid, data.sort);return false;}
     document.getElementById("next_uuid").onclick = function (){loadDATA(data.next_uuid, data.sort);return false;}
-    //$('#myLink').click(loadDATA(data.next_uuid, data.sort));
-    //command + data.next_uuid + '?sort='+data.sort
 
     document.getElementById("next_tab_uuid").href = command + data.next_uuid + '?sort='+data.sort
+    console.log(data.next_uuid)
+    // document.getElementById("next_tab_uuid").href = data.next_uuid
     //console.log(data.page, data.page == 1, data.page == "1")
 
     console.log("--------------------")
@@ -225,7 +225,8 @@ var setDATA = function(data) {
 
 
     //console.log("Setting download block")
-    document.getElementById("download_uri").href = '/download/'+data.filename+'?UUID='+data.uuid
+    // document.getElementById("download_uri").href = '/download/'+data.filename+'?UUID='+data.uuid
+    document.getElementById("download_uri").href = data.download_uri
 
     document.getElementById("uuid").innerHTML = data.uuid
     document.getElementById("file_size").innerHTML = data.filesize
@@ -254,7 +255,8 @@ var setDATA = function(data) {
     if (data.ft_is_movie){
         document.getElementById("movie_frame").style.display = "block"
         document.getElementById("movie_frame").style.visibility = "visible";
-        document.getElementById("movie_viewer").src = '/download/'+data.filename+'?UUID='+data.uuid
+//        document.getElementById("movie_viewer").src = '/download/'+data.filename+'?UUID='+data.uuid
+        document.getElementById("movie_viewer").src = data.download_uri
         document.getElementById("text_frame").style.display = "none"
         document.getElementById("thumbnail_frame").style.display = "none"
         }
@@ -274,20 +276,20 @@ var setDATA = function(data) {
         }
 
     if (data.ft_is_dir){
-        document.getElementById("image_link").href = data.webpath + data.filename +"?sort=" + data.sort
+        document.getElementById("image_link").href = data.dir_link
         }
     else
         {
-        document.getElementById("image_link").href = '/download/'+data.filename+'?UUID='+data.uuid
+        document.getElementById("image_link").href = data.download_uri
         }
 
     if (data.ft_is_image || data.ft_is_pdf || data.ft_is_archive){
         document.getElementById("thumbnail_frame").style.display = "block"
         document.getElementById("text_frame").style.display = "none"
         if (data.is_animated) {
-                 $('#display_image').attr("src", '/download/'+data.filename+'?UUID='+data.uuid);
+                 $('#display_image').attr("src", data.download_uri);
             } else {
-                $('#display_image').attr("src", "/thumbnails/"+data.uuid+"?size="+imagesize+filetype);
+                $('#display_image').attr("src", data.thumbnail_uri+"?size="+imagesize+filetype);
             }
         document.getElementById("movie_frame").style.display = "none"
         }
