@@ -598,13 +598,16 @@ def view_setup():
         print("Starting cleanup")
         #    check_for_deletes()
         print("Cleanup is done.")
-        try:
-            for prepath in settings.PRELOAD:
-                print("Pre-Caching: ", prepath)
-                read_from_disk(prepath.strip())  # startup
+        if settings.DEMO:
             read_from_disk(os.path.join(settings.ALBUMS_PATH, "albums"))
-        except:
-            pass
+        else:
+            try:
+                for prepath in settings.PRELOAD:
+                    print("Pre-Caching: ", prepath)
+                    read_from_disk(prepath.strip())  # startup
+                read_from_disk(os.path.join(settings.ALBUMS_PATH, "albums"))
+            except:
+                pass
     index_data.objects.filter(delete_pending=True).delete()
 
 
