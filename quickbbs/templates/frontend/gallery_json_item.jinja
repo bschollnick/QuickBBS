@@ -79,12 +79,12 @@
                 <hr style="padding:2px;margin:2px">
 
                 <p align=center>
-                <a href="" id="first_uuid" onclick="#">
+                <a href="" id="first_uuid" onclick="#"  style="visibility:hidden">
                     {{ icon("angle-double-left fa-3x")}}</a></p>
                 <hr style="padding:2px;margin:2px">
 
                 <p align=center id="previous_icon">
-                        <a href="" id="previous_uuid" onclick="#">
+                        <a href="" id="previous_uuid" onclick="#"  style="visibility:hidden">
                         {{ icon("angle-left fa-3x")}}</a></p>
                 <hr style="padding:2px;margin:2px">
                 <center>
@@ -95,18 +95,18 @@
                 <hr style="padding:2px;margin:2px">
 
                 <p align=center>
-                        <a  id="next_uuid" onclick="#">
+                        <a  id="next_uuid" onclick="#"  style="visibility:hidden">
                         {{ icon("angle-right fa-3x")}}</a></p>
 
                 <hr style="padding:2px;margin:2px">
                 <p align=center>
-                        <a  id="next_tab_uuid" target="_blank">
+                        <a  id="next_tab_uuid" target="_blank" style="visibility:hidden">
                         {{ icon('fas fa-external-link-alt fa-3x') }}</a></p>
 
                 <hr style="padding:2px;margin:2px">
 
                 <p align=center>
-                <a id="last_uuid" onclick="#">
+                <a id="last_uuid" onclick="#"  style="visibility:hidden">
                         {{ icon("angle-double-right fa-3x")}}</a></p>
                 <hr style="padding:2px;margin:2px">
 
@@ -153,11 +153,11 @@
                                                 <p class="has-text-left" style=" text-align:left !important;" id="text_frame"></p>
                                                 <center>
                                             </div>
-                                            <div class="thumbnail" id="thumbnail_frame" style="background-color:#FFFFFF">
+                                            <div class="thumbnail" id="thumbnail_frame" style="background-color:#FFFFFF;visibility:hidden">
                                                 <center><a href id="image_link">
                                                     <img id="display_image" class="lazy" src="/resources/images/loading17.gif" style="height:auto;max-width:auto;"/></a>
                                             </div>
-                                            <div class="thumbnail" id="movie_frame" style="background-color:#FFFFFF">
+                                            <div class="thumbnail" id="movie_frame" style="background-color:#FFFFFF;visibility:hidden">
                                                      <video id="movie_viewer" class="video-js" data-setup='{}'  style="height:auto;max-width:100%;" controls>
                                                           <source type="video/mp4">
                                                      </video>
@@ -173,7 +173,7 @@
                                                     <p id="file_size"></p>
                                                 </div>
                                                 <div class="column is-12 is-narrow" style="padding:1px" id="uuid_head">
-                                                   <font class="is-size-7"> <b>UUID:</b><font id="uuid">dddd</font>
+                                                   <font class="is-size-7"> <b>UUID:</b><font id="uuid"></font>
                                                 </div>
                                             </div> <!--- Thumbnail --->
                                             </center>
@@ -233,10 +233,10 @@ var setDATA = function(data) {
     document.getElementById("last_mod").innerHTML = data.lastmod_ds
 
     if (data.previous_uuid == "") {
-        document.getElementById("previous_icon").style.visibility = "hidden";
+        document.getElementById("previous_uuid").style.visibility = "hidden";
         document.getElementById("first_uuid").style.visibility = "hidden";}
     else {
-        document.getElementById("previous_icon").style.visibility = "visible";
+        document.getElementById("previous_uuid").style.visibility = "visible";
         document.getElementById("first_uuid").style.visibility = "visible";
     }
 
@@ -284,6 +284,7 @@ var setDATA = function(data) {
         }
 
     if (data.ft_is_image || data.ft_is_pdf || data.ft_is_archive){
+        document.getElementById("thumbnail_frame").style.visibility = "visible"
         document.getElementById("thumbnail_frame").style.display = "block"
         document.getElementById("text_frame").style.display = "none"
         if (data.is_animated) {
@@ -319,7 +320,8 @@ var getJSON = function(url, callback) {
 };
 
 var loadDATA = function(uuid, sort){
-    getJSON('/info/'+uuid + '?sort='+sort,  function(err, data) {
+    // getJSON('/info/'+uuid + '?sort='+sort,  function(err, data) {
+    getJSON(`/info/${uuid}?sort=${sort}`,  function(err, data) {
         if (err != null) {
             console.error("error: ",err);
         }
