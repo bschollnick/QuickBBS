@@ -433,20 +433,19 @@ def downloadFile(request, filename=None):
     if d_uuid in ["", None] or not download.exists():
         raise Http404
 
-    page = request.GET.get('page', None)
-    if page is None:
-        download = index_data.objects.select_related("filetype").filter(uuid=d_uuid,
-                                                                        ignore=False,
-                                                                        delete_pending=False)
-    else:
-        print(f"Attempting to find page {page} in archive")
-    # print(f"\tDownloading - {download.fqpndirectory.lower()}, {download.name}, {download.filetype}")
+    # page = request.GET.get('page', None)
+    # if page is None:
+    #     download = index_data.objects.select_related("filetype").filter(uuid=d_uuid,
+    #                                                                     ignore=False,
+    #                                                                     delete_pending=False)
+    # else:
+    #     print(f"Attempting to find page {page} in archive")
+    # # print(f"\tDownloading - {download.fqpndirectory.lower()}, {download.name}, {download.filetype}")
 
-    download = download[0]
     return respond_as_inline(request,
-                             download.fqpndirectory.lower(),
-                             download.name,
-                             ranged=download.filetype.is_movie)
+                             download[0].fqpndirectory.lower(),
+                             download[0].name,
+                             ranged=download[0].filetype.is_movie)
 
 
 def new_view_archive(request, i_uuid):
