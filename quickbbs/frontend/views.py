@@ -31,6 +31,9 @@ from frontend.utilities import (ensures_endswith, is_valid_uuid,
                                 read_from_disk, return_breadcrumbs, sort_order)
 from frontend.web import detect_mobile, g_option, respond_as_inline
 
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+
 log = logging.getLogger(__name__)
 warnings.simplefilter('ignore', Image.DecompressionBombWarning)
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -216,13 +219,13 @@ def new_viewgallery(request):
     context["small"] = g_option(request,
                                 "size",
                                 settings.IMAGE_SIZE["small"])
-    context["medium"] = g_option(request,
-                                 "size",
-                                 settings.IMAGE_SIZE["medium"])
-
-    context["large"] = g_option(request,
-                                "size",
-                                settings.IMAGE_SIZE["large"])
+    # context["medium"] = g_option(request,
+    #                              "size",
+    #                              settings.IMAGE_SIZE["medium"])
+    #
+    # context["large"] = g_option(request,
+    #                             "size",
+    #                             settings.IMAGE_SIZE["large"])
     context["user"] = request.user
     context["mobile"] = detect_mobile(request)
     request.path = request.path.lower().replace(os.sep, r"/")
@@ -277,6 +280,7 @@ def new_viewgallery(request):
     return response
 
 
+@api_view()
 def item_info(request, i_uuid):
     """
     Create the JSON package for item view.  All Json item requests come here to
@@ -369,8 +373,9 @@ def item_info(request, i_uuid):
     if page_contents.has_previous():
         context["previous_uuid"] = catalog_qs[page_contents.previous_page_number() - 1].uuid
     print("Process time: ", time.time() - context["start_time"], "secs")
-    response = JsonResponse(context, status=200)
-    return response
+    return Response(context)
+    # response = JsonResponse(context, status=200)
+    # return response
 
 
 def new_json_viewitem(request, i_uuid):
@@ -516,6 +521,7 @@ def new_view_archive(request, i_uuid):
                       context,
                       using="Jinja2")
     return response
+
 
 def test(request):
     response = render(request,
