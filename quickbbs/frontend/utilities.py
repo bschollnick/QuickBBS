@@ -742,91 +742,94 @@ def sync_database_disk(directoryname):
         directoryname = settings.ALBUMS_PATH
     webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
     dirpath = os.path.abspath(directoryname.title().strip())
-
-    _, fs_entries = return_disk_listing(dirpath)
-    db_data = index_data.objects.select_related("filetype").select_related("directory").filter(
-        fqpndirectory=webpath).filter(ignore=False)
-    # if db_data.count() == 0:
-    #     record = index_data()
-    #     record.uuid = uuid.uuid4()
-    #     record.name = "DeleteMe"
-    #     record.ignore = True
-    #     record.delete_pending = True
-    #     record.lastmod = time.time()
-    #     record.lastscan = time.time()
-    #     record.filetype = filetypes(fileext=".txt")
-    #     record.save()
-    #     bootstrap = True
-    # db_data = index_data.objects.filter(fqpndirectory=webpath)
-
-    for db_entry in db_data:
-        if db_entry.name not in fs_entries:
-            print("Database contains a file not in the fs: ", db_entry.name)
-            # The entry just is not in the file system.  Delete it.
-            db_entry.ignore = True
-            db_entry.delete_pending = True
-            db_entry.save()
-        else:
-            # The db_entry does exist in the file system.
-            # Does the lastmod match?
-            # Does size match?
-            # If directory, does the numfiles, numdirs, count_subfiles match?
-
-            update = False
-            entry = fs_entries[db_entry.name.title()]
-            if db_entry.lastmod != entry.stat()[stat.ST_MTIME]:
-                # print("LastMod mismatch")
-                db_entry.lastmod = entry.stat()[stat.ST_MTIME]
-                update = True
-            if db_entry.size != entry.stat()[stat.ST_SIZE]:
-                # print("Size mismatch")
-                db_entry.size = entry.stat()[stat.ST_SIZE]
-                update = True
-            if db_entry.directory:  # or db_entry["unified_dirs"]:
-                _, subdirectory = return_disk_listing(str(entry.absolute()))
-                # fs_file_count, fs_dir_count = fs_counts(subdirectory)
-                fs_file_count, fs_dir_count = fs_counts(subdirectory)
-                if db_entry.numfiles != fs_file_count or db_entry.numdirs != fs_dir_count:
-                    db_entry.numfiles, db_entry.numdirs = fs_file_count, fs_dir_count
-                    update = True
-            if update:
-                print("Database record being updated: ", db_entry.name)
-                db_entry.save()
-                update = False
-
-    # Check for entries that are not in the database, but do exist in the file system
-    names = index_data.objects.filter(fqpndirectory=webpath).values_list("name", flat=True)
-    # fetch an updated set of records, since we may have changed it from above.
-    records_to_create = []
-    for name in fs_entries:
-        entry = fs_entries[name]  # iterate through the file system entries.
-        test_name = entry.name.title().replace("//", "/")
-        if test_name not in names:
-            # The record has not been found
-            # add it.
-
-            record = index_data()
-            record = process_filedata(entry, record, v3=False)
-            if record is None:
-                continue
-            if record.filetype.is_archive:
-                print("Archive detected ",record.name)
-            records_to_create.append(record)
-    if records_to_create:
-        index_data.objects.bulk_create(records_to_create, 100)
-        # The record is in the database, so it's already been vetted in the database comparison
-    if bootstrap:
-        index_data.objects.filter(delete_pending=True).delete()
-
     if not Cache_Tracking.objects.filter(DirName=dirpath).exists():
-        # The path has not been seen since the Cache Tracking has been enabled
-        # (eg Startup, or the entry has been nullified)
-        # Add to table, and allow a rescan to occur.
+        # If the directory is not found in the Cache_Tracking table, then it needs to be rescanned.
+        # Remember, directory is placed in there, when it is scanned.
+        # If changed, then watchdog should have removed it from the path.
+        _, fs_entries = return_disk_listing(dirpath)
+        db_data = index_data.objects.select_related("filetype").select_related("directory").filter(
+            fqpndirectory=webpath).filter(ignore=False)
+        # if db_data.count() == 0:
+        #     record = index_data()
+        #     record.uuid = uuid.uuid4()
+        #     record.name = "DeleteMe"
+        #     record.ignore = True
+        #     record.delete_pending = True
+        #     record.lastmod = time.time()
+        #     record.lastscan = time.time()
+        #     record.filetype = filetypes(fileext=".txt")
+        #     record.save()
+        #     bootstrap = True
+        # db_data = index_data.objects.filter(fqpndirectory=webpath)
+
+        for db_entry in db_data:
+            if db_entry.name not in fs_entries:
+                print("Database contains a file not in the fs: ", db_entry.name)
+                # The entry just is not in the file system.  Delete it.
+                db_entry.ignore = True
+                db_entry.delete_pending = True
+                db_entry.save()
+            else:
+                # The db_entry does exist in the file system.
+                # Does the lastmod match?
+                # Does size match?
+                # If directory, does the numfiles, numdirs, count_subfiles match?
+
+                update = False
+                entry = fs_entries[db_entry.name.title()]
+                if db_entry.lastmod != entry.stat()[stat.ST_MTIME]:
+                    # print("LastMod mismatch")
+                    db_entry.lastmod = entry.stat()[stat.ST_MTIME]
+                    update = True
+                if db_entry.size != entry.stat()[stat.ST_SIZE]:
+                    # print("Size mismatch")
+                    db_entry.size = entry.stat()[stat.ST_SIZE]
+                    update = True
+                if db_entry.directory:  # or db_entry["unified_dirs"]:
+                    _, subdirectory = return_disk_listing(str(entry.absolute()))
+                    # fs_file_count, fs_dir_count = fs_counts(subdirectory)
+                    fs_file_count, fs_dir_count = fs_counts(subdirectory)
+                    if db_entry.numfiles != fs_file_count or db_entry.numdirs != fs_dir_count:
+                        db_entry.numfiles, db_entry.numdirs = fs_file_count, fs_dir_count
+                        update = True
+                if update:
+                    print("Database record being updated: ", db_entry.name)
+                    db_entry.save()
+                    update = False
+
+        # Check for entries that are not in the database, but do exist in the file system
+        names = index_data.objects.filter(fqpndirectory=webpath).values_list("name", flat=True)
+        # fetch an updated set of records, since we may have changed it from above.
+        records_to_create = []
+        for name in fs_entries:
+            entry = fs_entries[name]  # iterate through the file system entries.
+            test_name = entry.name.title().replace("//", "/")
+            if test_name not in names:
+                # The record has not been found
+                # add it.
+
+                record = index_data()
+                record = process_filedata(entry, record, v3=False)
+                if record is None:
+                    continue
+                if record.filetype.is_archive:
+                    print("Archive detected ",record.name)
+                records_to_create.append(record)
+        if records_to_create:
+            index_data.objects.bulk_create(records_to_create, 100)
+            # The record is in the database, so it's already been vetted in the database comparison
+        if bootstrap:
+            index_data.objects.filter(delete_pending=True).delete()
+
+#        if not Cache_Tracking.objects.filter(DirName=dirpath).exists():
+            # The path has not been seen since the Cache Tracking has been enabled
+            # (eg Startup, or the entry has been nullified)
+            # Add to table, and allow a rescan to occur.
         print(f"\nSaving, {dirpath} to cache tracking\n")
         new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
         new_rec.save()
 
-    index_data.objects.filter(delete_pending=True).delete()
+        index_data.objects.filter(delete_pending=True).delete()
 
 
 def read_from_disk(dir_to_scan, skippable=True):
