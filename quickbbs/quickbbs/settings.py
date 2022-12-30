@@ -27,7 +27,7 @@ print(f"* Running on {machine_name}")
 # Useful for demonstrating the software without using your master database.
 #
 DEMO = False
-#DEMO = True
+# DEMO = True
 if DEMO:
     ALBUMS_PATH = "/Volumes/4TB_Drive/gallery_demo"
 print(f"* Demo Mode is {DEMO}")
@@ -36,7 +36,7 @@ print(f"* Demo Mode is {DEMO}")
 #   Debug, enables the debugging mode
 #
 DEBUG = False
-DEBUG = not DEBUG
+# DEBUG = not DEBUG
 print(f"* Debug Mode is {DEBUG}")
 
 #
@@ -71,7 +71,7 @@ if not DEBUG:
             'TIMEOUT': 300,
             'OPTIONS': {
                 'MAX_ENTRIES': 22000,
-                # 'CULL_FREQUENCY':3,  # This is default
+                'CULL_FREQUENCY': 3,  # This is default
             }
         }
     }
@@ -114,6 +114,7 @@ INSTALLED_APPS += [
     'django.contrib.staticfiles',
     'django.contrib.sessions',
     'django.contrib.messages',
+    'rest_framework',
     'django.contrib.sites',
     'django_user_agents',
     'django_jinja',
@@ -132,7 +133,7 @@ INSTALLED_APPS += [
     'thumbnails',
     'filetypes',
     'django_icons',
-#    'django_unicorn',
+    #    'django_unicorn',
     'django_jinja.contrib._humanize'
 ]
 

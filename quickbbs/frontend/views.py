@@ -15,6 +15,7 @@ import django_icons.templatetags.icons
 import markdown2
 from PIL import Image, ImageFile
 from django.conf import settings
+from django.core.handlers.wsgi import WSGIRequest
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
 from django.db.utils import ProgrammingError, OperationalError
 from django.http import (Http404, HttpResponseBadRequest, HttpResponseNotFound,
@@ -28,7 +29,7 @@ from frontend.database import get_db_files, SORT_MATRIX  # check_dup_thumbs
 from frontend.thumbnail import (new_process_dir,
                                 new_process_img)
 from frontend.utilities import (ensures_endswith, is_valid_uuid,
-                                read_from_disk, return_breadcrumbs, sort_order)
+                                read_from_disk, return_breadcrumbs, sort_order, sync_database_disk)
 from frontend.web import detect_mobile, g_option, respond_as_inline
 
 from rest_framework.decorators import api_view
@@ -40,6 +41,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 # https://stackoverflow.com/questions/12984426/
+
 # Sending File or zipfile - https://djangosnippets.org/snippets/365/
 
 
@@ -89,7 +91,7 @@ def return_prev_next(fqpn, currentpath, sorder) -> tuple:
     return (prevdir, nextdir)
 
 
-def thumbnails(request, tnail_id=None):
+def thumbnails(request: WSGIRequest, tnail_id: str = None):
     """
     The thumbnails function is used to serve the thumbnail memory image.
     It takes a request and an optional uuid as arguments.
@@ -122,7 +124,7 @@ def thumbnails(request, tnail_id=None):
                     defaults={"uuid": entry.uuid,
                               "FilePath": fs_item,
                               "DirName": fname})[0]
-                entry.save()
+                # entry.save()  # entry is being saved in new_process_dir
             return new_process_dir(entry)
 
         if entry.filetype.is_pdf or entry.filetype.is_image or entry.filetype.is_movie:
@@ -135,7 +137,7 @@ def thumbnails(request, tnail_id=None):
                               "FilePath": fs_item,
                               "FileName": fname,
                               })[0]
-                entry.save()
+                # entry.save()  # entry is being saved in new_process_img
             return new_process_img(entry, request)
 
         # if entry.archives:
@@ -144,7 +146,7 @@ def thumbnails(request, tnail_id=None):
     return HttpResponseBadRequest(content="Bad UUID or Unidentifable file.")
 
 
-def search_viewresults(request):
+def search_viewresults(request: WSGIRequest):
     """
     View the search results Gallery page
 
@@ -201,7 +203,7 @@ def search_viewresults(request):
     return response
 
 
-def new_viewgallery(request):
+def new_viewgallery(request: WSGIRequest):
     """
     View the requested Gallery page
 
@@ -281,7 +283,7 @@ def new_viewgallery(request):
 
 
 @api_view()
-def item_info(request, i_uuid):
+def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRequest:
     """
     Create the JSON package for item view.  All Json item requests come here to
     get their data.
@@ -305,6 +307,7 @@ def item_info(request, i_uuid):
     entry = index_data.objects.select_related("filetype").filter(uuid=context["uuid"])[0]
 
     context["html"] = ""
+    sync_database_disk(entry.fqpndirectory)
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
     breadcrumbs = return_breadcrumbs(context["webpath"])
     context["breadcrumbs"] = ""
@@ -378,7 +381,7 @@ def item_info(request, i_uuid):
     # return response
 
 
-def new_json_viewitem(request, i_uuid):
+def new_json_viewitem(request: WSGIRequest, i_uuid: str):
     """
     This is the new view item.  It's a view stub, that calls item_info via json, to load the
     data for the record.
@@ -408,7 +411,7 @@ def new_json_viewitem(request, i_uuid):
     return response
 
 
-def downloadFile(request, filename=None):
+def downloadFile(request: WSGIRequest):  # , filename=None):
     """
     Replaces new_download.
 
@@ -419,11 +422,11 @@ def downloadFile(request, filename=None):
 
     Args:
         request : Django request object
-        filename (str): This is unused, and only captured in django URLS to allow
-            the web browser to "see" a default filename.  That's why the uuid is
-            an argument passed in (?uuid=xxxxxx), so that the web browser doesn't
-            see the uuid, and use that as the filename (which is an issue that was
-            found during v2 development).
+        # filename (str): This is unused, and only captured in django URLS to allow
+        #     the web browser to "see" a default filename.  That's why the uuid is
+        #     an argument passed in (?uuid=xxxxxx), so that the web browser doesn't
+        #     see the uuid, and use that as the filename (which is an issue that was
+        #     found during v2 development).
 
     """
     # Is this from an archive?  If so, get the Page ID.
@@ -453,7 +456,7 @@ def downloadFile(request, filename=None):
                              ranged=download[0].filetype.is_movie)
 
 
-def new_view_archive(request, i_uuid):
+def new_view_archive(request: WSGIRequest, i_uuid: str):
     """
     Show the gallery from the archive contents
 
@@ -523,7 +526,7 @@ def new_view_archive(request, i_uuid):
     return response
 
 
-def test(request):
+def test(request: WSGIRequest):
     response = render(request,
                       "frontend/test.html",
                       {},
