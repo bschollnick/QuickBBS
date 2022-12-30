@@ -1,5 +1,5 @@
 # from filetypes.constants import *
-
+SITE_NAME = "QuickBBS Site"
 IMAGE_SIZE = {'small': 200,
               'medium': 740,
               'large': 1024,
@@ -13,6 +13,12 @@ DEFER_IMAGES_AFTER = 15
 
 SERVER_IP = "0.0.0.0"
 SERVER_PORT = 8888
+
+# import socket
+# Used for Bonjour / ZeroConf, temporarily removed
+# HOSTNAME = socket.gethostname()
+# EXTERNAL_IP = "192.168.1.19"
+# print(HOSTNAME, EXTERNAL_IP)
 
 PRELOAD = ['/albums', '/albums/hentai_idea']
 
