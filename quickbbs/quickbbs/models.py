@@ -5,6 +5,7 @@ import uuid
 from django.contrib.auth.models import User
 from django.db import models
 from django.urls import reverse
+from django.conf import settings
 
 import thumbnails.models
 from filetypes.models import filetypes
@@ -228,6 +229,9 @@ class index_data(models.Model):
     ownership = models.OneToOneField(
         owners, on_delete=models.CASCADE, db_index=True, default=None, null=True, blank=True
     )
+    def get_webpath(self):
+        return self.fqpndirectory.replace(settings.ALBUMS_PATH.lower(), r"")
+
 
     def write_to_db_entry(self, fileentry, fqpn, version=4):
         """

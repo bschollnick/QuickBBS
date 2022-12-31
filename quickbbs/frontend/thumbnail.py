@@ -171,7 +171,6 @@ def new_process_img(entry, request, imagesize="Small"):
     to be the most up to date, nor the most current.  Cached is fine.
     """
     thumb_size = g_option(request, "size", "Small").title()
-
     existing_data = getattr(entry.file_tnail, f"{thumb_size}Thumb")
     if existing_data != b'':
         # Does the thumbnail exist?
