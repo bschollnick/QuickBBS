@@ -161,7 +161,7 @@
                                 <b>{{ loop.index }}</b> <br>
         <!--                                             Setup the color for the item box and hyperlink into the box -->
                                 {% if item.filetype.is_archive %}<a href="{{ url('new_view_archive', args=[item.uuid]) }}?sort={{sort}}" class="thumbnail" style="background-color:#{{item.filetype.color}};">
-                                {% elif item.filetype.is_dir %}<a href="{{ webpath }}{{ item.name }}?page=1&sort={{sort}}" class="thumbnail" style="background-color:#{{item.filetype.color}};">
+                                {% elif item.filetype.is_dir %}<a href="{{item.get_webpath()}}{{ item.name }}?page=1&sort={{sort}}" class="thumbnail" style="background-color:#{{item.filetype.color}};">
                             {% else %}<a href="{{ url('new_viewitem', args=[item.uuid]) }}?sort={{sort}}" class="thumbnail" style="background-color:#{{item.filetype.color}};">
                                 {% endif %}
 

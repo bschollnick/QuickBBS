@@ -554,7 +554,7 @@ def return_disk_listing(fqpn, enable_rename=False) -> (bool, dict):
         #         print(f"rejected - {titlecase}")
         #         # loaded = False
 
-        fs_data[item.name.title()] = item
+        fs_data[item.name.title().strip()] = item
     return (True, fs_data)
 
 
@@ -663,7 +663,7 @@ def process_filedata(fs_entry, db_record, v3=False) -> index_data:
     db_record.fqpndirectory, db_record.name = os.path.split(fs_entry.absolute())
     db_record.fqpndirectory = ensures_endswith(
         db_record.fqpndirectory.lower().replace("//", "/"), os.sep)
-    db_record.name = db_record.name.title().replace("//", "/").title()
+    db_record.name = db_record.name.title().replace("//", "/").strip()
     db_record.fileext = fs_entry.suffix.lower()
     db_record.is_dir = fs_entry.is_dir()  # ["is_dir"]
     if db_record.is_dir:
@@ -763,7 +763,7 @@ def sync_database_disk(directoryname):
         # db_data = index_data.objects.filter(fqpndirectory=webpath)
 
         for db_entry in db_data:
-            if db_entry.name not in fs_entries:
+            if db_entry.name.strip() not in fs_entries:
                 print("Database contains a file not in the fs: ", db_entry.name)
                 # The entry just is not in the file system.  Delete it.
                 db_entry.ignore = True
@@ -803,7 +803,7 @@ def sync_database_disk(directoryname):
         records_to_create = []
         for name in fs_entries:
             entry = fs_entries[name]  # iterate through the file system entries.
-            test_name = entry.name.title().replace("//", "/")
+            test_name = entry.name.title().replace("//", "/").strip()
             if test_name not in names:
                 # The record has not been found
                 # add it.
