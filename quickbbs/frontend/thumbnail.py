@@ -128,7 +128,7 @@ def new_process_dir(db_index):
         img_icon = cr_tnail_img(temp, settings.IMAGE_SIZE["small"],
                                 FILETYPE_DATA[".dir"]["icon_filename"])
         # configdata["filetypes"]["dir"][2])
-        # db_index.is_generic = True
+        db_index.is_generic_icon = True
         db_index.directory.SmallThumb = img_icon
         db_index.directory.FileSize = db_index.size
     #            print("Set size to %s for %s" % (db_index.directory.FileSize,
@@ -240,6 +240,7 @@ def new_process_archive(ind_entry, request, page=0):
         im_data = return_image_obj(os.path.join(settings.RESOURCES_PATH, "images",
                                                 FILETYPE_DATA[fext]["icon_filename"]),
                                    memory=True)
+
         return return_img_attach(FILETYPE_DATA[fext]["icon_filename"], im_data,
                                  fext_override="JPEG")
 
