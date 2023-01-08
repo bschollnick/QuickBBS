@@ -32,6 +32,7 @@ from frontend.utilities import (ensures_endswith, is_valid_uuid,
                                 read_from_disk, return_breadcrumbs, sort_order, sync_database_disk)
 from frontend.web import detect_mobile, g_option, respond_as_inline
 
+from numpy import arange
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
@@ -179,7 +180,7 @@ def search_viewresults(request: WSGIRequest):
 
     context["current_page"] = request.GET.get("page", 1)
     chk_list = Paginator(index, 30)
-    context["page_cnt"] = list(range(1, chk_list.num_pages + 1))
+    context["page_cnt"] = list(arange(1, chk_list.num_pages + 1))
 
     context["originator"] = request.META.get("HTTP_REFERER")
     if "/search/" in context["originator"] or context["originator"] is None:
@@ -215,7 +216,7 @@ def new_viewgallery(request: WSGIRequest):
 
     """
     print("NEW VIEW GALLERY")
-    start_time = time.time()
+    start_time = time.perf_counter()  # time.time()
     context = {}
     paths = {}
     context["small"] = g_option(request,
@@ -257,7 +258,7 @@ def new_viewgallery(request: WSGIRequest):
 
     context["current_page"] = request.GET.get("page", 1)
     chk_list = Paginator(index, 30)
-    context["page_cnt"] = list(range(1, chk_list.num_pages + 1))
+    context["page_cnt"] = list(arange(1, chk_list.num_pages + 1))
     # context["page_cnt"] = chk_list.page_range
 
     #    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
@@ -278,7 +279,7 @@ def new_viewgallery(request: WSGIRequest):
                       "frontend/gallery_listing.jinja",
                       context,
                       using="Jinja2")
-    print("Gallery View, processing time: ", time.time() - start_time)
+    print("Gallery View, processing time: ", time.perf_counter() - start_time)  # time.time() - start_time)
     return response
 
 
@@ -297,7 +298,7 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
     -------
     JsonResponse : The Json response from the web query.
     """
-    context = {"start_time": time.time(),
+    context = {"start_time": time.perf_counter(),  # time.time(),
                "uuid": str(i_uuid).strip().replace("/", ""),
                }
     if not is_valid_uuid(context["uuid"]):
@@ -375,7 +376,8 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
         context["next_uuid"] = catalog_qs[page_contents.next_page_number() - 1].uuid
     if page_contents.has_previous():
         context["previous_uuid"] = catalog_qs[page_contents.previous_page_number() - 1].uuid
-    print("Process time: ", time.time() - context["start_time"], "secs")
+    print("Process time: ", time.perf_counter() - context["start_time"], "secs")
+    # time.time() - context["start_time"], "secs")
     return Response(context)
     # response = JsonResponse(context, status=200)
     # return response

@@ -181,6 +181,8 @@ class index_data(models.Model):
     delete_pending = models.BooleanField(default=False, db_index=True)  # File is to be deleted,
     filetype = models.ForeignKey(filetypes, to_field='fileext', on_delete=models.CASCADE,
                                  db_index=True, default=".none")
+    is_generic_icon = models.BooleanField(default=False, db_index=False)  # icon is a generic icon
+
     unified_thumb = models.OneToOneField(
         thumbnails.models.Thumbnails_Files,
         on_delete=models.CASCADE,

@@ -189,10 +189,10 @@ def load_movie(fspath, offset_from=30):
         for count, frame in enumerate(container.decode(stream)):
             image = frame.to_image()
             extrema = image.convert("L").getextrema()
-            if extrema not in [(0,0), (255,255)]:
+            if extrema not in [(0, 0), (255, 255)]:
                 if endcount is None:
                     endcount = count + offset_from
-            if not endcount is None and count >= endcount:
+            if endcount is not None and count >= endcount:
                 break
     return image
 
@@ -614,13 +614,11 @@ def fs_counts(fs_entries) -> (int, int):
     tuple - (# of files, # of dirs)
 
     """
+    # files = sum(map(os.DirEntry.is_file, fs_entries.values()))
     files = 0
-    dirs = 0
-    for fs_item in fs_entries:
-        # is_file = fs_entries[fs_item]["is_file"]
-        is_file = fs_entries[fs_item].is_file()
-        files += is_file
-        dirs += not is_file
+    for fs_item in fs_entries.values():
+        files += fs_item.is_file()
+    dirs = len(fs_entries) - files
     return (files, dirs)
 
 
@@ -749,18 +747,6 @@ def sync_database_disk(directoryname):
         _, fs_entries = return_disk_listing(dirpath)
         db_data = index_data.objects.select_related("filetype").select_related("directory").filter(
             fqpndirectory=webpath).filter(ignore=False)
-        # if db_data.count() == 0:
-        #     record = index_data()
-        #     record.uuid = uuid.uuid4()
-        #     record.name = "DeleteMe"
-        #     record.ignore = True
-        #     record.delete_pending = True
-        #     record.lastmod = time.time()
-        #     record.lastscan = time.time()
-        #     record.filetype = filetypes(fileext=".txt")
-        #     record.save()
-        #     bootstrap = True
-        # db_data = index_data.objects.filter(fqpndirectory=webpath)
 
         for db_entry in db_data:
             if db_entry.name.strip() not in fs_entries:
@@ -801,8 +787,7 @@ def sync_database_disk(directoryname):
         names = index_data.objects.filter(fqpndirectory=webpath).values_list("name", flat=True)
         # fetch an updated set of records, since we may have changed it from above.
         records_to_create = []
-        for name in fs_entries:
-            entry = fs_entries[name]  # iterate through the file system entries.
+        for name, entry in fs_entries.items():
             test_name = entry.name.title().replace("//", "/").strip()
             if test_name not in names:
                 # The record has not been found
@@ -813,7 +798,7 @@ def sync_database_disk(directoryname):
                 if record is None:
                     continue
                 if record.filetype.is_archive:
-                    print("Archive detected ",record.name)
+                    print("Archive detected ", record.name)
                 records_to_create.append(record)
         if records_to_create:
             index_data.objects.bulk_create(records_to_create, 100)
@@ -821,10 +806,10 @@ def sync_database_disk(directoryname):
         if bootstrap:
             index_data.objects.filter(delete_pending=True).delete()
 
-#        if not Cache_Tracking.objects.filter(DirName=dirpath).exists():
-            # The path has not been seen since the Cache Tracking has been enabled
-            # (eg Startup, or the entry has been nullified)
-            # Add to table, and allow a rescan to occur.
+        #        if not Cache_Tracking.objects.filter(DirName=dirpath).exists():
+        # The path has not been seen since the Cache Tracking has been enabled
+        # (eg Startup, or the entry has been nullified)
+        # Add to table, and allow a rescan to occur.
         print(f"\nSaving, {dirpath} to cache tracking\n")
         new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
         new_rec.save()

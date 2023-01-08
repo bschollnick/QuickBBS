@@ -131,7 +131,7 @@ class cached_exist():
         self.last_mods["scanInterval"] = 90  # 60 seconds
         self.image_hasher = image_hasher
         #        self.image_hash_size=128
-        self.image_hash_size = 3
+        self.image_hash_size = 4
         self._graphics = [".bmp", ".gif", ".jpg", ".jpeg", ".png", "webp"]
         self._archives = [".zip", ".rar", ".7z", ".lzh", ".gz"]
         self._movies = [".mp4", ".mpg", ".mkv", ".mov", ".avi", ".mp3"]
@@ -177,9 +177,7 @@ class cached_exist():
         """
         self.scanned_paths = {}
         self.sha_paths = {}
-        self.last_mods = {}
-        self.last_mods["lastScan"] = 0
-        self.last_mods["scanInterval"] = 60  # 60 * 1000 ms = 60 seconds
+        self.last_mods = {"lastScan": 0, "scanInterval": 60}
         self.extended = {}
         self.global_count = 0
         self.verify_count = 0
@@ -754,7 +752,6 @@ class cached_exist():
                     self.read_path(os.path.join(dirpath, entry.name))
                 elif entry.is_dir() and self.FilesOnly is False:
                     self.addFileDirEntry(entry, None)
-
 
         except StopIteration:
             # print("StopITeration")
