@@ -273,14 +273,35 @@ class cached_exist():
         #
         if time.time() - lastScan > self.last_mods["scanInterval"]:
             entries = sorted(os.scandir(dirpath), key=lambda e: e.stat().st_mtime, reverse=True)[0:10]
-            entries = sorted(entries, key=lambda e: e.name)  # , reverse=True)
+#            entries = sorted(entries, key=lambda e: e.name)  # , reverse=True)
             for entry in entries:
-                if self.processFile(entry) and entry.stat().st_mtime > newest[1]:
+                if entry.stat().st_mtime > newest[1] and self.processFile(entry):
                     newest = (entry.name.title().strip(), entry.stat().st_mtime, time.time())
             return newest
         else:
             newest = self.last_mods[dirpath]
         return newest
+
+    def return_disk_counts(self, fs_entries) -> (int, int):
+        """
+        Quickly count the files vs directories in a list of scandir entries
+        Used primary by sync_database_disk to count a path's files & directories
+
+        Parameters
+        ----------
+        fs_entries (list) - list of scandir entries
+
+        Returns
+        -------
+        tuple - (# of files, # of dirs)
+
+        """
+        # files = sum(map(os.DirEntry.is_file, fs_entries.values()))
+        files = 0
+        for fs_item in fs_entries.values():
+            files += fs_item.is_file() and self.processFile(fs_item)
+        dirs = len(fs_entries) - files
+        return (files, dirs)
 
     def check_count(self, dirpath):
         """
@@ -320,6 +341,7 @@ class cached_exist():
         if dirpath not in self.scanned_paths:
             return 0
 
+        # fs_filecount, _ = self.return_disk_counts(list(os.scandir(dirpath)))
         try:
             for x in list(os.scandir(dirpath)):
                 if self.processFile(x):
