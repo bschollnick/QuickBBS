@@ -570,7 +570,7 @@ def break_down_urls(uri_path) -> Union[list[bytes], list[str]]:
     -------
         list : A list containing all of the parts of the URI
 
-    >>> break_down_urls("http://www.google.com")
+    >>> break_down_urls("https://www.google.com")
     """
     path = urllib.parse.urlsplit(uri_path).path
     return path.split('/')
