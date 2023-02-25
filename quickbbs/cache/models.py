@@ -19,6 +19,7 @@ def delete_from_cache_tracking(event):
         print(f"{time.ctime()} Deleted {dirpath}\n")
         cache.clear()
 
+
 class fs_Cache_Tracking(models.Model):
     DirName = models.CharField(db_index=True, max_length=384, default='', blank=True)
     # the path from watchdog, titlecased, stripped, and normpathed
