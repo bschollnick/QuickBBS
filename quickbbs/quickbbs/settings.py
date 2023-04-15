@@ -36,7 +36,7 @@ print(f"* Demo Mode is {DEMO}")
 #   Debug, enables the debugging mode
 #
 DEBUG = False
-# DEBUG = not DEBUG
+DEBUG = not DEBUG
 print(f"* Debug Mode is {DEBUG}")
 
 #
