@@ -160,6 +160,26 @@ class Thumbnails_Archives(models.Model):
         verbose_name = 'Archive Thumbnails Cache'
         verbose_name_plural = 'Archive Thumbnails Cache'
 
+class scan_lock(models.Model):
+    fqpndirectory = models.CharField(default=0, db_index=True, max_length=384, unique=True)
+
+    def start_scan(self, fqpndirectory=None):
+        if fqpndirectory is not None:
+            self.fqpndirectory = str(fqpndirectory).title()
+            self.save()
+
+    def release_scan(fqpndirectory):
+        scan_lock.objects.filter(fqpndirectory=str(fqpndirectory).title()).delete()
+
+    def release_all():
+        scan_lock.objects.all().delete()
+
+    def scan_in_progress(fqpndirectory):
+        return scan_lock.objects.filter(fqpndirectory=str(fqpndirectory).title()).exists()
+
+    class Meta:
+        verbose_name = 'Directory Scanning Lock'
+        verbose_name_plural = 'Directory Scanning Locks'
 
 class index_data(models.Model):
     id = models.AutoField(primary_key=True)
