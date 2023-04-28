@@ -21,7 +21,7 @@ from django.db.utils import ProgrammingError, OperationalError
 from django.http import (Http404, HttpResponseBadRequest, HttpResponseNotFound,
                          JsonResponse)
 from django.shortcuts import render
-from quickbbs.models import Thumbnails_Dirs, Thumbnails_Files, index_data
+from quickbbs.models import Thumbnails_Dirs, Thumbnails_Files, index_data, scan_lock
 
 import frontend.archives3 as archives
 from cache.models import fs_Cache_Tracking as Cache_Tracking
@@ -597,6 +597,9 @@ def view_setup():
     Wrapper for view startup
 
     """
+    print("Clearing all entries from Directory Lock Tracking")
+    scan_lock.release_all()
+
     print("Clearing all entries from Cache Tracking")
     try:
         Cache_Tracking.objects.all().delete()
