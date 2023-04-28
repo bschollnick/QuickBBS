@@ -73,6 +73,9 @@ class Thumbnails_Dirs(models.Model):
     class Meta:
         verbose_name = 'Directory Thumbnails Cache'
         verbose_name_plural = 'Directory Thumbnails Cache'
+        constraints = [
+                models.UniqueConstraint(fields=['DirName', 'FilePath'], name='unique_dir_thumb')
+            ]
 
 
 class Thumbnails_Small(models.Model):
@@ -129,6 +132,9 @@ class Thumbnails_Files(models.Model):
     class Meta:
         verbose_name = 'Image File Thumbnails Cache'
         verbose_name_plural = 'Image File Thumbnails Cache'
+        constraints = [
+                models.UniqueConstraint(fields=['FileName', 'FilePath'], name='unique_thumb_files')
+            ]
         # File Workflow:
         #
         #   When checking for a thumbnail, if Thumbnail_ID == 0, then generate the new thumbnails,
@@ -160,6 +166,10 @@ class Thumbnails_Archives(models.Model):
         verbose_name = 'Archive Thumbnails Cache'
         verbose_name_plural = 'Archive Thumbnails Cache'
 
+        constraints = [
+                models.UniqueConstraint(fields=['FileName', 'FilePath', 'zipfilepath'], name='unique_archives')
+            ]
+
 class scan_lock(models.Model):
     fqpndirectory = models.CharField(default=0, db_index=True, max_length=384, unique=True)
 
@@ -180,6 +190,9 @@ class scan_lock(models.Model):
     class Meta:
         verbose_name = 'Directory Scanning Lock'
         verbose_name_plural = 'Directory Scanning Locks'
+
+#from django.db.models import Count
+#index_dup = index_data.objects.values('id', 'name','fqpndirectory').annotate(name_count=Count('name'),dir_count = Count('fqpndirectory')).filter(name_count__gt=1,dir_count__gt=1)
 
 class index_data(models.Model):
     id = models.AutoField(primary_key=True)
@@ -251,6 +264,8 @@ class index_data(models.Model):
     ownership = models.OneToOneField(
         owners, on_delete=models.CASCADE, db_index=True, default=None, null=True, blank=True
     )
+
+
     def get_webpath(self):
         return self.fqpndirectory.replace(settings.ALBUMS_PATH.lower(), r"")
 
@@ -357,6 +372,9 @@ class index_data(models.Model):
         verbose_name = 'Master Index'
         verbose_name_plural = 'Master Index'
 
+        constraints = [
+                models.UniqueConstraint(fields=['name', 'fqpndirectory'], name='unique name directory')
+            ]
 # index_data.objects.select_related('filetypes')
 # index_data.objects.select_related('file_tnail')
 # index_data.objects.prefetch_related('directory')
