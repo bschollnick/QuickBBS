@@ -116,3 +116,4 @@ wrapt==1.15.0
 xattr==0.10.1
 zeroconf==0.58.2
 zipp==3.15.0
+setuptools>=65.5.1 # not directly required, pinned by Snyk to avoid a vulnerability
