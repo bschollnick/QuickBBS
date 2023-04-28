@@ -43,6 +43,10 @@ class AdminMaster_Index(admin.ModelAdmin):
 # class Cache_dir_tracking_Index(admin.ModelAdmin):
 #     list_display = ('DirName', 'lastscan')
 #     fields = ('DirName', 'lastscan')
+@admin.register(scan_lock)
+class AdminScan_Lock(admin.ModelAdmin):
+    list_display = ('fqpndirectory',)
+    fields = ('fqpndirectory',)
 
 admin.site.register(owners)
 admin.site.register(Favorites)

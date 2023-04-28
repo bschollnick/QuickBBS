@@ -22,7 +22,7 @@ SERVER_PORT = 8888
 
 PRELOAD = ['/albums', '/albums/hentai_idea']
 
-SERVER_PATH = "/Volumes/4TB_Drive/gallery"
+SERVER_PATH = "/Volumes/c-8tb/gallery/quickbbs"
 SERVERLOG = f"{SERVER_PATH}/logs/server.log"
 ALBUMS_PATH = f"{SERVER_PATH}"
 THUMBNAILS_PATH = f"{SERVER_PATH}/thumbnails"

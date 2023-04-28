@@ -22,7 +22,7 @@ import av  # Video Previews
 import fitz  # PDF previews
 from PIL import Image
 from django.conf import settings
-from quickbbs.models import filetypes, index_data
+from quickbbs.models import filetypes, index_data, scan_lock
 
 import filetypes.models as filetype_models
 import frontend.archives3 as archives
@@ -570,7 +570,7 @@ def break_down_urls(uri_path) -> Union[list[bytes], list[str]]:
     -------
         list : A list containing all of the parts of the URI
 
-    >>> break_down_urls("http://www.google.com")
+    >>> break_down_urls("https://www.google.com")
     """
     path = urllib.parse.urlsplit(uri_path).path
     return path.split('/')
@@ -740,6 +740,10 @@ def sync_database_disk(directoryname):
         directoryname = settings.ALBUMS_PATH
     webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
     dirpath = os.path.abspath(directoryname.title().strip())
+    if scan_lock.scan_in_progress(webpath):
+        return
+
+    scan_lock.start_scan(webpath)
     if not Cache_Tracking.objects.filter(DirName=dirpath).exists():
         # If the directory is not found in the Cache_Tracking table, then it needs to be rescanned.
         # Remember, directory is placed in there, when it is scanned.
@@ -815,7 +819,7 @@ def sync_database_disk(directoryname):
         new_rec.save()
 
         index_data.objects.filter(delete_pending=True).delete()
-
+    scan_lock.release_scan(webpath)
 
 def read_from_disk(dir_to_scan, skippable=True):
     """
@@ -837,4 +841,8 @@ def read_from_disk(dir_to_scan, skippable=True):
         dir_path = Path(os.path.join(settings.ALBUMS_PATH, dir_to_scan))
     else:
         dir_path = Path(ensures_endswith(dir_to_scan, os.sep))
-    sync_database_disk(str(dir_path))
+
+    if not scan_lock.scan_in_progress(dir_path):
+        scan_lock.start_scan(dir_path)
+        sync_database_disk(str(dir_path))
+        scan_lock.release_scan(dir_path)

@@ -131,7 +131,7 @@ class cached_exist():
         self.last_mods["scanInterval"] = 90  # 60 seconds
         self.image_hasher = image_hasher
         #        self.image_hash_size=128
-        self.image_hash_size = 4
+        self.image_hash_size = 12#4
         self._graphics = [".bmp", ".gif", ".jpg", ".jpeg", ".png", "webp"]
         self._archives = [".zip", ".rar", ".7z", ".lzh", ".gz"]
         self._movies = [".mp4", ".mpg", ".mkv", ".mov", ".avi", ".mp3"]

@@ -14,13 +14,13 @@ read -p "Press [Enter] key to start benchmarking or Ctrl-C to abort..."
 echo "Running 1 MB test file benchmarks"
 echo "---------------------------------------------------------------------------------------" >> $1.txt
 #ab -n 200 -c 50  -d -l "http://127.0.0.1:8888/albums/verification_suite/benchtests/test1.bin?download" >> $1.txt
-ab -n 200 -c 50  -d -l "http://127.0.0.1:8888/download/5eb9184e-d2a7-4e36-8270-afca77228e42" >> $1.txt
+ab -n 200 -c 50  -d -l "http://127.0.0.1:8888/download/test1.bin?5eb9184e-d2a7-4e36-8270-afca77228e42" >> $1.txt
 
 echo "---------------------------------------------------------------------------------------" >> $1.txt
 sleep 5
 echo "Running 2 MB test file benchmarks"
 ab -n 200 -c 50  -d -l "http://127.0.0.1:8888/albums/verification_suite/benchtests/test2.bin?download" >> $1.txt
-ab -n 200 -c 50  -d -l "http://127.0.0.1:8888/download/057239fc-c33f-4c6b-b758-59801e578be1/" >> $1.txt
+ab -n 200 -c 50  -d -l "http://127.0.0.1:8888/download/31969f92-ab18-416c-895d-ce6dcceaa0a7/" >> $1.txt
 echo "---------------------------------------------------------------------------------------" >> $1.txt
 sleep 5
 echo "Running 5 MB test file benchmarks"
