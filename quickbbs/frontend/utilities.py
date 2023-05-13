@@ -19,6 +19,7 @@ from typing import Union, List  # , Iterator, Optional, TypeVar, Generic
 # from moviepy.editor import VideoFileClip #* # import everythings (variables, classes, methods...)
 # inside moviepy.editor
 import av  # Video Previews
+import django.db.utils
 import fitz  # PDF previews
 from PIL import Image
 from django.conf import settings
@@ -740,10 +741,10 @@ def sync_database_disk(directoryname):
         directoryname = settings.ALBUMS_PATH
     webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
     dirpath = os.path.abspath(directoryname.title().strip())
-    if scan_lock.scan_in_progress(webpath):
-        return
+    #if scan_lock.scan_in_progress(webpath):
+    #    return
 
-    scan_lock.start_scan(webpath)
+    # scan_lock.start_scan(webpath)
     if not Cache_Tracking.objects.filter(DirName=dirpath).exists():
         # If the directory is not found in the Cache_Tracking table, then it needs to be rescanned.
         # Remember, directory is placed in there, when it is scanned.
@@ -805,7 +806,10 @@ def sync_database_disk(directoryname):
                     print("Archive detected ", record.name)
                 records_to_create.append(record)
         if records_to_create:
-            index_data.objects.bulk_create(records_to_create, 100)
+            try:
+                index_data.objects.bulk_create(records_to_create, 100)
+            except django.db.utils.IntegrityError:
+                return None
             # The record is in the database, so it's already been vetted in the database comparison
         if bootstrap:
             index_data.objects.filter(delete_pending=True).delete()
@@ -819,7 +823,7 @@ def sync_database_disk(directoryname):
         new_rec.save()
 
         index_data.objects.filter(delete_pending=True).delete()
-    scan_lock.release_scan(webpath)
+    #scan_lock.release_scan(webpath)
 
 def read_from_disk(dir_to_scan, skippable=True):
     """
