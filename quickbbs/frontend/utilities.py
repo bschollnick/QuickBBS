@@ -320,7 +320,7 @@ def cr_tnail_img(source_image, size, fext) -> Image:
     fext = fext.lower().strip()
     if not fext.startswith("."):
         fext = f".{fext}"
-    #  if ".%s" % fext in ftype_constants._movie:
+
     if fext in settings.MOVIE_FILE_TYPES:
         fext = ".jpg"
 
@@ -750,7 +750,7 @@ def sync_database_disk(directoryname):
         # Remember, directory is placed in there, when it is scanned.
         # If changed, then watchdog should have removed it from the path.
         _, fs_entries = return_disk_listing(dirpath)
-        db_data = index_data.objects.select_related("filetype").select_related("directory").filter(
+        db_data = index_data.objects.select_related("filetype", "directory").filter(
             fqpndirectory=webpath).filter(ignore=False)
 
         for db_entry in db_data:
@@ -789,7 +789,7 @@ def sync_database_disk(directoryname):
                     update = False
 
         # Check for entries that are not in the database, but do exist in the file system
-        names = index_data.objects.filter(fqpndirectory=webpath).values_list("name", flat=True)
+        names = index_data.objects.filter(fqpndirectory=webpath).only("name").values_list("name", flat=True)
         # fetch an updated set of records, since we may have changed it from above.
         records_to_create = []
         for name, entry in fs_entries.items():
@@ -846,7 +846,7 @@ def read_from_disk(dir_to_scan, skippable=True):
     else:
         dir_path = Path(ensures_endswith(dir_to_scan, os.sep))
 
-    if not scan_lock.scan_in_progress(dir_path):
-        scan_lock.start_scan(dir_path)
-        sync_database_disk(str(dir_path))
-        scan_lock.release_scan(dir_path)
+    # if not scan_lock.scan_in_progress(dir_path):
+    #     scan_lock.start_scan(dir_path)
+    #     sync_database_disk(str(dir_path))
+    #     scan_lock.release_scan(dir_path)

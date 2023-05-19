@@ -120,24 +120,30 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
         # thumb_size = g_option(request, "size", "Small").title()
         if entry.filetype.is_dir:
             if entry.directory is None:  # == None:
-                entry.directory = Thumbnails_Dirs.objects.update_or_create(
-                    uuid=entry.uuid, FilePath=fs_item, DirName=fname,
-                    defaults={"uuid": entry.uuid,
-                              "FilePath": fs_item,
-                              "DirName": fname})[0]
+                entry.directory = Thumbnails_Dirs()
+                entry.directory.uuid = entry.uuid
+                entry.directory.FilePath = fs_item
+                entry.directory.DirName = fname
+#                    defaults={"uuid": entry.uuid,
+#                              "FilePath": fs_item,
+#                              "DirName": fname})[0]
                 # entry.save()  # entry is being saved in new_process_dir
             return new_process_dir(entry)
 
         if entry.filetype.is_pdf or entry.filetype.is_image or entry.filetype.is_movie:
             if entry.file_tnail is None:  # == None:
-                entry.file_tnail = Thumbnails_Files.objects.update_or_create(
-                    uuid=entry.uuid,
-                    FilePath=fs_item,
-                    FileName=fname,
-                    defaults={"uuid": entry.uuid,
-                              "FilePath": fs_item,
-                              "FileName": fname,
-                              })[0]
+                entry.file_tnail = Thumbnails_Files()
+                entry.file_tnail.uuid=entry.uuid
+                entry.file_tnail.FilePath=fs_item
+                entry.file_tnail.FileName=fname
+                # entry.file_tnail = Thumbnails_Files.objects.update_or_create(
+                #     uuid=entry.uuid,
+                #     FilePath=fs_item,
+                #     FileName=fname,
+                #     defaults={"uuid": entry.uuid,
+                #               "FilePath": fs_item,
+                #               "FileName": fname,
+                #               })[0]
                 # entry.save()  # entry is being saved in new_process_img
             return new_process_img(entry, request)
 
