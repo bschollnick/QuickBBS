@@ -175,6 +175,8 @@ def new_process_img(entry, request, imagesize="Small"):
     if existing_data != b'':
         # Does the thumbnail exist?
         if entry.size == entry.file_tnail.FileSize:
+            # If size matches, then image is most likely the existing cached image
+            # return the existing cached image
             return return_inline_attach(entry.name, existing_data)
 
     fs_fname = os.path.join(entry.fqpndirectory, entry.name).replace("//", "/")
