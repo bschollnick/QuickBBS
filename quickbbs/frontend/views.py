@@ -67,8 +67,7 @@ def return_prev_next(fqpn, currentpath, sorder) -> tuple:
     currentpath = os.path.split(currentpath.lower().strip())[1]
     read_from_disk(fqpn, skippable=True)
     index = get_db_files(sorder, fqpn)
-    dirs_only = index.filter(ignore=False,
-                             filetype__is_dir=True)
+    dirs_only = index.exclude(ignore=True).filter(filetype__is_dir=True)
 
     dir_names = [dname.name.lower() for dname in dirs_only]
     nextdir = ""  # unnecessary since going beyond the max offset will cause indexerror.
@@ -105,10 +104,9 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
 
     :raises: HttpResponseBadRequest - If the uuid can not be found
     """
-    #
     if is_valid_uuid(str(tnail_id)):
-        index_qs = index_data.objects.select_related("filetype").filter(uuid=tnail_id,
-                                                                        ignore=False, delete_pending=False)
+        index_qs = index_data.objects.exclude(ignore=True).select_related("filetype").filter(uuid=tnail_id,
+                                                                                             delete_pending=False)
         if not index_qs.exists():
             # does not exist
             print(tnail_id, "No records returned.")
@@ -117,34 +115,20 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
         entry = index_qs[0]
         fs_item = os.path.join(entry.fqpndirectory, entry.name)
         fname = os.path.basename(fs_item).title()
-        # thumb_size = g_option(request, "size", "Small").title()
         if entry.filetype.is_dir:
             if entry.directory is None:  # == None:
                 entry.directory = Thumbnails_Dirs()
                 entry.directory.uuid = entry.uuid
                 entry.directory.FilePath = fs_item
                 entry.directory.DirName = fname
-#                    defaults={"uuid": entry.uuid,
-#                              "FilePath": fs_item,
-#                              "DirName": fname})[0]
-                # entry.save()  # entry is being saved in new_process_dir
             return new_process_dir(entry)
 
         if entry.filetype.is_pdf or entry.filetype.is_image or entry.filetype.is_movie:
             if entry.file_tnail is None:  # == None:
                 entry.file_tnail = Thumbnails_Files()
-                entry.file_tnail.uuid=entry.uuid
-                entry.file_tnail.FilePath=fs_item
-                entry.file_tnail.FileName=fname
-                # entry.file_tnail = Thumbnails_Files.objects.update_or_create(
-                #     uuid=entry.uuid,
-                #     FilePath=fs_item,
-                #     FileName=fname,
-                #     defaults={"uuid": entry.uuid,
-                #               "FilePath": fs_item,
-                #               "FileName": fname,
-                #               })[0]
-                # entry.save()  # entry is being saved in new_process_img
+                entry.file_tnail.uuid = entry.uuid
+                entry.file_tnail.FilePath = fs_item
+                entry.file_tnail.FileName = fname
             return new_process_img(entry, request)
 
         # if entry.archives:
@@ -342,12 +326,10 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
     catalog_qs = get_db_files(context["sort"], context["webpath"])
 
     page_uuids = [str(record.uuid) for record in catalog_qs]
+
     context["page"] = page_uuids.index(context["uuid"]) + 1
     context["first_uuid"] = page_uuids[0]
     context["last_uuid"] = page_uuids[len(page_uuids) - 1]
-    # catalog_qs[catalog_qs.count() - 1].uuid
-    # previously the uuid's were grabbed by performing actions against the paginated records
-    # instead the list comp. appears to be faster, and more efficient.
 
     item_list = Paginator(catalog_qs, 1)
     context["page_locale"] = int(context["page"] / settings.GALLERY_ITEMS_PER_PAGE) + 1
@@ -442,9 +424,8 @@ def downloadFile(request: WSGIRequest):  # , filename=None):
     if d_uuid is None:  # == None:
         d_uuid = request.GET.get("uuid", None)
 
-    download = index_data.objects.select_related("filetype").filter(uuid=d_uuid,
-                                                                    ignore=False,
-                                                                    delete_pending=False)
+    download = index_data.objects.select_related("filetype").exclude(ignore=True).filter(uuid=d_uuid,
+                                                                                         delete_pending=False)
 
     if d_uuid in ["", None] or not download.exists():
         raise Http404
