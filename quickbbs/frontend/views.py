@@ -18,10 +18,12 @@ from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
 from django.db.utils import ProgrammingError, OperationalError
-from django.http import (Http404, HttpResponseBadRequest, HttpResponseNotFound,
-                         JsonResponse)
+from django.http import (Http404, HttpResponseBadRequest, HttpResponseNotFound)
 from django.shortcuts import render
-from quickbbs.models import Thumbnails_Dirs, Thumbnails_Files, index_data, scan_lock
+from numpy import arange
+from quickbbs.models import Thumbnails_Dirs, Thumbnails_Files, index_data  #, scan_lock
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
 
 import frontend.archives3 as archives
 from cache.models import fs_Cache_Tracking as Cache_Tracking
@@ -31,10 +33,6 @@ from frontend.thumbnail import (new_process_dir,
 from frontend.utilities import (ensures_endswith, is_valid_uuid,
                                 read_from_disk, return_breadcrumbs, sort_order, sync_database_disk)
 from frontend.web import detect_mobile, g_option, respond_as_inline
-
-from numpy import arange
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
 
 log = logging.getLogger(__name__)
 warnings.simplefilter('ignore', Image.DecompressionBombWarning)
@@ -75,7 +73,7 @@ def return_prev_next(fqpn, currentpath, sorder) -> tuple:
     try:
         current_offset = dir_names.index(currentpath) + 1
     except ValueError:
-        return (prevdir, nextdir)
+        return prevdir, nextdir
 
     try:
         nextdir = dir_names[current_offset]
@@ -207,32 +205,28 @@ def new_viewgallery(request: WSGIRequest):
     """
     print("NEW VIEW GALLERY")
     start_time = time.perf_counter()  # time.time()
-    context = {}
-    paths = {}
-    context["small"] = g_option(request,
-                                "size",
-                                settings.IMAGE_SIZE["small"])
-    # context["medium"] = g_option(request,
-    #                              "size",
-    #                              settings.IMAGE_SIZE["medium"])
-    #
-    # context["large"] = g_option(request,
-    #                             "size",
-    #                             settings.IMAGE_SIZE["large"])
-    context["user"] = request.user
-    context["mobile"] = detect_mobile(request)
     request.path = request.path.lower().replace(os.sep, r"/")
-    paths["webpath"] = request.path
-    context["sort"] = sort_order(request)
-    context["webpath"] = ensures_endswith(paths["webpath"], os.sep)
-    context["breadcrumbs"] = return_breadcrumbs(paths["webpath"])[:-1]
-    context["fromtimestamp"] = datetime.datetime.fromtimestamp
-    paths["album_viewing"] = settings.ALBUMS_PATH + paths["webpath"]
-
-    paths["thumbpath"] = paths["webpath"].replace(r"/albums/",
-                                                  r"/thumbnails/")
-    paths["thumbpath"] = ensures_endswith(paths["thumbpath"], "/")
-    context["thumbpath"] = paths["thumbpath"]
+    paths = {"webpath": request.path,
+             "album_viewing": settings.ALBUMS_PATH + request.path,
+             "thumbpath": ensures_endswith(request.path.replace(r"/albums/",
+                                                                r"/thumbnails/"), "/")
+             }
+    context = {"debug": settings.DEBUG,
+               "small": g_option(request,
+                                 "size",
+                                 settings.IMAGE_SIZE["small"]),
+               "medium": g_option(request,
+                                  "size",
+                                  settings.IMAGE_SIZE["medium"]),
+               "large": g_option(request,
+                                 "size",
+                                 settings.IMAGE_SIZE["large"]),
+               "user": request.user,
+               "mobile": detect_mobile(request),
+               "sort": sort_order(request),
+               "webpath": ensures_endswith(paths["webpath"], os.sep),
+               "breadcrumbs": return_breadcrumbs(paths["webpath"])[:-1],
+               "fromtimestamp": datetime.datetime.fromtimestamp, "thumbpath": paths["thumbpath"]}
     if not os.path.exists(paths["album_viewing"]):
         #
         #   Albums doesn't exist
@@ -310,10 +304,16 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
     filename = context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
     if entry.filetype.is_text or entry.filetype.is_markdown:
         # context["html"] = markdown2.Markdown().convert("\n".join(open(filename).readlines()))
-        with open(filename, 'r', encoding="latin-1") as textfile:
+        with open(filename, 'r', encoding="ISO-8859-1") as textfile:
             context["html"] = markdown2.Markdown().convert("\n".join(textfile.readlines()))
     if entry.filetype.is_html:
-        with open(filename, 'r', encoding="latin-1") as htmlfile:
+        from bs4 import UnicodeDammit
+#        with open(filename, 'rb') as datafile:
+#            content = datafile.read()
+#        suggestion = UnicodeDammit(content)
+#        print(dir(suggestion))
+#        print(suggestion.original_encoding)
+        with open(filename, 'r', encoding="utf-8") as htmlfile:
             # context["html"] = bleach.clean("<br>".join(htmlfile.readlines()))
             context["html"] = "<br>".join(htmlfile.readlines())
 
@@ -367,8 +367,6 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
     print("Process time: ", time.perf_counter() - context["start_time"], "secs")
     # time.time() - context["start_time"], "secs")
     return Response(context)
-    # response = JsonResponse(context, status=200)
-    # return response
 
 
 def new_json_viewitem(request: WSGIRequest, i_uuid: str):
@@ -585,7 +583,7 @@ def view_setup():
 
     """
     print("Clearing all entries from Directory Lock Tracking")
-    scan_lock.release_all()
+    #  scan_lock.release_all()
 
     print("Clearing all entries from Cache Tracking")
     try:
