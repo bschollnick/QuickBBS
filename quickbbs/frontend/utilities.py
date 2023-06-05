@@ -13,7 +13,7 @@ import urllib.parse
 import uuid
 from io import BytesIO
 from pathlib import Path
-from typing import Union, List  # , Iterator, Optional, TypeVar, Generic
+from typing import Union  # , List  # , Iterator, Optional, TypeVar, Generic
 
 # from moviepy.video.io import VideoFileClip
 # from moviepy.editor import VideoFileClip #* # import everythings (variables, classes, methods...)
@@ -23,7 +23,7 @@ import django.db.utils
 import fitz  # PDF previews
 from PIL import Image
 from django.conf import settings
-from quickbbs.models import filetypes, index_data, scan_lock
+from quickbbs.models import filetypes, index_data  #, scan_lock
 
 import filetypes.models as filetype_models
 import frontend.archives3 as archives
@@ -639,10 +639,8 @@ def add_archive(fqpn, new_uuid):
         fileext = os.path.splitext(name).lower()
         if fileext in settings.IMAGE_SAFE_FILES:
             pass
-        pass
 
 
-#
 def process_filedata(fs_entry, db_record, v3=False) -> index_data:
     """
     The process_filedata function takes a file system entry and returns an index_data object.
@@ -741,7 +739,7 @@ def sync_database_disk(directoryname):
         directoryname = settings.ALBUMS_PATH
     webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
     dirpath = os.path.abspath(directoryname.title().strip())
-    #if scan_lock.scan_in_progress(webpath):
+    # if scan_lock.scan_in_progress(webpath):
     #    return
 
     # scan_lock.start_scan(webpath)
@@ -823,7 +821,8 @@ def sync_database_disk(directoryname):
         new_rec.save()
 
         index_data.objects.filter(delete_pending=True).delete()
-    #scan_lock.release_scan(webpath)
+    # scan_lock.release_scan(webpath)
+
 
 def read_from_disk(dir_to_scan, skippable=True):
     """

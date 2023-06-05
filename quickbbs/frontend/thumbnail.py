@@ -60,9 +60,10 @@ def images_in_dir(database, webpath) -> Iterator[index_data]:
 
     #   What files exist in this directory?
     filters = {'fqpndirectory': ensures_endswith(webpath.lower(), os.sep),
-               'ignore': False, 'delete_pending': False}
+               'ignore': False, 'delete_pending': False, "filetype__is_image": True}
     files = get_xth_image(database, 0, filters)
-    if files is None:
+
+    if files is None or not os.path.exists(os.path.join(webpath, files.name)):
         # No files exist in the database for this directory
         print(f"* scanning due to No files exist, {webpath}")
         read_from_disk(webpath, skippable=True)
@@ -104,6 +105,7 @@ def new_process_dir(db_index):
     files = images_in_dir(index_data,
                           ensures_endswith(os.path.join(db_index.fqpndirectory,
                                                         db_index.name).lower(), os.sep))
+    print(files.__dict__)
     #    print("\n\n !!! = ",os.path.join(db_index.fqpndirectory,
     #                                       db_index.name).lower(), files)
     if files:  # found an file in the directory to use for thumbnail purposes
