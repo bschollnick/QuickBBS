@@ -44,7 +44,7 @@ def is_valid_uuid(uuid_to_test, version=4):
 
 class owners(models.Model):
     id = models.AutoField(primary_key=True)
-    uuid = models.UUIDField(default=None, null=True, editable=False, blank=True)
+    uuid = models.UUIDField(default=None, null=True, editable=False, blank=True, db_index=True)
     ownerdetails = models.OneToOneField(User,
                                         on_delete=models.CASCADE,
                                         db_index=True,
@@ -57,14 +57,13 @@ class owners(models.Model):
 
 class Favorites(models.Model):
     id = models.AutoField(primary_key=True)
-    uuid = models.UUIDField(default=None, null=True, editable=False, blank=True)
+    uuid = models.UUIDField(default=None, null=True, editable=False, blank=True, db_index=True)
 
 
 class Thumbnails_Dirs(models.Model):
     id = models.AutoField(primary_key=True, db_index=True)
     uuid = models.UUIDField(
-        default=None, null=True, editable=False, db_index=True, blank=True
-    )
+        default=None, null=True, editable=False, db_index=True, blank=True)
     DirName = models.CharField(db_index=True, max_length=384, default='', blank=True)  # FQFN of the file itself
     FileSize = models.BigIntegerField(default=-1)
     FilePath = models.CharField(db_index=True, max_length=384, default=None)  # FQFN of the file itself
@@ -201,7 +200,7 @@ class index_data(models.Model):
     lastmod = models.FloatField(db_index=True)  # Stored as Unix TimeStamp (ms)
     name = models.CharField(db_index=True, max_length=384, default=None)
     # FQFN of the file itself
-    sortname = models.CharField(db_index=True, editable=False, max_length=384, default='')
+    sortname = models.CharField(editable=False, max_length=384, default='')
     size = models.BigIntegerField(default=0)  # File size
     numfiles = models.IntegerField(default=0)  # The # of files in this directory
     numdirs = models.IntegerField(default=0)  # The # of Children Directories in this directory
@@ -344,7 +343,6 @@ class index_data(models.Model):
         """
         options = {}
         options["i_uuid"] = str(self.uuid)
-
         parameters = []
         # parameters.append("?small")
         if self.filetype.is_pdf:
@@ -352,7 +350,7 @@ class index_data(models.Model):
         elif self.filetype.is_archive:
             parameters.append("&arch")
         if self.filetype.is_dir:
-            return reverse('home') + self.fqpndirectory
+            return reverse('home') + os.path.join(self.fqpndirectory.replace(settings.ALBUMS_PATH, ""), self.name)
         else:
             return reverse('new_viewitem', kwargs=options) + "".join(parameters)
 

@@ -61,7 +61,7 @@ def return_prev_next(fqpn, currentpath, sorder) -> tuple:
 
     """
     # Parent_path = Path(fqpn).parent
-    fqpn = ensures_endswith(fqpn.lower(), os.sep)
+    fqpn = ensures_endswith(fqpn.lower(), os.sep).replace("//", "/")
     currentpath = os.path.split(currentpath.lower().strip())[1]
     read_from_disk(fqpn, skippable=True)
     index = get_db_files(sorder, fqpn)
