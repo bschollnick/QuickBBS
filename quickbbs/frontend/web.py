@@ -14,8 +14,8 @@ from django.http import (FileResponse, Http404,  # , StreamingHttpResponse)
 from ranged_fileresponse import RangedFileResponse
 
 
-#import RangedFileResponse
-#from ranged_fileresponse.local import RangedLocalFileResponse
+# import RangedFileResponse
+# from ranged_fileresponse.local import RangedLocalFileResponse
 
 def verify_login_status(request, force_login=False) -> bool:
     """
@@ -24,8 +24,6 @@ def verify_login_status(request, force_login=False) -> bool:
     args:
         request (obj) : Django Request object
         force_login (bool) : tbd
-
-
 
     """
     username = request.POST['username']
@@ -223,7 +221,8 @@ def respond_as_inline(request, file_path, original_filename, ranged=False):
 
         with open(filename, 'rb') as fh:
             if ranged:
-                response = RangedFileResponse(request, file=open(filename, 'rb'), #, buffering=1024*8),
+                # open must be in the RangedFielRequest, to allow seeking
+                response = RangedFileResponse(request, file=open(filename, 'rb'),  # , buffering=1024*8),
                                               as_attachment=False,
                                               filename=original_filename)
                 response["Content-Type"] = mtype
