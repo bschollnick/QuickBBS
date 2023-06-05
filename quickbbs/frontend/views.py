@@ -18,10 +18,12 @@ from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
 from django.db.utils import ProgrammingError, OperationalError
-from django.http import (Http404, HttpResponseBadRequest, HttpResponseNotFound,
-                         JsonResponse)
+from django.http import (Http404, HttpResponseBadRequest, HttpResponseNotFound)
 from django.shortcuts import render
-from quickbbs.models import Thumbnails_Dirs, Thumbnails_Files, index_data, scan_lock
+from numpy import arange
+from quickbbs.models import Thumbnails_Dirs, Thumbnails_Files, index_data  #, scan_lock
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
 
 import frontend.archives3 as archives
 from cache.models import fs_Cache_Tracking as Cache_Tracking
@@ -31,10 +33,6 @@ from frontend.thumbnail import (new_process_dir,
 from frontend.utilities import (ensures_endswith, is_valid_uuid,
                                 read_from_disk, return_breadcrumbs, sort_order, sync_database_disk)
 from frontend.web import detect_mobile, g_option, respond_as_inline
-
-from numpy import arange
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
 
 log = logging.getLogger(__name__)
 warnings.simplefilter('ignore', Image.DecompressionBombWarning)
@@ -67,8 +65,7 @@ def return_prev_next(fqpn, currentpath, sorder) -> tuple:
     currentpath = os.path.split(currentpath.lower().strip())[1]
     read_from_disk(fqpn, skippable=True)
     index = get_db_files(sorder, fqpn)
-    dirs_only = index.filter(ignore=False,
-                             filetype__is_dir=True)
+    dirs_only = index.exclude(ignore=True).filter(filetype__is_dir=True)
 
     dir_names = [dname.name.lower() for dname in dirs_only]
     nextdir = ""  # unnecessary since going beyond the max offset will cause indexerror.
@@ -76,7 +73,7 @@ def return_prev_next(fqpn, currentpath, sorder) -> tuple:
     try:
         current_offset = dir_names.index(currentpath) + 1
     except ValueError:
-        return (prevdir, nextdir)
+        return prevdir, nextdir
 
     try:
         nextdir = dir_names[current_offset]
@@ -105,10 +102,9 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
 
     :raises: HttpResponseBadRequest - If the uuid can not be found
     """
-    #
     if is_valid_uuid(str(tnail_id)):
-        index_qs = index_data.objects.select_related("filetype").filter(uuid=tnail_id,
-                                                                        ignore=False, delete_pending=False)
+        index_qs = index_data.objects.exclude(ignore=True).select_related("filetype").filter(uuid=tnail_id,
+                                                                                             delete_pending=False)
         if not index_qs.exists():
             # does not exist
             print(tnail_id, "No records returned.")
@@ -117,28 +113,20 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
         entry = index_qs[0]
         fs_item = os.path.join(entry.fqpndirectory, entry.name)
         fname = os.path.basename(fs_item).title()
-        # thumb_size = g_option(request, "size", "Small").title()
         if entry.filetype.is_dir:
             if entry.directory is None:  # == None:
-                entry.directory = Thumbnails_Dirs.objects.update_or_create(
-                    uuid=entry.uuid, FilePath=fs_item, DirName=fname,
-                    defaults={"uuid": entry.uuid,
-                              "FilePath": fs_item,
-                              "DirName": fname})[0]
-                # entry.save()  # entry is being saved in new_process_dir
+                entry.directory = Thumbnails_Dirs()
+                entry.directory.uuid = entry.uuid
+                entry.directory.FilePath = fs_item
+                entry.directory.DirName = fname
             return new_process_dir(entry)
 
         if entry.filetype.is_pdf or entry.filetype.is_image or entry.filetype.is_movie:
             if entry.file_tnail is None:  # == None:
-                entry.file_tnail = Thumbnails_Files.objects.update_or_create(
-                    uuid=entry.uuid,
-                    FilePath=fs_item,
-                    FileName=fname,
-                    defaults={"uuid": entry.uuid,
-                              "FilePath": fs_item,
-                              "FileName": fname,
-                              })[0]
-                # entry.save()  # entry is being saved in new_process_img
+                entry.file_tnail = Thumbnails_Files()
+                entry.file_tnail.uuid = entry.uuid
+                entry.file_tnail.FilePath = fs_item
+                entry.file_tnail.FileName = fname
             return new_process_img(entry, request)
 
         # if entry.archives:
@@ -217,32 +205,28 @@ def new_viewgallery(request: WSGIRequest):
     """
     print("NEW VIEW GALLERY")
     start_time = time.perf_counter()  # time.time()
-    context = {}
-    paths = {}
-    context["small"] = g_option(request,
-                                "size",
-                                settings.IMAGE_SIZE["small"])
-    # context["medium"] = g_option(request,
-    #                              "size",
-    #                              settings.IMAGE_SIZE["medium"])
-    #
-    # context["large"] = g_option(request,
-    #                             "size",
-    #                             settings.IMAGE_SIZE["large"])
-    context["user"] = request.user
-    context["mobile"] = detect_mobile(request)
     request.path = request.path.lower().replace(os.sep, r"/")
-    paths["webpath"] = request.path
-    context["sort"] = sort_order(request)
-    context["webpath"] = ensures_endswith(paths["webpath"], os.sep)
-    context["breadcrumbs"] = return_breadcrumbs(paths["webpath"])[:-1]
-    context["fromtimestamp"] = datetime.datetime.fromtimestamp
-    paths["album_viewing"] = settings.ALBUMS_PATH + paths["webpath"]
-
-    paths["thumbpath"] = paths["webpath"].replace(r"/albums/",
-                                                  r"/thumbnails/")
-    paths["thumbpath"] = ensures_endswith(paths["thumbpath"], "/")
-    context["thumbpath"] = paths["thumbpath"]
+    paths = {"webpath": request.path,
+             "album_viewing": settings.ALBUMS_PATH + request.path,
+             "thumbpath": ensures_endswith(request.path.replace(r"/albums/",
+                                                                r"/thumbnails/"), "/")
+             }
+    context = {"debug": settings.DEBUG,
+               "small": g_option(request,
+                                 "size",
+                                 settings.IMAGE_SIZE["small"]),
+               "medium": g_option(request,
+                                  "size",
+                                  settings.IMAGE_SIZE["medium"]),
+               "large": g_option(request,
+                                 "size",
+                                 settings.IMAGE_SIZE["large"]),
+               "user": request.user,
+               "mobile": detect_mobile(request),
+               "sort": sort_order(request),
+               "webpath": ensures_endswith(paths["webpath"], os.sep),
+               "breadcrumbs": return_breadcrumbs(paths["webpath"])[:-1],
+               "fromtimestamp": datetime.datetime.fromtimestamp, "thumbpath": paths["thumbpath"]}
     if not os.path.exists(paths["album_viewing"]):
         #
         #   Albums doesn't exist
@@ -320,10 +304,16 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
     filename = context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
     if entry.filetype.is_text or entry.filetype.is_markdown:
         # context["html"] = markdown2.Markdown().convert("\n".join(open(filename).readlines()))
-        with open(filename, 'r', encoding="latin-1") as textfile:
+        with open(filename, 'r', encoding="ISO-8859-1") as textfile:
             context["html"] = markdown2.Markdown().convert("\n".join(textfile.readlines()))
     if entry.filetype.is_html:
-        with open(filename, 'r', encoding="latin-1") as htmlfile:
+        from bs4 import UnicodeDammit
+#        with open(filename, 'rb') as datafile:
+#            content = datafile.read()
+#        suggestion = UnicodeDammit(content)
+#        print(dir(suggestion))
+#        print(suggestion.original_encoding)
+        with open(filename, 'r', encoding="utf-8") as htmlfile:
             # context["html"] = bleach.clean("<br>".join(htmlfile.readlines()))
             context["html"] = "<br>".join(htmlfile.readlines())
 
@@ -336,12 +326,10 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
     catalog_qs = get_db_files(context["sort"], context["webpath"])
 
     page_uuids = [str(record.uuid) for record in catalog_qs]
+
     context["page"] = page_uuids.index(context["uuid"]) + 1
     context["first_uuid"] = page_uuids[0]
     context["last_uuid"] = page_uuids[len(page_uuids) - 1]
-    # catalog_qs[catalog_qs.count() - 1].uuid
-    # previously the uuid's were grabbed by performing actions against the paginated records
-    # instead the list comp. appears to be faster, and more efficient.
 
     item_list = Paginator(catalog_qs, 1)
     context["page_locale"] = int(context["page"] / settings.GALLERY_ITEMS_PER_PAGE) + 1
@@ -379,8 +367,6 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
     print("Process time: ", time.perf_counter() - context["start_time"], "secs")
     # time.time() - context["start_time"], "secs")
     return Response(context)
-    # response = JsonResponse(context, status=200)
-    # return response
 
 
 def new_json_viewitem(request: WSGIRequest, i_uuid: str):
@@ -436,9 +422,8 @@ def downloadFile(request: WSGIRequest):  # , filename=None):
     if d_uuid is None:  # == None:
         d_uuid = request.GET.get("uuid", None)
 
-    download = index_data.objects.select_related("filetype").filter(uuid=d_uuid,
-                                                                    ignore=False,
-                                                                    delete_pending=False)
+    download = index_data.objects.select_related("filetype").exclude(ignore=True).filter(uuid=d_uuid,
+                                                                                         delete_pending=False)
 
     if d_uuid in ["", None] or not download.exists():
         raise Http404
@@ -598,7 +583,7 @@ def view_setup():
 
     """
     print("Clearing all entries from Directory Lock Tracking")
-    scan_lock.release_all()
+    #  scan_lock.release_all()
 
     print("Clearing all entries from Cache Tracking")
     try:

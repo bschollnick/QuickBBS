@@ -13,16 +13,17 @@ import urllib.parse
 import uuid
 from io import BytesIO
 from pathlib import Path
-from typing import Union, List  # , Iterator, Optional, TypeVar, Generic
+from typing import Union  # , List  # , Iterator, Optional, TypeVar, Generic
 
 # from moviepy.video.io import VideoFileClip
 # from moviepy.editor import VideoFileClip #* # import everythings (variables, classes, methods...)
 # inside moviepy.editor
 import av  # Video Previews
+import django.db.utils
 import fitz  # PDF previews
 from PIL import Image
 from django.conf import settings
-from quickbbs.models import filetypes, index_data, scan_lock
+from quickbbs.models import filetypes, index_data  #, scan_lock
 
 import filetypes.models as filetype_models
 import frontend.archives3 as archives
@@ -319,7 +320,7 @@ def cr_tnail_img(source_image, size, fext) -> Image:
     fext = fext.lower().strip()
     if not fext.startswith("."):
         fext = f".{fext}"
-    #  if ".%s" % fext in ftype_constants._movie:
+
     if fext in settings.MOVIE_FILE_TYPES:
         fext = ".jpg"
 
@@ -638,10 +639,8 @@ def add_archive(fqpn, new_uuid):
         fileext = os.path.splitext(name).lower()
         if fileext in settings.IMAGE_SAFE_FILES:
             pass
-        pass
 
 
-#
 def process_filedata(fs_entry, db_record, v3=False) -> index_data:
     """
     The process_filedata function takes a file system entry and returns an index_data object.
@@ -740,17 +739,17 @@ def sync_database_disk(directoryname):
         directoryname = settings.ALBUMS_PATH
     webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
     dirpath = os.path.abspath(directoryname.title().strip())
-    if scan_lock.scan_in_progress(webpath):
-        return
+    # if scan_lock.scan_in_progress(webpath):
+    #    return
 
-    scan_lock.start_scan(webpath)
+    # scan_lock.start_scan(webpath)
     if not Cache_Tracking.objects.filter(DirName=dirpath).exists():
         # If the directory is not found in the Cache_Tracking table, then it needs to be rescanned.
         # Remember, directory is placed in there, when it is scanned.
         # If changed, then watchdog should have removed it from the path.
         _, fs_entries = return_disk_listing(dirpath)
-        db_data = index_data.objects.select_related("filetype").select_related("directory").filter(
-            fqpndirectory=webpath).filter(ignore=False)
+        db_data = index_data.objects.select_related("filetype", "directory").filter(
+            fqpndirectory=webpath, ignore=False)
 
         for db_entry in db_data:
             if db_entry.name.strip() not in fs_entries:
@@ -788,7 +787,7 @@ def sync_database_disk(directoryname):
                     update = False
 
         # Check for entries that are not in the database, but do exist in the file system
-        names = index_data.objects.filter(fqpndirectory=webpath).values_list("name", flat=True)
+        names = index_data.objects.filter(fqpndirectory=webpath).only("name").values_list("name", flat=True)
         # fetch an updated set of records, since we may have changed it from above.
         records_to_create = []
         for name, entry in fs_entries.items():
@@ -805,7 +804,10 @@ def sync_database_disk(directoryname):
                     print("Archive detected ", record.name)
                 records_to_create.append(record)
         if records_to_create:
-            index_data.objects.bulk_create(records_to_create, 100)
+            try:
+                index_data.objects.bulk_create(records_to_create, 100)
+            except django.db.utils.IntegrityError:
+                return None
             # The record is in the database, so it's already been vetted in the database comparison
         if bootstrap:
             index_data.objects.filter(delete_pending=True).delete()
@@ -819,7 +821,8 @@ def sync_database_disk(directoryname):
         new_rec.save()
 
         index_data.objects.filter(delete_pending=True).delete()
-    scan_lock.release_scan(webpath)
+    # scan_lock.release_scan(webpath)
+
 
 def read_from_disk(dir_to_scan, skippable=True):
     """
@@ -842,7 +845,7 @@ def read_from_disk(dir_to_scan, skippable=True):
     else:
         dir_path = Path(ensures_endswith(dir_to_scan, os.sep))
 
-    if not scan_lock.scan_in_progress(dir_path):
-        scan_lock.start_scan(dir_path)
-        sync_database_disk(str(dir_path))
-        scan_lock.release_scan(dir_path)
+    # if not scan_lock.scan_in_progress(dir_path):
+    #     scan_lock.start_scan(dir_path)
+    sync_database_disk(str(dir_path))
+    #     scan_lock.release_scan(dir_path)
