@@ -158,10 +158,7 @@
                             <div class="column is-one-third" style="border:1px solid black;background-color:#{{item.filetype.color}};">
                                 <b>{{ loop.index }}</b> <br>
         <!--                                             Setup the color for the item box and hyperlink into the box -->
-                                {% if item.filetype.is_archive %}<a href="{{ url('new_view_archive', args=[item.uuid]) }}?sort={{sort}}" class="thumbnail" style="background-color:#{{item.filetype.color}};">
-                                {% elif item.filetype.is_dir %}<a href="{{ webpath }}{{ item.name }}?page=1&sort={{sort}}" class="thumbnail" style="background-color:#{{item.filetype.color}};">
-                            {% else %}<a href="{{ url('new_viewitem', args=[item.uuid]) }}?sort={{sort}}" class="thumbnail" style="background-color:#{{item.filetype.color}};">
-                                {% endif %}
+                                <a href="{{item.get_view_url()}}?sort={{sort}}" class="thumbnail" style="background-color:#{{item.get_bg_color()}};">
 
         <!--            The Item title           -->
                                 {{ item.name|wordwrap(width=24, break_long_words=True)}} <br>

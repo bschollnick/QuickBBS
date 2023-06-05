@@ -266,7 +266,7 @@ class index_data(models.Model):
 
 
     def get_webpath(self):
-        return self.fqpndirectory.replace(settings.ALBUMS_PATH.lower(), r"")
+        return self.fqpndirectory.replace(settings.ALBUMS_PATH.lower()+r"/albums/", r"")
 
 
     def write_to_db_entry(self, fileentry, fqpn, version=4):
@@ -350,7 +350,8 @@ class index_data(models.Model):
         elif self.filetype.is_archive:
             parameters.append("&arch")
         if self.filetype.is_dir:
-            return reverse('home') + os.path.join(self.fqpndirectory.replace(settings.ALBUMS_PATH, ""), self.name)
+            print(self.get_webpath())
+            return reverse('directories') + os.path.join(self.get_webpath(), self.name)
         else:
             return reverse('new_viewitem', kwargs=options) + "".join(parameters)
 
