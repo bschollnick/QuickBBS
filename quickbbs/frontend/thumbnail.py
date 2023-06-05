@@ -105,7 +105,6 @@ def new_process_dir(db_index):
     files = images_in_dir(index_data,
                           ensures_endswith(os.path.join(db_index.fqpndirectory,
                                                         db_index.name).lower(), os.sep))
-    print(files.__dict__)
     #    print("\n\n !!! = ",os.path.join(db_index.fqpndirectory,
     #                                       db_index.name).lower(), files)
     if files:  # found an file in the directory to use for thumbnail purposes
