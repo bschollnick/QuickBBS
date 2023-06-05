@@ -29,14 +29,17 @@ print(f"* Running on {machine_name}")
 DEMO = False
 # DEMO = True
 if DEMO:
-    ALBUMS_PATH = "/Volumes/4TB_Drive/gallery_demo"
+    ALBUMS_PATH = "/Volumes/4TB_Drive/gallery_demo".lower()
+else:
+    ALBUMS_PATH = "/Volumes/C-8TB/Gallery/quickbbs".lower()
+
 print(f"* Demo Mode is {DEMO}")
 
 #
 #   Debug, enables the debugging mode
 #
 DEBUG = False
-DEBUG = not DEBUG
+#DEBUG = not DEBUG
 print(f"* Debug Mode is {DEBUG}")
 
 #
@@ -48,13 +51,18 @@ print(f"* Debug Mode is {DEBUG}")
 DEBUG_TOOLBAR = False
 print(f"* Debug-toolbar is {DEBUG_TOOLBAR}")
 
-JQUERY_VERSION = '3.6.1'
+# See https://releases.jquery.com/jquery/
+JQUERY_VERSION = '3.7.0'
+# JQUERY_VERSION = '3.6.1'
 JQUERY_URI = f'https://cdnjs.cloudflare.com/ajax/libs/jquery/{JQUERY_VERSION}/jquery.slim.min.js'
 
+# see https://cdnjs.com/libraries/bulma
 BULMA_VERSION = '0.9.4'
 BULMA_URI = f'https://cdnjs.cloudflare.com/ajax/libs/bulma/{BULMA_VERSION}/css/bulma.min.css'
 
-FONTAWESOME_VERSION = '6.2.1'
+# see https://cdnjs.com/libraries/font-awesome
+# FONTAWESOME_VERSION = '6.2.1'
+FONTAWESOME_VERSION = '6.4.0'
 FONTAWESOME_URI = f'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/{FONTAWESOME_VERSION}/css/all.min.css'
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
@@ -321,7 +329,7 @@ DJANGO_ICONS = {
 
 
 def show_toolbar(request):
-    return True
+    return DEBUG_TOOLBAR is True
 
 
 if DEBUG_TOOLBAR:
