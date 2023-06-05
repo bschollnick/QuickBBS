@@ -169,18 +169,33 @@
         <!--            Display the thumbnail           -->
 
                                 {% if item.filetype.is_dir %}
-                                    <img loading='lazy' src="{{ url('thumbnailspath') }}{{ item.uuid }}?size=small" class="img-responsive" style="width:auto;max-width:100%"/>
-                                {% elif item.filetype.is_pdf %}
-                                    <img loading='lazy' src="{{ url('thumbnailspath') }}{{ item.uuid }}?pdf&size=small" class="img-responsive" style="width:auto;max-width:100%"/>
-                                {% elif item.filetype.is_archive %}
-                                    <img loading='lazy' src="{{ url('thumbnailspath') }}{{ item.uuid }}?arch=0&size=small" class="img-responsive" style="width:auto;max-width:100%"/>
-                                {% elif item.filetype.is_image  or item.filetype.is_movie %}
-                                    <img loading='lazy' src="{{ url('thumbnailspath') }}{{ item.uuid }}?size=small" class="img-responsive" style="width:auto;max-width:100%"/>
-                                {% else %}
-                                    <img loading='lazy' src="/resources/images/{{ item.filetype.icon_filename }}" class="img-responsive" style="width:auto;max-width:100%"/>
+                                        <img loading='lazy' src="{{ url('thumbnailspath') }}{{ item.uuid }}?size=small" class="img-responsive" style="width:auto;max-width:100%"/>
+                                    {% elif item.filetype.is_pdf %}
+                                        <img loading='lazy' src="{{ url('thumbnailspath') }}{{ item.uuid }}?pdf&size=small" class="img-responsive" style="width:auto;max-width:100%"/>
+                                    {% elif item.filetype.is_archive %}
+                                        <img loading='lazy' src="{{ url('thumbnailspath') }}{{ item.uuid }}?arch=0&size=small" class="img-responsive" style="width:auto;max-width:100%"/>
+                                    {% elif item.filetype.is_image  or item.filetype.is_movie %}
+                                        <img loading='lazy' src="{{ url('thumbnailspath') }}{{ item.uuid }}?size=small" class="img-responsive" style="width:auto;max-width:100%"/>
+                                    {% else %}
+                                        <img loading='lazy' src="/resources/images/{{ item.filetype.icon_filename }}" class="img-responsive" style="width:auto;max-width:100%"/>
                                 {% endif -%}
                                 </a>
-
+                                {% if debug %}
+                                <br>
+                                    {% if item.filetype.is_dir %}
+                                        <a href="{{ url('thumbnailspath') }}{{ item.uuid }}?size=small" class="img-responsive" style="width:auto;max-width:100%"/>
+                                    {% elif item.filetype.is_pdf %}
+                                        <a href="{{ url('thumbnailspath') }}{{ item.uuid }}?pdf&size=small" class="img-responsive" style="width:auto;max-width:100%"/>
+                                    {% elif item.filetype.is_archive %}
+                                        <a href="{{ url('thumbnailspath') }}{{ item.uuid }}?arch=0&size=small" class="img-responsive" style="width:auto;max-width:100%"/>
+                                    {% elif item.filetype.is_image  or item.filetype.is_movie %}
+                                        <a href="{{ url('thumbnailspath') }}{{ item.uuid }}?size=small" class="img-responsive" style="width:auto;max-width:100%"/>
+                                    {% else %}
+                                        <a href="/resources/images/{{ item.filetype.icon_filename }}" class="img-responsive" style="width:auto;max-width:100%"/>
+                                    {% endif -%}
+                                    <sub>{{ url('thumbnailspath') }}{{ item.uuid }}</sub>
+                                    </a>
+                                {% endif %}
                                 <div class="column is-12 has-text-centered is-vcentered">
                                         {%- if item.filetype.is_animated -%}<tr><td colspan=2><b>Animated</b></td></tr>{%- endif %}
                                 </div>
