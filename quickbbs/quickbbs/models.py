@@ -355,6 +355,26 @@ class index_data(models.Model):
         else:
             return reverse('new_viewitem', kwargs=options) + "".join(parameters)
 
+    def get_thumbnail_url(self, size=None):
+        """
+        Generate the URL for the thumbnail of the current item
+
+        Returns
+        -------
+            Django URL object
+
+        """
+        if size not in settings.IMAGE_SIZE and size is not None:
+            size = None
+        if size is None:
+            size = "small"
+        size = size.lower()
+
+        options = {}
+        options["i_uuid"] = str(self.uuid)
+        parameters = []
+        return reverse("thumbnailspath") + f"{self.uuid}?size={size}"
+
     def get_download_url(self):
         """
         Generate the URL for the downloading of the current database item

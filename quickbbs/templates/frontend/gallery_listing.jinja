@@ -164,17 +164,8 @@
                                 {{ item.name|wordwrap(width=24, break_long_words=True)}} <br>
 
         <!--            Display the thumbnail           -->
-                                {% if item.filetype.is_dir %}
-                                        <img loading='lazy' src="{{ url('thumbnailspath') }}{{ item.uuid }}?size=small" class="img-responsive" style="width:auto;max-width:100%"/>
-                                    {% elif item.filetype.is_pdf %}
-                                        <img loading='lazy' src="{{ url('thumbnailspath') }}{{ item.uuid }}?pdf&size=small" class="img-responsive" style="width:auto;max-width:100%"/>
-                                    {% elif item.filetype.is_archive %}
-                                        <img loading='lazy' src="{{ url('thumbnailspath') }}{{ item.uuid }}?arch=0&size=small" class="img-responsive" style="width:auto;max-width:100%"/>
-                                    {% elif item.filetype.is_image  or item.filetype.is_movie %}
-                                        <img loading='lazy' src="{{ url('thumbnailspath') }}{{ item.uuid }}?size=small" class="img-responsive" style="width:auto;max-width:100%"/>
-                                    {% else %}
-                                        <img loading='lazy' src="/resources/images/{{ item.filetype.icon_filename }}" class="img-responsive" style="width:auto;max-width:100%"/>
-                                {% endif -%}
+                                <img loading='lazy' src="{{item.get_thumbnail_url()}}" class="img-responsive" style="width:auto;max-width:100%"/>
+
                                 </a>
                                 {% if debug %}
                                     <br>
