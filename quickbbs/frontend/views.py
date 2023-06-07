@@ -282,6 +282,7 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
     -------
     JsonResponse : The Json response from the web query.
     """
+    start_time = time.perf_counter()  # time.time()
     context = {"start_time": time.perf_counter(),
                "uuid": str(i_uuid).strip().replace("/", ""),
                }
@@ -307,12 +308,6 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
         with open(filename, 'r', encoding="ISO-8859-1") as textfile:
             context["html"] = markdown2.Markdown().convert("\n".join(textfile.readlines()))
     if entry.filetype.is_html:
-        from bs4 import UnicodeDammit
-#        with open(filename, 'rb') as datafile:
-#            content = datafile.read()
-#        suggestion = UnicodeDammit(content)
-#        print(dir(suggestion))
-#        print(suggestion.original_encoding)
         with open(filename, 'r', encoding="utf-8") as htmlfile:
             # context["html"] = bleach.clean("<br>".join(htmlfile.readlines()))
             context["html"] = "<br>".join(htmlfile.readlines())
@@ -332,44 +327,44 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
         context["size"]="medium"
     else:
         context["size"]="large"
-    context["page"] = page_uuids.index(context["uuid"]) + 1
-    context["first_uuid"] = page_uuids[0]
-    context["last_uuid"] = page_uuids[len(page_uuids) - 1]
-
     item_list = Paginator(catalog_qs, 1)
-    context["page_locale"] = int(context["page"] / settings.GALLERY_ITEMS_PER_PAGE) + 1
+
+    context.update( {"page": page_uuids.index(context["uuid"]) + 1,
+                     "first_uuid": page_uuids[0],
+                     "last_uuid": page_uuids[len(page_uuids) - 1],
+                     "pagecount": item_list.count,  # Switch this to math only, no paginator?
+                     "uuid": entry.uuid,
+                     "filename": entry.name,
+                     "filesize": entry.size,
+                     "filecount": entry.numfiles,
+                     "dircount": entry.numdirs,
+                     "subdircount": entry.count_subfiles,
+                     "is_animated": entry.is_animated,
+                     "lastmod": entry.lastmod,
+                     "lastmod_ds": datetime.datetime.fromtimestamp(entry.lastmod).strftime("%m/%d/%y %H:%M:%S"),
+                     "ft_filename": entry.filetype.icon_filename,
+                     "ft_color": entry.filetype.color,
+                     "ft_is_image": entry.filetype.is_image,
+                     "ft_is_archive": entry.filetype.is_archive,
+                     "ft_is_pdf": entry.filetype.is_pdf,
+                     "ft_is_movie": entry.filetype.is_movie,
+                     "ft_is_dir": entry.filetype.is_dir,
+                     "download_uri": entry.get_download_url(),
+                     "next_uuid": "",
+                     "previous_uuid": "",
+    })
+    context["page_locale"] = int(context["page"] / settings.GALLERY_ITEMS_PER_PAGE) + 1,
     # up_uri uses this to return you to the same page offset you were viewing
-    context["pagecount"] = item_list.count  # Switch this to math only, no paginator?
-    context["uuid"] = entry.uuid
-    context["filename"] = entry.name
-    context["filesize"] = entry.size
-    context["filecount"] = entry.numfiles
-    context["dircount"] = entry.numdirs
-    context["subdircount"] = entry.count_subfiles
-    context["is_animated"] = entry.is_animated
-    context["lastmod"] = entry.lastmod
-    context["lastmod_ds"] = datetime.datetime.fromtimestamp(entry.lastmod). \
-        strftime("%m/%d/%y %H:%M:%S")
-    context["ft_filename"] = entry.filetype.icon_filename
-    context["ft_color"] = entry.filetype.color
-    context["ft_is_image"] = entry.filetype.is_image
-    context["ft_is_archive"] = entry.filetype.is_archive
-    context["ft_is_pdf"] = entry.filetype.is_pdf
-    context["ft_is_movie"] = entry.filetype.is_movie
-    context["ft_is_dir"] = entry.filetype.is_dir
+
     context["dir_link"] = f'{context["webpath"]}{entry.name}?sort={context["sort"]}'
-    context["download_uri"] = entry.get_download_url()
-    #context["download_uri"] = f"/download/{entry.name}?UUID={entry.uuid}"
-    context["thumbnail_uri"] = entry.get_thumbnail_url(size=context['size']) #f"/thumbnails/{entry.uuid}?size={context['size']}"
+    context["thumbnail_uri"] = entry.get_thumbnail_url(size=context['size'])
     # generate next uuid pointers, switch this away from paginator?
-    context["next_uuid"] = ""
-    context["previous_uuid"] = ""
     page_contents = item_list.page(context["page"])
     if page_contents.has_next():
         context["next_uuid"] = catalog_qs[page_contents.next_page_number() - 1].uuid
     if page_contents.has_previous():
         context["previous_uuid"] = catalog_qs[page_contents.previous_page_number() - 1].uuid
-    print("Process time: ", time.perf_counter() - context["start_time"], "secs")
+    print("item info - Process time: ", time.perf_counter() - context["start_time"], "secs")
     # time.time() - context["start_time"], "secs")
     return Response(context)
 
@@ -391,8 +386,8 @@ def new_json_viewitem(request: WSGIRequest, i_uuid: str):
     """
     i_uuid = str(i_uuid).strip().replace("/", "")
     context = {}
-    if not is_valid_uuid(i_uuid):
-        return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
+#    if not is_valid_uuid(i_uuid):
+#        return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
 
     context["sort"] = sort_order(request)
     context["uuid"] = i_uuid
