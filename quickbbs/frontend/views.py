@@ -282,7 +282,7 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
     -------
     JsonResponse : The Json response from the web query.
     """
-    context = {"start_time": time.perf_counter(),  # time.time(),
+    context = {"start_time": time.perf_counter(),
                "uuid": str(i_uuid).strip().replace("/", ""),
                }
     if not is_valid_uuid(context["uuid"]):
@@ -327,6 +327,11 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
 
     page_uuids = [str(record.uuid) for record in catalog_qs]
 
+    context["mobile"] = detect_mobile(request)
+    if context["mobile"]:
+        context["size"]="medium"
+    else:
+        context["size"]="large"
     context["page"] = page_uuids.index(context["uuid"]) + 1
     context["first_uuid"] = page_uuids[0]
     context["last_uuid"] = page_uuids[len(page_uuids) - 1]
@@ -352,10 +357,10 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
     context["ft_is_pdf"] = entry.filetype.is_pdf
     context["ft_is_movie"] = entry.filetype.is_movie
     context["ft_is_dir"] = entry.filetype.is_dir
-    context["mobile"] = detect_mobile(request)
     context["dir_link"] = f'{context["webpath"]}{entry.name}?sort={context["sort"]}'
-    context["download_uri"] = f"/download/{entry.name}?UUID={entry.uuid}"
-    context["thumbnail_uri"] = f"/thumbnails/{entry.uuid}"
+    context["download_uri"] = entry.get_download_url()
+    #context["download_uri"] = f"/download/{entry.name}?UUID={entry.uuid}"
+    context["thumbnail_uri"] = entry.get_thumbnail_url(size=context['size']) #f"/thumbnails/{entry.uuid}?size={context['size']}"
     # generate next uuid pointers, switch this away from paginator?
     context["next_uuid"] = ""
     context["previous_uuid"] = ""
