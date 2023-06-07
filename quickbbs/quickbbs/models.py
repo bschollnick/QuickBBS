@@ -384,7 +384,7 @@ class index_data(models.Model):
             Django URL object
 
         """
-        return reverse('download', kwargs={"filename": self.name}) + "?UUID=" + str(self.uuid)
+        return reverse('download') + f"?UUID={self.uuid}"
         # null = System Owned
 
     class Meta:

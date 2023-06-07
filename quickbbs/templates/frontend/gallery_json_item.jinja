@@ -5,8 +5,17 @@
     <meta http-equiv="content-type" content="text/html; charset=utf-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <link rel="preload" href="{{bulma_uri}}" as="style" >
     <link rel="stylesheet" href="{{bulma_uri}}" defer>
-    <link rel="stylesheet" href="{{fontawesome_uri}}" defer></script>
+
+    {% if fontawesome_uri %}
+        <link rel="preload" href="{{fontawesome_uri}}" as="style"></script>
+        <link rel="stylesheet" href="{{fontawesome_uri}}" defer>
+    {% endif %}
+    {% if fontawesome_script_uri %}
+        <script src="https://kit.fontawesome.com/ad5033c5d1.js" crossorigin="anonymous"></script>
+    {% endif %}
     <script type="text/javascript" src="{{jquery_uri}}"></script>
     <title></title>
 </head>
@@ -186,12 +195,6 @@
 <script>
 var setDATA = function(data) {
     var command = "/view_item/"
-    console.log("Setting Title")
-    if (data.mobile){
-        var imagesize = "medium"
-        }
-    else {
-        var imagesize = "large"}
 
     //window.history.pushState(data.filename, data.filename, command + data.uuid + "?sort="+data.sort);
     window.history.pushState(undefined, '', command + data.uuid + "?sort="+data.sort);
@@ -200,20 +203,13 @@ var setDATA = function(data) {
     document.getElementById("breadcrumbs").innerHTML = data.breadcrumbs
     document.getElementById("up_uri").href = data.up_uri+'?page='+data.page_locale+'&sort=' + data.sort;
 
-    console.log("Setting Previous block")
     document.getElementById("first_uuid").onclick = function (){loadDATA(data.first_uuid, data.sort);return false;}
     document.getElementById("last_uuid").onclick = function (){loadDATA(data.last_uuid, data.sort);return false;}
     document.getElementById("previous_uuid").onclick = function (){loadDATA(data.previous_uuid, data.sort);return false;}
     document.getElementById("next_uuid").onclick = function (){loadDATA(data.next_uuid, data.sort);return false;}
 
     document.getElementById("next_tab_uuid").href = command + data.next_uuid + '?sort='+data.sort
-    console.log(data.next_uuid)
-    // document.getElementById("next_tab_uuid").href = data.next_uuid
-    //console.log(data.page, data.page == 1, data.page == "1")
 
-    console.log("--------------------")
-    console.log("data.pagecount - " + data.pagecount)
-    console.log("data.page - " + data.page)
     if (data.pagecount == data.page){
         document.getElementById("next_tab_uuid").style.visibility = "hidden"
         document.getElementById("last_uuid").style.visibility = "hidden"
@@ -224,8 +220,6 @@ var setDATA = function(data) {
     }
 
 
-    //console.log("Setting download block")
-    // document.getElementById("download_uri").href = '/download/'+data.filename+'?UUID='+data.uuid
     document.getElementById("download_uri").href = data.download_uri
 
     document.getElementById("uuid").innerHTML = data.uuid
@@ -265,7 +259,6 @@ var setDATA = function(data) {
     if (data.ft_is_pdf) {filetype += "&pdf"}
 
     if (data.html!=""){
-        console.log("HTML is populated")
         document.getElementById("movie_frame").style.display = "none"
         document.getElementById("thumbnail_frame").style.display = "none"
         document.getElementById("text_frame").style.display = "block"
@@ -290,13 +283,12 @@ var setDATA = function(data) {
         if (data.is_animated) {
                  $('#display_image').attr("src", data.download_uri);
             } else {
-                $('#display_image').attr("src", data.thumbnail_uri+"?size="+imagesize+filetype);
+                $('#display_image').attr("src", data.thumbnail_uri);
             }
         document.getElementById("movie_frame").style.display = "none"
         }
 
     if (data.ft_is_movie==false){
-        console.log("turn off movie")
         document.getElementById("movie_frame").style.display = "none"
         }
 
