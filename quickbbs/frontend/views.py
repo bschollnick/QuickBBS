@@ -44,11 +44,6 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 # Sending File or zipfile - https://djangosnippets.org/snippets/365/
 
 
-# DF_PNEXT = ["lastscan", "lastmod",
-#             "size", "numfiles",
-#             "numdirs", "parent_dir_id"]
-
-
 def return_prev_next(fqpn, currentpath, sorder) -> tuple:
     """
     The return_prev_next function takes a fully qualified pathname,
@@ -78,13 +73,13 @@ def return_prev_next(fqpn, currentpath, sorder) -> tuple:
     try:
         nextdir = dir_names[current_offset]
     except IndexError:
-        nextdir = ""
+        pass
 
     try:
         if current_offset >= 2:
             prevdir = dir_names[current_offset - 2]
     except IndexError:
-        prevdir = ""
+        pass
 
     return (prevdir, nextdir)
 
@@ -102,6 +97,7 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
 
     :raises: HttpResponseBadRequest - If the uuid can not be found
     """
+    start_time = time.perf_counter()  # time.time()
     if is_valid_uuid(str(tnail_id)):
         index_qs = index_data.objects.exclude(ignore=True).select_related("filetype").filter(uuid=tnail_id,
                                                                                              delete_pending=False)
@@ -132,6 +128,7 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
         # if entry.archives:
         #    page = int(g_option(request, "page", 0))
         #    return new_process_archive(entry, request, page)
+    print("thumbnail, processing time: ", time.perf_counter() - start_time)
     return HttpResponseBadRequest(content="Bad UUID or Unidentifable file.")
 
 
@@ -147,7 +144,7 @@ def search_viewresults(request: WSGIRequest):
 
     """
     print("NEW search GALLERY")
-    start_time = time.time()
+    start_time = time.perf_counter()  # time.time()
     context = {"small": g_option(request,
                                  "size",
                                  settings.IMAGE_SIZE["small"]),
@@ -161,16 +158,19 @@ def search_viewresults(request: WSGIRequest):
                "mobile": detect_mobile(request),
                "sort": sort_order(request),
                "fromtimestamp": datetime.datetime.fromtimestamp,
-               "searchtext": request.GET.get("searchtext", default=None)}
+               "searchtext": request.GET.get("searchtext", default=None),
+               "current_page": request.GET.get("page", 1),
+               "originator": request.META.get("HTTP_REFERER"),
+               "prev_uri": "",
+               "next_uri": "",
+               }
 
     index = index_data.objects.filter(name__icontains=context["searchtext"]). \
         order_by(*SORT_MATRIX[context["sort"]])
 
-    context["current_page"] = request.GET.get("page", 1)
     chk_list = Paginator(index, 30)
     context["page_cnt"] = list(arange(1, chk_list.num_pages + 1))
 
-    context["originator"] = request.META.get("HTTP_REFERER")
     if "/search/" in context["originator"] or context["originator"] is None:
         context["originator"] = request.GET.get("originator", "/albums")
 
@@ -183,12 +183,11 @@ def search_viewresults(request: WSGIRequest):
     except EmptyPage:
         context["pagelist"] = chk_list.page(chk_list.num_pages)
 
-    context["prev_uri"], context["next_uri"] = "", ""
     response = render(request,
                       "frontend/search_listing.jinja",
                       context,
                       using="Jinja2")
-    print("search View, processing time: ", time.time() - start_time)
+    print("search View, processing time: ", time.perf_counter() - start_time)
     return response
 
 
@@ -226,9 +225,12 @@ def new_viewgallery(request: WSGIRequest):
                "sort": sort_order(request),
                "webpath": ensures_endswith(paths["webpath"], os.sep),
                "breadcrumbs": return_breadcrumbs(paths["webpath"])[:-1],
-               "fromtimestamp": datetime.datetime.fromtimestamp, "thumbpath": paths["thumbpath"]}
+               "fromtimestamp": datetime.datetime.fromtimestamp, "thumbpath": paths["thumbpath"],
+               "current_page": request.GET.get("page", 1),
+               "gallery_name": os.path.split(request.path_info)[-1],
+               "up_uri": "/".join(request.build_absolute_uri().split("/")[0:-1]),
+    }
     if not os.path.exists(paths["album_viewing"]):
-        #
         #   Albums doesn't exist
         return HttpResponseNotFound('<h1>Page not found</h1>')
 
@@ -237,18 +239,10 @@ def new_viewgallery(request: WSGIRequest):
                                                             paths["webpath"][1:])), os.sep)
     read_from_disk(fs_path, skippable=True)  # new_viewgallery
     index = get_db_files(context["sort"], fs_path)
-    #    index = list(index.order_by(*SORT_MATRIX[context["sort"]]))
-    #   already sorted by get_db_files call.
 
-    context["current_page"] = request.GET.get("page", 1)
     chk_list = Paginator(index, 30)
     context["page_cnt"] = list(arange(1, chk_list.num_pages + 1))
-    # context["page_cnt"] = chk_list.page_range
 
-    #    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
-    context["up_uri"] = "/".join(request.build_absolute_uri().split("/")[0:-1])
-
-    context["gallery_name"] = os.path.split(request.path_info)[-1]
     try:
         context["pagelist"] = chk_list.page(context["current_page"])
     except PageNotAnInteger:
@@ -285,26 +279,26 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
     start_time = time.perf_counter()  # time.time()
     context = {"start_time": time.perf_counter(),
                "uuid": str(i_uuid).strip().replace("/", ""),
+               "sort": sort_order(request),
+               "html": "",
+               "breadcrumbs": "",
+               "breadcrumbs_list": [],
                }
-    if not is_valid_uuid(context["uuid"]):
-        return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
 
-    context["sort"] = sort_order(request)
     entry = index_data.objects.select_related("filetype").filter(uuid=context["uuid"])[0]
-
-    context["html"] = ""
-    sync_database_disk(entry.fqpndirectory)
+    if not entry:
+        return HttpResponseBadRequest(content="No entry found.")
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
+
+    sync_database_disk(entry.fqpndirectory)
     breadcrumbs = return_breadcrumbs(context["webpath"])
-    context["breadcrumbs"] = ""
-    context["breadcrumbs_list"] = []
     for bcrumb in breadcrumbs:
         context["breadcrumbs"] += f"<li>{bcrumb[2]}</li>"
         context["breadcrumbs_list"].append(bcrumb[2])
 
     filename = context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
+
     if entry.filetype.is_text or entry.filetype.is_markdown:
-        # context["html"] = markdown2.Markdown().convert("\n".join(open(filename).readlines()))
         with open(filename, 'r', encoding="ISO-8859-1") as textfile:
             context["html"] = markdown2.Markdown().convert("\n".join(textfile.readlines()))
     if entry.filetype.is_html:
@@ -324,40 +318,40 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
 
     context["mobile"] = detect_mobile(request)
     if context["mobile"]:
-        context["size"]="medium"
+        context["size"] = "medium"
     else:
-        context["size"]="large"
+        context["size"] = "large"
     item_list = Paginator(catalog_qs, 1)
 
-    context.update( {"page": page_uuids.index(context["uuid"]) + 1,
-                     "first_uuid": page_uuids[0],
-                     "last_uuid": page_uuids[len(page_uuids) - 1],
-                     "pagecount": item_list.count,  # Switch this to math only, no paginator?
-                     "uuid": entry.uuid,
-                     "filename": entry.name,
-                     "filesize": entry.size,
-                     "filecount": entry.numfiles,
-                     "dircount": entry.numdirs,
-                     "subdircount": entry.count_subfiles,
-                     "is_animated": entry.is_animated,
-                     "lastmod": entry.lastmod,
-                     "lastmod_ds": datetime.datetime.fromtimestamp(entry.lastmod).strftime("%m/%d/%y %H:%M:%S"),
-                     "ft_filename": entry.filetype.icon_filename,
-                     "ft_color": entry.filetype.color,
-                     "ft_is_image": entry.filetype.is_image,
-                     "ft_is_archive": entry.filetype.is_archive,
-                     "ft_is_pdf": entry.filetype.is_pdf,
-                     "ft_is_movie": entry.filetype.is_movie,
-                     "ft_is_dir": entry.filetype.is_dir,
-                     "download_uri": entry.get_download_url(),
-                     "next_uuid": "",
-                     "previous_uuid": "",
+    context.update({"page": page_uuids.index(context["uuid"]) + 1,
+                    "first_uuid": page_uuids[0],
+                    "last_uuid": page_uuids[len(page_uuids) - 1],
+                    "pagecount": item_list.count,  # Switch this to math only, no paginator?
+                    "uuid": entry.uuid,
+                    "filename": entry.name,
+                    "filesize": entry.size,
+                    "filecount": entry.numfiles,
+                    "dircount": entry.numdirs,
+                    "subdircount": entry.count_subfiles,
+                    "is_animated": entry.is_animated,
+                    "lastmod": entry.lastmod,
+                    "lastmod_ds": datetime.datetime.fromtimestamp(entry.lastmod).strftime("%m/%d/%y %H:%M:%S"),
+                    "ft_filename": entry.filetype.icon_filename,
+                    "ft_color": entry.filetype.color,
+                    "ft_is_image": entry.filetype.is_image,
+                    "ft_is_archive": entry.filetype.is_archive,
+                    "ft_is_pdf": entry.filetype.is_pdf,
+                    "ft_is_movie": entry.filetype.is_movie,
+                    "ft_is_dir": entry.filetype.is_dir,
+                    "download_uri": entry.get_download_url(),
+                    "next_uuid": "",
+                    "previous_uuid": "",
+                    "dir_link": f'{context["webpath"]}{entry.name}?sort={context["sort"]}',
+                    "thumbnail_uri": entry.get_thumbnail_url(size=context["size"]),
     })
     context["page_locale"] = int(context["page"] / settings.GALLERY_ITEMS_PER_PAGE) + 1,
     # up_uri uses this to return you to the same page offset you were viewing
 
-    context["dir_link"] = f'{context["webpath"]}{entry.name}?sort={context["sort"]}'
-    context["thumbnail_uri"] = entry.get_thumbnail_url(size=context['size'])
     # generate next uuid pointers, switch this away from paginator?
     page_contents = item_list.page(context["page"])
     if page_contents.has_next():
@@ -365,7 +359,6 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
     if page_contents.has_previous():
         context["previous_uuid"] = catalog_qs[page_contents.previous_page_number() - 1].uuid
     print("item info - Process time: ", time.perf_counter() - context["start_time"], "secs")
-    # time.time() - context["start_time"], "secs")
     return Response(context)
 
 
@@ -385,13 +378,10 @@ def new_json_viewitem(request: WSGIRequest, i_uuid: str):
 
     """
     i_uuid = str(i_uuid).strip().replace("/", "")
-    context = {}
-#    if not is_valid_uuid(i_uuid):
-#        return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
 
-    context["sort"] = sort_order(request)
-    context["uuid"] = i_uuid
-    context["user"] = request.user
+    context = {"sort": sort_order(request),
+               "uuid": i_uuid,
+               "user": request.user}
     response = render(request,
                       "frontend/gallery_json_item.jinja",
                       context,
@@ -428,15 +418,6 @@ def downloadFile(request: WSGIRequest):  # , filename=None):
     if d_uuid in ["", None] or not download.exists():
         raise Http404
 
-    # page = request.GET.get('page', None)
-    # if page is None:
-    #     download = index_data.objects.select_related("filetype").filter(uuid=d_uuid,
-    #                                                                     ignore=False,
-    #                                                                     delete_pending=False)
-    # else:
-    #     print(f"Attempting to find page {page} in archive")
-    # # print(f"\tDownloading - {download.fqpndirectory.lower()}, {download.name}, {download.filetype}")
-
     return respond_as_inline(request,
                              download[0].fqpndirectory.lower(),
                              download[0].name,
@@ -449,7 +430,10 @@ def new_view_archive(request: WSGIRequest, i_uuid: str):
 
     *need to rewrite*
     """
-    context = {}
+    context = {
+                "next": "",
+                "previous": ""
+               }
     i_uuid = str(i_uuid).strip().replace("/", "")
     if not is_valid_uuid(i_uuid):
         return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
@@ -473,8 +457,6 @@ def new_view_archive(request: WSGIRequest, i_uuid: str):
     context["mobile"] = detect_mobile(request)
     context["sort"] = sort_order(request)
 
-    context["next"] = ""
-    context["previous"] = ""
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
     context["webpath"] = ensures_endswith(context["webpath"], "/")
     context["fromtimestamp"] = datetime.datetime.fromtimestamp
@@ -529,7 +511,9 @@ def new_archive_item(request, i_uuid):
 
     """
     i_uuid = str(i_uuid).strip().replace("/", "")
-    context = {}
+    context = {"next":  "",
+               "prev":  "",
+               }
     if not is_valid_uuid(i_uuid):
         return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
 
@@ -537,6 +521,9 @@ def new_archive_item(request, i_uuid):
     e_uuid = i_uuid
     index_qs = index_data.objects.filter(uuid=e_uuid)
     entry = index_qs[0]
+    context.update({
+
+    })
     item_fs = os.path.join(settings.ALBUMS_PATH,
                            entry.fqpndirectory[1:],
                            entry.name)
@@ -558,15 +545,11 @@ def new_archive_item(request, i_uuid):
 
     if context["page_contents"].has_next():
         context["next"] = f"view_archive_item/{entry.uuid}?page={context['page_contents'].next_page_number() - 1}"
-    else:
-        context["next"] = ""
 
     if context["page_contents"].has_previous():
         context[
             "previous"] = f"view_archive_item/{entry.uuid}?page={context['page_contents'].previous_page_number() - 1}"
-    else:
-        context["previous"] = ""
-    #
+
     context["first"] = f"view_archive_item/{entry.uuid}?page={0}"
     context["last"] = f"view_archive_item/{entry.uuid}?page={context['pagecount']}"
 
