@@ -32,7 +32,9 @@ from frontend.thumbnail import (new_process_dir,
                                 new_process_img)
 from frontend.utilities import (ensures_endswith, is_valid_uuid,
                                 read_from_disk, return_breadcrumbs, sort_order, sync_database_disk)
-from frontend.web import detect_mobile, g_option, respond_as_inline
+from frontend.web import detect_mobile, g_option, respond_as_inline, respond_as_attachment
+
+from filetypes.models import FILETYPE_DATA
 
 log = logging.getLogger(__name__)
 warnings.simplefilter('ignore', Image.DecompressionBombWarning)
@@ -97,10 +99,8 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
 
     :raises: HttpResponseBadRequest - If the uuid can not be found
     """
-    start_time = time.perf_counter()  # time.time()
     if is_valid_uuid(str(tnail_id)):
-        index_qs = index_data.objects.exclude(ignore=True).select_related("filetype").filter(uuid=tnail_id,
-                                                                                             delete_pending=False)
+        index_qs = index_data.objects.exclude(ignore=True, delete_pending=True).select_related("filetype").filter(uuid=tnail_id)
         if not index_qs.exists():
             # does not exist
             print(tnail_id, "No records returned.")
@@ -109,6 +109,14 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
         entry = index_qs[0]
         fs_item = os.path.join(entry.fqpndirectory, entry.name)
         fname = os.path.basename(fs_item).title()
+        if entry.filetype.icon_filename not in ["", None]:
+            entry.is_generic_icon = True
+            entry.fqpndirectory = os.path.join(settings.RESOURCES_PATH, "images",
+                                                            entry.filetype.icon_filename)
+            return respond_as_attachment(request, os.path.join(settings.RESOURCES_PATH,"Images"), entry.filetype.icon_filename)
+
+
+
         if entry.filetype.is_dir:
             if entry.directory is None:  # == None:
                 entry.directory = Thumbnails_Dirs()
@@ -128,7 +136,6 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
         # if entry.archives:
         #    page = int(g_option(request, "page", 0))
         #    return new_process_archive(entry, request, page)
-    print("thumbnail, processing time: ", time.perf_counter() - start_time)
     return HttpResponseBadRequest(content="Bad UUID or Unidentifable file.")
 
 
