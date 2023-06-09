@@ -21,7 +21,7 @@ from django.db.utils import ProgrammingError, OperationalError
 from django.http import (Http404, HttpResponseBadRequest, HttpResponseNotFound)
 from django.shortcuts import render
 from numpy import arange
-from quickbbs.models import Thumbnails_Dirs, Thumbnails_Files, index_data  #, scan_lock
+from quickbbs.models import Thumbnails_Dirs, Thumbnails_Files, index_data  # , scan_lock
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
@@ -62,7 +62,7 @@ def return_prev_next(fqpn, currentpath, sorder) -> tuple:
     currentpath = os.path.split(currentpath.lower().strip())[1]
     read_from_disk(fqpn, skippable=True)
     index = get_db_files(sorder, fqpn)
-    #dirs_only = index.exclude(ignore=True, delete_pending=False).filter(filetype__is_dir=True).only("name").values_list()
+    # dirs_only = index.exclude(ignore=True, delete_pending=False).filter(filetype__is_dir=True).only("name").values_list()
     dir_names = list(index.exclude(ignore=True, delete_pending=False).filter(filetype__is_dir=True).only(
         "name").values_list("name", flat=True))
     print(dir_names)
@@ -103,7 +103,8 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
     :raises: HttpResponseBadRequest - If the uuid can not be found
     """
     if is_valid_uuid(str(tnail_id)):
-        index_qs = index_data.objects.exclude(ignore=True, delete_pending=True).select_related("filetype").filter(uuid=tnail_id)
+        index_qs = index_data.objects.exclude(ignore=True, delete_pending=True).select_related("filetype").filter(
+            uuid=tnail_id)
         if not index_qs.exists():
             # does not exist
             print(tnail_id, "No records returned.")
@@ -115,9 +116,9 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
         if entry.filetype.icon_filename not in ["", None] and not entry.filetype.is_dir:
             entry.is_generic_icon = True
             entry.fqpndirectory = os.path.join(settings.RESOURCES_PATH, "images",
-                                                            entry.filetype.icon_filename)
-            return respond_as_attachment(request, os.path.join(settings.RESOURCES_PATH,"Images"), entry.filetype.icon_filename)
-
+                                               entry.filetype.icon_filename)
+            return respond_as_attachment(request, os.path.join(settings.RESOURCES_PATH, "Images"),
+                                         entry.filetype.icon_filename)
 
         if entry.filetype.is_dir:
             if entry.directory is None:  # == None:
@@ -238,7 +239,7 @@ def new_viewgallery(request: WSGIRequest):
                "current_page": request.GET.get("page", 1),
                "gallery_name": os.path.split(request.path_info)[-1],
                "up_uri": "/".join(request.build_absolute_uri().split("/")[0:-1]),
-    }
+               }
     if not os.path.exists(paths["album_viewing"]):
         #   Albums doesn't exist
         return HttpResponseNotFound('<h1>Page not found</h1>')
@@ -357,7 +358,7 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
                     "previous_uuid": "",
                     "dir_link": f'{context["webpath"]}{entry.name}?sort={context["sort"]}',
                     "thumbnail_uri": entry.get_thumbnail_url(size=context["size"]),
-    })
+                    })
     context["page_locale"] = int(context["page"] / settings.GALLERY_ITEMS_PER_PAGE) + 1,
     # up_uri uses this to return you to the same page offset you were viewing
 
@@ -440,9 +441,9 @@ def new_view_archive(request: WSGIRequest, i_uuid: str):
     *need to rewrite*
     """
     context = {
-                "next": "",
-                "previous": ""
-               }
+        "next": "",
+        "previous": ""
+    }
     i_uuid = str(i_uuid).strip().replace("/", "")
     if not is_valid_uuid(i_uuid):
         return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
@@ -520,8 +521,8 @@ def new_archive_item(request, i_uuid):
 
     """
     i_uuid = str(i_uuid).strip().replace("/", "")
-    context = {"next":  "",
-               "prev":  "",
+    context = {"next": "",
+               "prev": "",
                }
     if not is_valid_uuid(i_uuid):
         return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
