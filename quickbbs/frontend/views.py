@@ -62,14 +62,17 @@ def return_prev_next(fqpn, currentpath, sorder) -> tuple:
     currentpath = os.path.split(currentpath.lower().strip())[1]
     read_from_disk(fqpn, skippable=True)
     index = get_db_files(sorder, fqpn)
-    dirs_only = index.exclude(ignore=True).filter(filetype__is_dir=True)
-
-    dir_names = [dname.name.lower() for dname in dirs_only]
+    #dirs_only = index.exclude(ignore=True, delete_pending=False).filter(filetype__is_dir=True).only("name").values_list()
+    dir_names = list(index.exclude(ignore=True, delete_pending=False).filter(filetype__is_dir=True).only(
+        "name").values_list("name", flat=True))
+    print(dir_names)
+    # dir_names = [dname.name.lower() for dname in dirs_only]
     nextdir = ""  # unnecessary since going beyond the max offset will cause indexerror.
     prevdir = ""
     try:
-        current_offset = dir_names.index(currentpath) + 1
+        current_offset = dir_names.index(currentpath.title()) + 1
     except ValueError:
+        print("VE")
         return prevdir, nextdir
 
     try:
@@ -109,12 +112,11 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
         entry = index_qs[0]
         fs_item = os.path.join(entry.fqpndirectory, entry.name)
         fname = os.path.basename(fs_item).title()
-        if entry.filetype.icon_filename not in ["", None]:
+        if entry.filetype.icon_filename not in ["", None] and not entry.filetype.is_dir:
             entry.is_generic_icon = True
             entry.fqpndirectory = os.path.join(settings.RESOURCES_PATH, "images",
                                                             entry.filetype.icon_filename)
             return respond_as_attachment(request, os.path.join(settings.RESOURCES_PATH,"Images"), entry.filetype.icon_filename)
-
 
 
         if entry.filetype.is_dir:
