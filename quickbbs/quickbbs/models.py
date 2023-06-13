@@ -350,7 +350,6 @@ class index_data(models.Model):
         elif self.filetype.is_archive:
             parameters.append("&arch")
         if self.filetype.is_dir:
-            print(self.get_webpath())
             return reverse('directories') + os.path.join(self.get_webpath(), self.name)
         else:
             return reverse('new_viewitem', kwargs=options) + "".join(parameters)

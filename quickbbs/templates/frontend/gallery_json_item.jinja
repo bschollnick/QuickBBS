@@ -21,6 +21,7 @@
 </head>
 
 <body>
+{% autoescape off %}
 <nav class="navbar is-light" role="navigation" aria-label="main navigation">
     <div class="navbar-brand">
         <a class="navbar-item" href="{{ url('home') }}">
@@ -191,7 +192,7 @@
                         </div>
                 </div>
             </div>
-
+{% endautoescape %}
 <script>
 var setDATA = function(data) {
     var command = "/view_item/"

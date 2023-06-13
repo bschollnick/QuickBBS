@@ -51,34 +51,6 @@ SORT_MATRIX = {0: ["-filetype__is_dir", "sortname", "lastmod"],
                2: ["-filetype__is_dir", "sortname"],
                }
 
-
-# def get_values(database, values):
-#     """
-#         Fetch specific database values only from the database
-#
-#             potentially depreciated due to watchdog and v3
-#     """
-#     # https://stackoverflow.com/questions/5903384
-#     return database.objects.values(*values)
-
-
-# def get_defered(database, defers):
-#     """
-#         get defered values from the database
-#     """
-#     #https://stackoverflow.com/questions/5903384
-#     return database.objects.defer(*defers)
-
-# def get_filtered(queryset, filtervalues):
-#     """
-#         Apply a filter to the queryset
-#
-#             potentially depreciated due to watchdog and v3
-#     """
-#     # https://stackoverflow.com/questions/5903384
-#     return queryset.exclude(ignore=True).exclude(delete_pending=True).filter(**filtervalues)
-
-
 def get_db_files(sorder, fpath) -> Iterator[index_data]:
     """
         Fetch the data from the database, and then order by the current users sort
@@ -120,7 +92,7 @@ def check_dup_thumbs(uuid_to_check, page=0):
     check_dup_thumbs(uuid, page=4)
     """
     #    print(sys._getframe().f_code.co_name)
-    indexrec = index_data.objects.filter(uuid=str(uuid_to_check).strip(), ignore=False)[0]
+    indexrec = index_data.objects.filter(uuid=str(uuid_to_check).strip(), delete_pending=False, ignore=False)[0]
     qset = None
     if indexrec.file_tnail is None:
         qset = Thumbnails_Files.objects.filter(uuid=indexrec.uuid).exclude(
