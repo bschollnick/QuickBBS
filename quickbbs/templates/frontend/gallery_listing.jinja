@@ -6,14 +6,18 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="preload" href="{{bulma_uri}}" as="style" >
-    <link rel="preload" href="{{fontawesome_uri}}" as="style"></script>
+    <link rel="preload" href="{{fontawesome_uri}}" as="style">
 
     <link rel="stylesheet" href="{{bulma_uri}}" defer>
     <link rel="stylesheet" href="{{fontawesome_uri}}" defer>
 
     <title>{% block title %} {{ gallery_name }} {% endblock %}</title>
+    {% for missing_uri in missing %}
+        <link rel="preload" href={{ missing_uri}} as="image">
+    {% endfor %}
 </head>
 <body>
+{% autoescape off %}
 <nav class="navbar is-light" role="navigation" aria-label="main navigation">
     <div class="navbar-brand">
         <a class="navbar-item" href="{{ url('home') }}">
@@ -231,6 +235,7 @@
         </div>
     </div>
 </div>
+{% endautoescape %}
 
 </body>
 </html>

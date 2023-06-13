@@ -20,6 +20,7 @@ from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
 from django.db.utils import ProgrammingError, OperationalError
 from django.http import (Http404, HttpResponseBadRequest, HttpResponseNotFound)
 from django.shortcuts import render
+from django.db.models import Q
 from numpy import arange
 from quickbbs.models import Thumbnails_Dirs, Thumbnails_Files, index_data  # , scan_lock
 from rest_framework.decorators import api_view
@@ -62,17 +63,16 @@ def return_prev_next(fqpn, currentpath, sorder) -> tuple:
     currentpath = os.path.split(currentpath.lower().strip())[1]
     read_from_disk(fqpn, skippable=True)
     index = get_db_files(sorder, fqpn)
-    # dirs_only = index.exclude(ignore=True, delete_pending=False).filter(filetype__is_dir=True).only("name").values_list()
-    dir_names = list(index.exclude(ignore=True, delete_pending=False).filter(filetype__is_dir=True).only(
+    # dirs_only = index.exclude(ignore=True, delete_pending=False).filter(filetype__is_dir=True).only(
+    # "name").values_list()
+    dir_names = list(index.exclude(ignore=True, delete_pending=False, filetype__is_dir=False).only(
         "name").values_list("name", flat=True))
-    print(dir_names)
     # dir_names = [dname.name.lower() for dname in dirs_only]
     nextdir = ""  # unnecessary since going beyond the max offset will cause indexerror.
     prevdir = ""
     try:
         current_offset = dir_names.index(currentpath.title()) + 1
     except ValueError:
-        print("VE")
         return prevdir, nextdir
 
     try:
@@ -113,12 +113,6 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
         entry = index_qs[0]
         fs_item = os.path.join(entry.fqpndirectory, entry.name)
         fname = os.path.basename(fs_item).title()
-        if entry.filetype.icon_filename not in ["", None] and not entry.filetype.is_dir:
-            entry.is_generic_icon = True
-            entry.fqpndirectory = os.path.join(settings.RESOURCES_PATH, "images",
-                                               entry.filetype.icon_filename)
-            return respond_as_attachment(request, os.path.join(settings.RESOURCES_PATH, "Images"),
-                                         entry.filetype.icon_filename)
 
         if entry.filetype.is_dir:
             if entry.directory is None:  # == None:
@@ -135,6 +129,13 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
                 entry.file_tnail.FilePath = fs_item
                 entry.file_tnail.FileName = fname
             return new_process_img(entry, request)
+
+        if entry.filetype.icon_filename not in ["", None] and not entry.filetype.is_dir:
+            entry.is_generic_icon = True
+            entry.fqpndirectory = os.path.join(settings.RESOURCES_PATH, "images",
+                                               entry.filetype.icon_filename)
+            return respond_as_attachment(request, os.path.join(settings.RESOURCES_PATH, "Images"),
+                                         entry.filetype.icon_filename)
 
         # if entry.archives:
         #    page = int(g_option(request, "page", 0))
@@ -239,6 +240,7 @@ def new_viewgallery(request: WSGIRequest):
                "current_page": request.GET.get("page", 1),
                "gallery_name": os.path.split(request.path_info)[-1],
                "up_uri": "/".join(request.build_absolute_uri().split("/")[0:-1]),
+               "missing":[],
                }
     if not os.path.exists(paths["album_viewing"]):
         #   Albums doesn't exist
@@ -263,11 +265,27 @@ def new_viewgallery(request: WSGIRequest):
     context["prev_uri"], context["next_uri"] = return_prev_next(
         os.path.dirname(paths["album_viewing"]),
         paths["webpath"], context["sort"])
+    missing_files = index.filter(Q(file_tnail=None) &
+                                 (Q(filetype__is_pdf=True) | Q(filetype__is_image=True) |
+                                  Q(filetype__is_movie=True)))[0:10]
+    if missing_files.exists():
+        context["missing"] = [entry.get_thumbnail_url() for entry in missing_files]
     response = render(request,
                       "frontend/gallery_listing.jinja",
                       context,
                       using="Jinja2")
     print("Gallery View, processing time: ", time.perf_counter() - start_time)  # time.time() - start_time)
+    # if missing_files.exists():
+    #     for entry in missing_files:
+    #         if entry.file_tnail is None:  # == None:
+    #             fs_item = os.path.join(entry.fqpndirectory, entry.name)
+    #             fname = os.path.basename(fs_item).title()
+    #             entry.file_tnail = Thumbnails_Files()
+    #             entry.file_tnail.uuid = entry.uuid
+    #             entry.file_tnail.FilePath = fs_item
+    #             entry.file_tnail.FileName = fname
+    #             new_process_img(entry, request)
+
     return response
 
 
@@ -422,8 +440,8 @@ def downloadFile(request: WSGIRequest):  # , filename=None):
     if d_uuid is None:  # == None:
         d_uuid = request.GET.get("uuid", None)
 
-    download = index_data.objects.select_related("filetype").exclude(ignore=True).filter(uuid=d_uuid,
-                                                                                         delete_pending=False)
+    download = index_data.objects.select_related("filetype").exclude(ignore=True,
+                                                                     delete_pending=True).filter(uuid=d_uuid)
 
     if d_uuid in ["", None] or not download.exists():
         raise Http404

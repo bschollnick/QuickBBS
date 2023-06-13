@@ -749,7 +749,7 @@ def sync_database_disk(directoryname):
         # If changed, then watchdog should have removed it from the path.
         _, fs_entries = return_disk_listing(dirpath)
         db_data = index_data.objects.select_related("filetype", "directory").filter(
-            fqpndirectory=webpath, ignore=False)
+            fqpndirectory=webpath, delete_pending=False, ignore=False)
 
         for db_entry in db_data:
             if db_entry.name.strip() not in fs_entries:
