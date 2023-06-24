@@ -369,9 +369,7 @@ class index_data(models.Model):
             size = "small"
         size = size.lower()
 
-        options = {}
-        options["i_uuid"] = str(self.uuid)
-        parameters = []
+        options = {"i_uuid": str(self.uuid)}
         return reverse("thumbnailspath") + f"{self.uuid}?size={size}"
 
     def get_download_url(self):

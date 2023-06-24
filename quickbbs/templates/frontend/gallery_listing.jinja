@@ -12,9 +12,6 @@
     <link rel="stylesheet" href="{{fontawesome_uri}}" defer>
 
     <title>{% block title %} {{ gallery_name }} {% endblock %}</title>
-    {% for missing_uri in missing %}
-        <link rel="preload" href={{ missing_uri}} as="image">
-    {% endfor %}
 </head>
 <body>
 {% autoescape off %}
@@ -166,12 +163,13 @@
                             <div class="column is-one-third" style="border:1px solid black;background-color:#{{item.filetype.color}};">
                                 <b>{{ loop.index }}</b> <br>
         <!--                                             Setup the color for the item box and hyperlink into the box -->
-                                <a href="{{item.get_view_url()}}?sort={{sort}}" class="thumbnail" style="background-color:#{{item.get_bg_color()}};">
+                                <a href="{{item.get_view_url()}}?sort={{sort}}" class="thumbnail" style="background-color:#{{item.get_bg_color()}};" defer>
 
         <!--            The Item title           -->
                                 {{ item.name|wordwrap(width=24, break_long_words=True)}} <br>
 
         <!--            Display the thumbnail           -->
+                                    <link rel="preload" href={{item.get_thumbnail_url()}} as="image" defer>
                                 <img loading='lazy' src="{{item.get_thumbnail_url()}}" class="img-responsive" style="width:auto;max-width:100%"/>
 
                                 </a>
@@ -235,6 +233,10 @@
         </div>
     </div>
 </div>
+    {% for missing_uri in missing %}
+        <link rel="preload" href={{ missing_uri}} as="image">
+    {% endfor %}
+
 {% endautoescape %}
 
 </body>

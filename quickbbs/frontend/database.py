@@ -55,7 +55,7 @@ def get_db_files(sorder, fpath) -> Iterator[index_data]:
     """
         Fetch the data from the database, and then order by the current users sort
     """
-    index = index_data.objects.select_related("filetype").exclude(ignore=True, delete_pending=True).filter(
+    index = index_data.objects.prefetch_related("filetype").exclude(ignore=True).exclude(delete_pending=True).filter(
         fqpndirectory=fpath.lower().strip()).order_by(*SORT_MATRIX[sorder])
     return index
 
@@ -91,8 +91,7 @@ def check_dup_thumbs(uuid_to_check, page=0):
 
     check_dup_thumbs(uuid, page=4)
     """
-    #    print(sys._getframe().f_code.co_name)
-    indexrec = index_data.objects.filter(uuid=str(uuid_to_check).strip(), delete_pending=False, ignore=False)[0]
+    indexrec = index_data.objects.exclude(delete_pending=True).exclude(ignore=True).filter(uuid=str(uuid_to_check).strip())[0]
     qset = None
     if indexrec.file_tnail is None:
         qset = Thumbnails_Files.objects.filter(uuid=indexrec.uuid).exclude(
@@ -140,7 +139,7 @@ def get_xth_image(database, positional=0, filters=None) -> Iterator[index_data]:
         filters = []
 
     data = database.objects.select_related("filetype").filter(**filters) \
-        .exclude(filetype__is_image=False, ignore=True, delete_pending=True)
+        .exclude(filetype__is_image=False).exclude(ignore=True).exclude(delete_pending=True)
     try:
         # exact match
         return data[positional]
