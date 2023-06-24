@@ -59,8 +59,8 @@ def images_in_dir(database, webpath) -> Iterator[index_data]:
     """
 
     #   What files exist in this directory?
-    filters = {'fqpndirectory': ensures_endswith(webpath.lower(), os.sep),
-               'ignore': False, 'delete_pending': False, "filetype__is_image": True}
+    filters = {'fqpndirectory': ensures_endswith(webpath.lower(), os.sep)}
+               #,'ignore': False, 'delete_pending': False, "filetype__is_image": True}
     files = get_xth_image(database, 0, filters)
 
     if files is None or not os.path.exists(os.path.join(webpath, files.name)):

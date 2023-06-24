@@ -17,7 +17,7 @@ from PIL import Image, ImageFile
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
-from django.db.utils import ProgrammingError, OperationalError
+from django.db.utils import ProgrammingError, OperationalError, IntegrityError
 from django.http import (Http404, HttpResponseBadRequest, HttpResponseNotFound)
 from django.shortcuts import render
 from django.db.models import Q
@@ -57,34 +57,33 @@ def return_prev_next(fqpn, currentpath, sorder) -> tuple:
     :param sorder: Determine whether the index is sorted by name or size
     :return: A tuple of two strings,
 
+    Note:
+    ORM only derived from https://stackoverflow.com/questions/1042596/
+            get-the-index-of-an-element-in-a-queryset
+                Specifically Richard's answer.
     """
     # Parent_path = Path(fqpn).parent
     fqpn = ensures_endswith(fqpn.lower(), os.sep).replace("//", "/")
     currentpath = os.path.split(currentpath.lower().strip())[1]
     read_from_disk(fqpn, skippable=True)
-    index = get_db_files(sorder, fqpn)
-    # dirs_only = index.exclude(ignore=True, delete_pending=False).filter(filetype__is_dir=True).only(
-    # "name").values_list()
-    dir_names = list(index.exclude(ignore=True, delete_pending=False, filetype__is_dir=False).only(
-        "name").values_list("name", flat=True))
-    # dir_names = [dname.name.lower() for dname in dirs_only]
+    index = get_db_files(sorder, fqpn).exclude(ignore=True).exclude(delete_pending=True).exclude(filetype__is_dir=False)
+    index = index.only("name")
     nextdir = ""  # unnecessary since going beyond the max offset will cause indexerror.
     prevdir = ""
-    try:
-        current_offset = dir_names.index(currentpath.title()) + 1
-    except ValueError:
-        return prevdir, nextdir
 
-    try:
-        nextdir = dir_names[current_offset]
-    except IndexError:
-        pass
+    if index.exists():
+        current_offset = index.filter(name__lt=currentpath.title()).count()
 
-    try:
-        if current_offset >= 2:
-            prevdir = dir_names[current_offset - 2]
-    except IndexError:
-        pass
+        try:
+            nextdir = index[current_offset+1].name
+        except IndexError:
+            pass
+
+        try:
+            if current_offset >= 2:
+                prevdir = index[current_offset-1].name
+        except IndexError:
+            pass
 
     return (prevdir, nextdir)
 
@@ -103,7 +102,8 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
     :raises: HttpResponseBadRequest - If the uuid can not be found
     """
     if is_valid_uuid(str(tnail_id)):
-        index_qs = index_data.objects.exclude(ignore=True, delete_pending=True).select_related("filetype").filter(
+        index_qs = index_data.objects.exclude(ignore=True).exclude(delete_pending=True).select_related(
+            "filetype").filter(
             uuid=tnail_id)
         if not index_qs.exists():
             # does not exist
@@ -128,7 +128,11 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
                 entry.file_tnail.uuid = entry.uuid
                 entry.file_tnail.FilePath = fs_item
                 entry.file_tnail.FileName = fname
-            return new_process_img(entry, request)
+            try:
+                return new_process_img(entry, request)
+            except IntegrityError:
+                time.sleep(.5)
+                return new_process_img(entry, request)
 
         if entry.filetype.icon_filename not in ["", None] and not entry.filetype.is_dir:
             entry.is_generic_icon = True
@@ -240,7 +244,7 @@ def new_viewgallery(request: WSGIRequest):
                "current_page": request.GET.get("page", 1),
                "gallery_name": os.path.split(request.path_info)[-1],
                "up_uri": "/".join(request.build_absolute_uri().split("/")[0:-1]),
-               "missing":[],
+               "missing": [],
                }
     if not os.path.exists(paths["album_viewing"]):
         #   Albums doesn't exist
@@ -267,25 +271,15 @@ def new_viewgallery(request: WSGIRequest):
         paths["webpath"], context["sort"])
     missing_files = index.filter(Q(file_tnail=None) &
                                  (Q(filetype__is_pdf=True) | Q(filetype__is_image=True) |
-                                  Q(filetype__is_movie=True)))[0:10]
+                                  Q(filetype__is_movie=True))).order_by("-lastmod")
     if missing_files.exists():
+        missing_files = missing_files[0:10]
         context["missing"] = [entry.get_thumbnail_url() for entry in missing_files]
     response = render(request,
                       "frontend/gallery_listing.jinja",
                       context,
                       using="Jinja2")
     print("Gallery View, processing time: ", time.perf_counter() - start_time)  # time.time() - start_time)
-    # if missing_files.exists():
-    #     for entry in missing_files:
-    #         if entry.file_tnail is None:  # == None:
-    #             fs_item = os.path.join(entry.fqpndirectory, entry.name)
-    #             fname = os.path.basename(fs_item).title()
-    #             entry.file_tnail = Thumbnails_Files()
-    #             entry.file_tnail.uuid = entry.uuid
-    #             entry.file_tnail.FilePath = fs_item
-    #             entry.file_tnail.FileName = fname
-    #             new_process_img(entry, request)
-
     return response
 
 
@@ -315,10 +309,12 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
 
     entry = index_data.objects.select_related("filetype").filter(uuid=context["uuid"])[0]
     if not entry:
-        return HttpResponseBadRequest(content="No entry found.")
+        sync_database_disk(entry.fqpndirectory)
+        entry = index_data.objects.select_related("filetype").filter(uuid=context["uuid"])[0]
+        if not entry:
+            return HttpResponseBadRequest(content="No entry found.")
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
 
-    sync_database_disk(entry.fqpndirectory)
     breadcrumbs = return_breadcrumbs(context["webpath"])
     for bcrumb in breadcrumbs:
         context["breadcrumbs"] += f"<li>{bcrumb[2]}</li>"
@@ -339,16 +335,14 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
     while context["up_uri"].endswith("/"):
         context["up_uri"] = context["up_uri"][:-1]
 
-    # read_from_disk(context["webpath"].strip(), skippable=True)
     catalog_qs = get_db_files(context["sort"], context["webpath"])
 
     page_uuids = [str(record.uuid) for record in catalog_qs]
 
     context["mobile"] = detect_mobile(request)
+    context["size"] = "large"
     if context["mobile"]:
         context["size"] = "medium"
-    else:
-        context["size"] = "large"
     item_list = Paginator(catalog_qs, 1)
 
     context.update({"page": page_uuids.index(context["uuid"]) + 1,
@@ -440,8 +434,8 @@ def downloadFile(request: WSGIRequest):  # , filename=None):
     if d_uuid is None:  # == None:
         d_uuid = request.GET.get("uuid", None)
 
-    download = index_data.objects.select_related("filetype").exclude(ignore=True,
-                                                                     delete_pending=True).filter(uuid=d_uuid)
+    download = index_data.objects.select_related("filetype").exclude(ignore=True). \
+        exclude(delete_pending=True).filter(uuid=d_uuid)
 
     if d_uuid in ["", None] or not download.exists():
         raise Http404
