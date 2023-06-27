@@ -1,11 +1,21 @@
+import io
+import mimetypes
 import os
 import time
 import uuid
+
+# from django.conf import settings
+from django.views.decorators.cache import never_cache
+from django.http import (FileResponse, Http404,  # , StreamingHttpResponse)
+                         HttpResponse)
+from ranged_fileresponse import RangedFileResponse
 
 from django.contrib.auth.models import User
 from django.db import models
 from django.urls import reverse
 from django.conf import settings
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_control
 
 import thumbnails.models
 from filetypes.models import filetypes
@@ -73,8 +83,8 @@ class Thumbnails_Dirs(models.Model):
         verbose_name = 'Directory Thumbnails Cache'
         verbose_name_plural = 'Directory Thumbnails Cache'
         constraints = [
-                models.UniqueConstraint(fields=['DirName', 'FilePath'], name='unique_dir_thumb')
-            ]
+            models.UniqueConstraint(fields=['DirName', 'FilePath'], name='unique_dir_thumb')
+        ]
 
 
 class Thumbnails_Small(models.Model):
@@ -132,8 +142,8 @@ class Thumbnails_Files(models.Model):
         verbose_name = 'Image File Thumbnails Cache'
         verbose_name_plural = 'Image File Thumbnails Cache'
         constraints = [
-                models.UniqueConstraint(fields=['FileName', 'FilePath'], name='unique_thumb_files')
-            ]
+            models.UniqueConstraint(fields=['FileName', 'FilePath'], name='unique_thumb_files')
+        ]
         # File Workflow:
         #
         #   When checking for a thumbnail, if Thumbnail_ID == 0, then generate the new thumbnails,
@@ -166,32 +176,31 @@ class Thumbnails_Archives(models.Model):
         verbose_name_plural = 'Archive Thumbnails Cache'
 
         constraints = [
-                models.UniqueConstraint(fields=['FileName', 'FilePath', 'zipfilepath'], name='unique_archives')
-            ]
+            models.UniqueConstraint(fields=['FileName', 'FilePath', 'zipfilepath'], name='unique_archives')
+        ]
 
-class scan_lock(models.Model):
-    fqpndirectory = models.CharField(default=0, db_index=True, max_length=384, unique=True)
 
-    def start_scan(self, fqpndirectory=None):
-        if fqpndirectory is not None:
-            self.fqpndirectory = str(fqpndirectory).title()
-            self.save()
+# class scan_lock(models.Model):
+#     fqpndirectory = models.CharField(default=0, db_index=True, max_length=384, unique=True)
+#
+#     def start_scan(self, fqpndirectory=None):
+#         if fqpndirectory is not None:
+#             self.fqpndirectory = str(fqpndirectory).title()
+#             self.save()
+#
+#     def release_scan(fqpndirectory):
+#         scan_lock.objects.filter(fqpndirectory=str(fqpndirectory).title()).delete()
+#
+#     def release_all():
+#         scan_lock.objects.all().delete()
+#
+#     def scan_in_progress(fqpndirectory):
+#         return scan_lock.objects.filter(fqpndirectory=str(fqpndirectory).title()).exists()
+#
+#     class Meta:
+#         verbose_name = 'Directory Scanning Lock'
+#         verbose_name_plural = 'Directory Scanning Locks'
 
-    def release_scan(fqpndirectory):
-        scan_lock.objects.filter(fqpndirectory=str(fqpndirectory).title()).delete()
-
-    def release_all():
-        scan_lock.objects.all().delete()
-
-    def scan_in_progress(fqpndirectory):
-        return scan_lock.objects.filter(fqpndirectory=str(fqpndirectory).title()).exists()
-
-    class Meta:
-        verbose_name = 'Directory Scanning Lock'
-        verbose_name_plural = 'Directory Scanning Locks'
-
-#from django.db.models import Count
-#index_dup = index_data.objects.values('id', 'name','fqpndirectory').annotate(name_count=Count('name'),dir_count = Count('fqpndirectory')).filter(name_count__gt=1,dir_count__gt=1)
 
 class index_data(models.Model):
     id = models.AutoField(primary_key=True)
@@ -264,10 +273,8 @@ class index_data(models.Model):
         owners, on_delete=models.CASCADE, db_index=True, default=None, null=True, blank=True
     )
 
-
     def get_webpath(self):
-        return self.fqpndirectory.replace(settings.ALBUMS_PATH.lower()+r"/albums/", r"")
-
+        return self.fqpndirectory.replace(settings.ALBUMS_PATH.lower() + r"/albums/", r"")
 
     def write_to_db_entry(self, fileentry, fqpn, version=4):
         """
@@ -345,10 +352,10 @@ class index_data(models.Model):
         options["i_uuid"] = str(self.uuid)
         parameters = []
         # parameters.append("?small")
-        if self.filetype.is_pdf:
-            parameters.append("&pdf")
-        elif self.filetype.is_archive:
-            parameters.append("&arch")
+        # if self.filetype.is_pdf:
+        #    parameters.append("&pdf")
+        # elif self.filetype.is_archive:
+        #    parameters.append("&arch")
         if self.filetype.is_dir:
             return reverse('directories') + os.path.join(self.get_webpath(), self.name)
         else:
@@ -369,7 +376,7 @@ class index_data(models.Model):
             size = "small"
         size = size.lower()
 
-        options = {"i_uuid": str(self.uuid)}
+        # options = {"i_uuid": str(self.uuid)}
         return reverse("thumbnailspath") + f"{self.uuid}?size={size}"
 
     def get_download_url(self):
@@ -384,10 +391,105 @@ class index_data(models.Model):
         return reverse('download') + f"?UUID={self.uuid}"
         # null = System Owned
 
+    def send_thumbnail(self, filename="", fext_override=None, size="small"):
+        """
+        Output a http response header, for an image attachment.
+
+       Args:
+            fext_override (str): Filename extension to use instead of the original file's ext
+
+        Returns:
+            object::
+                The Django response object that contains the attachment and header
+
+        Raises:
+            None
+
+        Examples
+        --------
+        return_img_attach("test.png", img_data)
+
+
+        """
+
+        def get_sized_tnail(size="small", tnail=None):
+            if tnail is None:
+                return b''
+            match size:
+                case 'small':
+                    binaryblob = tnail.SmallThumb
+                case 'medium':
+                    binaryblob = tnail.MediumThumb
+                case 'large':
+                    binaryblob = tnail.LargeThumb
+                case _:
+                    binaryblog = b''
+            return binaryblob
+
+        # https://stackoverflow.com/questions/36392510/django-download-a-file
+        # https://stackoverflow.com/questions/27712778/
+        #               video-plays-in-other-browsers-but-not-safari
+        # https://stackoverflow.com/questions/720419/
+        #               how-can-i-find-out-whether-a-server-supports-the-range-header
+        # fqpn_filename = os.path.join(self.fqpndirectory, self.name)
+        # base_filename = self.name
+        # if fext_override is not None:
+        #     mimetype_filename = os.path.join(os.path.splitext(base_filename)[0], fext_override)
+        # else:
+        #     mimetype_filename = filename
+        #
+        # #    mtype, encoding = mimetypes.guess_type(filename)
+        # mtype = mimetypes.guess_type(mimetype_filename)[0]
+        # if mtype is None:
+        mtype = 'application/octet-stream'
+        if self.file_tnail is not None:
+            binaryblob = get_sized_tnail(size=size, tnail=self.file_tnail)
+        elif self.directory is not None:
+            binaryblob = get_sized_tnail(size=size, tnail=self.directory)
+
+        response = FileResponse(io.BytesIO(binaryblob),
+                                content_type=mtype,
+                                as_attachment=False,
+                                filename=self.name)
+        response["Content-Type"] = mtype
+        response['Content-Length'] = len(binaryblob)
+        return response
+
+    # @method_decorator(cache_control(private=True))
+    def inline_sendfile(self, request, ranged=False):
+        # https://stackoverflow.com/questions/36392510/django-download-a-file
+        # https://stackoverflow.com/questions/27712778/
+        #       video-plays-in-other-browsers-but-not-safari
+        # https://stackoverflow.com/questions/720419/
+        # how-can-i-find-out-whether-a-server-supports-the-range-header
+        fqpn_filename = os.path.join(self.fqpndirectory, self.name)
+        try:
+            #if os.path.exists(fqpn_filename):
+            # mtype = mimetypes.guess_type(fqpn_filename)[0]
+            mtype = self.filetype.mimetype
+            if mtype is None:
+                mtype = 'application/octet-stream'
+#            basefilename = os.path.basename(self.name)
+            with open(fqpn_filename, 'rb') as fh:
+                if ranged:
+                    # open must be in the RangedFielRequest, to allow seeking
+                    response = RangedFileResponse(request, file=open(fqpn_filename, 'rb'),  # , buffering=1024*8),
+                                                  as_attachment=False,
+                                                  filename=self.name)
+                    response["Content-Type"] = mtype
+                else:
+                    response = HttpResponse(fh.read(), content_type=mtype)
+                    response['Content-Disposition'] = f'inline; filename={self.name}'
+            return response
+        except FileNotFoundError:
+            pass
+
+        raise Http404
+
     class Meta:
         verbose_name = 'Master Index'
         verbose_name_plural = 'Master Index'
 
         constraints = [
-                models.UniqueConstraint(fields=['name', 'fqpndirectory'], name='unique name directory')
-            ]
+            models.UniqueConstraint(fields=['name', 'fqpndirectory'], name='unique name directory')
+        ]

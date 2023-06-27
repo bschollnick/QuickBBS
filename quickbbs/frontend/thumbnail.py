@@ -90,15 +90,13 @@ def new_process_dir(db_index):
     # imagedata = None
     if db_index.directory.SmallThumb != b'':
         # Does the thumbnail exist?
-        if db_index.size == db_index.directory.FileSize:
-            return return_img_attach(db_index.name,
-                                     db_index.directory.SmallThumb.tobytes())
-
+        # if db_index.size == db_index.directory.FileSize:
+        # print(f"size mismatch, {db_index.name} - {db_index.directory.FileSize}")
+        #    return db_index.send_thumbnail(filename=db_index.name, size="small")
         #   The cached data is invalidated since the filesize is
         #   inaccurate or the image does not pass verify.
         #   Reset the existing thumbnails to ensure that they will be
         #   regenerated
-        print(f"size mismatch, {db_index.name} - {db_index.directory.FileSize}")
         db_index.directory.FileSize = -1
         db_index.directory.SmallThumb = b""
 
@@ -136,7 +134,7 @@ def new_process_dir(db_index):
     #                                             fs_d_fname))
     db_index.directory.save()
     db_index.save()
-    return return_img_attach(db_index.name, db_index.directory.SmallThumb)
+    # return return_img_attach(db_index.name, db_index.directory.SmallThumb)
 
 
 def invalidate_thumb(thumbnail):

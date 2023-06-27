@@ -56,23 +56,8 @@ def g_option(request, option_name, def_value):
     return request.GET.get(option_name, def_value)
 
 
-def detect_mobile(request):
-    """
-    Is this a mobile browser?
-
-    Args:
-        request (obj) - Django Request object
-
-    Returns:
-        boolean::
-            `True` if Mobile is found in the request's META headers
-            specifically in HTTP USER AGENT.  If not found, returns False.
-
-    """
-    return "Mobile" in request.headers["user-agent"]
-
-
 def return_inline_attach(filename, binaryblob):
+
     """
     Output a http response header, for an image attachment.
 
@@ -93,6 +78,21 @@ def return_inline_attach(filename, binaryblob):
 
     """
     return return_img_attach(filename, binaryblob, fext_override="JPEG")
+
+def detect_mobile(request):
+    """
+    Is this a mobile browser?
+
+    Args:
+        request (obj) - Django Request object
+
+    Returns:
+        boolean::
+            `True` if Mobile is found in the request's META headers
+            specifically in HTTP USER AGENT.  If not found, returns False.
+
+    """
+    return "Mobile" in request.headers["user-agent"]
 
 
 def return_img_attach(filename, binaryblob, fext_override=None, use_ranged=False):
@@ -146,66 +146,66 @@ def return_img_attach(filename, binaryblob, fext_override=None, use_ranged=False
         response["Content-Type"] = mtype
         response['Content-Length'] = len(binaryblob)
     return response
-
-
-@never_cache
-def img_attach_file(filename, fqfn):
-    """
-    Output a http response header, for an image attachment.
-
-   Args:
-        filename (str): Filename of the file to be sent as the attachment name
-        binaryblob (bin): The blob of data that is the image file
-
-    Returns:
-        object::
-            The Django response object that contains the attachment and header
-
-    Raises:
-        None
-
-    Examples
-    --------
-    return_img_attach("test.png", img_data)
-
-
-    """
-    response = HttpResponse()
-    with open(fqfn, 'rb') as filedata:
-        response.write(filedata.read())
-    response['Content-Disposition'] = f'attachment; filename={{{filename}}}'
-    return response
-
-
-@never_cache
-def file_inline(filename, fqfn):
-    """
-    Output a http response header, for an image attachment.
-
-   Args:
-        filename (str): Filename of the file to be sent as the attachment name
-        binaryblob (bin): The blob of data that is the image file
-
-    Returns:
-        object::
-            The Django response object that contains the attachment and header
-
-    Raises:
-        None
-
-    Examples
-    --------
-    return_img_attach("test.png", img_data)
-
-
-    """
-    response = HttpResponse()
-    with open(fqfn, 'rb') as filedata:
-        response.write(filedata.read())
-    response['Content-Disposition'] = f'inline; filename={{{filename}}}'
-    return response
-
-
+#
+#
+# @never_cache
+# def img_attach_file(filename, fqfn):
+#     """
+#     Output a http response header, for an image attachment.
+#
+#    Args:
+#         filename (str): Filename of the file to be sent as the attachment name
+#         binaryblob (bin): The blob of data that is the image file
+#
+#     Returns:
+#         object::
+#             The Django response object that contains the attachment and header
+#
+#     Raises:
+#         None
+#
+#     Examples
+#     --------
+#     return_img_attach("test.png", img_data)
+#
+#
+#     """
+#     response = HttpResponse()
+#     with open(fqfn, 'rb') as filedata:
+#         response.write(filedata.read())
+#     response['Content-Disposition'] = f'attachment; filename={{{filename}}}'
+#     return response
+#
+#
+# @never_cache
+# def file_inline(filename, fqfn):
+#     """
+#     Output a http response header, for an image attachment.
+#
+#    Args:
+#         filename (str): Filename of the file to be sent as the attachment name
+#         binaryblob (bin): The blob of data that is the image file
+#
+#     Returns:
+#         object::
+#             The Django response object that contains the attachment and header
+#
+#     Raises:
+#         None
+#
+#     Examples
+#     --------
+#     return_img_attach("test.png", img_data)
+#
+#
+#     """
+#     response = HttpResponse()
+#     with open(fqfn, 'rb') as filedata:
+#         response.write(filedata.read())
+#     response['Content-Disposition'] = f'inline; filename={{{filename}}}'
+#     return response
+#
+#
 @never_cache
 def respond_as_inline(request, file_path, original_filename, ranged=False):
     # https://stackoverflow.com/questions/36392510/django-download-a-file

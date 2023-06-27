@@ -39,7 +39,7 @@ print(f"* Demo Mode is {DEMO}")
 #   Debug, enables the debugging mode
 #
 DEBUG = False
-#DEBUG = not DEBUG
+# DEBUG = not DEBUG
 print(f"* Debug Mode is {DEBUG}")
 
 #
@@ -64,7 +64,7 @@ BULMA_URI = f'https://cdnjs.cloudflare.com/ajax/libs/bulma/{BULMA_VERSION}/css/b
 # FONTAWESOME_VERSION = '6.2.1'
 FONTAWESOME_VERSION = '6.4.0'
 FONTAWESOME_URI = f'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/{FONTAWESOME_VERSION}/css/all.min.css'
-
+FONTAWESOME_SCRIPT_URI = None  # f'https://kit.fontawesome.com/ad5033c5d1.js'
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 # BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # print(BASE_DIR)
@@ -142,7 +142,7 @@ INSTALLED_APPS += [
     'filetypes',
     'django_icons',
     #    'django_unicorn',
-    'django_jinja.contrib._humanize'
+    'django_jinja.contrib._humanize',
 ]
 
 SITE_ID = 1
@@ -220,6 +220,7 @@ TEMPLATES = [
                      },
          "constants": {"bulma_uri": BULMA_URI,
                        "fontawesome_uri": FONTAWESOME_URI,
+                       "fontawesome_script_uri": FONTAWESOME_SCRIPT_URI,
                        "jquery_uri": JQUERY_URI},
          "bytecode_cache": {
              "name": "default",
@@ -256,6 +257,7 @@ else:
                              'HOST': 'localhost',
                              'PORT': '5432',
                              'CONN_MAX_AGE': 300,
+                             'CONN_HEALTH_CHECKS': True,
                              }
                  }
 

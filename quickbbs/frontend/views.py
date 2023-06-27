@@ -33,7 +33,7 @@ from frontend.thumbnail import (new_process_dir,
                                 new_process_img)
 from frontend.utilities import (ensures_endswith, is_valid_uuid,
                                 read_from_disk, return_breadcrumbs, sort_order, sync_database_disk)
-from frontend.web import detect_mobile, g_option, respond_as_inline, respond_as_attachment
+from frontend.web import detect_mobile, g_option, respond_as_attachment
 
 from filetypes.models import FILETYPE_DATA
 
@@ -102,37 +102,44 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
     :raises: HttpResponseBadRequest - If the uuid can not be found
     """
     if is_valid_uuid(str(tnail_id)):
-        index_qs = index_data.objects.exclude(ignore=True).exclude(delete_pending=True).select_related(
-            "filetype").filter(
-            uuid=tnail_id)
+        index_qs = index_data.objects.prefetch_related("filetype").filter(uuid=tnail_id)
         if not index_qs.exists():
             # does not exist
             print(tnail_id, "No records returned.")
-            return None
+            return Http404
 
+        size = request.GET.get("size", "small")
         entry = index_qs[0]
         fs_item = os.path.join(entry.fqpndirectory, entry.name)
-        fname = os.path.basename(fs_item).title()
+        fname = os.path.basename(entry.name).title()
 
         if entry.filetype.is_dir:
-            if entry.directory is None:  # == None:
-                entry.directory = Thumbnails_Dirs()
-                entry.directory.uuid = entry.uuid
-                entry.directory.FilePath = fs_item
-                entry.directory.DirName = fname
-            return new_process_dir(entry)
+            if entry.directory is not None:
+                # Send existing thumbnail
+                return entry.send_thumbnail(size=size)
+
+            entry.directory = Thumbnails_Dirs()
+            entry.directory.uuid = entry.uuid
+            entry.directory.FilePath = fs_item
+            entry.directory.DirName = fname
+            new_process_dir(entry)
+            return entry.send_thumbnail(size=size)
 
         if entry.filetype.is_pdf or entry.filetype.is_image or entry.filetype.is_movie:
-            if entry.file_tnail is None:  # == None:
-                entry.file_tnail = Thumbnails_Files()
-                entry.file_tnail.uuid = entry.uuid
-                entry.file_tnail.FilePath = fs_item
-                entry.file_tnail.FileName = fname
+            if entry.file_tnail is not None:  # == None:
+                # send the existing thumbnail
+                return entry.send_thumbnail(size=size)
+
+            entry.file_tnail = Thumbnails_Files()
+            entry.file_tnail.uuid = entry.uuid
+            entry.file_tnail.FilePath = fs_item
+            entry.file_tnail.FileName = fname
             try:
-                return new_process_img(entry, request)
+                new_process_img(entry, request)
             except IntegrityError:
                 time.sleep(.5)
-                return new_process_img(entry, request)
+                new_process_img(entry, request)
+            return entry.send_thumbnail(size=size)
 
         if entry.filetype.icon_filename not in ["", None] and not entry.filetype.is_dir:
             entry.is_generic_icon = True
@@ -188,6 +195,7 @@ def search_viewresults(request: WSGIRequest):
 
     if "/search/" in context["originator"] or context["originator"] is None:
         context["originator"] = request.GET.get("originator", "/albums")
+        context["search"] = True
 
     context["gallery_name"] = f"Searching for {context['searchtext']}"
     try:
@@ -199,7 +207,8 @@ def search_viewresults(request: WSGIRequest):
         context["pagelist"] = chk_list.page(chk_list.num_pages)
 
     response = render(request,
-                      "frontend/search_listing.jinja",
+                      # "frontend/search_listing.jinja",
+                      "frontend/gallery_listing.jinja",
                       context,
                       using="Jinja2")
     print("search View, processing time: ", time.perf_counter() - start_time)
@@ -245,6 +254,7 @@ def new_viewgallery(request: WSGIRequest):
                "gallery_name": os.path.split(request.path_info)[-1],
                "up_uri": "/".join(request.build_absolute_uri().split("/")[0:-1]),
                "missing": [],
+               "search": False,
                }
     if not os.path.exists(paths["album_viewing"]):
         #   Albums doesn't exist
@@ -434,16 +444,22 @@ def downloadFile(request: WSGIRequest):  # , filename=None):
     if d_uuid is None:  # == None:
         d_uuid = request.GET.get("uuid", None)
 
-    download = index_data.objects.select_related("filetype").exclude(ignore=True). \
-        exclude(delete_pending=True).filter(uuid=d_uuid)
-
-    if d_uuid in ["", None] or not download.exists():
+    if d_uuid in ["", None]:
         raise Http404
 
-    return respond_as_inline(request,
-                             download[0].fqpndirectory.lower(),
-                             download[0].name,
-                             ranged=download[0].filetype.is_movie)
+    # download = index_data.objects.select_related("filetype").exclude(ignore=True). \
+    #     exclude(delete_pending=True).filter(uuid=d_uuid)
+
+    download = index_data.objects.prefetch_related("filetype").filter(uuid=d_uuid)
+
+    # if not download.exists():
+    #     # database entries do not exist
+    #     raise Http404
+    #
+    try:
+        return download[0].inline_sendfile(request, ranged=download[0].filetype.is_movie)
+    except FileNotFoundError:
+        raise Http404
 
 
 def new_view_archive(request: WSGIRequest, i_uuid: str):
