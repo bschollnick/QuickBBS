@@ -739,10 +739,7 @@ def sync_database_disk(directoryname):
         directoryname = settings.ALBUMS_PATH
     webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
     dirpath = os.path.abspath(directoryname.title().strip())
-    # if scan_lock.scan_in_progress(webpath):
-    #    return
 
-    # scan_lock.start_scan(webpath)
     if not Cache_Tracking.objects.filter(DirName=dirpath).exists():
         # If the directory is not found in the Cache_Tracking table, then it needs to be rescanned.
         # Remember, directory is placed in there, when it is scanned.

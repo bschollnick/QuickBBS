@@ -24,6 +24,7 @@ class filetypes(models.Model):
                                    default=0,
                                    blank=True,
                                    null=True)
+    mimetype = models.CharField(max_length=128, default="application/octet-stream", null=True)
     # quick testers.
     # Originally going to be filetype only, but the SQL got too large
     # (eg retrieve all graphics, became is JPEG, GIF, TIF, BMP, etc)
@@ -54,8 +55,8 @@ class filetypes(models.Model):
             the filename for the fileext is blank (e.g. JPEG, since JPEG will always be created based off the file)
         """
         fileext = fileext.lower()
-        if not fileext.startswith("."):
-            fileext = f'.{fileext}'
+#        if not fileext.startswith("."):
+#            fileext = f'.{fileext}'
         if fileext in ['', None, 'unknown']:
             fileext = ".none"
 
@@ -69,8 +70,8 @@ class filetypes(models.Model):
             fileext = gif, jpg, mp4 (lower case, and without prefix .)
         """
         fileext = fileext.lower()
-        if not fileext.startswith("."):
-            fileext = f'.{fileext}'
+#        if not fileext.startswith("."):
+#            fileext = f'.{fileext}'
         if fileext in ['', None, 'unknown']:
             fileext = ".none"
 

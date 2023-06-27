@@ -162,14 +162,14 @@
                         {%- for item in pagelist -%}
                             <div class="column is-one-third" style="border:1px solid black;background-color:#{{item.filetype.color}};">
                                 <b>{{ loop.index }}</b> <br>
-        <!--                                             Setup the color for the item box and hyperlink into the box -->
+        <!--    Setup the color for the item box and hyperlink into the box -->
                                 <a href="{{item.get_view_url()}}?sort={{sort}}" class="thumbnail" style="background-color:#{{item.get_bg_color()}};" defer>
 
-        <!--            The Item title           -->
+        <!--    The Item title           -->
                                 {{ item.name|wordwrap(width=24, break_long_words=True)}} <br>
 
-        <!--            Display the thumbnail           -->
-                                    <link rel="preload" href={{item.get_thumbnail_url()}} as="image" defer>
+        <!--    Display the thumbnail           -->
+                                <link rel="preload" href={{item.get_thumbnail_url()}} as="image" defer>
                                 <img loading='lazy' src="{{item.get_thumbnail_url()}}" class="img-responsive" style="width:auto;max-width:100%"/>
 
                                 </a>
@@ -218,10 +218,9 @@
                                             <font class="is-size-7">{{ fromtimestamp( item.lastmod).strftime("%m/%d/%y %H:%M") }}</font>
                                     </div>
                                     <div class="column is-6 is-vcentered" style="text-align:right;padding:10px;">
-                                            {% if item.filetype.is_dir %}                <a href="{{ webpath }}{{ item.name }}?sort={{sort}}" target="_blank">
-                                            {% elif item.filetype.is_archive %}          <a href="/view_archive/{{ item.uuid}}?sort={{sort}}" target="_blank">
-                                            {% elif item.filetype.is_image or item.filetype.is_pdf  or item.filetype.is_movie %} <a href="/view_item/{{ item.uuid }}?sort={{sort}}" target="_blank"> {% endif %}
-                                            {{ icon("external-link-alt fa-2x") }}</a>
+                                        <a href="{{item.get_view_url()}}?sort={{sort}}" target="_blank">
+                                            {{ icon("external-link-alt fa-2x") }}
+                                        </a>
                                     </div>
                                 </div>
                             </div>
