@@ -21,7 +21,7 @@ defusedxml==0.7.1
 deprecation==2.1.0
 dhash==1.4
 dill==0.3.6
-Django==4.2.1
+Django==4.2.3
 django-allauth==0.54.0
 django-auth==0.1.9
 django-db-pooling==0.0.4
