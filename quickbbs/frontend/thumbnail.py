@@ -13,6 +13,7 @@ from frontend.database import get_xth_image
 from frontend.utilities import cr_tnail_img, read_from_disk, return_image_obj
 from frontend.web import g_option  # , respond_as_attachment
 from frontend.web import return_img_attach, return_inline_attach
+from django.db.utils import ProgrammingError, OperationalError, IntegrityError
 
 
 def ensures_endswith(string_to_check, value) -> str:
@@ -88,7 +89,7 @@ def new_process_dir(db_index):
     # webpath contains the URL equivalent to the file system path (fs_path)
     #
     # imagedata = None
-    if db_index.directory.SmallThumb != b'':
+    if db_index.directory.SmallThumb not in [b'', None]:
         # Does the thumbnail exist?
         # if db_index.size == db_index.directory.FileSize:
         # print(f"size mismatch, {db_index.name} - {db_index.directory.FileSize}")
@@ -132,8 +133,11 @@ def new_process_dir(db_index):
         db_index.directory.FileSize = db_index.size
     #            print("Set size to %s for %s" % (db_index.directory.FileSize,
     #                                             fs_d_fname))
-    db_index.directory.save()
-    db_index.save()
+    try:
+        db_index.directory.save()
+        db_index.save()
+    except IntegrityError:
+        pass
     # return return_img_attach(db_index.name, db_index.directory.SmallThumb)
 
 
@@ -199,8 +203,11 @@ def new_process_img(entry, request, imagesize="Small"):
     entry.file_tnail.FileSize = entry.size
     entry.file_tnail.save()
     entry.save()
-    imagedata = getattr(entry.file_tnail, f"{thumb_size}Thumb")
-    return return_img_attach(entry.name, imagedata, fext_override="JPEG")
+    #
+    #   switch to new
+    # entry.send_inline
+#    imagedata = getattr(entry.file_tnail, f"{thumb_size}Thumb")
+#    return return_img_attach(entry.name, imagedata, fext_override="JPEG")
 
 
 def new_process_archive(ind_entry, request, page=0):
