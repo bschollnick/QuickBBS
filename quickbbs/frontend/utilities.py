@@ -1,8 +1,6 @@
 """
 Utilities for QuickBBS, the python edition.
 """
-# from __future__ import absolute_import, print_function, unicode_literals
-
 import logging
 import os
 import os.path
@@ -23,7 +21,7 @@ import django.db.utils
 import fitz  # PDF previews
 from PIL import Image
 from django.conf import settings
-from quickbbs.models import filetypes, index_data  #, scan_lock
+from quickbbs.models import filetypes, index_data
 
 import filetypes.models as filetype_models
 import frontend.archives3 as archives
@@ -186,15 +184,19 @@ def load_movie(fspath, offset_from=30):
     """
     with av.open(fspath) as container:
         stream = container.streams.video[0]
-        endcount = None
-        for count, frame in enumerate(container.decode(stream)):
-            image = frame.to_image()
-            extrema = image.convert("L").getextrema()
-            if extrema not in [(0, 0), (255, 255)]:
-                if endcount is None:
-                    endcount = count + offset_from
-            if endcount is not None and count >= endcount:
-                break
+        duration_sec = stream.frames / 30
+        container.seek(container.duration // 2)
+        frame = container.decode(stream)
+        image = next(frame).to_image()
+       # endcount = None
+       # for count, frame in enumerate(container.decode(stream)):
+       #     image = frame.to_image()
+       #     extrema = image.convert("L").getextrema()
+       #     if extrema not in [(0, 0), (255, 255)]:
+       #         if endcount is None:
+       #             endcount = count + offset_from
+       #     if endcount is not None and count >= endcount:
+       #         break
     return image
 
 
@@ -378,100 +380,6 @@ def multiple_replace(repl_dict, text):
     # Create a regular expression  from the dictionary keys
     # For each match, look-up corresponding value in dictionary
     return constants.regex.sub(lambda mo: repl_dict[mo.string[mo.start():mo.end()]], text)
-
-
-# def convert_scandisk_to_dict(fqpn, sd_entry) -> dict:
-#     """
-#     The convert_scandisk_to_dict function takes a fully-qualified path to a file or directory, and
-#     a ScandirEntry object representing that file or directory. It returns a dictionary containing
-#     the filename, lowercase filename (for sorting), the full path to the file/directory, size in bytes,
-#     last modified date as seconds since epoch (time.time()), whether it is an archive (.zip/.rar/.7z)
-#     file type (True/False), whether it is an image (.jpg/.jpeg/.png) type (True/False), etc.
-#
-#     :param fqpn: Determine the path to the file
-#     :param sd_entry: Determine if the file is a directory or not
-#     :return: A dictionary with the following keys:
-#         data[<filename in titlecase>] = {"filename": the filename in titlecase,
-#                                            "lower_filename": the filename in lowercase (depreciated?),
-#                                                 # Most likely depreciated in v3
-#                                            "path": The fully qualified pathname and filename
-#                                            'sortname': A naturalized sort ready filename
-#                                            'size': FileSize
-#                                            'lastmod': Last modified timestamp
-#                                            'is_dir': Is this entry a directory?
-#                                            'is_file': Is this entry a file?
-#                                            'is_archive': is this entry an archive
-#                                            'is_image': is this entry an image
-#                                            'is_movie': is this entry a movie file (not animated gif)
-#                                            'is_audio': is this entry an audio file
-#                                            'is_text': is this entry a text file
-#                                            'is_html': is this entry a html file
-#                                            'is_markdown': is this entry a markdown file
-#                                            'is_animated': Is this an animated file (e.g. animated GIF),
-#                                                 not a movie file
-#                                            }
-#     :doc-author: Trelent
-#     """
-#     fs_entry = None
-#     titlecase = sd_entry.name.title()
-#     # unescaped = html.unescape(titlecase)
-#     lower_filename = sd_entry.name.lower()
-#
-#     animated = False
-#     fext = os.path.splitext(lower_filename)[1]
-#     if fext == "":
-#         fext = ".none"
-#     elif sd_entry.is_dir():
-#         fext = ".dir"
-#
-#     if fext not in filetype_models.FILETYPE_DATA:
-#         # The file extension is not in FILETYPE_DATA, so ignore it.
-#         skip = True
-#
-#     if (fext in settings.EXTENSIONS_TO_IGNORE) or \
-#             (lower_filename in settings.FILES_TO_IGNORE):
-#         # file extension is in EXTENSIONS_TO_IGNORE, so skip it.
-#         # or the filename is in FILES_TO_IGNORE, so skip it.
-#         skip = True
-#
-#     if settings.IGNORE_DOT_FILES and lower_filename.startswith("."):
-#         # IGNORE_DOT_FLES is enabled, *and* the filename startswith an ., skip it.
-#         skip = True
-#
-#     # if enable_rename:
-#     #     original_filename = titlecase
-#     #     if titlecase != unescaped:
-#     #         titlecase = unescaped.title()
-#     #
-#     #     after_filename = multiple_replace(constants.replacements, lower_filename)  # , regex)
-#     #     if after_filename != lower_filename:
-#     #         titlecase = after_filename.title()
-#
-#     # titlecase = sanitize_filename(titlecase)
-#     # if titlecase != original_filename:
-#     #     rename_file(os.path.join(fqpn, original_filename),
-#     #                 os.path.join(fqpn, titlecase))
-#     #     print(f"rejected - {titlecase}")
-#     #     # loaded = False
-#     if not skip:
-#         fs_entry = {"filename": titlecase,
-#                     "lower_filename": titlecase.lower(),
-#                     "path": os.path.join(fqpn, titlecase),
-#                     'sortname': naturalize(titlecase),
-#                     'size': sd_entry.stat()[stat.ST_SIZE],
-#                     'lastmod': sd_entry.stat()[stat.ST_MTIME],
-#                     'is_dir': sd_entry.is_dir(),  # fext == ".dir",
-#                     'is_file': not sd_entry.is_dir(),  # fext != ".dir",
-#                     'is_archive': filetype_models.FILETYPE_DATA[fext]["is_archive"],
-#                     'is_image': filetype_models.FILETYPE_DATA[fext]["is_image"],
-#                     'is_movie': filetype_models.FILETYPE_DATA[fext]["is_movie"],
-#                     'is_audio': filetype_models.FILETYPE_DATA[fext]["is_audio"],
-#                     'is_text': filetype_models.FILETYPE_DATA[fext]["is_text"],
-#                     'is_html': filetype_models.FILETYPE_DATA[fext]["is_html"],
-#                     'is_markdown': filetype_models.FILETYPE_DATA[fext]["is_markdown"],
-#                     'is_animated': animated
-#                     }
-#     return fs_entry
 
 
 def return_disk_listing(fqpn, enable_rename=False) -> (bool, dict):
@@ -658,11 +566,10 @@ def process_filedata(fs_entry, db_record, v3=False) -> index_data:
     :doc-author: Trelent
     """
     db_record.fqpndirectory, db_record.name = os.path.split(fs_entry.absolute())
-    db_record.fqpndirectory = ensures_endswith(
-        db_record.fqpndirectory.lower().replace("//", "/"), os.sep)
+    db_record.fqpndirectory = ensures_endswith(db_record.fqpndirectory.lower().replace("//", "/"), os.sep)
     db_record.name = db_record.name.title().replace("//", "/").strip()
     db_record.fileext = fs_entry.suffix.lower()
-    db_record.is_dir = fs_entry.is_dir()  # ["is_dir"]
+    db_record.is_dir = fs_entry.is_dir()
     if db_record.is_dir:
         db_record.fileext = ".dir"
     if db_record.fileext in [".", ""]:
@@ -740,11 +647,14 @@ def sync_database_disk(directoryname):
     webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
     dirpath = os.path.abspath(directoryname.title().strip())
 
+    records_to_update = []
+
     if not Cache_Tracking.objects.filter(DirName=dirpath).exists():
         # If the directory is not found in the Cache_Tracking table, then it needs to be rescanned.
         # Remember, directory is placed in there, when it is scanned.
         # If changed, then watchdog should have removed it from the path.
         _, fs_entries = return_disk_listing(dirpath)
+
         db_data = index_data.objects.select_related("filetype", "directory").filter(
             fqpndirectory=webpath, delete_pending=False, ignore=False)
 
@@ -754,7 +664,8 @@ def sync_database_disk(directoryname):
                 # The entry just is not in the file system.  Delete it.
                 db_entry.ignore = True
                 db_entry.delete_pending = True
-                db_entry.save()
+                records_to_update.append(db_entry)
+    #            db_entry.save()
             else:
                 # The db_entry does exist in the file system.
                 # Does the lastmod match?
@@ -779,8 +690,9 @@ def sync_database_disk(directoryname):
                         db_entry.numfiles, db_entry.numdirs = fs_file_count, fs_dir_count
                         update = True
                 if update:
+                    records_to_update.append(db_entry)
                     print("Database record being updated: ", db_entry.name)
-                    db_entry.save()
+#                    db_entry.save()
                     update = False
 
         # Check for entries that are not in the database, but do exist in the file system
@@ -792,7 +704,6 @@ def sync_database_disk(directoryname):
             if test_name not in names:
                 # The record has not been found
                 # add it.
-
                 record = index_data()
                 record = process_filedata(entry, record, v3=False)
                 if record is None:
@@ -800,12 +711,23 @@ def sync_database_disk(directoryname):
                 if record.filetype.is_archive:
                     print("Archive detected ", record.name)
                 records_to_create.append(record)
-        if records_to_create:
+        if records_to_update:
             try:
-                index_data.objects.bulk_create(records_to_create, 100)
+                index_data.objects.bulk_update(records_to_update, ["ignore", "lastmod", "delete_pending", "size", "numfiles", "numdirs"], 50)
+            except django.db.utils.IntegrityError:
+                return None
+        else:
+            print("No records to update")
+        # The record is in the database, so it's already been vetted in the database comparison
+        if records_to_create:
+            print("Creating records")
+            try:
+                index_data.objects.bulk_create(records_to_create, 50)
             except django.db.utils.IntegrityError:
                 return None
             # The record is in the database, so it's already been vetted in the database comparison
+        else:
+            print("No records to create")
         if bootstrap:
             index_data.objects.filter(delete_pending=True).delete()
 
