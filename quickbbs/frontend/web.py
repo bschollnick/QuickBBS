@@ -5,17 +5,22 @@ Web functionality
 import io
 import mimetypes
 import os
+import re
+from wsgiref.util import FileWrapper
+from django.conf import settings
 
 # from django.conf import settings
 from django.views.decorators.cache import never_cache
 from django.contrib.auth import authenticate, login
-from django.http import (FileResponse, Http404,  # , StreamingHttpResponse)
+from django.http import (FileResponse, Http404, StreamingHttpResponse,
                          HttpResponse)
 from ranged_fileresponse import RangedFileResponse
 
 
 # import RangedFileResponse
 # from ranged_fileresponse.local import RangedLocalFileResponse
+RANGE_RE = re.compile(r"bytes\s*=\s*(\d+)\s*-\s*(\d*)", re.I)
+
 
 def verify_login_status(request, force_login=False) -> bool:
     """
@@ -132,12 +137,14 @@ def return_img_attach(filename, binaryblob, fext_override=None, use_ranged=False
         mtype = 'application/octet-stream'
 
     if use_ranged:
-        response = RangedFileResponse(request, file=open(filename, 'rb'),
-                                      as_attachment=False,
-                                      filename=os.path.basename(filename))
-        response["Content-Type"] = mtype
-        response['Content-Length'] = len(binaryblob)
-    #        return response
+        # response = RangedFileResponse(request, file=open(filename, 'rb'),
+        #                               as_attachment=False,
+        #                               filename=os.path.basename(filename))
+        # response["Content-Type"] = mtype
+        # response['Content-Length'] = len(binaryblob)
+        # return response
+        response = stream_video(request, filename, content_type=mtype)
+
     else:
         response = FileResponse(io.BytesIO(binaryblob),
                                 content_type=mtype,
@@ -206,31 +213,31 @@ def return_img_attach(filename, binaryblob, fext_override=None, use_ranged=False
 #     return response
 #
 #
-@never_cache
-def respond_as_inline(request, file_path, original_filename, ranged=False):
-    # https://stackoverflow.com/questions/36392510/django-download-a-file
-    # https://stackoverflow.com/questions/27712778/
-    #       video-plays-in-other-browsers-but-not-safari
-    # https://stackoverflow.com/questions/720419/
-    # how-can-i-find-out-whether-a-server-supports-the-range-header
-    filename = os.path.join(file_path, original_filename)
-    if os.path.exists(filename):
-        mtype = mimetypes.guess_type(original_filename)[0]
-        if mtype is None:
-            mtype = 'application/octet-stream'
-
-        with open(filename, 'rb') as fh:
-            if ranged:
-                # open must be in the RangedFielRequest, to allow seeking
-                response = RangedFileResponse(request, file=open(filename, 'rb'),  # , buffering=1024*8),
-                                              as_attachment=False,
-                                              filename=original_filename)
-                response["Content-Type"] = mtype
-            else:
-                response = HttpResponse(fh.read(), content_type=mtype)
-                response['Content-Disposition'] = f'inline; filename={original_filename}'
-        return response
-    raise Http404
+# #@never_cache
+# def respond_as_inline(request, file_path, original_filename, ranged=False):
+#     # https://stackoverflow.com/questions/36392510/django-download-a-file
+#     # https://stackoverflow.com/questions/27712778/
+#     #       video-plays-in-other-browsers-but-not-safari
+#     # https://stackoverflow.com/questions/720419/
+#     # how-can-i-find-out-whether-a-server-supports-the-range-header
+#     filename = os.path.join(file_path, original_filename)
+#     if os.path.exists(filename):
+#         mtype = mimetypes.guess_type(original_filename)[0]
+#         if mtype is None:
+#             mtype = 'application/octet-stream'
+#
+#         with open(filename, 'rb') as fh:
+#             if ranged:
+#                 # open must be in the RangedFielRequest, to allow seeking
+#                 response = RangedFileResponse(request, file=open(filename, 'rb'),  # , buffering=1024*8),
+#                                               as_attachment=False,
+#                                               filename=original_filename)
+#                 response["Content-Type"] = mtype
+#             else:
+#                 response = HttpResponse(fh.read(), content_type=mtype)
+#                 response['Content-Disposition'] = f'inline; filename={original_filename}'
+#         return response
+#     raise Http404
 
 
 @never_cache
@@ -244,4 +251,99 @@ def respond_as_attachment(request, file_path, original_filename):
                                 content_type=mtype,
                                 as_attachment=True,
                                 filename=filename)
+    return response
+
+
+def file_iterator(file_path, chunk_size=8192, offset=0, length=None):
+    """
+    # https://www.djangotricks.com/tricks/4S7qbNhtUeAD/
+
+    """
+    with open(file_path, "rb") as f:
+        f.seek(offset, os.SEEK_SET)
+        remaining = length
+        while True:
+            bytes_length = (
+                chunk_size
+                if remaining is None
+                else min(remaining, chunk_size)
+            )
+            data = f.read(bytes_length)
+            if not data:
+                break
+            if remaining:
+                remaining -= len(data)
+            yield data
+
+def stream_audio(request):
+    """
+    # https://www.djangotricks.com/tricks/4S7qbNhtUeAD/
+
+    """
+    path = str(settings.BASE_DIR / "data" / "music.mp3")
+    content_type = "audio/mp3"
+
+    range_header = request.META.get("HTTP_RANGE", "").strip()
+    range_match = RANGE_RE.match(range_header)
+    size = os.path.getsize(path)
+
+    if range_match:
+        first_byte, last_byte = range_match.groups()
+        first_byte = int(first_byte) if first_byte else 0
+        last_byte = (
+            first_byte + 1024 * 1024 * 8
+        )  # The max volume of the response body is 8M per piece
+        if last_byte >= size:
+            last_byte = size - 1
+        length = last_byte - first_byte + 1
+        response = StreamingHttpResponse(
+            file_iterator(path, offset=first_byte, length=length),
+            status=206,
+            content_type=content_type,
+        )
+        response["Content-Range"] = f"bytes {first_byte}-{last_byte}/{size}"
+
+    else:
+        response = StreamingHttpResponse(
+            FileWrapper(open(path, "rb")), content_type=content_type
+        )
+    response["Accept-Ranges"] = "bytes"
+    return response
+
+def stream_video(request, fqpn, content_type = "video/mp4"):
+    """
+    https://www.djangotricks.com/tricks/Jw4jNwFziSXD/
+    :param request:
+    :return:
+    """
+    # path = str(settings.BASE_DIR / "data" / "earth.mp4")
+    path = fqpn
+    # content_type = "video/mp4"
+    range_header = request.META.get("HTTP_RANGE", "").strip()
+    range_match = RANGE_RE.match(range_header)
+    size = os.path.getsize(path)
+
+    if range_match:
+        first_byte, last_byte = range_match.groups()
+        first_byte = int(first_byte) if first_byte else 0
+        last_byte = (
+            first_byte + 1024 * 1024 * 8
+        )  # The max volume of the response body is 8M per piece
+        if last_byte >= size:
+            last_byte = size - 1
+        length = last_byte - first_byte + 1
+        response = StreamingHttpResponse(
+            file_iterator(path, offset=first_byte, length=length),
+            status=206,
+            content_type=content_type,
+        )
+        response["Content-Range"] = f"bytes {first_byte}-{last_byte}/{size}"
+
+    else:
+        response = StreamingHttpResponse(
+            file_iterator(path, offset=0, length=size),
+#            FileWrapper(open(path, "rb")),
+            content_type=content_type
+        )
+    response["Accept-Ranges"] = "bytes"
     return response
