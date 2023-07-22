@@ -63,27 +63,27 @@ def return_prev_next(fqpn, currentpath, sorder) -> tuple:
                 Specifically Richard's answer.
     """
     # Parent_path = Path(fqpn).parent
+    nextdir = ""  # unnecessary since going beyond the max offset will cause indexerror.
+    prevdir = ""
     fqpn = ensures_endswith(fqpn.lower(), os.sep).replace("//", "/")
     currentpath = os.path.split(currentpath.lower().strip())[1]
     read_from_disk(fqpn, skippable=True)
-    index = get_db_files(sorder, fqpn).exclude(ignore=True).exclude(delete_pending=True).exclude(filetype__is_dir=False)
-    index = index.only("name")
-    nextdir = ""  # unnecessary since going beyond the max offset will cause indexerror.
-    prevdir = ""
+    if currentpath not in [None, ""]:
+        index = get_db_files(sorder, fqpn).exclude(filetype__is_dir=False)
+        index = index.only("name")
+        current_offset = 0
+        if index.exists():
+            try:
+                current_offset = list(index.values_list("name", flat=True)).index(currentpath.title())
+                nextdir = index[current_offset+1].name
+            except IndexError:
+                pass
 
-    if index.exists():
-        current_offset = index.filter(name__lt=currentpath.title()).count()
-
-        try:
-            nextdir = index[current_offset+1].name
-        except IndexError:
-            pass
-
-        try:
-            if current_offset >= 2:
-                prevdir = index[current_offset-1].name
-        except IndexError:
-            pass
+            try:
+                if current_offset > 0:
+                    prevdir = index[current_offset-1].name
+            except IndexError:
+                pass
 
     return (prevdir, nextdir)
 
@@ -114,18 +114,24 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
         fname = os.path.basename(entry.name).title()
 
         if entry.filetype.is_dir:
+            # add in file size comparison
             if entry.directory is not None:
                 # Send existing thumbnail
                 return entry.send_thumbnail(size=size)
 
-            entry.directory = Thumbnails_Dirs()
-            entry.directory.uuid = entry.uuid
-            entry.directory.FilePath = fs_item
-            entry.directory.DirName = fname
-            new_process_dir(entry)
+            try:
+                entry.directory = Thumbnails_Dirs()
+                entry.directory.uuid = entry.uuid
+                entry.directory.FilePath = fs_item
+                entry.directory.DirName = fname
+                new_process_dir(entry)
+            except IntegrityError:
+                time.sleep(2)
+                new_process_dir(entry)
             return entry.send_thumbnail(size=size)
 
         if entry.filetype.is_pdf or entry.filetype.is_image or entry.filetype.is_movie:
+            # add in file size comparison
             if entry.file_tnail is not None:  # == None:
                 # send the existing thumbnail
                 return entry.send_thumbnail(size=size)
@@ -137,7 +143,7 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
             try:
                 new_process_img(entry, request)
             except IntegrityError:
-                time.sleep(.5)
+                time.sleep(1)
                 new_process_img(entry, request)
             return entry.send_thumbnail(size=size)
 
@@ -265,7 +271,6 @@ def new_viewgallery(request: WSGIRequest):
                                                             paths["webpath"][1:])), os.sep)
     read_from_disk(fs_path, skippable=True)  # new_viewgallery
     index = get_db_files(context["sort"], fs_path)
-
     chk_list = Paginator(index, 30)
     context["page_cnt"] = list(arange(1, chk_list.num_pages + 1))
 
