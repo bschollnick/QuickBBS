@@ -109,7 +109,7 @@ ua-parser==0.16.1
 urllib3==1.26.15
 user-agents==2.2.0
 uvicorn==0.21.1
-uWSGI==2.0.21
+uWSGI==2.0.22
 watchdog==3.0.0
 webencodings==0.5.1
 wrapt==1.15.0
