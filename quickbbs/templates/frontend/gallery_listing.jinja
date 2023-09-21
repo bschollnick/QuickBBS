@@ -169,7 +169,6 @@
                                 {{ item.name|wordwrap(width=24, break_long_words=True)}} <br>
 
         <!--    Display the thumbnail           -->
-                                <link rel="preload" href={{item.get_thumbnail_url()}} as="image" defer>
                                 <img loading='lazy' src="{{item.get_thumbnail_url()}}" class="img-responsive" style="width:auto;max-width:100%"/>
 
                                 </a>

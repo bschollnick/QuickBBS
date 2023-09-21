@@ -51,6 +51,7 @@ SORT_MATRIX = {0: ["-filetype__is_dir", "sortname", "lastmod"],
                2: ["-filetype__is_dir", "sortname"],
                }
 
+
 def get_db_files(sorder, fpath) -> Iterator[index_data]:
     """
         Fetch the data from the database, and then order by the current users sort

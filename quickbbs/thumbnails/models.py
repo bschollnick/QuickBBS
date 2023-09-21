@@ -160,7 +160,6 @@ class MediumThumb(models.Model):
                                       settings.IMAGE_SIZES["medium"],
                                       fext=fext)
         self.save()
-        self.save()
 
     def get_thumb(self):
         """

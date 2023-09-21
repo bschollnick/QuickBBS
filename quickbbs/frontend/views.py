@@ -11,6 +11,8 @@ import warnings
 from pathlib import Path
 
 # import bleach
+import asyncio
+from asgiref.sync import sync_to_async
 import django_icons.templatetags.icons
 import markdown2
 from PIL import Image, ImageFile
@@ -101,62 +103,59 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
 
     :raises: HttpResponseBadRequest - If the uuid can not be found
     """
-    if is_valid_uuid(str(tnail_id)):
-        index_qs = index_data.objects.prefetch_related("filetype").filter(uuid=tnail_id)
-        if not index_qs.exists():
-            # does not exist
-            print(tnail_id, "No records returned.")
-            return Http404
+#    if is_valid_uuid(str(tnail_id)):
+    index_qs = index_data.objects.prefetch_related("filetype").filter(uuid=tnail_id)
+    if not index_qs.exists():
+        # does not exist
+        print(tnail_id, "No records returned.")
+        return Http404
 
-        size = request.GET.get("size", "small")
-        entry = index_qs[0]
-        fs_item = os.path.join(entry.fqpndirectory, entry.name)
-        fname = os.path.basename(entry.name).title()
+    size = request.GET.get("size", "small")
+    entry = index_qs[0]
+    fs_item = os.path.join(entry.fqpndirectory, entry.name)
+    fname = os.path.basename(entry.name).title()
 
-        if entry.filetype.is_dir:
-            # add in file size comparison
-            if entry.directory is not None:
-                # Send existing thumbnail
-                return entry.send_thumbnail(size=size)
-
-            try:
-                entry.directory = Thumbnails_Dirs()
-                entry.directory.uuid = entry.uuid
-                entry.directory.FilePath = fs_item
-                entry.directory.DirName = fname
-                new_process_dir(entry)
-            except IntegrityError:
-                time.sleep(2)
-                new_process_dir(entry)
+    if entry.filetype.is_dir:
+        # add in file size comparison
+        if entry.directory is not None:
+            # Send existing thumbnail
             return entry.send_thumbnail(size=size)
 
-        if entry.filetype.is_pdf or entry.filetype.is_image or entry.filetype.is_movie:
-            # add in file size comparison
-            if entry.file_tnail is not None:  # == None:
-                # send the existing thumbnail
-                return entry.send_thumbnail(size=size)
+        try:
+            entry.directory = Thumbnails_Dirs()
+            entry.directory.uuid = entry.uuid
+            entry.directory.FilePath = fs_item
+            entry.directory.DirName = fname
+            new_process_dir(entry)
+        except IntegrityError:
+            time.sleep(2)
+            new_process_dir(entry)
+        return entry.send_thumbnail(size=size)
 
-            entry.file_tnail = Thumbnails_Files()
-            entry.file_tnail.uuid = entry.uuid
-            entry.file_tnail.FilePath = fs_item
-            entry.file_tnail.FileName = fname
-            try:
-                new_process_img(entry, request)
-            except IntegrityError:
-                time.sleep(1)
-                new_process_img(entry, request)
+    if entry.filetype.is_pdf or entry.filetype.is_image or entry.filetype.is_movie:
+        # add in file size comparison
+        if entry.file_tnail is not None:  # == None:
+            # send the existing thumbnail
             return entry.send_thumbnail(size=size)
 
-        if entry.filetype.icon_filename not in ["", None] and not entry.filetype.is_dir:
-            entry.is_generic_icon = True
-            entry.fqpndirectory = os.path.join(settings.RESOURCES_PATH, "images",
-                                               entry.filetype.icon_filename)
-            return respond_as_attachment(request, os.path.join(settings.RESOURCES_PATH, "Images"),
-                                         entry.filetype.icon_filename)
+        entry.file_tnail = Thumbnails_Files()
+        entry.file_tnail.uuid = entry.uuid
+        entry.file_tnail.FilePath = fs_item
+        entry.file_tnail.FileName = fname
+        try:
+            new_process_img(entry, request)
+        except IntegrityError:
+            time.sleep(1)
+            new_process_img(entry, request)
+        return entry.send_thumbnail(size=size)
 
-        # if entry.archives:
-        #    page = int(g_option(request, "page", 0))
-        #    return new_process_archive(entry, request, page)
+    if entry.filetype.icon_filename not in ["", None] and not entry.filetype.is_dir:
+        entry.is_generic_icon = True
+        entry.fqpndirectory = os.path.join(settings.RESOURCES_PATH, "images",
+                                           entry.filetype.icon_filename)
+        return respond_as_attachment(request, os.path.join(settings.RESOURCES_PATH, "Images"),
+                                     entry.filetype.icon_filename)
+
     return HttpResponseBadRequest(content="Bad UUID or Unidentifable file.")
 
 
@@ -288,7 +287,7 @@ def new_viewgallery(request: WSGIRequest):
                                  (Q(filetype__is_pdf=True) | Q(filetype__is_image=True) |
                                   Q(filetype__is_movie=True))).order_by("-lastmod")
     if missing_files.exists():
-        missing_files = missing_files[0:10]
+        missing_files = missing_files[0:5]
         context["missing"] = [entry.get_thumbnail_url() for entry in missing_files]
     response = render(request,
                       "frontend/gallery_listing.jinja",
@@ -313,7 +312,7 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
     -------
     JsonResponse : The Json response from the web query.
     """
-    start_time = time.perf_counter()  # time.time()
+    #start_time = time.perf_counter()  # time.time()
     context = {"start_time": time.perf_counter(),
                "uuid": str(i_uuid).strip().replace("/", ""),
                "sort": sort_order(request),
@@ -324,7 +323,7 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
 
     entry = index_data.objects.select_related("filetype").filter(uuid=context["uuid"])[0]
     if not entry:
-        sync_database_disk(entry.fqpndirectory)
+        # sync_database_disk(entry.fqpndirectory)
         entry = index_data.objects.select_related("filetype").filter(uuid=context["uuid"])[0]
         if not entry:
             return HttpResponseBadRequest(content="No entry found.")
@@ -395,7 +394,7 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
         context["next_uuid"] = catalog_qs[page_contents.next_page_number() - 1].uuid
     if page_contents.has_previous():
         context["previous_uuid"] = catalog_qs[page_contents.previous_page_number() - 1].uuid
-    print("item info - Process time: ", time.perf_counter() - context["start_time"], "secs")
+    #print("item info - Process time: ", time.perf_counter() - context["start_time"], "secs")
     return Response(context)
 
 
