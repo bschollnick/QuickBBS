@@ -653,6 +653,7 @@ def sync_database_disk(directoryname):
         # If the directory is not found in the Cache_Tracking table, then it needs to be rescanned.
         # Remember, directory is placed in there, when it is scanned.
         # If changed, then watchdog should have removed it from the path.
+        print(f"{dirpath=} not in Cache_Tracking")
         _, fs_entries = return_disk_listing(dirpath)
 
         db_data = index_data.objects.select_related("filetype", "directory").filter(

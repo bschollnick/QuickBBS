@@ -18,22 +18,6 @@ from pathlib import Path
 from quickbbs.quickbbs_settings import *
 import django_icons
 
-ALLOWED_HOSTS = ['nerv.local', 'localhost', '127.0.0.1', '192.168.1.67']
-INTERNAL_IPS = ['localhost', '127.0.0.1', 'nerv.local', '192.168.1.67']
-machine_name = socket.gethostname().lower()
-print(f"* Running on {machine_name}")
-
-# Demo mode, redirects the database to a different database container, and album path.
-# Useful for demonstrating the software without using your master database.
-#
-DEMO = False
-# DEMO = True
-if DEMO:
-    ALBUMS_PATH = "/Volumes/4TB_Drive/gallery_demo".lower()
-else:
-    ALBUMS_PATH = "/Volumes/C-8TB/Gallery/quickbbs".lower()
-
-print(f"* Demo Mode is {DEMO}")
 
 #
 #   Debug, enables the debugging mode
@@ -41,6 +25,25 @@ print(f"* Demo Mode is {DEMO}")
 DEBUG = False
 # DEBUG = not DEBUG
 print(f"* Debug Mode is {DEBUG}")
+
+# Demo mode, redirects the database to a different database container, and album path.
+# Useful for demonstrating the software without using your master database.
+#
+DEMO = False
+# DEMO = True
+if DEMO:
+    ALBUMS_PATH = "/Volumes/C-8TB/gallery_demo".lower()
+else:
+    ALBUMS_PATH = "/Volumes/C-8TB/Gallery/quickbbs".lower()
+
+print(f"* Demo Mode is {DEMO}")
+
+TAILSCALE_HOSTS = ['100.117.227.36', '100.73.202.135']
+ALLOWED_HOSTS = ['nerv.local', 'localhost', '127.0.0.1', '192.168.1.67'] + TAILSCALE_HOSTS
+
+INTERNAL_IPS = ['localhost', '127.0.0.1', 'nerv.local', '192.168.1.67']
+machine_name = socket.gethostname().lower()
+print(f"* Running on {machine_name}")
 
 #
 #   Django Debug Toolbar, is controlled separately from the debug mode,
@@ -76,15 +79,15 @@ if not DEBUG:
         'default': {
             'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
             'LOCATION': 'cache_data_db_table',
-            'TIMEOUT': 300,
+            'TIMEOUT': 1200, # 20 minutes #300, # 5 minutes
             'OPTIONS': {
-                'MAX_ENTRIES': 22000,
-                'CULL_FREQUENCY': 3,  # This is default
+                'MAX_ENTRIES': 20000,
+                'CULL_FREQUENCY': 2,
             }
         }
     }
 
-USER_AGENTS_CACHE = 'default'
+# USER_AGENTS_CACHE = 'default'
 
 # Before using the database cache, you must create the cache table with this command:
 # python manage.py createcachetable
@@ -143,6 +146,7 @@ INSTALLED_APPS += [
     'django_icons',
     #    'django_unicorn',
     'django_jinja.contrib._humanize',
+    'django_extensions',
 ]
 
 SITE_ID = 1

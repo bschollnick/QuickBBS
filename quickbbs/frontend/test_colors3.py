@@ -1,9 +1,9 @@
 import argparse
+import os
 import re
 import shutil
 import sys
 from struct import unpack
-
 import xattr
 
 from cached_exists import *
@@ -71,7 +71,7 @@ def main(args):
     root_target_dir = args.target
 
     operation = 'copy'  # 'copy' or 'move'
-    use_imagehash = True
+    use_imagehash = False
     use_shas = False
     filedb = cached_exist(use_shas=use_shas,
                           use_image_hash=use_imagehash,
@@ -80,13 +80,16 @@ def main(args):
     filedb.MAX_SHA_SIZE = 1024 * 1024 * 5
     print("Starting with ", root_src_dir)
     print("Target path", root_target_dir)
+    if not os.path.exists(root_src_dir):
+        print(f"{root_src_dir} can not be found.")
+        sys.exit()
     for src_dir, dirs, files in os.walk(root_src_dir, topdown=True):
         dst_dir = src_dir.replace(root_src_dir, root_target_dir).title().replace(" ", "_")
         #
         filedb.read_path(dst_dir, recursive=True)
         for file_ in files:
             fext = os.path.splitext(file_)[1].lower()
-            if fext not in filedb._graphics and fext not in filedb._movies:
+            if fext in filedb._archives: #filedb._graphics and fext not in filedb._movies:
                 continue
 
             src_sha = None
@@ -97,8 +100,8 @@ def main(args):
 
             if get_color(src_file)[0] != 0:
                 # the file has a label (any label), copy or move it
-
                 if filedb.search_file_exist(os.path.split(dst_file)[1])[0]:
+                    # Please remember that search_file_exists works on the filename, and not the FQPN.
                     # print("Skipping (already exists) - ", dst_file)
                     continue
                 #
