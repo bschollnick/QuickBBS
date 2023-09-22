@@ -12,7 +12,7 @@ from filetypes.models import FILETYPE_DATA
 from frontend.database import get_xth_image
 from frontend.utilities import cr_tnail_img, read_from_disk, return_image_obj
 from frontend.web import g_option  # , respond_as_attachment
-from frontend.web import return_img_attach, return_inline_attach
+from frontend.web import return_img_attach  # , return_inline_attach
 from django.db.utils import ProgrammingError, OperationalError, IntegrityError
 
 
@@ -138,7 +138,6 @@ def new_process_dir(db_index):
         db_index.save()
     except IntegrityError:
         pass
-    # return return_img_attach(db_index.name, db_index.directory.SmallThumb)
 
 
 def invalidate_thumb(thumbnail):
@@ -180,18 +179,17 @@ def new_process_img(entry, request, imagesize="Small"):
         if entry.size == entry.file_tnail.FileSize:
             # If size matches, then image is most likely the existing cached image
             # return the existing cached image
-            return return_inline_attach(entry.name, existing_data)
+            # return return_inline_attach(entry.name, existing_data)
+            return entry.send_thumbnail(filename=entry.name, fext_override=None, size=imagesize)
 
     fs_fname = os.path.join(entry.fqpndirectory, entry.name).replace("//", "/")
     # file system location of directory
 
     fext = os.path.splitext(fs_fname)[1][1:].lower()
-    # imagedata = None
     entry.file_tnail = invalidate_thumb(entry.file_tnail)
 
     # https://stackoverflow.com/questions/1167398/python-access-class-property-from-string
     temp = return_image_obj(fs_fname)
-    # temp_image = cr_tnail_img(temp, settings.IMAGE_SIZE[thumb_size.lower()], fext=fext)
     #
     for size in ["Large", "Medium", "Small"]:
         imagedata = cr_tnail_img(temp,

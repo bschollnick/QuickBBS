@@ -153,7 +153,8 @@ SITE_ID = 1
 
 SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
 
-MIDDLEWARE = ['django.middleware.security.SecurityMiddleware',
+MIDDLEWARE = ['allauth.account.middleware.AccountMiddleware',
+              'django.middleware.security.SecurityMiddleware',
               'django.middleware.cache.UpdateCacheMiddleware',
               'django.contrib.sessions.middleware.SessionMiddleware',
               'django.middleware.http.ConditionalGetMiddleware',
