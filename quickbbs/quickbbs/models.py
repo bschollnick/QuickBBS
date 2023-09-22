@@ -1,5 +1,4 @@
 import io
-import mimetypes
 import os
 import time
 import uuid
@@ -431,16 +430,6 @@ class index_data(models.Model):
         #               video-plays-in-other-browsers-but-not-safari
         # https://stackoverflow.com/questions/720419/
         #               how-can-i-find-out-whether-a-server-supports-the-range-header
-        # fqpn_filename = os.path.join(self.fqpndirectory, self.name)
-        # base_filename = self.name
-        # if fext_override is not None:
-        #     mimetype_filename = os.path.join(os.path.splitext(base_filename)[0], fext_override)
-        # else:
-        #     mimetype_filename = filename
-        #
-        # #    mtype, encoding = mimetypes.guess_type(filename)
-        # mtype = mimetypes.guess_type(mimetype_filename)[0]
-        # if mtype is None:
         mtype = 'application/octet-stream'
         if self.file_tnail is not None:
             binaryblob = get_sized_tnail(size=size, tnail=self.file_tnail)
@@ -464,8 +453,6 @@ class index_data(models.Model):
         # how-can-i-find-out-whether-a-server-supports-the-range-header
         fqpn_filename = os.path.join(self.fqpndirectory, self.name)
         try:
-            #if os.path.exists(fqpn_filename):
-            # mtype = mimetypes.guess_type(fqpn_filename)[0]
             mtype = self.filetype.mimetype
             if mtype is None:
                 mtype = 'application/octet-stream'

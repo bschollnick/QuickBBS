@@ -14,7 +14,7 @@ from django.views.decorators.cache import never_cache
 from django.contrib.auth import authenticate, login
 from django.http import (FileResponse, Http404, StreamingHttpResponse,
                          HttpResponse)
-from ranged_fileresponse import RangedFileResponse
+# from ranged_fileresponse import RangedFileResponse
 
 
 # import RangedFileResponse
@@ -137,12 +137,6 @@ def return_img_attach(filename, binaryblob, fext_override=None, use_ranged=False
         mtype = 'application/octet-stream'
 
     if use_ranged:
-        # response = RangedFileResponse(request, file=open(filename, 'rb'),
-        #                               as_attachment=False,
-        #                               filename=os.path.basename(filename))
-        # response["Content-Type"] = mtype
-        # response['Content-Length'] = len(binaryblob)
-        # return response
         response = stream_video(request, filename, content_type=mtype)
 
     else:
@@ -153,92 +147,6 @@ def return_img_attach(filename, binaryblob, fext_override=None, use_ranged=False
         response["Content-Type"] = mtype
         response['Content-Length'] = len(binaryblob)
     return response
-#
-#
-# @never_cache
-# def img_attach_file(filename, fqfn):
-#     """
-#     Output a http response header, for an image attachment.
-#
-#    Args:
-#         filename (str): Filename of the file to be sent as the attachment name
-#         binaryblob (bin): The blob of data that is the image file
-#
-#     Returns:
-#         object::
-#             The Django response object that contains the attachment and header
-#
-#     Raises:
-#         None
-#
-#     Examples
-#     --------
-#     return_img_attach("test.png", img_data)
-#
-#
-#     """
-#     response = HttpResponse()
-#     with open(fqfn, 'rb') as filedata:
-#         response.write(filedata.read())
-#     response['Content-Disposition'] = f'attachment; filename={{{filename}}}'
-#     return response
-#
-#
-# @never_cache
-# def file_inline(filename, fqfn):
-#     """
-#     Output a http response header, for an image attachment.
-#
-#    Args:
-#         filename (str): Filename of the file to be sent as the attachment name
-#         binaryblob (bin): The blob of data that is the image file
-#
-#     Returns:
-#         object::
-#             The Django response object that contains the attachment and header
-#
-#     Raises:
-#         None
-#
-#     Examples
-#     --------
-#     return_img_attach("test.png", img_data)
-#
-#
-#     """
-#     response = HttpResponse()
-#     with open(fqfn, 'rb') as filedata:
-#         response.write(filedata.read())
-#     response['Content-Disposition'] = f'inline; filename={{{filename}}}'
-#     return response
-#
-#
-# #@never_cache
-# def respond_as_inline(request, file_path, original_filename, ranged=False):
-#     # https://stackoverflow.com/questions/36392510/django-download-a-file
-#     # https://stackoverflow.com/questions/27712778/
-#     #       video-plays-in-other-browsers-but-not-safari
-#     # https://stackoverflow.com/questions/720419/
-#     # how-can-i-find-out-whether-a-server-supports-the-range-header
-#     filename = os.path.join(file_path, original_filename)
-#     if os.path.exists(filename):
-#         mtype = mimetypes.guess_type(original_filename)[0]
-#         if mtype is None:
-#             mtype = 'application/octet-stream'
-#
-#         with open(filename, 'rb') as fh:
-#             if ranged:
-#                 # open must be in the RangedFielRequest, to allow seeking
-#                 response = RangedFileResponse(request, file=open(filename, 'rb'),  # , buffering=1024*8),
-#                                               as_attachment=False,
-#                                               filename=original_filename)
-#                 response["Content-Type"] = mtype
-#             else:
-#                 response = HttpResponse(fh.read(), content_type=mtype)
-#                 response['Content-Disposition'] = f'inline; filename={original_filename}'
-#         return response
-#     raise Http404
-
 
 @never_cache
 def respond_as_attachment(request, file_path, original_filename):
