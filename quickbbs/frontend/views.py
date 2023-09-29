@@ -29,7 +29,8 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 import frontend.archives3 as archives
-from cache.models import fs_Cache_Tracking as Cache_Tracking
+# from cache.models import fs_Cache_Tracking as Cache_Tracking
+from cache.models import Cache_Storage
 from frontend.database import get_db_files, SORT_MATRIX  # check_dup_thumbs
 from frontend.thumbnail import (new_process_dir,
                                 new_process_img)
@@ -612,7 +613,7 @@ def view_setup():
 
     print("Clearing all entries from Cache Tracking")
     try:
-        Cache_Tracking.objects.all().delete()
+        Cache_Storage.clear_all_records()
     except ProgrammingError:
         print("Unable to clear Cache Table")
     except OperationalError:
