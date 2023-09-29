@@ -26,7 +26,8 @@ from quickbbs.models import filetypes, index_data
 import filetypes.models as filetype_models
 import frontend.archives3 as archives
 import frontend.constants as constants
-from cache.models import fs_Cache_Tracking as Cache_Tracking
+#from cache.models import fs_Cache_Tracking as Cache_Tracking
+from cache.models import Cache_Storage
 
 log = logging.getLogger(__name__)
 
@@ -648,8 +649,9 @@ def sync_database_disk(directoryname):
     dirpath = os.path.abspath(directoryname.title().strip())
 
     records_to_update = []
+    cached = Cache_Storage.name_exists_in_cache(DirName=dirpath) is True
 
-    if not Cache_Tracking.objects.filter(DirName=dirpath).exists():
+    if not cached:
         # If the directory is not found in the Cache_Tracking table, then it needs to be rescanned.
         # Remember, directory is placed in there, when it is scanned.
         # If changed, then watchdog should have removed it from the path.
@@ -737,10 +739,11 @@ def sync_database_disk(directoryname):
         # (eg Startup, or the entry has been nullified)
         # Add to table, and allow a rescan to occur.
         print(f"\nSaving, {dirpath} to cache tracking\n")
-        new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
-        new_rec.save()
+        Cache_Storage.add_to_cache(DirName=dirpath)
+        # new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
+        # new_rec.save()
 
-        index_data.objects.filter(delete_pending=True).delete()
+#        index_data.objects.filter(delete_pending=True).delete()
     # scan_lock.release_scan(webpath)
 
 
