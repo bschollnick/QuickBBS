@@ -180,7 +180,7 @@ def new_process_img(entry, request, imagesize="Small"):
             # If size matches, then image is most likely the existing cached image
             # return the existing cached image
             # return return_inline_attach(entry.name, existing_data)
-            return entry.send_thumbnail(filename=entry.name, fext_override=None, size=imagesize)
+            return # entry.send_thumbnail(filename=entry.name, fext_override=None, size=imagesize)
 
     fs_fname = os.path.join(entry.fqpndirectory, entry.name).replace("//", "/")
     # file system location of directory

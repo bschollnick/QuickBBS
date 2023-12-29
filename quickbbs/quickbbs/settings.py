@@ -82,7 +82,7 @@ if not DEBUG:
             'TIMEOUT': 1200, # 20 minutes #300, # 5 minutes
             'OPTIONS': {
                 'MAX_ENTRIES': 20000,
-                'CULL_FREQUENCY': 2,
+                'CULL_FREQUENCY': 4,
             }
         }
     }

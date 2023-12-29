@@ -30,7 +30,7 @@ from rest_framework.response import Response
 
 import frontend.archives3 as archives
 # from cache.models import fs_Cache_Tracking as Cache_Tracking
-from cache.models import Cache_Storage
+# from cache.models import Cache_Storage
 from frontend.database import get_db_files, SORT_MATRIX  # check_dup_thumbs
 from frontend.thumbnail import (new_process_dir,
                                 new_process_img)
@@ -608,32 +608,22 @@ def view_setup():
     Wrapper for view startup
 
     """
-    print("Clearing all entries from Directory Lock Tracking")
-    #  scan_lock.release_all()
-
-    print("Clearing all entries from Cache Tracking")
-    try:
-        Cache_Storage.clear_all_records()
-    except ProgrammingError:
-        print("Unable to clear Cache Table")
-    except OperationalError:
-        print("Cache table doesn't exist")
-
-    if 'runserver' in sys.argv or "--host" in sys.argv:
-        print("Starting cleanup")
-        #    check_for_deletes()
-        print("Cleanup is done.")
-        if settings.DEMO:
-            read_from_disk(os.path.join(settings.ALBUMS_PATH, "albums"))
-        else:
-            try:
-                for prepath in settings.PRELOAD:
-                    print("Pre-Caching: ", prepath)
-                    read_from_disk(prepath.strip())  # startup
-                read_from_disk(os.path.join(settings.ALBUMS_PATH, "albums"))
-            except:
-                pass
-    index_data.objects.filter(delete_pending=True).delete()
+    pass
+    # if 'runserver' in sys.argv or "--host" in sys.argv:
+    #     print("Starting cleanup")
+    #     #    check_for_deletes()
+    #     print("Cleanup is done.")
+    #     if settings.DEMO:
+    #         read_from_disk(os.path.join(settings.ALBUMS_PATH, "albums"))
+    #     else:
+    #         try:
+    #             for prepath in settings.PRELOAD:
+    #                 print("Pre-Caching: ", prepath)
+    #                 read_from_disk(prepath.strip())  # startup
+    #             read_from_disk(os.path.join(settings.ALBUMS_PATH, "albums"))
+    #         except:
+    #             pass
+#    index_data.objects.filter(delete_pending=True).delete()
 
 
 if __name__ != "__main__":
