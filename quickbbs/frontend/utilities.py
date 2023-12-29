@@ -11,6 +11,7 @@ import urllib.parse
 import uuid
 from io import BytesIO
 from pathlib import Path
+from aiopath import AsyncPath
 from typing import Union  # , List  # , Iterator, Optional, TypeVar, Generic
 
 # from moviepy.video.io import VideoFileClip
@@ -328,7 +329,7 @@ def cr_tnail_img(source_image, size, fext) -> Image:
         fext = ".jpg"
 
     with BytesIO() as image_data:  # = BytesIO()
-        source_image.thumbnail((size, size), Image.ANTIALIAS)
+        source_image.thumbnail((size, size), Image.Resampling.LANCZOS)
         try:
             source_image.save(fp=image_data,
                               format="PNG",  # Need alpha channel support for icons, etc.
@@ -447,22 +448,6 @@ def return_disk_listing(fqpn, enable_rename=False) -> (bool, dict):
         if settings.IGNORE_DOT_FILES and item.name.lower().startswith("."):
             # IGNORE_DOT_FLES is enabled, *and* the filename startswith an ., skip it.
             continue
-
-        # if enable_rename:
-        #     original_filename = titlecase
-        #     if titlecase != unescaped:
-        #         titlecase = unescaped.title()
-        #
-        #     after_filename = multiple_replace(constants.replacements, lower_filename)  # , regex)
-        #     if after_filename != lower_filename:
-        #         titlecase = after_filename.title()
-        #
-        #     titlecase = sanitize_filename(titlecase)
-        #     if titlecase != original_filename:
-        #         rename_file(os.path.join(fqpn, original_filename),
-        #                     os.path.join(fqpn, titlecase))
-        #         print(f"rejected - {titlecase}")
-        #         # loaded = False
 
         fs_data[item.name.title().strip()] = item
     return (True, fs_data)

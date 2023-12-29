@@ -1,4 +1,5 @@
 import io
+import hashlib
 import os
 import time
 import uuid
@@ -19,6 +20,8 @@ from django.views.decorators.cache import cache_control
 import thumbnails.models
 from filetypes.models import filetypes
 
+def convert_text_to_md5_hdigest(text):
+    return hashlib.md5(text.encode("utf-16")).hexdigest()
 
 def is_valid_uuid(uuid_to_test, version=4):
     """
@@ -69,14 +72,15 @@ class Favorites(models.Model):
     uuid = models.UUIDField(default=None, null=True, editable=False, blank=True, db_index=True)
 
 
+
 class Thumbnails_Dirs(models.Model):
     id = models.AutoField(primary_key=True, db_index=True)
-    uuid = models.UUIDField(
-        default=None, null=True, editable=False, db_index=True, blank=True)
+    uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True, blank=True)
     DirName = models.CharField(db_index=True, max_length=384, default='', blank=True)  # FQFN of the file itself
     FileSize = models.BigIntegerField(default=-1)
     FilePath = models.CharField(db_index=True, max_length=384, default=None)  # FQFN of the file itself
     SmallThumb = models.BinaryField(default=b"")
+
 
     class Meta:
         verbose_name = 'Directory Thumbnails Cache'
@@ -88,9 +92,9 @@ class Thumbnails_Dirs(models.Model):
 
 class Thumbnails_Small(models.Model):
     id = models.AutoField(primary_key=True, db_index=True)
-    uuid = models.UUIDField(
-        default=None, null=True, editable=False, db_index=True, blank=True
-    )
+    Combined_md5 = models.CharField(db_index=True, max_length=32, unique=True, null=True, default=None)
+        # Webpath + Filename (eg WebFQPN - /gallery/folder1/test.jpg)
+    uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True, blank=True)
     Thumbnail = models.BinaryField(default=b"")
     FileSize = models.BigIntegerField(default=-1)
 
@@ -98,6 +102,35 @@ class Thumbnails_Small(models.Model):
         verbose_name = 'Image File Small Thumbnail Cache'
         verbose_name_plural = 'Image File Small Thumbnails Cache'
 
+class Index_Dirs(models.Model):
+    uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True, blank=True)
+    DirName = models.CharField(db_index=False, max_length=384, default='', blank=True)  # FQFN of the file itself
+    WebPath_md5 = models.CharField(db_index=True, max_length=32, unique=True)
+    DirName_md5 = models.CharField(db_index=True, max_length=32, unique=False)
+    Combined_md5 = models.CharField(db_index=True, max_length=32, unique=True)
+    FileCount = models.BigIntegerField(default=-1)
+    DirCount = models.BigIntegerField(default=-1)
+    Thumbnail = models.ForeignKey(Thumbnails_Small, to_field='Combined_md5', on_delete=models.CASCADE,
+                                 db_index=True, null=True, default=None)
+
+    def add_directory(self, fqpn_directory, FileCount=-1, DirCount=-1):
+        fqpn_directory = fqpn_directory.lower().strip()
+        dir_seg, filename_seg = os.path.split(fqpn_directory)
+        new_rec = Index_Dirs()
+        new_rec.WebPath_md5 = convert_text_to_md5_hdigest(dir_seg)
+        new_rec.DirName_md5 = convert_text_to_md5_hdigest(filename_seg)
+        new_rec.Combined_md5 = convert_text_to_md5_hdigest(fqpn_directory)
+        new_rec.uuid = uuid.uuid4()
+        new_rec.FileCount = FileCount
+        new_rec.DirCount = DirCount
+        new_rec.save()
+
+    def search_for_directory(self, fqpn_directory):
+        query = Index_Dirs.objects.filter(Combined_md5=convert_text_to_md5_hdigest(fqpn_directory))
+        if query.exists():
+            return (True, query[0])
+        else:
+            return (False, None)
 
 class Thumbnails_Medium(models.Model):
     id = models.AutoField(primary_key=True, db_index=True)
@@ -177,29 +210,6 @@ class Thumbnails_Archives(models.Model):
         constraints = [
             models.UniqueConstraint(fields=['FileName', 'FilePath', 'zipfilepath'], name='unique_archives')
         ]
-
-
-# class scan_lock(models.Model):
-#     fqpndirectory = models.CharField(default=0, db_index=True, max_length=384, unique=True)
-#
-#     def start_scan(self, fqpndirectory=None):
-#         if fqpndirectory is not None:
-#             self.fqpndirectory = str(fqpndirectory).title()
-#             self.save()
-#
-#     def release_scan(fqpndirectory):
-#         scan_lock.objects.filter(fqpndirectory=str(fqpndirectory).title()).delete()
-#
-#     def release_all():
-#         scan_lock.objects.all().delete()
-#
-#     def scan_in_progress(fqpndirectory):
-#         return scan_lock.objects.filter(fqpndirectory=str(fqpndirectory).title()).exists()
-#
-#     class Meta:
-#         verbose_name = 'Directory Scanning Lock'
-#         verbose_name_plural = 'Directory Scanning Locks'
-
 
 class index_data(models.Model):
     id = models.AutoField(primary_key=True)
