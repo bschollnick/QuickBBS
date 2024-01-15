@@ -18,7 +18,9 @@ def delete_from_cache_tracking(event):
         hash = create_hash(dirpath)
         if Cache_Storage.remove_from_cache_hdigest(hash):
             print(f"{time.ctime()} Deleted {dirpath}\n")
-    #print(cache.keys()[:5])
+    # print(cache.keys()[:5])
+
+
 #        count, _ = fs_Cache_Tracking.objects.filter(DirName=dirpath).delete()
 #        if count:
 #            print(f"{time.ctime()} Deleted {dirpath}\n")
@@ -26,6 +28,7 @@ def delete_from_cache_tracking(event):
 
 def create_hash(text):
     return hashlib.md5(text.title().strip().encode("utf-8")).hexdigest()
+
 
 class fs_Cache_Tracking(models.Model):
     Dir_md5_hdigest = models.CharField(db_index=True, max_length=32, default='', blank=True, unique=True)
@@ -36,6 +39,7 @@ class fs_Cache_Tracking(models.Model):
 
     def clear_all_records(self):
         fs_Cache_Tracking.objects.all().delete()
+
     def add_to_cache(self, DirName):
         entry = fs_Cache_Tracking()
         entry.DirName = DirName.title().strip()
@@ -57,6 +61,7 @@ class fs_Cache_Tracking(models.Model):
     def remove_from_cache_name(self, DirName):
         items_removed, _ = fs_Cache_tracking.objects.filter(DirName=DirName.title()).delete()
         return items_removed is True
+
 
 Cache_Storage = fs_Cache_Tracking()
 

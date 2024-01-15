@@ -112,6 +112,8 @@ class Index_Dirs(models.Model):
     DirCount = models.BigIntegerField(default=-1)
     Thumbnail = models.ForeignKey(Thumbnails_Small, to_field='Combined_md5', on_delete=models.CASCADE,
                                  db_index=True, null=True, default=None)
+    ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
+    delete_pending = models.BooleanField(default=False, db_index=True)  # File is to be deleted,
 
     def add_directory(self, fqpn_directory, FileCount=-1, DirCount=-1):
         fqpn_directory = fqpn_directory.lower().strip()
@@ -126,7 +128,9 @@ class Index_Dirs(models.Model):
         new_rec.save()
 
     def search_for_directory(self, fqpn_directory):
-        query = Index_Dirs.objects.filter(Combined_md5=convert_text_to_md5_hdigest(fqpn_directory))
+        query = Index_Dirs.objects.filter(Combined_md5=convert_text_to_md5_hdigest(fqpn_directory),
+                                          delete_pending=False,
+                                          ignore=False)
         if query.exists():
             return (True, query[0])
         else:
