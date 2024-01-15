@@ -202,17 +202,17 @@ def load_movie(fspath, offset_from=30):
     return image
 
 
-def load_movie_alt(fspath):
-    """
-    The load_movie_av function loads a movie from the filesystem and returns an image of the first frame.
-
-    :param fspath: Specify the path of the file
-    :return: An Pillow image object
-    """
-    with av.open(fspath) as container:
-        stream = container.streams.video[0]
-        frame = next(container.decode(stream))
-        return frame.to_image()
+# def load_movie_alt(fspath):
+#     """
+#     The load_movie_av function loads a movie from the filesystem and returns an image of the first frame.
+#
+#     :param fspath: Specify the path of the file
+#     :return: An Pillow image object
+#     """
+#     with av.open(fspath) as container:
+#         stream = container.streams.video[0]
+#         frame = next(container.decode(stream))
+#         return frame.to_image()
 
 
 def load_image(fspath, mem=False):
@@ -645,7 +645,7 @@ def sync_database_disk(directoryname):
 
         db_data = index_data.objects.select_related("filetype", "directory").filter(
             fqpndirectory=webpath, delete_pending=False, ignore=False)
-
+        # db_data = index_data.search_for_directory(fqpn_directory=webpath)
         for db_entry in db_data:
             if db_entry.name.strip() not in fs_entries:
                 print("Database contains a file not in the fs: ", db_entry.name)

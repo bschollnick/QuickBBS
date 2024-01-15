@@ -139,14 +139,15 @@ INSTALLED_APPS += [
     'allauth.account',
     'allauth.socialaccount',
     'cache',
-    'quickbbs',
-    'frontend',
-    'thumbnails',
-    'filetypes',
     'django_icons',
     #    'django_unicorn',
     'django_jinja.contrib._humanize',
     'django_extensions',
+    'filetypes',
+    'frontend',
+    'quickbbs',
+    'thumbnails',
+    'DirScanning',
 ]
 
 SITE_ID = 1
