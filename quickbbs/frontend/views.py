@@ -24,7 +24,7 @@ from django.http import (Http404, HttpResponseBadRequest, HttpResponseNotFound)
 from django.shortcuts import render
 from django.db.models import Q
 from numpy import arange
-from quickbbs.models import Thumbnails_Dirs, Thumbnails_Files, index_data  # , scan_lock
+from quickbbs.models import Thumbnails_Dirs, Thumbnails_Files, Index_Dirs, index_data, convert_text_to_md5_hdigest
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
@@ -114,6 +114,8 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
     size = request.GET.get("size", "small")
     entry = index_qs[0]
     fs_item = os.path.join(entry.fqpndirectory, entry.name)
+    found, dir_record = Index_Dirs.search_for_directory(fs_item)
+    print(fs_item, found, dir_record)
     fname = os.path.basename(entry.name).title()
 
     if entry.filetype.is_dir:

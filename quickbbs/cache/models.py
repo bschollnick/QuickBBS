@@ -15,8 +15,8 @@ from cache.watchdogmon import watchdog
 def delete_from_cache_tracking(event):
     if event.is_directory:
         dirpath = os.path.normpath(event.src_path)
-        hash = create_hash(dirpath)
-        if Cache_Storage.remove_from_cache_hdigest(hash):
+        dhash = create_hash(dirpath)
+        if Cache_Storage.remove_from_cache_hdigest(dhash):
             print(f"{time.ctime()} Deleted {dirpath}\n")
     # print(cache.keys()[:5])
 
@@ -27,7 +27,8 @@ def delete_from_cache_tracking(event):
 #        cache.clear()
 
 def create_hash(text):
-    return hashlib.md5(text.title().strip().encode("utf-8")).hexdigest()
+    #return hashlib.md5(text.title().strip().encode("utf-8")).hexdigest()
+    return hashlib.md5(text.title().strip().encode("utf-16")).hexdigest()
 
 
 class fs_Cache_Tracking(models.Model):
