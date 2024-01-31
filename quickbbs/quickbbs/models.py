@@ -18,10 +18,10 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_control
 
 import thumbnails.models
-from filetypes.models import filetypes
+from filetypes.models import filetypes, FILETYPE_DATA
 
 def convert_text_to_md5_hdigest(text):
-    return hashlib.md5(text.encode("utf-16")).hexdigest()
+    return hashlib.md5(text.title().strip().encode("utf-16")).hexdigest()
 
 def is_valid_uuid(uuid_to_test, version=4):
     """
@@ -105,36 +105,118 @@ class Thumbnails_Small(models.Model):
 class Index_Dirs(models.Model):
     uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True, blank=True)
     DirName = models.CharField(db_index=False, max_length=384, default='', blank=True)  # FQFN of the file itself
-    WebPath_md5 = models.CharField(db_index=True, max_length=32, unique=True)
+    # WebPath_md5 = models.CharField(db_index=True, max_length=32, unique=False)
     DirName_md5 = models.CharField(db_index=True, max_length=32, unique=False)
+        # DirName is the just the directory name (eg test1)
     Combined_md5 = models.CharField(db_index=True, max_length=32, unique=True)
-    FileCount = models.BigIntegerField(default=-1)
-    DirCount = models.BigIntegerField(default=-1)
-    Thumbnail = models.ForeignKey(Thumbnails_Small, to_field='Combined_md5', on_delete=models.CASCADE,
-                                 db_index=True, null=True, default=None)
+        # Combined is the FQPN md5  (eg /var/albums/test/test1)
+    Parent_Dir_md5 = models.CharField(db_index=True, max_length=32, unique=False)
+        # Is the FQPN of the parent directory (eg /var/albums/test)
+    is_generic_icon = models.BooleanField(default=False, db_index=True)  # File is to be ignored
     ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
     delete_pending = models.BooleanField(default=False, db_index=True)  # File is to be deleted,
+    SmallThumb = models.BinaryField(default=b"")
 
-    def add_directory(self, fqpn_directory, FileCount=-1, DirCount=-1):
+
+    @staticmethod
+    def add_directory(fqpn_directory, FileCount=-1, DirCount=-1, thumbnail=b""):
         fqpn_directory = fqpn_directory.lower().strip()
         dir_seg, filename_seg = os.path.split(fqpn_directory)
         new_rec = Index_Dirs()
-        new_rec.WebPath_md5 = convert_text_to_md5_hdigest(dir_seg)
+        new_rec.DirName = fqpn_directory
+        parent_dir = os.path.abspath(os.path.join(fqpn_directory,".."))
+        md5 = convert_text_to_md5_hdigest(parent_dir)
+        new_rec.Parent_Dir_md5 = md5
         new_rec.DirName_md5 = convert_text_to_md5_hdigest(filename_seg)
         new_rec.Combined_md5 = convert_text_to_md5_hdigest(fqpn_directory)
         new_rec.uuid = uuid.uuid4()
         new_rec.FileCount = FileCount
         new_rec.DirCount = DirCount
+        new_rec.SmallThumb = thumbnail
         new_rec.save()
+        return new_rec
 
-    def search_for_directory(self, fqpn_directory):
+    def get_counts(self):
+        d_files = index_data.objects.filter(parent_dir__Combined_md5=self.Combined_md5)
+        totals = {}
+        for key in FILETYPE_DATA.keys():
+            totals[key[1:]] = d_files.filter(filetype__fileext=key).count()
+        totals["all_files"] = d_files.filter().count() - totals["dir"]
+        return totals
+
+    # def update_directory(self, record_to_update):
+    #     record_to_update.save()
+
+    @staticmethod
+    def delete_directory(fqpn_directory):
+        Combined_md5 = convert_text_to_md5_hdigest(fqpn_directory)
+        Index_Dirs.objects.filter(Combined_md5=Combined_md5).delete()
+        index_data.objects.filter(parent_dir_id=Combined_md5).delete()
+
+    @staticmethod
+    def search_for_directory(fqpn_directory):
         query = Index_Dirs.objects.filter(Combined_md5=convert_text_to_md5_hdigest(fqpn_directory),
                                           delete_pending=False,
                                           ignore=False)
         if query.exists():
-            return (True, query[0])
+            record = query[0]
+            return (True, record)
         else:
             return (False, None)
+
+    def files_in_dir(self):
+        files = index_data.objects.select_related("filetype").filter(parent_dir=self.pk, delete_pending=False)
+        return files.count(), files
+
+    def dirs_in_dir(self):
+        dirs = Index_Dirs.objects.filter(Combined_md5=self.Combined_md5, delete_pending=False)
+        return dirs.count(), dirs
+
+    def get_thumbnail_url(self):
+        """
+        Generate the URL for the thumbnail of the current item
+
+        Returns
+        -------
+            Django URL object
+
+        """
+        return reverse("thumbnailspath") + f"{self.uuid}?size=small"
+
+    def send_thumbnail(self):
+        """
+        Output a http response header, for an image attachment.
+
+       Args:
+            filename (str): The filename to be sent with the thumbnail
+
+        Returns:
+            object::
+                The Django response object that contains the attachment and header
+
+        Raises:
+            None
+
+        Examples
+        --------
+        return_img_attach("test.png", img_data)
+
+
+        """
+        # https://stackoverflow.com/questions/36392510/django-download-a-file
+        # https://stackoverflow.com/questions/27712778/
+        #               video-plays-in-other-browsers-but-not-safari
+        # https://stackoverflow.com/questions/720419/
+        #               how-can-i-find-out-whether-a-server-supports-the-range-header
+        mtype = 'application/octet-stream'
+        response = FileResponse(io.BytesIO(self.SmallThumb),
+                                content_type=mtype,
+                                as_attachment=False,
+                                filename=os.path.basename(self.DirName))
+        response["Content-Type"] = mtype
+        response['Content-Length'] = len(self.SmallThumb)
+        return response
+
 
 class Thumbnails_Medium(models.Model):
     id = models.AutoField(primary_key=True, db_index=True)
@@ -229,7 +311,7 @@ class index_data(models.Model):
     count_subfiles = models.BigIntegerField(default=0)  # the # of subfiles in archive
     fqpndirectory = models.CharField(default=0, db_index=True, max_length=384)
     # Directory of the file, lower().replace("//", "/"), ensure it is path, and not path + filename
-    parent_dir_id = models.IntegerField(default=0)  # Directory that it is contained in
+    parent_dir = models.ForeignKey(Index_Dirs, on_delete=models.CASCADE, null=True, default=None)
     is_animated = models.BooleanField(default=False, db_index=True)
     ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
     delete_pending = models.BooleanField(default=False, db_index=True)  # File is to be deleted,
@@ -409,7 +491,9 @@ class index_data(models.Model):
         Output a http response header, for an image attachment.
 
        Args:
+            filename (str): The filename to be sent with the thumbnail
             fext_override (str): Filename extension to use instead of the original file's ext
+            size (str): The size string of the thumbnail to send (small, medium, large)
 
         Returns:
             object::
