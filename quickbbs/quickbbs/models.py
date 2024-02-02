@@ -117,13 +117,18 @@ class Index_Dirs(models.Model):
     delete_pending = models.BooleanField(default=False, db_index=True)  # File is to be deleted,
     SmallThumb = models.BinaryField(default=b"")
 
+    @staticmethod
+    def normalize_fqpn(fqpn_directory):
+        fqpn_directory = fqpn_directory.lower().strip()
+        if not fqpn_directory.endswith(os.sep):
+            fqpn_directory = fqpn_directory + os.sep
+        return fqpn_directory
 
     @staticmethod
     def add_directory(fqpn_directory, FileCount=-1, DirCount=-1, thumbnail=b""):
-        fqpn_directory = fqpn_directory.lower().strip()
         dir_seg, filename_seg = os.path.split(fqpn_directory)
         new_rec = Index_Dirs()
-        new_rec.DirName = fqpn_directory
+        new_rec.DirName = Index_Dirs.normalize_fqpn(fqpn_directory)
         parent_dir = os.path.abspath(os.path.join(fqpn_directory,".."))
         md5 = convert_text_to_md5_hdigest(parent_dir)
         new_rec.Parent_Dir_md5 = md5
@@ -149,12 +154,13 @@ class Index_Dirs(models.Model):
 
     @staticmethod
     def delete_directory(fqpn_directory):
-        Combined_md5 = convert_text_to_md5_hdigest(fqpn_directory)
+        Combined_md5 = convert_text_to_md5_hdigest(Index_Dirs.normalize_fqpn(fqpn_directory))
         Index_Dirs.objects.filter(Combined_md5=Combined_md5).delete()
         index_data.objects.filter(parent_dir_id=Combined_md5).delete()
 
     @staticmethod
     def search_for_directory(fqpn_directory):
+        fqpn_directory = Index_Dirs.normalize_fqpn(fqpn_directory)
         query = Index_Dirs.objects.filter(Combined_md5=convert_text_to_md5_hdigest(fqpn_directory),
                                           delete_pending=False,
                                           ignore=False)
