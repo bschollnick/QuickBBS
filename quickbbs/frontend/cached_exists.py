@@ -39,7 +39,6 @@ import os.path
 import time
 from hashlib import sha224, sha256
 
-import imagehash
 import dhash
 from PIL import Image, UnidentifiedImageError
 from pathvalidate import (is_valid_filename, sanitize_filename,

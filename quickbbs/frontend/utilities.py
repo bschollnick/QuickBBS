@@ -11,7 +11,6 @@ import urllib.parse
 import uuid
 from io import BytesIO
 from pathlib import Path
-from aiopath import AsyncPath
 from typing import Union  # , List  # , Iterator, Optional, TypeVar, Generic
 
 # from moviepy.video.io import VideoFileClip
@@ -22,7 +21,7 @@ import django.db.utils
 import fitz  # PDF previews
 from PIL import Image
 from django.conf import settings
-from quickbbs.models import filetypes, index_data, convert_text_to_md5_hdigest, Index_Dirs
+from quickbbs.models import filetypes, index_data, Index_Dirs
 
 import filetypes.models as filetype_models
 import frontend.archives3 as archives

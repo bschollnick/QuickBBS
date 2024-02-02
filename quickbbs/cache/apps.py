@@ -12,7 +12,7 @@ class cache(AppConfig):
     cold_start = False
 
     def ready(self):
-        #global cold_start
+        global cold_start
         if self.cold_start:
             return
         from cache.models import Cache_Storage
@@ -20,6 +20,7 @@ class cache(AppConfig):
             if not self.cold_start:
                 print("Clearing all entries from Cache Tracking")
                 Cache_Storage.clear_all_records()
+                self.cold_start = True
                 cold_start = True
         except ProgrammingError:
             print("Unable to clear Cache Table")

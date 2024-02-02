@@ -1,5 +1,5 @@
 # from zeroconf import ServiceBrowser, Zeroconf
-from zeroconf import IPVersion, ServiceInfo, Zeroconf
+from zeroconf import ServiceInfo
 from django.conf import settings
 
 

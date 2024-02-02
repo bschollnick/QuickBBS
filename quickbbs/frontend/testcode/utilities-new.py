@@ -346,7 +346,7 @@ def read_from_disk(dir_to_scan, skippable=False):
                 continue
 
             if (not entry.is_dir and
-                not(os.path.splitext(lower_filename)[1][1:] in configdata["filetypes"].keys())):
+                os.path.splitext(lower_filename)[1][1:] not in configdata["filetypes"].keys()):
                 print ("Unidentified File Type: %s" % entry.name)
 
             if titlecase != unescaped:
@@ -422,7 +422,7 @@ def read_from_disk(dir_to_scan, skippable=False):
     if existing_data_size > len(disk_data_scan):
         print ("existing size %s       on disk %s" % (existing_data_size, len(disk_data_scan)))
         for entry in existing_data:
-            if not entry.name.title().strip() in disk_data_scan:
+            if entry.name.title().strip() not in disk_data_scan:
                  print("Deleting %s" % entry.name)
                  entry.delete()
         skippable = False
@@ -458,7 +458,7 @@ def read_from_disk(dir_to_scan, skippable=False):
         lower_filename = disk_data.name.lower()
         fext = os.path.splitext(filename)[1].lower()
 
-        if not fext[1:] in configdata["filetypes"].keys() and not disk_data.is_dir():
+        if fext[1:] not in configdata["filetypes"].keys() and not disk_data.is_dir():
             print (fext[1:])
             continue
         elif configdata["filetypes"]["ignore_dotfiles"] and filename.startswith("."):
@@ -529,17 +529,17 @@ def read_from_disk(dir_to_scan, skippable=False):
 
         if ind_data.file_tnail is None:
             ind_data.file_tnail = link_file_rec(disk_data, webpath, new_uuid)
-            force_save = force_save or not ind_data.file_tnail is None
+            force_save = force_save or ind_data.file_tnail is not None
 
         if ind_data.directory is None:
             ind_data.directory = link_dir_rec(disk_data, webpath, new_uuid)
-            force_save = force_save or not ind_data.directory is None
+            force_save = force_save or ind_data.directory is not None
 
         if ind_data.archives is None:
             ind_data.archives = link_arc_rec(fs_item, webpath, new_uuid)
-            force_save = force_save or not ind_data.archives is None
+            force_save = force_save or ind_data.archives is not None
 
-        if ind_data.count_subfiles == 0 and not ind_data.archives is None:
+        if ind_data.count_subfiles == 0 and ind_data.archives is not None:
             archive_file = archives.id_cfile_by_sig(fs_item)
             archive_file.get_listings()
             ind_data.count_subfiles = len(archive_file.listings)
@@ -549,7 +549,7 @@ def read_from_disk(dir_to_scan, skippable=False):
             ind_data.uuid = new_uuid
             force_save = True
 
-        if not ind_data.archives is None:# and ind_data.directory is None and ind_data.file_tnail is None:
+        if ind_data.archives is not None:# and ind_data.directory is None and ind_data.file_tnail is None:
             # There is an archive
             ta_listings = Thumbnails_Archives.objects.filter(uuid=ind_data.uuid)
             if not ta_listings.count() == ind_data.count_subfiles:
