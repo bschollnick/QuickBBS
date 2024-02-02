@@ -636,7 +636,7 @@ def sync_database_disk(directoryname):
     if directoryname in [os.sep, r"/"]:
         directoryname = settings.ALBUMS_PATH
     webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
-    dirpath = os.path.abspath(directoryname.title().strip())
+    dirpath = Index_Dirs.normalize_fqpn(os.path.abspath(directoryname.title().strip()))
     found, dirpath_id = Index_Dirs.search_for_directory(fqpn_directory=dirpath)
     if found is False:
         dirpath_id = Index_Dirs.add_directory(dirpath)
