@@ -12,8 +12,7 @@ from django.conf import settings
 # from django.conf import settings
 from django.views.decorators.cache import never_cache
 from django.contrib.auth import authenticate, login
-from django.http import (FileResponse, Http404, StreamingHttpResponse,
-                         HttpResponse)
+from django.http import (FileResponse, StreamingHttpResponse)
 # from ranged_fileresponse import RangedFileResponse
 
 

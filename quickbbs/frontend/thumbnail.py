@@ -13,7 +13,7 @@ from frontend.database import get_xth_image
 from frontend.utilities import cr_tnail_img, read_from_disk, return_image_obj
 from frontend.web import g_option  # , respond_as_attachment
 from frontend.web import return_img_attach  # , return_inline_attach
-from django.db.utils import ProgrammingError, OperationalError, IntegrityError
+from django.db.utils import IntegrityError
 
 
 def ensures_endswith(string_to_check, value) -> str:

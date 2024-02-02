@@ -1,5 +1,4 @@
 from django.contrib import admin
-# Register your models here.
 from quickbbs.models import *
 
 # @admin.register(filetypes)
@@ -17,8 +16,8 @@ class AdminThumbnail_Dirs(admin.ModelAdmin):
 @admin.register(Thumbnails_Files)
 class AdminThumbnail_Files(admin.ModelAdmin):
     readonly_fields = ('id', 'uuid',)
-    list_display = ('id', 'uuid', 'FileName', 'FilePath', 'FileSize')  # g, 'is_pdf', 'is_image')
-    fields = ('id', 'uuid', 'FileName', 'FilePath', 'FileSize')  # , 'is_pdf', 'is_image')
+    list_display = ('id', 'uuid', 'FileName', 'FilePath', 'FileSize')
+    fields = ('id', 'uuid', 'FileName', 'FilePath', 'FileSize')
 
 
 @admin.register(Thumbnails_Archives)

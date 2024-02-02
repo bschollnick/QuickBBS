@@ -5,26 +5,23 @@ import datetime
 import logging
 import os
 import os.path
-import sys
 import time
 import warnings
 from pathlib import Path
 
 # import bleach
-import asyncio
-from asgiref.sync import sync_to_async
 import django_icons.templatetags.icons
 import markdown2
 from PIL import Image, ImageFile
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
-from django.db.utils import ProgrammingError, OperationalError, IntegrityError
+from django.db.utils import IntegrityError
 from django.http import (Http404, HttpResponseBadRequest, HttpResponseNotFound)
 from django.shortcuts import render
 from django.db.models import Q
 from numpy import arange
-from quickbbs.models import Thumbnails_Dirs, Thumbnails_Files, Index_Dirs, index_data, convert_text_to_md5_hdigest
+from quickbbs.models import Thumbnails_Dirs, Thumbnails_Files, Index_Dirs, index_data
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
@@ -35,10 +32,9 @@ from frontend.database import get_db_files, SORT_MATRIX  # check_dup_thumbs
 from frontend.thumbnail import (new_process_dir,
                                 new_process_img)
 from frontend.utilities import (ensures_endswith, is_valid_uuid,
-                                read_from_disk, return_breadcrumbs, sort_order, sync_database_disk)
+                                read_from_disk, return_breadcrumbs, sort_order)
 from frontend.web import detect_mobile, g_option, respond_as_attachment
 
-from filetypes.models import FILETYPE_DATA
 
 log = logging.getLogger(__name__)
 warnings.simplefilter('ignore', Image.DecompressionBombWarning)
@@ -115,7 +111,7 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
     entry = index_qs[0]
     fs_item = os.path.join(entry.fqpndirectory, entry.name)
     found, dir_record = Index_Dirs.search_for_directory(fs_item)
-    print(fs_item, found, dir_record)
+    #print(fs_item, found, dir_record)
     fname = os.path.basename(entry.name).title()
 
     if entry.filetype.is_dir:
@@ -131,7 +127,8 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
             entry.directory.DirName = fname
             new_process_dir(entry)
         except IntegrityError:
-            time.sleep(2)
+            print("IntegrityError")
+            time.sleep(.5)
             new_process_dir(entry)
         return entry.send_thumbnail(size=size)
 
@@ -148,7 +145,8 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
         try:
             new_process_img(entry, request)
         except IntegrityError:
-            time.sleep(1)
+            print("IntegrityError")
+            time.sleep(.5)
             new_process_img(entry, request)
         return entry.send_thumbnail(size=size)
 
