@@ -178,11 +178,11 @@
                                         {% if item.filetype.is_dir %}
                                             <a href="{{ url('thumbnailspath') }}{{ item.uuid }}?size=small" class="img-responsive" style="width:auto;max-width:100%"/>
                                         {% elif item.filetype.is_pdf %}
-                                            <a href="{{ url('thumbnailspath') }}{{ item.uuid }}?pdf&size=small" class="img-responsive" style="width:auto;max-width:100%"/>
+                                            <a href="{{ item.get_thumbnail_url()}}?pdf&size=small" class="img-responsive" style="width:auto;max-width:100%"/>
                                         {% elif item.filetype.is_archive %}
-                                            <a href="{{ url('thumbnailspath') }}{{ item.uuid }}?arch=0&size=small" class="img-responsive" style="width:auto;max-width:100%"/>
+                                            <a href="{{ item.get_thumbnail_url()}} {{ item.uuid }}?arch=0&size=small" class="img-responsive" style="width:auto;max-width:100%"/>
                                         {% elif item.filetype.is_image  or item.filetype.is_movie %}
-                                            <a href="{{ url('thumbnailspath') }}{{ item.uuid }}?size=small" class="img-responsive" style="width:auto;max-width:100%"/>
+                                            <a href="{{ item.get_thumbnail_url() }}{{ item.uuid }}?size=small" class="img-responsive" style="width:auto;max-width:100%"/>
                                         {% else %}
                                             <a href="/resources/images/{{ item.filetype.icon_filename }}" class="img-responsive" style="width:auto;max-width:100%"/>
                                         {% endif -%}

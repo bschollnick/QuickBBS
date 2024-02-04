@@ -10,7 +10,7 @@ from quickbbs.models import Thumbnails_Archives, index_data
 import frontend.archives3 as archives
 from filetypes.models import FILETYPE_DATA
 from frontend.database import get_xth_image
-from frontend.utilities import cr_tnail_img, read_from_disk, return_image_obj
+from frontend.utilities import cr_tnail_img, read_from_disk, return_image_obj, sync_database_disk
 from frontend.web import g_option  # , respond_as_attachment
 from frontend.web import return_img_attach  # , return_inline_attach
 from django.db.utils import IntegrityError
@@ -72,6 +72,54 @@ def images_in_dir(database, webpath) -> Iterator[index_data]:
         files = get_xth_image(database, 0, filters)
     return files
 
+def new_process_dir2(db_entry):
+    """
+    input:
+        entry - The index_data entry
+
+    Read directory, and identify the first thumbnailable file.
+    Make thumbnail of that file
+    Return thumbnail results
+
+    Since we are just looking for a thumbnailable image, it doesn't have
+    to be the most up to date, nor the most current.  Cached is fine.
+    """
+    #
+    # webpath contains the URL equivalent to the file system path (fs_path)
+    #
+    if db_entry.SmallThumb not in [b'', None]:
+        # Does the thumbnail exist?
+        raise ValueError("I shouldn't be here! - new_process_dir2 w/entry that has thumbnail")
+
+    files_found, files = db_entry.files_in_dir()
+    if not files:
+        sync_database_disk(db_entry.DirName)
+        files = db_entry.files_in_directory()
+
+    if files:  # found an file in the directory to use for thumbnail purposes
+        for file_to_thumb in files:
+            if file_to_thumb.filetype.is_image:
+                fs_d_fname = os.path.join(file_to_thumb.fqpndirectory,
+                                          file_to_thumb.name)
+                # file system location of directory
+                fext = os.path.splitext(file_to_thumb.name)[1].lower()
+                temp = cr_tnail_img(return_image_obj(fs_d_fname),
+                                    settings.IMAGE_SIZE["small"],
+                                    fext=fext)
+                # imagedata = temp
+                db_entry.SmallThumb = temp
+    if not db_entry.SmallThumb:
+        temp = return_image_obj(os.path.join(settings.IMAGES_PATH,
+                                             FILETYPE_DATA[".dir"]["icon_filename"]))
+        img_icon = cr_tnail_img(temp, settings.IMAGE_SIZE["small"],
+                                FILETYPE_DATA[".dir"]["icon_filename"])
+        # configdata["filetypes"]["dir"][2])
+        db_entry.is_generic_icon = True
+        db_entry.directory.SmallThumb = img_icon
+    try:
+        db_entry.save()
+    except IntegrityError:
+        pass
 
 def new_process_dir(db_index):
     """
@@ -180,7 +228,7 @@ def new_process_img(entry, request, imagesize="Small"):
             # If size matches, then image is most likely the existing cached image
             # return the existing cached image
             # return return_inline_attach(entry.name, existing_data)
-            return # entry.send_thumbnail(filename=entry.name, fext_override=None, size=imagesize)
+            return entry# entry.send_thumbnail(filename=entry.name, fext_override=None, size=imagesize)
 
     fs_fname = os.path.join(entry.fqpndirectory, entry.name).replace("//", "/")
     # file system location of directory
@@ -199,8 +247,8 @@ def new_process_img(entry, request, imagesize="Small"):
                 f"{size}Thumb", imagedata)
 
     entry.file_tnail.FileSize = entry.size
-    entry.file_tnail.save()
-    entry.save()
+    #entry.file_tnail.save()
+    return entry
     #
     #   switch to new
     # entry.send_inline
