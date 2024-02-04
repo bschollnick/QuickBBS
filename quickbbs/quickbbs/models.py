@@ -16,8 +16,9 @@ from django.urls import reverse
 from django.conf import settings
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_control
-
+import quickbbs.natsort_model as natsort_model
 import thumbnails.models
+from quickbbs.natsort_model import NaturalSortField
 from filetypes.models import filetypes, FILETYPE_DATA
 
 def convert_text_to_md5_hdigest(text):
@@ -104,7 +105,7 @@ class Thumbnails_Small(models.Model):
 
 class Index_Dirs(models.Model):
     uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True, blank=True)
-    DirName = models.CharField(db_index=False, max_length=384, default='', blank=True)  # FQFN of the file itself
+    DirName = models.CharField(db_index=False, max_length=384,default='', unique=True, blank=True)  # FQFN of the file itself
     # WebPath_md5 = models.CharField(db_index=True, max_length=32, unique=False)
     DirName_md5 = models.CharField(db_index=True, max_length=32, unique=False)
         # DirName is the just the directory name (eg test1)
@@ -112,9 +113,14 @@ class Index_Dirs(models.Model):
         # Combined is the FQPN md5  (eg /var/albums/test/test1)
     Parent_Dir_md5 = models.CharField(db_index=True, max_length=32, unique=False)
         # Is the FQPN of the parent directory (eg /var/albums/test)
+    lastscan = models.FloatField(db_index=True, default=None)  # Stored as Unix TimeStamp (ms)
+    lastmod = models.FloatField(db_index=True, default=None)  # Stored as Unix TimeStamp (ms)
+    name_sort = NaturalSortField(for_field="DirName", max_length=384, default='')
     is_generic_icon = models.BooleanField(default=False, db_index=True)  # File is to be ignored
     ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
     delete_pending = models.BooleanField(default=False, db_index=True)  # File is to be deleted,
+    filetype = models.ForeignKey(filetypes, to_field='fileext', on_delete=models.CASCADE,
+                                 db_index=True, default=".dir")
     SmallThumb = models.BinaryField(default=b"")
 
     @staticmethod
@@ -138,6 +144,9 @@ class Index_Dirs(models.Model):
         new_rec.FileCount = FileCount
         new_rec.DirCount = DirCount
         new_rec.SmallThumb = thumbnail
+        new_rec.lastmod = os.path.getmtime(new_rec.DirName)
+        new_rec.lastscan = time.time()
+        new_rec.filetype = filetypes(fileext=".dir")
         new_rec.save()
         return new_rec
 
@@ -207,18 +216,18 @@ class Index_Dirs(models.Model):
         --------
         return_img_attach("test.png", img_data)
 
-
-        """
         # https://stackoverflow.com/questions/36392510/django-download-a-file
         # https://stackoverflow.com/questions/27712778/
         #               video-plays-in-other-browsers-but-not-safari
         # https://stackoverflow.com/questions/720419/
         #               how-can-i-find-out-whether-a-server-supports-the-range-header
+
+        """
         mtype = 'application/octet-stream'
         response = FileResponse(io.BytesIO(self.SmallThumb),
                                 content_type=mtype,
                                 as_attachment=False,
-                                filename=os.path.basename(self.DirName))
+                                filename=os.path.basename(self.DirName)+".jpg")
         response["Content-Type"] = mtype
         response['Content-Length'] = len(self.SmallThumb)
         return response
@@ -310,7 +319,8 @@ class index_data(models.Model):
     lastmod = models.FloatField(db_index=True)  # Stored as Unix TimeStamp (ms)
     name = models.CharField(db_index=True, max_length=384, default=None)
     # FQFN of the file itself
-    sortname = models.CharField(editable=False, max_length=384, default='')
+    #sortname = models.CharField(editable=False, max_length=384, default='')
+    name_sort = NaturalSortField(for_field="name", max_length=384, default='')
     size = models.BigIntegerField(default=0)  # File size
     numfiles = models.IntegerField(default=0)  # The # of files in this directory
     numdirs = models.IntegerField(default=0)  # The # of Children Directories in this directory
@@ -478,7 +488,7 @@ class index_data(models.Model):
         size = size.lower()
 
         # options = {"i_uuid": str(self.uuid)}
-        return reverse("thumbnailspath") + f"{self.uuid}?size={size}"
+        return reverse(r"thumbnail_file", args=(self.uuid,))+ f"?size={size}"
 
     def get_download_url(self):
         """
@@ -516,18 +526,19 @@ class index_data(models.Model):
         """
 
         def get_sized_tnail(size="small", tnail=None):
+            blob = b''
             if tnail is None:
                 return b''
-            match size:
+            match size.lower():
                 case 'small':
-                    binaryblob = tnail.SmallThumb
+                    blob = tnail.SmallThumb
                 case 'medium':
-                    binaryblob = tnail.MediumThumb
+                    blob = tnail.MediumThumb
                 case 'large':
-                    binaryblob = tnail.LargeThumb
+                    blob = tnail.LargeThumb
                 case _:
-                    binaryblog = b''
-            return binaryblob
+                    blob = b''
+            return blob
 
         # https://stackoverflow.com/questions/36392510/django-download-a-file
         # https://stackoverflow.com/questions/27712778/
@@ -536,16 +547,15 @@ class index_data(models.Model):
         #               how-can-i-find-out-whether-a-server-supports-the-range-header
         mtype = 'application/octet-stream'
         if self.file_tnail is not None:
-            binaryblob = get_sized_tnail(size=size, tnail=self.file_tnail)
+            blob = get_sized_tnail(size=size, tnail=self.file_tnail)
         elif self.directory is not None:
-            binaryblob = get_sized_tnail(size=size, tnail=self.directory)
-
-        response = FileResponse(io.BytesIO(binaryblob),
+            blob = get_sized_tnail(size=size, tnail=self.directory)
+        response = FileResponse(io.BytesIO(blob),
                                 content_type=mtype,
                                 as_attachment=False,
                                 filename=self.name)
         response["Content-Type"] = mtype
-        response['Content-Length'] = len(binaryblob)
+        response['Content-Length'] = len(blob)
         return response
 
     # @method_decorator(cache_control(private=True))

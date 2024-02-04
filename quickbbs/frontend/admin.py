@@ -29,7 +29,7 @@ class AdminThumbnail_Archives(admin.ModelAdmin):
 
 @admin.register(index_data)
 class AdminMaster_Index(admin.ModelAdmin):
-    readonly_fields = ('id', 'uuid', 'sortname')
+    readonly_fields = ('id', 'uuid', 'name_sort')
     list_display = (
         'id', 'uuid', 'name', 'lastscan', 'lastmod', 'size', 'fqpndirectory', 'ignore', 'delete_pending', 'file_tnail',
         'directory', 'archives', 'ownership', 'filetype')

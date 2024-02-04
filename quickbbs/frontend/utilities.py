@@ -344,26 +344,26 @@ def cr_tnail_img(source_image, size, fext) -> Image:
         return image_data.getvalue()
 
 
-def naturalize(string) -> str:
-    """
-        return <STRING> as a english sortable <STRING>
-
-        args:
-            str: String
-
-        returns:
-            str: The now english sortable string
-    """
-
-    def naturalize_int_match(match):
-        """ reformat as a human sortable number
-        """
-        return '%08d' % (int(match.group(0)),)
-
-    string = string.lower().strip()
-    string = re.sub(r'^the\s+', '', string)
-    string = re.sub(r'\d+', naturalize_int_match, string)
-    return string
+# def naturalize(string) -> str:
+#     """
+#         return <STRING> as a english sortable <STRING>
+#
+#         args:
+#             str: String
+#
+#         returns:
+#             str: The now english sortable string
+#     """
+#
+#     def naturalize_int_match(match):
+#         """ reformat as a human sortable number
+#         """
+#         return '%08d' % (int(match.group(0)),)
+#
+#     string = string.lower().strip()
+#     string = re.sub(r'^the\s+', '', string)
+#     string = re.sub(r'\d+', naturalize_int_match, string)
+#     return string
 
 
 def multiple_replace(repl_dict, text):
@@ -571,7 +571,7 @@ def process_filedata(fs_entry, db_record, v3=False) -> index_data:
     #    webpath = ensures_endswith(fs_entry.resolve().lower().replace("//", "/"), os.sep)
     db_record.uuid = uuid.uuid4()
     # db_record.fqpndirectory = ensures_endswith(os.path.split(fs_entry["path"])[0].lower(), os.sep)
-    db_record.sortname = naturalize(db_record.name)
+#    db_record.sortname = naturalize(db_record.name)
     db_record.size = fs_entry.stat()[stat.ST_SIZE]
     db_record.lastmod = fs_entry.stat()[stat.ST_MTIME]
     db_record.lastscan = time.time()

@@ -46,11 +46,10 @@ DF_VDBASE = ["sortname", "lastscan", "lastmod", "size"]
 #         deleted.delete()
 
 
-SORT_MATRIX = {0: ["-filetype__is_dir", "sortname", "lastmod"],
-               1: ["-filetype__is_dir", "lastmod", "sortname"],
-               2: ["-filetype__is_dir", "sortname"],
-               }
-
+SORT_MATRIX = {0: ["-filetype__is_dir", "name_sort", "lastmod"],
+               1: ["-filetype__is_dir", "lastmod", "name_sort"],
+               2: ["-filetype__is_dir", "name_sort"],
+              }
 
 def get_db_files(sorder, fpath) -> Iterator[index_data]:
     """
