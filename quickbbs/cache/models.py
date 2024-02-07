@@ -26,14 +26,17 @@ def delete_from_cache_tracking(event):
 #            print(f"{time.ctime()} Deleted {dirpath}\n")
 #        cache.clear()
 
+
 def create_hash(text):
-    #return hashlib.md5(text.title().strip().encode("utf-8")).hexdigest()
+    # return hashlib.md5(text.title().strip().encode("utf-8")).hexdigest()
     return hashlib.md5(text.title().strip().encode("utf-16")).hexdigest()
 
 
 class fs_Cache_Tracking(models.Model):
-    Dir_md5_hdigest = models.CharField(db_index=True, max_length=32, default='', blank=True, unique=True)
-    DirName = models.CharField(db_index=False, max_length=384, default='', blank=True)
+    Dir_md5_hdigest = models.CharField(
+        db_index=True, max_length=32, default="", blank=True, unique=True
+    )
+    DirName = models.CharField(db_index=False, max_length=384, default="", blank=True)
     # the path from watchdog, titlecased, stripped, and normpathed
     # dirpath = os.path.normpath(event.src_path.title().strip())
     lastscan = models.FloatField()  # Stored as Unix TimeStamp (ms)
@@ -56,21 +59,26 @@ class fs_Cache_Tracking(models.Model):
         return self.hdigest_exists_in_cache(hdigest=Dir_md5_hdigest)
 
     def remove_from_cache_hdigest(self, hdigest):
-        items_removed, _ = fs_Cache_Tracking.objects.filter(Dir_md5_hdigest=hdigest).delete()
+        items_removed, _ = fs_Cache_Tracking.objects.filter(
+            Dir_md5_hdigest=hdigest
+        ).delete()
         return items_removed is True
 
     def remove_from_cache_name(self, DirName):
-        items_removed, _ = fs_Cache_tracking.objects.filter(DirName=DirName.title()).delete()
+        items_removed, _ = fs_Cache_tracking.objects.filter(
+            DirName=DirName.title()
+        ).delete()
         return items_removed is True
 
 
 Cache_Storage = fs_Cache_Tracking()
 
-if 'runserver' in sys.argv or "--host" in sys.argv:
+if "runserver" in sys.argv or "--host" in sys.argv:
     print("Starting Watchdog - ", os.path.join(settings.ALBUMS_PATH, "albums"))
-    watchdog.startup(monitor_path=os.path.join(settings.ALBUMS_PATH,
-                                               "albums"),
-                     created=delete_from_cache_tracking,
-                     deleted=delete_from_cache_tracking,
-                     modified=delete_from_cache_tracking,
-                     moved=delete_from_cache_tracking)
+    watchdog.startup(
+        monitor_path=os.path.join(settings.ALBUMS_PATH, "albums"),
+        created=delete_from_cache_tracking,
+        deleted=delete_from_cache_tracking,
+        modified=delete_from_cache_tracking,
+        moved=delete_from_cache_tracking,
+    )

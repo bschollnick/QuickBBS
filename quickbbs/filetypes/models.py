@@ -1,6 +1,7 @@
 """
 Utilities for QuickBBS, the python edition.
 """
+
 import os
 
 from django.conf import settings
@@ -10,21 +11,21 @@ FILETYPE_DATA = {}
 
 
 class filetypes(models.Model):
-    fileext = models.CharField(primary_key=True,
-                               db_index=True,
-                               max_length=10,
-                               unique=True)  # File Extension (eg. .html, is lowercase, and includes the DOT)
+    fileext = models.CharField(
+        primary_key=True, db_index=True, max_length=10, unique=True
+    )  # File Extension (eg. .html, is lowercase, and includes the DOT)
     generic = models.BooleanField(default=False, db_index=True)
 
-    icon_filename = models.CharField(db_index=True, max_length=384, default='', blank=True)  # FQFN of the file itself
+    icon_filename = models.CharField(
+        db_index=True, max_length=384, default="", blank=True
+    )  # FQFN of the file itself
     color = models.CharField(max_length=7, default="000000")
 
     # ftypes dictionary in constants / ftypes
-    filetype = models.IntegerField(db_index=True,
-                                   default=0,
-                                   blank=True,
-                                   null=True)
-    mimetype = models.CharField(max_length=128, default="application/octet-stream", null=True)
+    filetype = models.IntegerField(db_index=True, default=0, blank=True, null=True)
+    mimetype = models.CharField(
+        max_length=128, default="application/octet-stream", null=True
+    )
     # quick testers.
     # Originally going to be filetype only, but the SQL got too large
     # (eg retrieve all graphics, became is JPEG, GIF, TIF, BMP, etc)
@@ -40,7 +41,7 @@ class filetypes(models.Model):
     is_markdown = models.BooleanField(default=False, db_index=True)
 
     def __unicode__(self):
-        return f'{self.fileext}'
+        return f"{self.fileext}"
 
     def return_any_icon_filename(self, fileext):
         """
@@ -55,9 +56,9 @@ class filetypes(models.Model):
             the filename for the fileext is blank (e.g. JPEG, since JPEG will always be created based off the file)
         """
         fileext = fileext.lower()
-#        if not fileext.startswith("."):
-#            fileext = f'.{fileext}'
-        if fileext in ['', None, 'unknown']:
+        #        if not fileext.startswith("."):
+        #            fileext = f'.{fileext}'
+        if fileext in ["", None, "unknown"]:
             fileext = ".none"
 
         data = filetypes.objects.filter(fileext=fileext)
@@ -67,19 +68,19 @@ class filetypes(models.Model):
 
     def return_filetype(self, fileext):
         """
-            fileext = gif, jpg, mp4 (lower case, and without prefix .)
+        fileext = gif, jpg, mp4 (lower case, and without prefix .)
         """
         fileext = fileext.lower()
-#        if not fileext.startswith("."):
-#            fileext = f'.{fileext}'
-        if fileext in ['', None, 'unknown']:
+        #        if not fileext.startswith("."):
+        #            fileext = f'.{fileext}'
+        if fileext in ["", None, "unknown"]:
             fileext = ".none"
 
         return filetypes.objects.filter(fileext=fileext)
 
     class Meta:
-        verbose_name = 'File Type'
-        verbose_name_plural = 'File Types'
+        verbose_name = "File Type"
+        verbose_name_plural = "File Types"
 
 
 def get_ftype_dict():

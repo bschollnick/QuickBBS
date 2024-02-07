@@ -1,6 +1,7 @@
 """
 Utilities for QuickBBS, the python edition.
 """
+
 import logging
 import os
 import os.path
@@ -17,11 +18,13 @@ from django.conf import settings
 from quickbbs.quickbbs.models import filetypes, index_data
 from quickbbs.quickbbs.models import *
 import quickbbs.filetypes.models as filetype_models
+
 #  import frontend.archives3 as archives
 import frontend.constants as constants
 from quickbbs.cache.models import Cache_Storage
 
 log = logging.getLogger(__name__)
+
 
 def return_disk_listing(fqpn, enable_rename=False) -> (bool, dict):
     """
@@ -78,8 +81,9 @@ def return_disk_listing(fqpn, enable_rename=False) -> (bool, dict):
             # The file extension is not in FILETYPE_DATA, so ignore it.
             continue
 
-        if (fext in settings.EXTENSIONS_TO_IGNORE) or \
-                (item.name.lower() in settings.FILES_TO_IGNORE):
+        if (fext in settings.EXTENSIONS_TO_IGNORE) or (
+            item.name.lower() in settings.FILES_TO_IGNORE
+        ):
             # file extension is in EXTENSIONS_TO_IGNORE, so skip it.
             # or the filename is in FILES_TO_IGNORE, so skip it.
             continue
@@ -90,8 +94,6 @@ def return_disk_listing(fqpn, enable_rename=False) -> (bool, dict):
 
         fs_data[item.name.title().strip()] = item
     return (True, fs_data)
-
-
 
 
 def fs_counts(fs_entries) -> (int, int):
@@ -151,7 +153,9 @@ def process_filedata(fs_entry, db_record, v3=False) -> index_data:
     :doc-author: Trelent
     """
     db_record.fqpndirectory, db_record.name = os.path.split(fs_entry.absolute())
-    db_record.fqpndirectory = ensures_endswith(db_record.fqpndirectory.lower().replace("//", "/"), os.sep)
+    db_record.fqpndirectory = ensures_endswith(
+        db_record.fqpndirectory.lower().replace("//", "/"), os.sep
+    )
     db_record.name = db_record.name.title().replace("//", "/").strip()
     db_record.fileext = fs_entry.suffix.lower()
     db_record.is_dir = fs_entry.is_dir()
@@ -179,15 +183,19 @@ def process_filedata(fs_entry, db_record, v3=False) -> index_data:
     db_record.is_animated = False
 
     if db_record.is_dir:  # or db_entry["unified_dirs"]:
-        _, subdirectory = return_disk_listing(os.path.join(db_record.fqpndirectory, db_record.name))
+        _, subdirectory = return_disk_listing(
+            os.path.join(db_record.fqpndirectory, db_record.name)
+        )
         fs_file_count, fs_dir_count = fs_counts(subdirectory)
         db_record.numfiles, db_record.numdirs = fs_file_count, fs_dir_count
 
-    if filetype_models.FILETYPE_DATA[db_record.fileext]["is_image"] and \
-            db_record.fileext in [".gif"]:
+    if filetype_models.FILETYPE_DATA[db_record.fileext][
+        "is_image"
+    ] and db_record.fileext in [".gif"]:
         try:
-            db_record.is_animated = Image.open(os.path.join(db_record.fqpndirectory,
-                                                            db_record.name)).is_animated
+            db_record.is_animated = Image.open(
+                os.path.join(db_record.fqpndirectory, db_record.name)
+            ).is_animated
         except AttributeError:
             db_record.is_animated = False
 
@@ -243,7 +251,8 @@ def sync_database_disk(directoryname):
         _, fs_entries = return_disk_listing(dirpath)
 
         db_data = index_data.objects.select_related("filetype", "directory").filter(
-            fqpndirectory=webpath, delete_pending=False, ignore=False)
+            fqpndirectory=webpath, delete_pending=False, ignore=False
+        )
         # db_data = index_data.search_for_directory(fqpn_directory=webpath)
         for db_entry in db_data:
             if db_entry.name.strip() not in fs_entries:
@@ -252,7 +261,7 @@ def sync_database_disk(directoryname):
                 db_entry.ignore = True
                 db_entry.delete_pending = True
                 records_to_update.append(db_entry)
-    #            db_entry.save()
+            #            db_entry.save()
             else:
                 # The db_entry does exist in the file system.
                 # Does the lastmod match?
@@ -273,17 +282,27 @@ def sync_database_disk(directoryname):
                     _, subdirectory = return_disk_listing(str(entry.absolute()))
                     # fs_file_count, fs_dir_count = fs_counts(subdirectory)
                     fs_file_count, fs_dir_count = fs_counts(subdirectory)
-                    if db_entry.numfiles != fs_file_count or db_entry.numdirs != fs_dir_count:
-                        db_entry.numfiles, db_entry.numdirs = fs_file_count, fs_dir_count
+                    if (
+                        db_entry.numfiles != fs_file_count
+                        or db_entry.numdirs != fs_dir_count
+                    ):
+                        db_entry.numfiles, db_entry.numdirs = (
+                            fs_file_count,
+                            fs_dir_count,
+                        )
                         update = True
                 if update:
                     records_to_update.append(db_entry)
                     print("Database record being updated: ", db_entry.name)
-#                    db_entry.save()
+                    #                    db_entry.save()
                     update = False
 
         # Check for entries that are not in the database, but do exist in the file system
-        names = index_data.objects.filter(fqpndirectory=webpath).only("name").values_list("name", flat=True)
+        names = (
+            index_data.objects.filter(fqpndirectory=webpath)
+            .only("name")
+            .values_list("name", flat=True)
+        )
         # fetch an updated set of records, since we may have changed it from above.
         records_to_create = []
         for name, entry in fs_entries.items():
@@ -300,7 +319,18 @@ def sync_database_disk(directoryname):
                 records_to_create.append(record)
         if records_to_update:
             try:
-                index_data.objects.bulk_update(records_to_update, ["ignore", "lastmod", "delete_pending", "size", "numfiles", "numdirs"], 50)
+                index_data.objects.bulk_update(
+                    records_to_update,
+                    [
+                        "ignore",
+                        "lastmod",
+                        "delete_pending",
+                        "size",
+                        "numfiles",
+                        "numdirs",
+                    ],
+                    50,
+                )
             except django.db.utils.IntegrityError:
                 return None
         else:
@@ -327,8 +357,9 @@ def sync_database_disk(directoryname):
         # new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
         # new_rec.save()
 
+
 #        index_data.objects.filter(delete_pending=True).delete()
-    # scan_lock.release_scan(webpath)
+# scan_lock.release_scan(webpath)
 
 
 def read_from_disk(dir_to_scan, skippable=True):
