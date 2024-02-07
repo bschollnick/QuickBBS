@@ -129,7 +129,7 @@ def new_process_dir2(db_entry):
         )
         # configdata["filetypes"]["dir"][2])
         db_entry.is_generic_icon = True
-        db_entry.directory.SmallThumb = img_icon
+        db_entry.SmallThumb = img_icon
     try:
         db_entry.save()
     except IntegrityError:
