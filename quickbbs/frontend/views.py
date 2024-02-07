@@ -117,7 +117,6 @@ def ThumbnailDir(request: WSGIRequest, tnail_id: str = None):
         count, files = entry.files_in_dir()
         if count in [0, None]:
             entry.SmallThumb = None
-    print("*:",entry.fqpndirectory, count, entry.filetype, entry.is_generic_icon)
     if entry.SmallThumb in [b"", None, ""]:
         new_process_dir2(entry)
 
@@ -340,15 +339,12 @@ def new_viewgallery(request: WSGIRequest):
     found, directory = Index_Dirs.search_for_directory(paths["album_viewing"])
     directories = []
     files = []
-    counts = 0
     if found:
-        counts = directory.get_counts()
         #        if counts["all_files"] == 0:
-        found_dirs, directories = directory.dirs_in_dir()
+        count_dirs, directories = directory.dirs_in_dir()
         directories = directories.order_by(*SORT_MATRIX[sort_order(request)])
-        found_files, files = directory.files_in_dir()
+        count_files, files = directory.files_in_dir()
         files = files.order_by(*SORT_MATRIX[sort_order(request)])
-        counts = directory.get_counts()
 
     # print("Sort Order",sort_order(request), *SORT_MATRIX[sort_order(request)])
     context = {
@@ -368,8 +364,6 @@ def new_viewgallery(request: WSGIRequest):
         "up_uri": "/".join(request.build_absolute_uri().split("/")[0:-1]),
         "missing": [],
         "search": False,
-        "directories": directories,
-        "files": files,
     }
 
     context["all_listings"] = list(directories)

@@ -102,8 +102,8 @@ def new_process_dir2(db_entry):
 
     files_found, files = db_entry.files_in_dir()
     if not files:
-        sync_database_disk(db_entry.DirName)
-        files = db_entry.files_in_directory()
+        sync_database_disk(db_entry.fqpndirectory)
+        _, files = db_entry.files_in_dir()
 
     if files:  # found an file in the directory to use for thumbnail purposes
         for file_to_thumb in files:
@@ -120,6 +120,7 @@ def new_process_dir2(db_entry):
                 )
                 # imagedata = temp
                 db_entry.SmallThumb = temp
+                break
     if not db_entry.SmallThumb:
         temp = return_image_obj(
             os.path.join(settings.IMAGES_PATH, FILETYPE_DATA[".dir"]["icon_filename"])

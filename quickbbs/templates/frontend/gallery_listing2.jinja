@@ -174,7 +174,6 @@
                                 </a>
                                 {% if debug %}
                                     <br>
-                                    {{ item.get_view_url() }}
                                         {% if item.filetype.is_dir %}
                                             <a href="{{ item.get_thumbnail_url() }}{{ item.uuid }}?size=small" class="img-responsive" style="width:auto;max-width:100%"/>
                                         {% elif item.filetype.is_pdf %}
@@ -195,19 +194,19 @@
 
                                 <div class="columns is-mobile is-gapless is-multiline" style="margin-left:8px;margin-right:8px">
                                     <div class="column is-6 " style="text-align:left;">
-                                            {% if item.numdirs not in [0, None, "", -1]  %}
+                                            {% if item.get_dir_counts() not in [0, None, "", -1]  %}
                                             <font class="is-size-7">
                                                 <b># of Dirs:</b>
-                                                <font class="is-size-6">{{ item.numdirs | intcomma }}
+                                                <font class="is-size-6">{{ item.get_dir_counts() | intcomma }}
                                                 </font>
                                                 </font>
                                             {% endif %}
                                     </div>
                                     <div class="column is-6" style="text-align:right;">
-                                            {% if item.numfiles not in [0, None, "", -1]  %}
+                                            {% if item.get_file_counts() not in [0, None, "", -1]  %}
                                             <font class="is-size-7">
                                                 <b># of Files:</b>
-                                                <font class="is-size-6">{{ item.numfiles | intcomma }}
+                                                <font class="is-size-6">{{ item.get_file_counts() | intcomma }}
                                                 </font>
                                             </font>
                                             {% endif %}

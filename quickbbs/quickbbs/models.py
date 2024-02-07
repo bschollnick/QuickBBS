@@ -200,7 +200,7 @@ class Index_Dirs(models.Model):
 
     @property
     def name(self):
-        return os.path.basename(self.fqpndirectory)
+        return pathlib.Path(self.fqpndirectory).name
 
     @staticmethod
     def delete_directory(fqpn_directory):
@@ -210,11 +210,18 @@ class Index_Dirs(models.Model):
         Index_Dirs.objects.filter(Combined_md5=Combined_md5).delete()
         index_data.objects.filter(parent_dir_id=Combined_md5).delete()
 
-    def get_counts(self):
-        d_files = index_data.objects.filter(parent_dir__Combined_md5=self.Combined_md5)
+    def get_file_counts(self):
+        return index_data.objects.filter(parent_dir=self.pk, delete_pending=False).count()
+
+    def get_dir_counts(self):
+        return Index_Dirs.objects.filter(Parent_Dir_md5=self.Combined_md5, delete_pending=False).count()
+
+    def get_count_breakdown(self):
+        d_files = index_data.objects.filter(parent_dir_md5__Combined_md5=self.Combined_md5)
         totals = {}
         for key in FILETYPE_DATA.keys():
             totals[key[1:]] = d_files.filter(filetype__fileext=key).count()
+        totals["dir"] = Index_Dirs.objects.filter(Parent_Dir_md5=self.Combined_md5, delete_pending=False).count()
         totals["all_files"] = d_files.filter().count() - totals["dir"]
         return totals
 
@@ -261,7 +268,11 @@ class Index_Dirs(models.Model):
         options = {}
         options["i_uuid"] = str(self.uuid)
         parameters = []
-        return reverse("directories") + self.fqpndirectory
+        webpath = self.fqpndirectory.replace(
+            settings.ALBUMS_PATH.lower() + r"/albums/", r""
+        )
+        return reverse("directories") + webpath#, self.name)
+        #return reverse("directories") + os.path.basename(self.fqpndirectory)
 
     def get_bg_color(self):
         """
@@ -564,6 +575,11 @@ class index_data(models.Model):
         numfiles = 0
         numdirs = 0
         lastscan = time.time()
+    def get_file_counts(self):
+        return None
+
+    def get_dir_counts(self):
+        return None
 
     def get_bg_color(self):
         """
