@@ -1,4 +1,5 @@
 import os
+
 # from io import BytesIO
 import uuid
 
@@ -10,13 +11,13 @@ from django.db import models
 # from uuid import uuid4
 
 
-__version__ = '1.5'
+__version__ = "1.5"
 
-__author__ = 'Benjamin Schollnick'
-__email__ = 'Benjamin@schollnick.net'
+__author__ = "Benjamin Schollnick"
+__email__ = "Benjamin@schollnick.net"
 
-__url__ = 'https://github.com/bschollnick/quickbbs'
-__license__ = 'TBD'
+__url__ = "https://github.com/bschollnick/quickbbs"
+__license__ = "TBD"
 
 """
 The models, and logic for thumbnail storage for the Quickbbs reloaded project.
@@ -92,7 +93,8 @@ def invalidate_thumb(thumbnail):
 class SmallThumb(models.Model):
     id = models.AutoField(primary_key=True, db_index=True)
     uuid = models.UUIDField(
-        default=None, null=True, editable=False, unique=True, db_index=True, blank=True)
+        default=None, null=True, editable=False, unique=True, db_index=True, blank=True
+    )
     Thumbnail = models.BinaryField(default=b"")
     FileSize = models.BigIntegerField(default=-1)
 
@@ -112,9 +114,10 @@ class SmallThumb(models.Model):
         :doc-author: Trelent
         """
         import cr_tnail_img
-        self.Thumbnail = cr_tnail_img(imagedata,
-                                      settings.IMAGE_SIZES["small"],
-                                      fext=fext)
+
+        self.Thumbnail = cr_tnail_img(
+            imagedata, settings.IMAGE_SIZES["small"], fext=fext
+        )
         self.save()
 
     def get_thumb(self):
@@ -129,14 +132,15 @@ class SmallThumb(models.Model):
         return self.Thumbnail
 
     class Meta:
-        verbose_name = 'Image File Small Thumbnail Cache'
-        verbose_name_plural = 'Image File Small Thumbnails Cache'
+        verbose_name = "Image File Small Thumbnail Cache"
+        verbose_name_plural = "Image File Small Thumbnails Cache"
 
 
 class MediumThumb(models.Model):
     id = models.AutoField(primary_key=True, db_index=True)
     uuid = models.UUIDField(
-        default=None, null=True, editable=False, unique=True, db_index=True, blank=True)
+        default=None, null=True, editable=False, unique=True, db_index=True, blank=True
+    )
     Thumbnail = models.BinaryField(default=b"")
     FileSize = models.BigIntegerField(default=-1)
 
@@ -156,9 +160,10 @@ class MediumThumb(models.Model):
         :doc-author: Trelent
         """
         import cr_tnail_img
-        self.Thumbnail = cr_tnail_img(imagedata,
-                                      settings.IMAGE_SIZES["medium"],
-                                      fext=fext)
+
+        self.Thumbnail = cr_tnail_img(
+            imagedata, settings.IMAGE_SIZES["medium"], fext=fext
+        )
         self.save()
 
     def get_thumb(self):
@@ -173,13 +178,15 @@ class MediumThumb(models.Model):
         return self.Thumbnail
 
     class Meta:
-        verbose_name = 'Image File Medium Thumbnail Cache'
-        verbose_name_plural = 'Image File Medium Thumbnails Cache'
+        verbose_name = "Image File Medium Thumbnail Cache"
+        verbose_name_plural = "Image File Medium Thumbnails Cache"
 
 
 class LargeThumb(models.Model):
     id = models.AutoField(primary_key=True, db_index=True)
-    uuid = models.UUIDField(default=None, null=True, editable=False, unique=True, db_index=True, blank=True)
+    uuid = models.UUIDField(
+        default=None, null=True, editable=False, unique=True, db_index=True, blank=True
+    )
     Thumbnail = models.BinaryField(default=b"")
     FileSize = models.BigIntegerField(default=-1)
 
@@ -196,9 +203,10 @@ class LargeThumb(models.Model):
         :doc-author: Trelent
         """
         import cr_tnail_img
-        self.Thumbnail = cr_tnail_img(imagedata,
-                                      settings.IMAGE_SIZES["large"],
-                                      fext=fext)
+
+        self.Thumbnail = cr_tnail_img(
+            imagedata, settings.IMAGE_SIZES["large"], fext=fext
+        )
         self.save()
 
     def get_thumb(self):
@@ -213,8 +221,8 @@ class LargeThumb(models.Model):
         return self.Thumbnail
 
     class Meta:
-        verbose_name = 'Image File Large Thumbnail Cache'
-        verbose_name_plural = 'Image File Large Thumbnails Cache'
+        verbose_name = "Image File Large Thumbnail Cache"
+        verbose_name_plural = "Image File Large Thumbnails Cache"
 
 
 def create_file_entry(filename, filesize=None, is_default=False, version=4) -> object:
@@ -229,45 +237,59 @@ def create_file_entry(filename, filesize=None, is_default=False, version=4) -> o
     # is_default = is_default
     ignore = False
 
-    small = SmallThumb.objects.create(uuid=record_id, FileSize=filesize, Thumbnail=b'')
+    small = SmallThumb.objects.create(uuid=record_id, FileSize=filesize, Thumbnail=b"")
 
-    medium = MediumThumb.objects.create(uuid=record_id, FileSize=filesize, Thumbnail=b'')
+    medium = MediumThumb.objects.create(
+        uuid=record_id, FileSize=filesize, Thumbnail=b""
+    )
 
-    large = LargeThumb.objects.create(uuid=record_id, FileSize=filesize, Thumbnail=b'')
+    large = LargeThumb.objects.create(uuid=record_id, FileSize=filesize, Thumbnail=b"")
 
-    entry = Thumbnails_Files.objects.create(uuid=record_id, FileName=filename,
-                                            FileSize=filesize,
-                                            SmallThumb=small, MediumThumb=medium,
-                                            LargeThumb=large,
-                                            is_default=is_default, ignore=ignore)
+    entry = Thumbnails_Files.objects.create(
+        uuid=record_id,
+        FileName=filename,
+        FileSize=filesize,
+        SmallThumb=small,
+        MediumThumb=medium,
+        LargeThumb=large,
+        is_default=is_default,
+        ignore=ignore,
+    )
     return entry
 
 
 class Thumbnails_Files(models.Model):
     id = models.AutoField(primary_key=True, db_index=True)
     uuid = models.UUIDField(
-        default=None, null=True, editable=False, unique=True, db_index=True, blank=True)
+        default=None, null=True, editable=False, unique=True, db_index=True, blank=True
+    )
     FileName = models.CharField(db_index=True, max_length=384, default=None)
     FileSize = models.BigIntegerField(default=-1)
-    SmallThumb = models.OneToOneField(SmallThumb,
-                                      on_delete=models.CASCADE,
-                                      db_index=True,
-                                      default=None,
-                                      null=True,
-                                      blank=True)
+    SmallThumb = models.OneToOneField(
+        SmallThumb,
+        on_delete=models.CASCADE,
+        db_index=True,
+        default=None,
+        null=True,
+        blank=True,
+    )
 
-    MediumThumb = models.OneToOneField(MediumThumb,
-                                       on_delete=models.CASCADE,
-                                       db_index=True,
-                                       default=None,
-                                       null=True,
-                                       blank=True)
-    LargeThumb = models.OneToOneField(LargeThumb,
-                                      on_delete=models.CASCADE,
-                                      db_index=True,
-                                      default=None,
-                                      null=True,
-                                      blank=True)
+    MediumThumb = models.OneToOneField(
+        MediumThumb,
+        on_delete=models.CASCADE,
+        db_index=True,
+        default=None,
+        null=True,
+        blank=True,
+    )
+    LargeThumb = models.OneToOneField(
+        LargeThumb,
+        on_delete=models.CASCADE,
+        db_index=True,
+        default=None,
+        null=True,
+        blank=True,
+    )
 
     is_default = models.BooleanField(default=False, db_index=False)
     ignore = models.BooleanField(default=False, db_index=False)
@@ -324,8 +346,8 @@ class Thumbnails_Files(models.Model):
         self.save()
 
     class Meta:
-        verbose_name = 'Thumbnails Index for Files'
-        verbose_name_plural = 'Thumbnails Index for Files'
+        verbose_name = "Thumbnails Index for Files"
+        verbose_name_plural = "Thumbnails Index for Files"
         # File Workflow:
         #
         #   When checking for a thumbnail, if Thumbnail_ID == 0, then generate
@@ -344,15 +366,17 @@ class Thumbnails_Archive(models.Model):
     uuid = models.UUIDField(
         default=None, null=True, editable=False, db_index=True, blank=True
     )
-    zipfilepath = models.CharField(db_index=True, max_length=384, default='', blank=True)
+    zipfilepath = models.CharField(
+        db_index=True, max_length=384, default="", blank=True
+    )
 
     FilePath = models.CharField(db_index=True, max_length=384, default=None)
     FileName = models.CharField(db_index=True, max_length=384, default=None)
     SmallThumb = models.BinaryField(default=b"")
 
     class Meta:
-        verbose_name = 'Archive Thumbnails Cache'
-        verbose_name_plural = 'Archive Thumbnails Cache'
+        verbose_name = "Archive Thumbnails Cache"
+        verbose_name_plural = "Archive Thumbnails Cache"
 
 
 class Thumbnails_Archive_Pages(models.Model):
@@ -367,25 +391,28 @@ class Thumbnails_Archive_Pages(models.Model):
     LargeThumb = models.BinaryField(default=b"")
 
     class Meta:
-        verbose_name = 'Archive Pages Cache'
-        verbose_name_plural = 'Archive Pages Cache'
+        verbose_name = "Archive Pages Cache"
+        verbose_name_plural = "Archive Pages Cache"
 
 
 class Thumbnails_Dir(models.Model):
     id = models.AutoField(primary_key=True, db_index=True)
     uuid = models.UUIDField(
-        default=None, null=True, editable=False, db_index=True, blank=True)
-    DirName = models.CharField(db_index=True, max_length=384, default='', blank=True)
-    FileName = models.CharField(db_index=True, max_length=384, default='', blank=True)
+        default=None, null=True, editable=False, db_index=True, blank=True
+    )
+    DirName = models.CharField(db_index=True, max_length=384, default="", blank=True)
+    FileName = models.CharField(db_index=True, max_length=384, default="", blank=True)
     FileSize = models.BigIntegerField(default=-1)
-    Thumbnail = models.OneToOneField(SmallThumb,
-                                     on_delete=models.CASCADE,
-                                     db_index=True,
-                                     default=None,
-                                     null=True,
-                                     blank=True)
+    Thumbnail = models.OneToOneField(
+        SmallThumb,
+        on_delete=models.CASCADE,
+        db_index=True,
+        default=None,
+        null=True,
+        blank=True,
+    )
     is_default = models.BooleanField(default=False, db_index=False)
 
     class Meta:
-        verbose_name = 'Directory Thumbnails Cache'
-        verbose_name_plural = 'Directory Thumbnails Cache'
+        verbose_name = "Directory Thumbnails Cache"
+        verbose_name_plural = "Directory Thumbnails Cache"

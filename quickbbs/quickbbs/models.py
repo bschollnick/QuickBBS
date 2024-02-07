@@ -7,8 +7,7 @@ import uuid
 
 # from django.conf import settings
 from django.views.decorators.cache import never_cache
-from django.http import (FileResponse, Http404,  # , StreamingHttpResponse)
-                         HttpResponse)
+from django.http import FileResponse, Http404, HttpResponse  # , StreamingHttpResponse)
 from ranged_fileresponse import RangedFileResponse
 
 from django.contrib.auth.models import User
@@ -22,8 +21,10 @@ import thumbnails.models
 from quickbbs.natsort_model import NaturalSortField
 from filetypes.models import filetypes, FILETYPE_DATA
 
+
 def convert_text_to_md5_hdigest(text):
     return hashlib.md5(text.title().strip().encode("utf-16")).hexdigest()
+
 
 def is_valid_uuid(uuid_to_test, version=4):
     """
@@ -58,70 +59,101 @@ def is_valid_uuid(uuid_to_test, version=4):
 
 class owners(models.Model):
     id = models.AutoField(primary_key=True)
-    uuid = models.UUIDField(default=None, null=True, editable=False, blank=True, db_index=True)
-    ownerdetails = models.OneToOneField(User,
-                                        on_delete=models.CASCADE,
-                                        db_index=True,
-                                        default=None)
+    uuid = models.UUIDField(
+        default=None, null=True, editable=False, blank=True, db_index=True
+    )
+    ownerdetails = models.OneToOneField(
+        User, on_delete=models.CASCADE, db_index=True, default=None
+    )
 
     class Meta:
-        verbose_name = 'Ownership'
-        verbose_name_plural = 'Ownership'
+        verbose_name = "Ownership"
+        verbose_name_plural = "Ownership"
 
 
 class Favorites(models.Model):
     id = models.AutoField(primary_key=True)
-    uuid = models.UUIDField(default=None, null=True, editable=False, blank=True, db_index=True)
-
+    uuid = models.UUIDField(
+        default=None, null=True, editable=False, blank=True, db_index=True
+    )
 
 
 class Thumbnails_Dirs(models.Model):
     id = models.AutoField(primary_key=True, db_index=True)
-    uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True, blank=True)
-    DirName = models.CharField(db_index=True, max_length=384, default='', blank=True)  # FQFN of the file itself
+    uuid = models.UUIDField(
+        default=None, null=True, editable=False, db_index=True, blank=True
+    )
+    DirName = models.CharField(
+        db_index=True, max_length=384, default="", blank=True
+    )  # FQFN of the file itself
     FileSize = models.BigIntegerField(default=-1)
-    FilePath = models.CharField(db_index=True, max_length=384, default=None)  # FQFN of the file itself
+    FilePath = models.CharField(
+        db_index=True, max_length=384, default=None
+    )  # FQFN of the file itself
     SmallThumb = models.BinaryField(default=b"")
 
-
     class Meta:
-        verbose_name = 'Directory Thumbnails Cache'
-        verbose_name_plural = 'Directory Thumbnails Cache'
+        verbose_name = "Directory Thumbnails Cache"
+        verbose_name_plural = "Directory Thumbnails Cache"
         constraints = [
-            models.UniqueConstraint(fields=['DirName', 'FilePath'], name='unique_dir_thumb')
+            models.UniqueConstraint(
+                fields=["DirName", "FilePath"], name="unique_dir_thumb"
+            )
         ]
 
 
 class Thumbnails_Small(models.Model):
     id = models.AutoField(primary_key=True, db_index=True)
-    Combined_md5 = models.CharField(db_index=True, max_length=32, unique=True, null=True, default=None)
-        # Webpath + Filename (eg WebFQPN - /gallery/folder1/test.jpg)
-    uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True, blank=True)
+    Combined_md5 = models.CharField(
+        db_index=True, max_length=32, unique=True, null=True, default=None
+    )
+    # Webpath + Filename (eg WebFQPN - /gallery/folder1/test.jpg)
+    uuid = models.UUIDField(
+        default=None, null=True, editable=False, db_index=True, blank=True
+    )
     Thumbnail = models.BinaryField(default=b"")
     FileSize = models.BigIntegerField(default=-1)
 
     class Meta:
-        verbose_name = 'Image File Small Thumbnail Cache'
-        verbose_name_plural = 'Image File Small Thumbnails Cache'
+        verbose_name = "Image File Small Thumbnail Cache"
+        verbose_name_plural = "Image File Small Thumbnails Cache"
+
 
 class Index_Dirs(models.Model):
-    uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True, blank=True)
-    fqpndirectory = models.CharField(db_index=False, max_length=384,default='', unique=True, blank=True)  # FQFN of the file itself
-        # WebPath_md5 = models.CharField(db_index=True, max_length=32, unique=False)
+    uuid = models.UUIDField(
+        default=None, null=True, editable=False, db_index=True, blank=True
+    )
+    fqpndirectory = models.CharField(
+        db_index=False, max_length=384, default="", unique=True, blank=True
+    )  # FQFN of the file itself
+    # WebPath_md5 = models.CharField(db_index=True, max_length=32, unique=False)
     DirName_md5 = models.CharField(db_index=True, max_length=32, unique=False)
-        # DirName is the just the directory name (eg test1)
+    # DirName is the just the directory name (eg test1)
     Combined_md5 = models.CharField(db_index=True, max_length=32, unique=True)
-        # Combined is the FQPN md5  (eg /var/albums/test/test1)
+    # Combined is the FQPN md5  (eg /var/albums/test/test1)
     Parent_Dir_md5 = models.CharField(db_index=True, max_length=32, unique=False)
-        # Is the FQPN of the parent directory (eg /var/albums/test)
-    lastscan = models.FloatField(db_index=True, default=None)  # Stored as Unix TimeStamp (ms)
-    lastmod = models.FloatField(db_index=True, default=None)  # Stored as Unix TimeStamp (ms)
-    name_sort = NaturalSortField(for_field="fqpndirectory", max_length=384, default='')
-    is_generic_icon = models.BooleanField(default=False, db_index=True)  # File is to be ignored
+    # Is the FQPN of the parent directory (eg /var/albums/test)
+    lastscan = models.FloatField(
+        db_index=True, default=None
+    )  # Stored as Unix TimeStamp (ms)
+    lastmod = models.FloatField(
+        db_index=True, default=None
+    )  # Stored as Unix TimeStamp (ms)
+    name_sort = NaturalSortField(for_field="fqpndirectory", max_length=384, default="")
+    is_generic_icon = models.BooleanField(
+        default=False, db_index=True
+    )  # File is to be ignored
     ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
-    delete_pending = models.BooleanField(default=False, db_index=True)  # File is to be deleted,
-    filetype = models.ForeignKey(filetypes, to_field='fileext', on_delete=models.CASCADE,
-                                 db_index=True, default=".dir")
+    delete_pending = models.BooleanField(
+        default=False, db_index=True
+    )  # File is to be deleted,
+    filetype = models.ForeignKey(
+        filetypes,
+        to_field="fileext",
+        on_delete=models.CASCADE,
+        db_index=True,
+        default=".dir",
+    )
     SmallThumb = models.BinaryField(default=b"")
 
     @staticmethod
@@ -138,11 +170,15 @@ class Index_Dirs(models.Model):
         parent_dir = Index_Dirs.normalize_fqpn(str(Path.parent.resolve()))
         filename_seg = str(Path.name)
 
-        #dir_seg, filename_seg = os.path.split(fqpn_directory)
+        # dir_seg, filename_seg = os.path.split(fqpn_directory)
         new_rec = Index_Dirs()
         new_rec.fqpndirectory = fqpn_directory
-        new_rec.DirName_md5 = convert_text_to_md5_hdigest(Index_Dirs.normalize_fqpn(filename_seg))
-        new_rec.Combined_md5 = convert_text_to_md5_hdigest(Index_Dirs.normalize_fqpn(fqpn_directory))
+        new_rec.DirName_md5 = convert_text_to_md5_hdigest(
+            Index_Dirs.normalize_fqpn(filename_seg)
+        )
+        new_rec.Combined_md5 = convert_text_to_md5_hdigest(
+            Index_Dirs.normalize_fqpn(fqpn_directory)
+        )
         new_rec.Parent_Dir_md5 = convert_text_to_md5_hdigest(parent_dir)
         new_rec.uuid = uuid.uuid4()
         new_rec.FileCount = FileCount
@@ -168,10 +204,11 @@ class Index_Dirs(models.Model):
 
     @staticmethod
     def delete_directory(fqpn_directory):
-        Combined_md5 = convert_text_to_md5_hdigest(Index_Dirs.normalize_fqpn(fqpn_directory))
+        Combined_md5 = convert_text_to_md5_hdigest(
+            Index_Dirs.normalize_fqpn(fqpn_directory)
+        )
         Index_Dirs.objects.filter(Combined_md5=Combined_md5).delete()
         index_data.objects.filter(parent_dir_id=Combined_md5).delete()
-
 
     def get_counts(self):
         d_files = index_data.objects.filter(parent_dir__Combined_md5=self.Combined_md5)
@@ -185,25 +222,31 @@ class Index_Dirs(models.Model):
     def search_for_directory(fqpn_directory):
         Path = pathlib.Path(fqpn_directory)
         fqpn_directory = Index_Dirs.normalize_fqpn(str(Path.resolve()))
-        query = Index_Dirs.objects.filter(Combined_md5=convert_text_to_md5_hdigest(fqpn_directory),
-                                          delete_pending=False,
-                                          ignore=False)
+        query = Index_Dirs.objects.filter(
+            Combined_md5=convert_text_to_md5_hdigest(fqpn_directory),
+            delete_pending=False,
+            ignore=False,
+        )
         if query.exists():
             record = query[0]
             return (True, record)
         else:
-            return (False, query)   # return an empty query set
+            return (False, query)  # return an empty query set
 
     def files_in_dir(self):
-        files = index_data.objects.select_related("filetype").filter(parent_dir=self.pk, delete_pending=False)#.exclude(filetype__is_dir=True)
+        files = index_data.objects.select_related("filetype").filter(
+            parent_dir=self.pk, delete_pending=False
+        )  # .exclude(filetype__is_dir=True)
         return files.count(), files
 
     def dirs_in_dir(self):
         dir_scan = str((pathlib.Path(self.fqpndirectory)).resolve())
         dir_scan = Index_Dirs.normalize_fqpn(dir_scan)
         dir_scan_md5 = convert_text_to_md5_hdigest(dir_scan)
-        #dirs = Index_Dirs.objects.filter(Combined_md5=self.Combined_md5, delete_pending=False)
-        dirs = Index_Dirs.objects.filter(Parent_Dir_md5=dir_scan_md5, delete_pending=False)
+        # dirs = Index_Dirs.objects.filter(Combined_md5=self.Combined_md5, delete_pending=False)
+        dirs = Index_Dirs.objects.filter(
+            Parent_Dir_md5=dir_scan_md5, delete_pending=False
+        )
         return dirs.count(), dirs
 
     def get_view_url(self):
@@ -218,7 +261,7 @@ class Index_Dirs(models.Model):
         options = {}
         options["i_uuid"] = str(self.uuid)
         parameters = []
-        return reverse('directories') + self.fqpndirectory
+        return reverse("directories") + self.fqpndirectory
 
     def get_bg_color(self):
         """
@@ -243,36 +286,38 @@ class Index_Dirs(models.Model):
 
     def send_thumbnail(self):
         """
-        Output a http response header, for an image attachment.
+         Output a http response header, for an image attachment.
 
-       Args:
-            filename (str): The filename to be sent with the thumbnail
+        Args:
+             filename (str): The filename to be sent with the thumbnail
 
-        Returns:
-            object::
-                The Django response object that contains the attachment and header
+         Returns:
+             object::
+                 The Django response object that contains the attachment and header
 
-        Raises:
-            None
+         Raises:
+             None
 
-        Examples
-        --------
-        return_img_attach("test.png", img_data)
+         Examples
+         --------
+         return_img_attach("test.png", img_data)
 
-        # https://stackoverflow.com/questions/36392510/django-download-a-file
-        # https://stackoverflow.com/questions/27712778/
-        #               video-plays-in-other-browsers-but-not-safari
-        # https://stackoverflow.com/questions/720419/
-        #               how-can-i-find-out-whether-a-server-supports-the-range-header
+         # https://stackoverflow.com/questions/36392510/django-download-a-file
+         # https://stackoverflow.com/questions/27712778/
+         #               video-plays-in-other-browsers-but-not-safari
+         # https://stackoverflow.com/questions/720419/
+         #               how-can-i-find-out-whether-a-server-supports-the-range-header
 
         """
-        mtype = 'application/octet-stream'
-        response = FileResponse(io.BytesIO(self.SmallThumb),
-                                content_type=mtype,
-                                as_attachment=False,
-                                filename=os.path.basename(self.fqpndirectory)+".jpg")
+        mtype = "application/octet-stream"
+        response = FileResponse(
+            io.BytesIO(self.SmallThumb),
+            content_type=mtype,
+            as_attachment=False,
+            filename=os.path.basename(self.fqpndirectory) + ".jpg",
+        )
         response["Content-Type"] = mtype
-        response['Content-Length'] = len(self.SmallThumb)
+        response["Content-Length"] = len(self.SmallThumb)
         return response
 
 
@@ -285,8 +330,8 @@ class Thumbnails_Medium(models.Model):
     FileSize = models.BigIntegerField(default=-1)
 
     class Meta:
-        verbose_name = 'Image File Medium Thumbnail Cache'
-        verbose_name_plural = 'Image File Medium Thumbnails Cache'
+        verbose_name = "Image File Medium Thumbnail Cache"
+        verbose_name_plural = "Image File Medium Thumbnails Cache"
 
 
 class Thumbnails_Large(models.Model):
@@ -298,8 +343,8 @@ class Thumbnails_Large(models.Model):
     FileSize = models.BigIntegerField(default=-1)
 
     class Meta:
-        verbose_name = 'Image File Large Thumbnail Cache'
-        verbose_name_plural = 'Image File Large Thumbnails Cache'
+        verbose_name = "Image File Large Thumbnail Cache"
+        verbose_name_plural = "Image File Large Thumbnails Cache"
 
 
 class Thumbnails_Files(models.Model):
@@ -307,18 +352,24 @@ class Thumbnails_Files(models.Model):
     uuid = models.UUIDField(
         default=None, null=True, editable=False, db_index=True, blank=True
     )
-    FilePath = models.CharField(db_index=True, max_length=384, default=None)  # FQFN of the file itself
-    FileName = models.CharField(db_index=True, max_length=384, default=None)  # FQFN of the file itself
+    FilePath = models.CharField(
+        db_index=True, max_length=384, default=None
+    )  # FQFN of the file itself
+    FileName = models.CharField(
+        db_index=True, max_length=384, default=None
+    )  # FQFN of the file itself
     FileSize = models.BigIntegerField(default=-1)
     SmallThumb = models.BinaryField(default=b"")
     MediumThumb = models.BinaryField(default=b"")
     LargeThumb = models.BinaryField(default=b"")
 
     class Meta:
-        verbose_name = 'Image File Thumbnails Cache'
-        verbose_name_plural = 'Image File Thumbnails Cache'
+        verbose_name = "Image File Thumbnails Cache"
+        verbose_name_plural = "Image File Thumbnails Cache"
         constraints = [
-            models.UniqueConstraint(fields=['FileName', 'FilePath'], name='unique_thumb_files')
+            models.UniqueConstraint(
+                fields=["FileName", "FilePath"], name="unique_thumb_files"
+            )
         ]
         # File Workflow:
         #
@@ -337,10 +388,16 @@ class Thumbnails_Archives(models.Model):
     uuid = models.UUIDField(
         default=None, null=True, editable=False, db_index=True, blank=True
     )
-    zipfilepath = models.CharField(db_index=True, max_length=384, default='', blank=True)  # FQFN of the file itself
+    zipfilepath = models.CharField(
+        db_index=True, max_length=384, default="", blank=True
+    )  # FQFN of the file itself
 
-    FilePath = models.CharField(db_index=True, max_length=384, default=None)  # FQFN of the file itself
-    FileName = models.CharField(db_index=True, max_length=384, default=None)  # FQFN of the file itself
+    FilePath = models.CharField(
+        db_index=True, max_length=384, default=None
+    )  # FQFN of the file itself
+    FileName = models.CharField(
+        db_index=True, max_length=384, default=None
+    )  # FQFN of the file itself
     page = models.IntegerField(default=0)  # The
     FileSize = models.BigIntegerField(default=-1)
     SmallThumb = models.BinaryField(default=b"")
@@ -348,35 +405,53 @@ class Thumbnails_Archives(models.Model):
     LargeThumb = models.BinaryField(default=b"")
 
     class Meta:
-        verbose_name = 'Archive Thumbnails Cache'
-        verbose_name_plural = 'Archive Thumbnails Cache'
+        verbose_name = "Archive Thumbnails Cache"
+        verbose_name_plural = "Archive Thumbnails Cache"
 
         constraints = [
-            models.UniqueConstraint(fields=['FileName', 'FilePath', 'zipfilepath'], name='unique_archives')
+            models.UniqueConstraint(
+                fields=["FileName", "FilePath", "zipfilepath"], name="unique_archives"
+            )
         ]
+
 
 class index_data(models.Model):
     id = models.AutoField(primary_key=True)
-    uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True, blank=True)
+    uuid = models.UUIDField(
+        default=None, null=True, editable=False, db_index=True, blank=True
+    )
     lastscan = models.FloatField(db_index=True)  # Stored as Unix TimeStamp (ms)
     lastmod = models.FloatField(db_index=True)  # Stored as Unix TimeStamp (ms)
     name = models.CharField(db_index=True, max_length=384, default=None)
     # FQFN of the file itself
-    #sortname = models.CharField(editable=False, max_length=384, default='')
-    name_sort = NaturalSortField(for_field="name", max_length=384, default='')
+    # sortname = models.CharField(editable=False, max_length=384, default='')
+    name_sort = NaturalSortField(for_field="name", max_length=384, default="")
     size = models.BigIntegerField(default=0)  # File size
     numfiles = models.IntegerField(default=0)  # The # of files in this directory
-    numdirs = models.IntegerField(default=0)  # The # of Children Directories in this directory
+    numdirs = models.IntegerField(
+        default=0
+    )  # The # of Children Directories in this directory
     count_subfiles = models.BigIntegerField(default=0)  # the # of subfiles in archive
     fqpndirectory = models.CharField(default=0, db_index=True, max_length=384)
     # Directory of the file, lower().replace("//", "/"), ensure it is path, and not path + filename
-    parent_dir = models.ForeignKey(Index_Dirs, on_delete=models.CASCADE, null=True, default=None)
+    parent_dir = models.ForeignKey(
+        Index_Dirs, on_delete=models.CASCADE, null=True, default=None
+    )
     is_animated = models.BooleanField(default=False, db_index=True)
     ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
-    delete_pending = models.BooleanField(default=False, db_index=True)  # File is to be deleted,
-    filetype = models.ForeignKey(filetypes, to_field='fileext', on_delete=models.CASCADE,
-                                 db_index=True, default=".none")
-    is_generic_icon = models.BooleanField(default=False, db_index=False)  # icon is a generic icon
+    delete_pending = models.BooleanField(
+        default=False, db_index=True
+    )  # File is to be deleted,
+    filetype = models.ForeignKey(
+        filetypes,
+        to_field="fileext",
+        on_delete=models.CASCADE,
+        db_index=True,
+        default=".none",
+    )
+    is_generic_icon = models.BooleanField(
+        default=False, db_index=False
+    )  # icon is a generic icon
 
     unified_thumb = models.OneToOneField(
         thumbnails.models.Thumbnails_Files,
@@ -424,11 +499,18 @@ class index_data(models.Model):
     )
 
     ownership = models.OneToOneField(
-        owners, on_delete=models.CASCADE, db_index=True, default=None, null=True, blank=True
+        owners,
+        on_delete=models.CASCADE,
+        db_index=True,
+        default=None,
+        null=True,
+        blank=True,
     )
 
     def get_webpath(self):
-        return self.fqpndirectory.replace(settings.ALBUMS_PATH.lower() + r"/albums/", r"")
+        return self.fqpndirectory.replace(
+            settings.ALBUMS_PATH.lower() + r"/albums/", r""
+        )
 
     def write_to_db_entry(self, fileentry, fqpn, version=4):
         """
@@ -511,9 +593,9 @@ class index_data(models.Model):
         # elif self.filetype.is_archive:
         #    parameters.append("&arch")
         if self.filetype.is_dir:
-            return reverse('directories') + os.path.join(self.get_webpath(), self.name)
+            return reverse("directories") + os.path.join(self.get_webpath(), self.name)
         else:
-            return reverse('new_viewitem', kwargs=options) + "".join(parameters)
+            return reverse("new_viewitem", kwargs=options) + "".join(parameters)
 
     def get_thumbnail_url(self, size=None):
         """
@@ -531,7 +613,7 @@ class index_data(models.Model):
         size = size.lower()
 
         # options = {"i_uuid": str(self.uuid)}
-        return reverse(r"thumbnail_file", args=(self.uuid,))+ f"?size={size}"
+        return reverse(r"thumbnail_file", args=(self.uuid,)) + f"?size={size}"
 
     def get_download_url(self):
         """
@@ -542,45 +624,45 @@ class index_data(models.Model):
             Django URL object
 
         """
-        return reverse('download') + f"?UUID={self.uuid}"
+        return reverse("download") + f"?UUID={self.uuid}"
         # null = System Owned
 
     def send_thumbnail(self, filename="", fext_override=None, size="small"):
         """
-        Output a http response header, for an image attachment.
+         Output a http response header, for an image attachment.
 
-       Args:
-            filename (str): The filename to be sent with the thumbnail
-            fext_override (str): Filename extension to use instead of the original file's ext
-            size (str): The size string of the thumbnail to send (small, medium, large)
+        Args:
+             filename (str): The filename to be sent with the thumbnail
+             fext_override (str): Filename extension to use instead of the original file's ext
+             size (str): The size string of the thumbnail to send (small, medium, large)
 
-        Returns:
-            object::
-                The Django response object that contains the attachment and header
+         Returns:
+             object::
+                 The Django response object that contains the attachment and header
 
-        Raises:
-            None
+         Raises:
+             None
 
-        Examples
-        --------
-        return_img_attach("test.png", img_data)
+         Examples
+         --------
+         return_img_attach("test.png", img_data)
 
 
         """
 
         def get_sized_tnail(size="small", tnail=None):
-            blob = b''
+            blob = b""
             if tnail is None:
-                return b''
+                return b""
             match size.lower():
-                case 'small':
+                case "small":
                     blob = tnail.SmallThumb
-                case 'medium':
+                case "medium":
                     blob = tnail.MediumThumb
-                case 'large':
+                case "large":
                     blob = tnail.LargeThumb
                 case _:
-                    blob = b''
+                    blob = b""
             return blob
 
         # https://stackoverflow.com/questions/36392510/django-download-a-file
@@ -588,17 +670,19 @@ class index_data(models.Model):
         #               video-plays-in-other-browsers-but-not-safari
         # https://stackoverflow.com/questions/720419/
         #               how-can-i-find-out-whether-a-server-supports-the-range-header
-        mtype = 'application/octet-stream'
+        mtype = "application/octet-stream"
         if self.file_tnail is not None:
             blob = get_sized_tnail(size=size, tnail=self.file_tnail)
         elif self.directory is not None:
             blob = get_sized_tnail(size=size, tnail=self.directory)
-        response = FileResponse(io.BytesIO(blob),
-                                content_type=mtype,
-                                as_attachment=False,
-                                filename=self.name)
+        response = FileResponse(
+            io.BytesIO(blob),
+            content_type=mtype,
+            as_attachment=False,
+            filename=self.name,
+        )
         response["Content-Type"] = mtype
-        response['Content-Length'] = len(blob)
+        response["Content-Length"] = len(blob)
         return response
 
     # @method_decorator(cache_control(private=True))
@@ -612,18 +696,21 @@ class index_data(models.Model):
         try:
             mtype = self.filetype.mimetype
             if mtype is None:
-                mtype = 'application/octet-stream'
-#            basefilename = os.path.basename(self.name)
-            with open(fqpn_filename, 'rb') as fh:
+                mtype = "application/octet-stream"
+            #            basefilename = os.path.basename(self.name)
+            with open(fqpn_filename, "rb") as fh:
                 if ranged:
                     # open must be in the RangedFielRequest, to allow seeking
-                    response = RangedFileResponse(request, file=open(fqpn_filename, 'rb'),  # , buffering=1024*8),
-                                                  as_attachment=False,
-                                                  filename=self.name)
+                    response = RangedFileResponse(
+                        request,
+                        file=open(fqpn_filename, "rb"),  # , buffering=1024*8),
+                        as_attachment=False,
+                        filename=self.name,
+                    )
                     response["Content-Type"] = mtype
                 else:
                     response = HttpResponse(fh.read(), content_type=mtype)
-                    response['Content-Disposition'] = f'inline; filename={self.name}'
+                    response["Content-Disposition"] = f"inline; filename={self.name}"
             return response
         except FileNotFoundError:
             pass
@@ -631,9 +718,11 @@ class index_data(models.Model):
         raise Http404
 
     class Meta:
-        verbose_name = 'Master Index'
-        verbose_name_plural = 'Master Index'
+        verbose_name = "Master Index"
+        verbose_name_plural = "Master Index"
 
         constraints = [
-            models.UniqueConstraint(fields=['name', 'fqpndirectory'], name='unique name directory')
+            models.UniqueConstraint(
+                fields=["name", "fqpndirectory"], name="unique name directory"
+            )
         ]

@@ -13,7 +13,9 @@ Including another URLconf
     1. Import the include() function: from django.conf.urls import url, include
     2. Add a URL to urlpatterns:  url(r'^blog/', include('blog.urls'))
 """
+
 from django.conf import settings
+
 # from django.conf.urls import url
 from django.contrib import admin
 from django.urls import include, path, re_path
@@ -27,7 +29,7 @@ if settings.DEBUG_TOOLBAR:
     import debug_toolbar
 
     urlpatterns += [
-        path('__debug__/', include(debug_toolbar.urls)),
+        path("__debug__/", include(debug_toolbar.urls)),
     ]
 
 urlpatterns += [
@@ -36,24 +38,43 @@ urlpatterns += [
     # the filename is not used, but is there for web browser to see the expected filename
     # when it was download/<str:uuid>, the web browser would believe the filename was the
     # uuid, and ignore the filename in the download header.
-
     path("info/<uuid:i_uuid>/", frontend.views.item_info, name="item_info"),
-    path("view_item/<uuid:i_uuid>/", frontend.views.new_json_viewitem, name="new_viewitem"),
-    path('view_archive/<uuid:i_uuid>', frontend.views.new_view_archive, name="new_view_archive"),
-    path("view_archive_item/<uuid:i_uuid>", frontend.views.new_archive_item, name="new_archive_item"),
-    re_path('^albums/', frontend.views.new_viewgallery, name="directories"),
-    path('thumbnails/<uuid:tnail_id>', frontend.views.thumbnails, name="thumbnails"),
-    path('thumbnail_file/<uuid:tnail_id>', frontend.views.ThumbnailFile, name="thumbnail_file"),
-    path('thumbnail_directory/<uuid:tnail_id>', frontend.views.ThumbnailDir, name="thumbnail_dir"),
-    path('thumbnails/', frontend.views.thumbnails, name="thumbnailspath"),
-    path('resources/<path:pathstr>', frontend.serve_up.resources),
-    path('static/<path:pathstr>', frontend.serve_up.static),
-    path('test', frontend.views.test, name="test"),
-    path('accounts/', include('allauth.urls')),
-    path('grappelli/', include('grappelli.urls')),  # grappelli URLS
-    path(r'Admin/', admin.site.urls),
-    path(r'', RedirectView.as_view(url="/albums"), name="home"),
-#    path("unicorn/", include("django_unicorn.urls")),
+    path(
+        "view_item/<uuid:i_uuid>/",
+        frontend.views.new_json_viewitem,
+        name="new_viewitem",
+    ),
+    path(
+        "view_archive/<uuid:i_uuid>",
+        frontend.views.new_view_archive,
+        name="new_view_archive",
+    ),
+    path(
+        "view_archive_item/<uuid:i_uuid>",
+        frontend.views.new_archive_item,
+        name="new_archive_item",
+    ),
+    re_path("^albums/", frontend.views.new_viewgallery, name="directories"),
+    path("thumbnails/<uuid:tnail_id>", frontend.views.thumbnails, name="thumbnails"),
+    path(
+        "thumbnail_file/<uuid:tnail_id>",
+        frontend.views.ThumbnailFile,
+        name="thumbnail_file",
+    ),
+    path(
+        "thumbnail_directory/<uuid:tnail_id>",
+        frontend.views.ThumbnailDir,
+        name="thumbnail_dir",
+    ),
+    path("thumbnails/", frontend.views.thumbnails, name="thumbnailspath"),
+    path("resources/<path:pathstr>", frontend.serve_up.resources),
+    path("static/<path:pathstr>", frontend.serve_up.static),
+    path("test", frontend.views.test, name="test"),
+    path("accounts/", include("allauth.urls")),
+    path("grappelli/", include("grappelli.urls")),  # grappelli URLS
+    path(r"Admin/", admin.site.urls),
+    path(r"", RedirectView.as_view(url="/albums"), name="home"),
+    #    path("unicorn/", include("django_unicorn.urls")),
 ]
 
 # REGISTRATION_OPEN = True

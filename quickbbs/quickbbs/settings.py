@@ -38,10 +38,15 @@ else:
 
 print(f"* Demo Mode is {DEMO}")
 
-TAILSCALE_HOSTS = ['100.117.227.36', '100.73.202.135']
-ALLOWED_HOSTS = ['nerv.local', 'localhost', '127.0.0.1', '192.168.1.67'] + TAILSCALE_HOSTS
+TAILSCALE_HOSTS = ["100.117.227.36", "100.73.202.135"]
+ALLOWED_HOSTS = [
+    "nerv.local",
+    "localhost",
+    "127.0.0.1",
+    "192.168.1.67",
+] + TAILSCALE_HOSTS
 
-INTERNAL_IPS = ['localhost', '127.0.0.1', 'nerv.local', '192.168.1.67']
+INTERNAL_IPS = ["localhost", "127.0.0.1", "nerv.local", "192.168.1.67"]
 machine_name = socket.gethostname().lower()
 print(f"* Running on {machine_name}")
 
@@ -55,18 +60,22 @@ DEBUG_TOOLBAR = False
 print(f"* Debug-toolbar is {DEBUG_TOOLBAR}")
 
 # See https://releases.jquery.com/jquery/
-JQUERY_VERSION = '3.7.0'
+JQUERY_VERSION = "3.7.0"
 # JQUERY_VERSION = '3.6.1'
-JQUERY_URI = f'https://cdnjs.cloudflare.com/ajax/libs/jquery/{JQUERY_VERSION}/jquery.slim.min.js'
+JQUERY_URI = (
+    f"https://cdnjs.cloudflare.com/ajax/libs/jquery/{JQUERY_VERSION}/jquery.slim.min.js"
+)
 
 # see https://cdnjs.com/libraries/bulma
-BULMA_VERSION = '0.9.4'
-BULMA_URI = f'https://cdnjs.cloudflare.com/ajax/libs/bulma/{BULMA_VERSION}/css/bulma.min.css'
+BULMA_VERSION = "0.9.4"
+BULMA_URI = (
+    f"https://cdnjs.cloudflare.com/ajax/libs/bulma/{BULMA_VERSION}/css/bulma.min.css"
+)
 
 # see https://cdnjs.com/libraries/font-awesome
 # FONTAWESOME_VERSION = '6.2.1'
-FONTAWESOME_VERSION = '6.4.0'
-FONTAWESOME_URI = f'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/{FONTAWESOME_VERSION}/css/all.min.css'
+FONTAWESOME_VERSION = "6.4.0"
+FONTAWESOME_URI = f"https://cdnjs.cloudflare.com/ajax/libs/font-awesome/{FONTAWESOME_VERSION}/css/all.min.css"
 FONTAWESOME_SCRIPT_URI = None  # f'https://kit.fontawesome.com/ad5033c5d1.js'
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 # BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -76,14 +85,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 if not DEBUG:
     CACHES = {
-        'default': {
-            'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
-            'LOCATION': 'cache_data_db_table',
-            'TIMEOUT': 1200, # 20 minutes #300, # 5 minutes
-            'OPTIONS': {
-                'MAX_ENTRIES': 20000,
-                'CULL_FREQUENCY': 4,
-            }
+        "default": {
+            "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+            "LOCATION": "cache_data_db_table",
+            "TIMEOUT": 1200,  # 20 minutes #300, # 5 minutes
+            "OPTIONS": {
+                "MAX_ENTRIES": 20000,
+                "CULL_FREQUENCY": 4,
+            },
         }
     }
 
@@ -93,7 +102,7 @@ if not DEBUG:
 # python manage.py createcachetable
 
 
-TEMPLATE_PATH = BASE_DIR / 'templates'
+TEMPLATE_PATH = BASE_DIR / "templates"
 # TEMPLATE_PATH = os.path.join(BASE_DIR, 'templates')
 
 # MEDIA_ROOT = os.sep.join((str(BASE_DIR).split(os.sep)[0:-1]))
@@ -105,7 +114,7 @@ MEDIA_ROOT = BASE_DIR.resolve().parent
 # See https://docs.djangoproject.com/en/1.9/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'isk^$ye4rx0m!p#0147tcmmmtcz1u&suzp2+z+6#gpjx^1lz4t'
+SECRET_KEY = "isk^$ye4rx0m!p#0147tcmmmtcz1u&suzp2+z+6#gpjx^1lz4t"
 
 # SECURITY WARNING: don't run with debug turned on in production!
 
@@ -114,168 +123,178 @@ SECRET_KEY = 'isk^$ye4rx0m!p#0147tcmmmtcz1u&suzp2+z+6#gpjx^1lz4t'
 
 
 # Application definition
-STATIC_URL = '/static/'
+STATIC_URL = "/static/"
 
 INSTALLED_APPS = []
 INSTALLED_APPS += [
-    'grappelli',
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.staticfiles',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'rest_framework',
-    'django.contrib.sites',
-    'django_user_agents',
-    'django_jinja',
+    "grappelli",
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.staticfiles",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "rest_framework",
+    "django.contrib.sites",
+    "django_user_agents",
+    "django_jinja",
 ]
 
 if DEBUG_TOOLBAR:
-    INSTALLED_APPS += ('debug_toolbar',)
+    INSTALLED_APPS += ("debug_toolbar",)
 
 INSTALLED_APPS += [
-    'allauth',
-    'allauth.account',
-    'allauth.socialaccount',
-    'cache',
-    'django_icons',
+    "allauth",
+    "allauth.account",
+    "allauth.socialaccount",
+    "cache",
+    "django_icons",
     #    'django_unicorn',
-    'django_jinja.contrib._humanize',
-    'django_extensions',
-    'filetypes',
-    'frontend',
-    'quickbbs',
-    'thumbnails',
-    'DirScanning',
+    "django_jinja.contrib._humanize",
+    "django_extensions",
+    "filetypes",
+    "frontend",
+    "quickbbs",
+    "thumbnails",
+    "DirScanning",
 ]
 
 SITE_ID = 1
 
-SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
+SESSION_ENGINE = "django.contrib.sessions.backends.cached_db"
 
-MIDDLEWARE = ['allauth.account.middleware.AccountMiddleware',
-              'django.middleware.security.SecurityMiddleware',
-              'django.middleware.cache.UpdateCacheMiddleware',
-              'django.contrib.sessions.middleware.SessionMiddleware',
-              'django.middleware.http.ConditionalGetMiddleware',
-              'django.middleware.common.CommonMiddleware',
-              'django.middleware.csrf.CsrfViewMiddleware',
-              'django.contrib.auth.middleware.AuthenticationMiddleware',
-              'django.contrib.messages.middleware.MessageMiddleware',
-              'django.middleware.cache.FetchFromCacheMiddleware',
-              'django.middleware.clickjacking.XFrameOptionsMiddleware',
-              'django_user_agents.middleware.UserAgentMiddleware',
-              'debug_toolbar.middleware.DebugToolbarMiddleware',
-              ]
+MIDDLEWARE = [
+    "allauth.account.middleware.AccountMiddleware",
+    "django.middleware.security.SecurityMiddleware",
+    "django.middleware.cache.UpdateCacheMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.http.ConditionalGetMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.cache.FetchFromCacheMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "django_user_agents.middleware.UserAgentMiddleware",
+    "debug_toolbar.middleware.DebugToolbarMiddleware",
+]
 
 #    'compression_middleware.middleware.CompressionMiddleware',
 # Revisit the django-compression-middleware later, it works, but there is a
 # perceivable slowdown on the other end (at least wireless/ipad connection on 5ghz).
 
 if DEBUG:
-    MIDDLEWARE.remove('django.middleware.cache.FetchFromCacheMiddleware')
-    MIDDLEWARE.remove('django.middleware.cache.UpdateCacheMiddleware')
+    MIDDLEWARE.remove("django.middleware.cache.FetchFromCacheMiddleware")
+    MIDDLEWARE.remove("django.middleware.cache.UpdateCacheMiddleware")
 
 if not DEBUG_TOOLBAR:
-    MIDDLEWARE.remove('debug_toolbar.middleware.DebugToolbarMiddleware')
+    MIDDLEWARE.remove("debug_toolbar.middleware.DebugToolbarMiddleware")
 
-X_FRAME_OPTIONS = 'SAMEORIGIN'
+X_FRAME_OPTIONS = "SAMEORIGIN"
 
-ROOT_URLCONF = 'quickbbs.urls'
+ROOT_URLCONF = "quickbbs.urls"
 
 TEMPLATES = [
     {
-        'NAME': "Django",
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [TEMPLATE_PATH, ],
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.debug',
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
+        "NAME": "Django",
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [
+            TEMPLATE_PATH,
+        ],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.debug",
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
             ],
         },
     },
-
     # https://docs.djangoproject.com/en/2.1/ref/templates/api/#django.template.loaders.cached.Loader
-
-    {'NAME': "Jinja2",
-     "BACKEND": "django_jinja.backend.Jinja2",
-     "APP_DIRS": True,
-     'DIRS': [TEMPLATE_PATH, ],
-     "OPTIONS": {  # 'environment': "quickbbs.jinjaenv.environment",
-         # Match the template names ending in .html but not the ones in the admin folder.
-         "match_extension": ".jinja",
-         "extensions": [
-             "jinja2.ext.do",
-             "jinja2.ext.loopcontrols",
-             "jinja2.ext.i18n",
-             "django_jinja.builtins.extensions.CsrfExtension",
-             "django_jinja.builtins.extensions.CacheExtension",
-             "django_jinja.builtins.extensions.TimezoneExtension",
-             "django_jinja.builtins.extensions.UrlsExtension",
-             "django_jinja.builtins.extensions.StaticFilesExtension",
-             "django_jinja.builtins.extensions.DjangoFiltersExtension",
-         ],
-         "globals": {"icon": "django_icons.templatetags.icons.icon_tag",
-                     "static": "django.templatetags.static.static",
-                     "url": "django.urls.reverse",
-                     },
-         "constants": {"bulma_uri": BULMA_URI,
-                       "fontawesome_uri": FONTAWESOME_URI,
-                       "fontawesome_script_uri": FONTAWESOME_SCRIPT_URI,
-                       "jquery_uri": JQUERY_URI},
-         "bytecode_cache": {
-             "name": "default",
-             "backend": "django_jinja.cache.BytecodeCache",
-             "enabled": not DEBUG,  # needs to be negated, since TRUE for debug should be enabled - False
-         },
-         "autoescape": True,
-         "auto_reload": True,
-         "translation_engine": "django.utils.translation",
-     }
-     },
+    {
+        "NAME": "Jinja2",
+        "BACKEND": "django_jinja.backend.Jinja2",
+        "APP_DIRS": True,
+        "DIRS": [
+            TEMPLATE_PATH,
+        ],
+        "OPTIONS": {  # 'environment': "quickbbs.jinjaenv.environment",
+            # Match the template names ending in .html but not the ones in the admin folder.
+            "match_extension": ".jinja",
+            "extensions": [
+                "jinja2.ext.do",
+                "jinja2.ext.loopcontrols",
+                "jinja2.ext.i18n",
+                "django_jinja.builtins.extensions.CsrfExtension",
+                "django_jinja.builtins.extensions.CacheExtension",
+                "django_jinja.builtins.extensions.TimezoneExtension",
+                "django_jinja.builtins.extensions.UrlsExtension",
+                "django_jinja.builtins.extensions.StaticFilesExtension",
+                "django_jinja.builtins.extensions.DjangoFiltersExtension",
+            ],
+            "globals": {
+                "icon": "django_icons.templatetags.icons.icon_tag",
+                "static": "django.templatetags.static.static",
+                "url": "django.urls.reverse",
+            },
+            "constants": {
+                "bulma_uri": BULMA_URI,
+                "fontawesome_uri": FONTAWESOME_URI,
+                "fontawesome_script_uri": FONTAWESOME_SCRIPT_URI,
+                "jquery_uri": JQUERY_URI,
+            },
+            "bytecode_cache": {
+                "name": "default",
+                "backend": "django_jinja.cache.BytecodeCache",
+                "enabled": not DEBUG,  # needs to be negated, since TRUE for debug should be enabled - False
+            },
+            "autoescape": True,
+            "auto_reload": True,
+            "translation_engine": "django.utils.translation",
+        },
+    },
 ]
 
-WSGI_APPLICATION = 'quickbbs.wsgi.application'
+WSGI_APPLICATION = "quickbbs.wsgi.application"
 # WSGI_APPLICATION = 'wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/1.9/ref/settings/#databases
 if not DEMO:
-    DATABASES = {'default': {'ENGINE': 'django.db.backends.postgresql',
-                             'NAME': 'postgres',
-                             'USER': 'postgres',
-                             'PASSWORD': 'hentai2020',
-                             'HOST': 'localhost',
-                             'PORT': '5432',
-                             'CONN_MAX_AGE': 300,
-                             }
-                 }
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": "postgres",
+            "USER": "postgres",
+            "PASSWORD": "hentai2020",
+            "HOST": "localhost",
+            "PORT": "5432",
+            "CONN_MAX_AGE": 300,
+        }
+    }
 else:
-    DATABASES = {'default': {'ENGINE': 'django.db.backends.postgresql',
-                             'NAME': 'demo-gallery',
-                             'USER': 'postgres',
-                             'PASSWORD': 'hentai2020',
-                             'HOST': 'localhost',
-                             'PORT': '5432',
-                             'CONN_MAX_AGE': 300,
-                             'CONN_HEALTH_CHECKS': True,
-                             }
-                 }
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": "demo-gallery",
+            "USER": "postgres",
+            "PASSWORD": "hentai2020",
+            "HOST": "localhost",
+            "PORT": "5432",
+            "CONN_MAX_AGE": 300,
+            "CONN_HEALTH_CHECKS": True,
+        }
+    }
 
 SOUTH_DATABASE_ADAPTERS = {
-    'default': 'south.db.postgresql_psycopg2',
+    "default": "south.db.postgresql_psycopg2",
 }
 AUTHENTICATION_BACKENDS = (
     # Needed to login by username in Django admin, regardless of `allauth`
-    'django.contrib.auth.backends.ModelBackend',
-
+    "django.contrib.auth.backends.ModelBackend",
     # `allauth` specific authentication methods, such as login by e-mail
-    'allauth.account.auth_backends.AuthenticationBackend',
+    "allauth.account.auth_backends.AuthenticationBackend",
 )
 
 # Password validation
@@ -283,22 +302,22 @@ AUTHENTICATION_BACKENDS = (
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
 
 # Internationalization
 # https://docs.djangoproject.com/en/1.9/topics/i18n/
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = "en-us"
 # TIME_ZONE = 'UTC'
 # TIME_ZONE = 'UTC'
 USE_I18N = True
@@ -307,7 +326,7 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/1.9/howto/static-files/
 
-STATIC_URL = '/static/'
+STATIC_URL = "/static/"
 
 STATIC_ROOT = os.path.join(BASE_DIR, "static")
 
@@ -320,19 +339,17 @@ STATICFILES_DIRS = [
 
 ACCOUNT_AUTHENTICATED_LOGIN_REDIRECTS = True
 ACCOUNT_LOGOUT_REDIRECT_URL = "/albums"
-LOGIN_REDIRECT_URL = '/albums'
+LOGIN_REDIRECT_URL = "/albums"
 
 # from .logger import LOGGING
 
-DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
+DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
 
 # Settings for django-icons
 DJANGO_ICONS = {
-
-    'DEFAULTS': {
-        'renderer': 'fontawesome4',
+    "DEFAULTS": {
+        "renderer": "fontawesome4",
     },
-
 }
 
 
@@ -343,10 +360,10 @@ def show_toolbar(request):
 if DEBUG_TOOLBAR:
     DEBUG_TOOLBAR_CONFIG = {
         # Toolbar options
-        'RESULTS_CACHE_SIZE': 100,
-        'SHOW_COLLAPSED': False,
+        "RESULTS_CACHE_SIZE": 100,
+        "SHOW_COLLAPSED": False,
         "SHOW_TOOLBAR_CALLBACK": show_toolbar,
-        'SQL_WARNING_THRESHOLD': 100,  # milliseconds
+        "SQL_WARNING_THRESHOLD": 100,  # milliseconds
     }
 # if DEBUG:
 #     DEBUG_TOOLBAR_PANELS = [
