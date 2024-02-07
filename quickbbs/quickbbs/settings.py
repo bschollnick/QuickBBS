@@ -23,7 +23,7 @@ import django_icons
 #   Debug, enables the debugging mode
 #
 DEBUG = False
-# DEBUG = not DEBUG
+DEBUG = not DEBUG
 print(f"* Debug Mode is {DEBUG}")
 
 # Demo mode, redirects the database to a different database container, and album path.

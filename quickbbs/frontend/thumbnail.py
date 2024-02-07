@@ -1,6 +1,7 @@
 """
 Thumbnail routines for QuickBBS
 """
+
 import os
 from typing import Iterator  # , Optional, Union, TypeVar, Generic
 
@@ -10,7 +11,12 @@ from quickbbs.models import Thumbnails_Archives, index_data
 import frontend.archives3 as archives
 from filetypes.models import FILETYPE_DATA
 from frontend.database import get_xth_image
-from frontend.utilities import cr_tnail_img, read_from_disk, return_image_obj, sync_database_disk
+from frontend.utilities import (
+    cr_tnail_img,
+    read_from_disk,
+    return_image_obj,
+    sync_database_disk,
+)
 from frontend.web import g_option  # , respond_as_attachment
 from frontend.web import return_img_attach  # , return_inline_attach
 from django.db.utils import IntegrityError
@@ -60,8 +66,8 @@ def images_in_dir(database, webpath) -> Iterator[index_data]:
     """
 
     #   What files exist in this directory?
-    filters = {'fqpndirectory': ensures_endswith(webpath.lower(), os.sep)}
-               #,'ignore': False, 'delete_pending': False, "filetype__is_image": True}
+    filters = {"fqpndirectory": ensures_endswith(webpath.lower(), os.sep)}
+    # ,'ignore': False, 'delete_pending': False, "filetype__is_image": True}
     files = get_xth_image(database, 0, filters)
 
     if files is None or not os.path.exists(os.path.join(webpath, files.name)):
@@ -71,6 +77,7 @@ def images_in_dir(database, webpath) -> Iterator[index_data]:
         # process_dir
         files = get_xth_image(database, 0, filters)
     return files
+
 
 def new_process_dir2(db_entry):
     """
@@ -87,9 +94,11 @@ def new_process_dir2(db_entry):
     #
     # webpath contains the URL equivalent to the file system path (fs_path)
     #
-    if db_entry.SmallThumb not in [b'', None]:
+    if db_entry.SmallThumb not in [b"", None]:
         # Does the thumbnail exist?
-        raise ValueError("I shouldn't be here! - new_process_dir2 w/entry that has thumbnail")
+        raise ValueError(
+            "I shouldn't be here! - new_process_dir2 w/entry that has thumbnail"
+        )
 
     files_found, files = db_entry.files_in_dir()
     if not files:
@@ -99,20 +108,25 @@ def new_process_dir2(db_entry):
     if files:  # found an file in the directory to use for thumbnail purposes
         for file_to_thumb in files:
             if file_to_thumb.filetype.is_image:
-                fs_d_fname = os.path.join(file_to_thumb.fqpndirectory,
-                                          file_to_thumb.name)
+                fs_d_fname = os.path.join(
+                    file_to_thumb.fqpndirectory, file_to_thumb.name
+                )
                 # file system location of directory
                 fext = os.path.splitext(file_to_thumb.name)[1].lower()
-                temp = cr_tnail_img(return_image_obj(fs_d_fname),
-                                    settings.IMAGE_SIZE["small"],
-                                    fext=fext)
+                temp = cr_tnail_img(
+                    return_image_obj(fs_d_fname),
+                    settings.IMAGE_SIZE["small"],
+                    fext=fext,
+                )
                 # imagedata = temp
                 db_entry.SmallThumb = temp
     if not db_entry.SmallThumb:
-        temp = return_image_obj(os.path.join(settings.IMAGES_PATH,
-                                             FILETYPE_DATA[".dir"]["icon_filename"]))
-        img_icon = cr_tnail_img(temp, settings.IMAGE_SIZE["small"],
-                                FILETYPE_DATA[".dir"]["icon_filename"])
+        temp = return_image_obj(
+            os.path.join(settings.IMAGES_PATH, FILETYPE_DATA[".dir"]["icon_filename"])
+        )
+        img_icon = cr_tnail_img(
+            temp, settings.IMAGE_SIZE["small"], FILETYPE_DATA[".dir"]["icon_filename"]
+        )
         # configdata["filetypes"]["dir"][2])
         db_entry.is_generic_icon = True
         db_entry.directory.SmallThumb = img_icon
@@ -120,6 +134,7 @@ def new_process_dir2(db_entry):
         db_entry.save()
     except IntegrityError:
         pass
+
 
 def new_process_dir(db_index):
     """
@@ -137,7 +152,7 @@ def new_process_dir(db_index):
     # webpath contains the URL equivalent to the file system path (fs_path)
     #
     # imagedata = None
-    if db_index.directory.SmallThumb not in [b'', None]:
+    if db_index.directory.SmallThumb not in [b"", None]:
         # Does the thumbnail exist?
         # if db_index.size == db_index.directory.FileSize:
         # print(f"size mismatch, {db_index.name} - {db_index.directory.FileSize}")
@@ -149,21 +164,25 @@ def new_process_dir(db_index):
         db_index.directory.FileSize = -1
         db_index.directory.SmallThumb = b""
 
-    files = images_in_dir(index_data,
-                          ensures_endswith(os.path.join(db_index.fqpndirectory,
-                                                        db_index.name).lower(), os.sep))
+    files = images_in_dir(
+        index_data,
+        ensures_endswith(
+            os.path.join(db_index.fqpndirectory, db_index.name).lower(), os.sep
+        ),
+    )
     #    print("\n\n !!! = ",os.path.join(db_index.fqpndirectory,
     #                                       db_index.name).lower(), files)
     if files:  # found an file in the directory to use for thumbnail purposes
         # print ("Files found in directory")
-        fs_d_fname = os.path.join(db_index.fqpndirectory.lower(),
-                                  db_index.name, files.name)
+        fs_d_fname = os.path.join(
+            db_index.fqpndirectory.lower(), db_index.name, files.name
+        )
         # file system location of directory
         fext = os.path.splitext(files.name)[1].lower()
 
-        temp = cr_tnail_img(return_image_obj(fs_d_fname),
-                            settings.IMAGE_SIZE["small"],
-                            fext=fext)
+        temp = cr_tnail_img(
+            return_image_obj(fs_d_fname), settings.IMAGE_SIZE["small"], fext=fext
+        )
         # imagedata = temp
         db_index.directory.SmallThumb = temp
         db_index.directory.FileSize = db_index.size
@@ -171,10 +190,12 @@ def new_process_dir(db_index):
         #
         #   There are no files in the directory
         #
-        temp = return_image_obj(os.path.join(settings.IMAGES_PATH,
-                                             FILETYPE_DATA[".dir"]["icon_filename"]))
-        img_icon = cr_tnail_img(temp, settings.IMAGE_SIZE["small"],
-                                FILETYPE_DATA[".dir"]["icon_filename"])
+        temp = return_image_obj(
+            os.path.join(settings.IMAGES_PATH, FILETYPE_DATA[".dir"]["icon_filename"])
+        )
+        img_icon = cr_tnail_img(
+            temp, settings.IMAGE_SIZE["small"], FILETYPE_DATA[".dir"]["icon_filename"]
+        )
         # configdata["filetypes"]["dir"][2])
         db_index.is_generic_icon = True
         db_index.directory.SmallThumb = img_icon
@@ -222,13 +243,13 @@ def new_process_img(entry, request, imagesize="Small"):
     """
     thumb_size = g_option(request, "size", "Small").title()
     existing_data = getattr(entry.file_tnail, f"{thumb_size}Thumb")
-    if existing_data != b'':
+    if existing_data != b"":
         # Does the thumbnail exist?
         if entry.size == entry.file_tnail.FileSize:
             # If size matches, then image is most likely the existing cached image
             # return the existing cached image
             # return return_inline_attach(entry.name, existing_data)
-            return entry# entry.send_thumbnail(filename=entry.name, fext_override=None, size=imagesize)
+            return entry  # entry.send_thumbnail(filename=entry.name, fext_override=None, size=imagesize)
 
     fs_fname = os.path.join(entry.fqpndirectory, entry.name).replace("//", "/")
     # file system location of directory
@@ -240,18 +261,17 @@ def new_process_img(entry, request, imagesize="Small"):
     temp = return_image_obj(fs_fname)
     #
     for size in ["Large", "Medium", "Small"]:
-        imagedata = cr_tnail_img(temp,
-                                 settings.IMAGE_SIZE[size.lower()],
-                                 fext=fext)
-        setattr(entry.file_tnail,
-                f"{size}Thumb", imagedata)
+        imagedata = cr_tnail_img(temp, settings.IMAGE_SIZE[size.lower()], fext=fext)
+        setattr(entry.file_tnail, f"{size}Thumb", imagedata)
 
     entry.file_tnail.FileSize = entry.size
-    #entry.file_tnail.save()
+    # entry.file_tnail.save()
     return entry
     #
     #   switch to new
     # entry.send_inline
+
+
 #    imagedata = getattr(entry.file_tnail, f"{thumb_size}Thumb")
 #    return return_img_attach(entry.name, imagedata, fext_override="JPEG")
 
@@ -263,8 +283,9 @@ def new_process_archive(ind_entry, request, page=0):
     TBD: Broken, needs rewrite, it's been broken for a *while*.
     """
     thumbsize = g_option(request, "size", "small").lower().strip()
-    fs_archname = settings.ALBUMS_PATH + os.path.join(ind_entry.fqpndirectory.lower(),
-                                                      ind_entry.name)
+    fs_archname = settings.ALBUMS_PATH + os.path.join(
+        ind_entry.fqpndirectory.lower(), ind_entry.name
+    )
     fs_archname = fs_archname.replace("//", "/").strip()
 
     # file system location of directory
@@ -276,11 +297,15 @@ def new_process_archive(ind_entry, request, page=0):
     # Check to see if the page in question is being cached.
     #    specific_page, created = Thumbnails_Archives.objects.get_or_create(
     specific_page, _ = Thumbnails_Archives.objects.get_or_create(
-        uuid=ind_entry.uuid, page=page,
-        defaults={'uuid': ind_entry.uuid,
-                  'page': page,
-                  'FilePath': ind_entry.fqpndirectory,
-                  'FileName': ind_entry.name})
+        uuid=ind_entry.uuid,
+        page=page,
+        defaults={
+            "uuid": ind_entry.uuid,
+            "page": page,
+            "FilePath": ind_entry.fqpndirectory,
+            "FileName": ind_entry.name,
+        },
+    )
 
     #    print ("fs archname: ",fs_archname)
     archive_file = archives.id_cfile_by_sig(fs_archname)
@@ -291,12 +316,16 @@ def new_process_archive(ind_entry, request, page=0):
     data = archive_file.extract_mem_file(fn_to_extract)
     im_data = return_image_obj(data, memory=True)
     if im_data is None:
-        im_data = return_image_obj(os.path.join(settings.RESOURCES_PATH, "images",
-                                                FILETYPE_DATA[fext]["icon_filename"]),
-                                   memory=True)
+        im_data = return_image_obj(
+            os.path.join(
+                settings.RESOURCES_PATH, "images", FILETYPE_DATA[fext]["icon_filename"]
+            ),
+            memory=True,
+        )
 
-        return return_img_attach(FILETYPE_DATA[fext]["icon_filename"], im_data,
-                                 fext_override="JPEG")
+        return return_img_attach(
+            FILETYPE_DATA[fext]["icon_filename"], im_data, fext_override="JPEG"
+        )
 
     if specific_page.FileSize != os.path.getsize(fs_archname):
         #   The cached data is invalidated since the filesize is inaccurate.
@@ -308,61 +337,82 @@ def new_process_archive(ind_entry, request, page=0):
     if thumbsize == "large":
         if specific_page.LargeThumb == b"":
             try:
-                specific_page.LargeThumb = cr_tnail_img(im_data,
-                                                        settings.IMAGE_SIZE[thumbsize],
-                                                        fext=fext)
+                specific_page.LargeThumb = cr_tnail_img(
+                    im_data, settings.IMAGE_SIZE[thumbsize], fext=fext
+                )
                 specific_page.save()
             except OSError:
-                im_data = return_image_obj(os.path.join(
-                    settings.RESOURCES_PATH,
-                    "images", FILETYPE_DATA["archive"]["icon_filename"]),
-                    memory=True)
+                im_data = return_image_obj(
+                    os.path.join(
+                        settings.RESOURCES_PATH,
+                        "images",
+                        FILETYPE_DATA["archive"]["icon_filename"],
+                    ),
+                    memory=True,
+                )
 
-            return return_img_attach(os.path.basename(fs_archname),
-                                     specific_page.LargeThumb,
-                                     fext_override="JPEG")
-        return return_img_attach(os.path.basename(fs_archname),
-                                 specific_page.LargeThumb.tobytes(),
-                                 fext_override="JPEG")
+            return return_img_attach(
+                os.path.basename(fs_archname),
+                specific_page.LargeThumb,
+                fext_override="JPEG",
+            )
+        return return_img_attach(
+            os.path.basename(fs_archname),
+            specific_page.LargeThumb.tobytes(),
+            fext_override="JPEG",
+        )
 
     if thumbsize == "medium":
         if specific_page.MediumThumb == b"":
             try:
-                specific_page.MediumThumb = cr_tnail_img(im_data,
-                                                         settings.IMAGE_SIZE[thumbsize],
-                                                         fext=fext)
+                specific_page.MediumThumb = cr_tnail_img(
+                    im_data, settings.IMAGE_SIZE[thumbsize], fext=fext
+                )
                 specific_page.save()
             except OSError:
-                im_data = return_image_obj(os.path.join(
-                    settings.RESOURCES_PATH,
-                    "images",
-                    FILETYPE_DATA["archive"]["icon_filename"]),
-                    memory=True)
-            return_img_attach(os.path.basename(fs_archname),
-                              specific_page.MediumThumb,
-                              fext_override="JPEG")
-        return return_img_attach(os.path.basename(fs_archname),
-                                 specific_page.MediumThumb.tobytes(),
-                                 fext_override="JPEG")
+                im_data = return_image_obj(
+                    os.path.join(
+                        settings.RESOURCES_PATH,
+                        "images",
+                        FILETYPE_DATA["archive"]["icon_filename"],
+                    ),
+                    memory=True,
+                )
+            return_img_attach(
+                os.path.basename(fs_archname),
+                specific_page.MediumThumb,
+                fext_override="JPEG",
+            )
+        return return_img_attach(
+            os.path.basename(fs_archname),
+            specific_page.MediumThumb.tobytes(),
+            fext_override="JPEG",
+        )
 
     if thumbsize == "small":
         if specific_page.SmallThumb == b"":
             try:
-                specific_page.SmallThumb = cr_tnail_img(im_data,
-                                                        settings.IMAGE_SIZE[thumbsize],
-                                                        fext=fext)
+                specific_page.SmallThumb = cr_tnail_img(
+                    im_data, settings.IMAGE_SIZE[thumbsize], fext=fext
+                )
                 specific_page.save()
             except OSError:
-                im_data = return_image_obj(os.path.join(
-                    settings.RESOURCES_PATH,
-                    "images",
-                    FILETYPE_DATA["archive"]["icon_filename"]),
-                    memory=True)
-            return return_img_attach(os.path.basename(fs_archname),
-                                     specific_page.SmallThumb,
-                                     fext_override="JPEG")
-        return return_img_attach(os.path.basename(fs_archname),
-                                 specific_page.SmallThumb.tobytes(),
-                                 fext_override="JPEG")
-    return return_img_attach(os.path.basename(fs_archname), None,
-                             fext_override="JPEG")
+                im_data = return_image_obj(
+                    os.path.join(
+                        settings.RESOURCES_PATH,
+                        "images",
+                        FILETYPE_DATA["archive"]["icon_filename"],
+                    ),
+                    memory=True,
+                )
+            return return_img_attach(
+                os.path.basename(fs_archname),
+                specific_page.SmallThumb,
+                fext_override="JPEG",
+            )
+        return return_img_attach(
+            os.path.basename(fs_archname),
+            specific_page.SmallThumb.tobytes(),
+            fext_override="JPEG",
+        )
+    return return_img_attach(os.path.basename(fs_archname), None, fext_override="JPEG")

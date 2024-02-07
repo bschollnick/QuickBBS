@@ -34,6 +34,7 @@ db.return_imagehash_name(img_hash=z)
 print(db.return_imagehash_name(img_hash=z))
 
 """
+
 import os
 import os.path
 import time
@@ -41,8 +42,7 @@ from hashlib import sha224, sha256
 
 import dhash
 from PIL import Image, UnidentifiedImageError
-from pathvalidate import (is_valid_filename, sanitize_filename,
-                          sanitize_filepath)
+from pathvalidate import is_valid_filename, sanitize_filename, sanitize_filepath
 
 SCANNED_PATHS = {}
 VERIFY_COUNT = 0
@@ -50,62 +50,70 @@ RESET_COUNT = 10000  # ( 10K )
 Image.MAX_IMAGE_PIXELS = None
 
 
-class cached_exist():
+class cached_exist:
     """
-        Cached Exist functionality - Caching engine to detect by filename,
-            and SHA224.   Can use last modification and file / dir count to
-            identify cache invalidation.
+    Cached Exist functionality - Caching engine to detect by filename,
+        and SHA224.   Can use last modification and file / dir count to
+        identify cache invalidation.
 
-        Args:
+    Args:
 
-            reset_count (integer): The number of queries to allow before
-                forcing a cache invalidation.
+        reset_count (integer): The number of queries to allow before
+            forcing a cache invalidation.
 
-            use_modify (boolean): Store & Use the last modified date of
-                the contents of the directory for cache invalidation.
+        use_modify (boolean): Store & Use the last modified date of
+            the contents of the directory for cache invalidation.
 
-            use_shas (boolean): Store & Use SHA224 for the files that
-                are scanned.
+        use_shas (boolean): Store & Use SHA224 for the files that
+            are scanned.
 
-            FilesOnly (boolean): Ignore directories
+        FilesOnly (boolean): Ignore directories
 
-            use_extended (boolean): Store direntries, and break out
-                directory & files counts.
+        use_extended (boolean): Store direntries, and break out
+            directory & files counts.
 
-         Returns:
+     Returns:
 
-            Boolean: True if the file exists, or false if it doesn't.
-            Integer: If rtn_size is true, an existing file will return
-                an integer
+        Boolean: True if the file exists, or false if it doesn't.
+        Integer: If rtn_size is true, an existing file will return
+            an integer
 
 
-        .. code-block:
-            # Boolean Tests
-            >>> file_exist(r"test_samples\\monty.csv")
-            True
-            >>> file_exist(r"test_samples\\small.csv")
-            True
-            >>> file_exist(r"test_samples\\monty_lives_here.csv")
-            False
-            >>> file_exist(r"test_samples\\I_DONT-EXIST.txt")
-            False
+    .. code-block:
+        # Boolean Tests
+        >>> file_exist(r"test_samples\\monty.csv")
+        True
+        >>> file_exist(r"test_samples\\small.csv")
+        True
+        >>> file_exist(r"test_samples\\monty_lives_here.csv")
+        False
+        >>> file_exist(r"test_samples\\I_DONT-EXIST.txt")
+        False
 
-            # File size Tests
-            >>> file_exist(r"test_samples\\monty.csv", rtn_size=True)
-            76
-            >>> file_exist(r"test_samples\\small.csv", rtn_size=True)
-            44
-            >>> file_exist(r"test_samples\\monty_lives_here.csv",
-                            rtn_size=True)
-            False
-            >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
-            False
+        # File size Tests
+        >>> file_exist(r"test_samples\\monty.csv", rtn_size=True)
+        76
+        >>> file_exist(r"test_samples\\small.csv", rtn_size=True)
+        44
+        >>> file_exist(r"test_samples\\monty_lives_here.csv",
+                        rtn_size=True)
+        False
+        >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
+        False
 
     """
 
-    def __init__(self, reset_count=RESET_COUNT, use_modify=False,
-                 use_shas=False, FilesOnly=True, use_extended=False,
-                 use_filtering=False, use_image_hash=False, image_hasher=dhash.dhash_int):
+    def __init__(
+        self,
+        reset_count=RESET_COUNT,
+        use_modify=False,
+        use_shas=False,
+        FilesOnly=True,
+        use_extended=False,
+        use_filtering=False,
+        use_image_hash=False,
+        image_hasher=dhash.dhash_int,
+    ):
         self.scanned_paths = {}
         self.sha_paths = {}
         self.image_paths = {}
@@ -130,49 +138,50 @@ class cached_exist():
         self.last_mods["scanInterval"] = 90  # 60 seconds
         self.image_hasher = image_hasher
         #        self.image_hash_size=128
-        self.image_hash_size = 12#4
+        self.image_hash_size = 12  # 4
         self._graphics = [".bmp", ".gif", ".jpg", ".jpeg", ".png", "webp"]
         self._archives = [".zip", ".rar", ".7z", ".lzh", ".gz"]
         self._movies = [".mp4", ".mpg", ".mkv", ".mov", ".avi", ".mp3"]
 
     def sanitize_filenames(self, dirpath, allow_rename=False):
         """
-            sanitize_filenames - sanitize the filename to windows standards.
-                optionally force the rename of the files.
+        sanitize_filenames - sanitize the filename to windows standards.
+            optionally force the rename of the files.
 
-            Args:
+        Args:
 
-                dirpath (string): The path to the files to be sanitized
+            dirpath (string): The path to the files to be sanitized
 
-                allow_rename (boolean): Allow the renaming of the files to
-                    conform to a self.sanitize_plat (default-Windows)
-                    platform
+            allow_rename (boolean): Allow the renaming of the files to
+                conform to a self.sanitize_plat (default-Windows)
+                platform
 
-            .. code-block:
-                # Boolean Tests
+        .. code-block:
+            # Boolean Tests
         """
 
         refresh = False
         dirpath = os.path.normpath(dirpath.title().strip())
         for filename in self.scanned_paths[dirpath]:
             if not is_valid_filename(filename, platform=self.sanitize_plat):
-                new_filename = sanitize_filename(filename,
-                                                 platform=self.sanitize_plat)
+                new_filename = sanitize_filename(filename, platform=self.sanitize_plat)
                 print(f"Invalid Filename: {filename} --> {new_filename}")
                 if allow_rename:
                     refresh = True
-                    os.rename(os.path.join(dirpath, filename),
-                              os.path.join(dirpath, new_filename))
+                    os.rename(
+                        os.path.join(dirpath, filename),
+                        os.path.join(dirpath, new_filename),
+                    )
         if refresh:
             self.clear_path(dirpath)
             self.read_path(dirpath)
 
     def clear_scanned_paths(self):
         """
-            clear_scanned_paths - remove all cached paths
+        clear_scanned_paths - remove all cached paths
 
-            .. code-block:
-                # Boolean Tests
+        .. code-block:
+            # Boolean Tests
         """
         self.scanned_paths = {}
         self.sha_paths = {}
@@ -184,15 +193,15 @@ class cached_exist():
 
     def clear_path(self, path_to_clear):
         """
-            clear_path - remove a specific directory from the cached entries
+        clear_path - remove a specific directory from the cached entries
 
-            Args:
+        Args:
 
-                path_to_clear (string): the FQPN of the path to remove
+            path_to_clear (string): the FQPN of the path to remove
 
 
-            .. code-block:
-                # Boolean Tests
+        .. code-block:
+            # Boolean Tests
         """
         dirpath = os.path.normpath(path_to_clear.title().strip())
         if dirpath in self.scanned_paths:
@@ -209,22 +218,22 @@ class cached_exist():
 
     def return_fileCount(self, dirpath):
         """
-            return the count of files in the cached directory path
+        return the count of files in the cached directory path
 
-            Args:
+        Args:
 
-                dirpath (string): The path to the files to be sanitized
-
-
-             Returns:
-
-                Integer: the # of files contained.  If empty or
-                    non-existent, returns 0
+            dirpath (string): The path to the files to be sanitized
 
 
-            .. code-block:
-                # Boolean Tests
-            """
+         Returns:
+
+            Integer: the # of files contained.  If empty or
+                non-existent, returns 0
+
+
+        .. code-block:
+            # Boolean Tests
+        """
         if dirpath in self.scanned_paths:
             return len(self.scanned_paths[dirpath])
         return 0
@@ -232,21 +241,21 @@ class cached_exist():
     def return_extended_count(self, dirpath):
         """
 
-            Args:
+        Args:
 
-                dirpath (string): The path to the files to be sanitized
-
-
-             Returns:
-
-                Tuple: A Tuple of Integers.  (fileCount, dirCount)
-                    fileCount is the # of files in the directory, and
-                    dirCount is the # of child directories in the directory.
+            dirpath (string): The path to the files to be sanitized
 
 
+         Returns:
 
-            .. code-block:
-                # Boolean Tests
+            Tuple: A Tuple of Integers.  (fileCount, dirCount)
+                fileCount is the # of files in the directory, and
+                dirCount is the # of child directories in the directory.
+
+
+
+        .. code-block:
+            # Boolean Tests
 
         """
         dirpath = os.path.normpath(dirpath.title().strip())
@@ -271,11 +280,17 @@ class cached_exist():
 
         #
         if time.time() - lastScan > self.last_mods["scanInterval"]:
-            entries = sorted(os.scandir(dirpath), key=lambda e: e.stat().st_mtime, reverse=True)[0:10]
-#            entries = sorted(entries, key=lambda e: e.name)  # , reverse=True)
+            entries = sorted(
+                os.scandir(dirpath), key=lambda e: e.stat().st_mtime, reverse=True
+            )[0:10]
+            #            entries = sorted(entries, key=lambda e: e.name)  # , reverse=True)
             for entry in entries:
                 if entry.stat().st_mtime > newest[1] and self.processFile(entry):
-                    newest = (entry.name.title().strip(), entry.stat().st_mtime, time.time())
+                    newest = (
+                        entry.name.title().strip(),
+                        entry.stat().st_mtime,
+                        time.time(),
+                    )
             return newest
         else:
             newest = self.last_mods[dirpath]
@@ -305,32 +320,32 @@ class cached_exist():
     def check_count(self, dirpath):
         """
 
-            Args:
+        Args:
 
-                dirpath (string): The path to the files to be sanitized
-
-
-             Returns:
-
-                Integer: Returns # of files in the directory, returning 0
-                    if the path has not been scanned (or contains no files).
-                    Returns None if a FileNotFoundError would have been
-                    raised.
+            dirpath (string): The path to the files to be sanitized
 
 
-            .. code-block:
-                # Boolean Tests
-                >>> file_exist(r"test_samples\\monty.csv")
-                True
-                >>> file_exist(r"test_samples\\I_DONT-EXIST.txt")
-                False
+         Returns:
 
-                # File size Tests
-                >>> file_exist(r"test_samples\\monty.csv", rtn_size=True)
-                76
-                >>> file_exist(r"test_samples\\monty_lives_here.csv",
-                                rtn_size=True)
-                False
+            Integer: Returns # of files in the directory, returning 0
+                if the path has not been scanned (or contains no files).
+                Returns None if a FileNotFoundError would have been
+                raised.
+
+
+        .. code-block:
+            # Boolean Tests
+            >>> file_exist(r"test_samples\\monty.csv")
+            True
+            >>> file_exist(r"test_samples\\I_DONT-EXIST.txt")
+            False
+
+            # File size Tests
+            >>> file_exist(r"test_samples\\monty.csv", rtn_size=True)
+            76
+            >>> file_exist(r"test_samples\\monty_lives_here.csv",
+                            rtn_size=True)
+            False
         """
         #
         #   update with processFile support
@@ -358,22 +373,22 @@ class cached_exist():
 
     def check_lastmod(self, dirpath):
         """
-            Args:
+        Args:
 
-                dirpath (string): The path to the files
-
-
-             Returns:
-
-                Boolean: True if the last_mods[dirpath] value for the directory
-                    matches the current newest last modified value in the
-                    directory.
-
-                    Returns False, if the files do not match last modified date.
+            dirpath (string): The path to the files
 
 
-            .. code-block:
-                # Boolean Tests
+         Returns:
+
+            Boolean: True if the last_mods[dirpath] value for the directory
+                matches the current newest last modified value in the
+                directory.
+
+                Returns False, if the files do not match last modified date.
+
+
+        .. code-block:
+            # Boolean Tests
         """
         dirpath = os.path.normpath(dirpath.title().strip())
         # Get the currently defined lastmod for the latest file in memory
@@ -381,7 +396,11 @@ class cached_exist():
             return False
 
         # if (self.return_fileCount(dirpath) == 0 or
-        if self.last_mods[dirpath] == ('', 0, 0) or self.last_mods[dirpath] == (None, 0, 0):
+        if self.last_mods[dirpath] == ("", 0, 0) or self.last_mods[dirpath] == (
+            None,
+            0,
+            0,
+        ):
             return False
 
         newest = self.return_newest(dirpath)
@@ -389,46 +408,46 @@ class cached_exist():
 
     def set_reset_count(self, reset_count=RESET_COUNT):
         """
-            Args:
+        Args:
 
-                reset_count (integer): The number of queries to allow before
-                    forcing a cache invalidation.
+            reset_count (integer): The number of queries to allow before
+                forcing a cache invalidation.
 
-            .. code-block:
-                >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
-                False
+        .. code-block:
+            >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
+            False
         """
         self.reset_count = reset_count
 
     def generate_sha256(self, filename, hexdigest=False):
         """
-            Args:
+        Args:
 
-                filename (string): The FQPN of the file to generate a
-                    sha256 from
+            filename (string): The FQPN of the file to generate a
+                sha256 from
 
-                hexdigest (Boolean): Return as a hexdigest; False - standard
-                    digest
+            hexdigest (Boolean): Return as a hexdigest; False - standard
+                digest
 
-            Returns:
+        Returns:
 
-                String: Either a Hexdigest or standard digest of sha256
+            String: Either a Hexdigest or standard digest of sha256
 
-            .. code-block:
-                # File size Tests
-                >>> file_exist(r"test_samples\\monty.csv", rtn_size=True)
-                76
-                >>> file_exist(r"test_samples\\small.csv", rtn_size=True)
-                44
-                >>> file_exist(r"test_samples\\monty_lives_here.csv",
-                                rtn_size=True)
-                False
-                >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
-                False
+        .. code-block:
+            # File size Tests
+            >>> file_exist(r"test_samples\\monty.csv", rtn_size=True)
+            76
+            >>> file_exist(r"test_samples\\small.csv", rtn_size=True)
+            44
+            >>> file_exist(r"test_samples\\monty_lives_here.csv",
+                            rtn_size=True)
+            False
+            >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
+            False
         """
         sha = sha256()
         if os.path.isfile(filename):
-            with open(filename, 'rb') as sha_file:
+            with open(filename, "rb") as sha_file:
                 while True:
                     # Reading is buffered, so we can read smaller chunks.
                     chunk = sha_file.read(sha.block_size)
@@ -441,34 +460,34 @@ class cached_exist():
 
     def generate_sha224(self, filename, hexdigest=False, maxsize=0):
         """
-            Args:
+        Args:
 
-                filename (string): The FQPN of the file to generate a
-                    sha256 from
+            filename (string): The FQPN of the file to generate a
+                sha256 from
 
-                hexdigest (Boolean): Return as a hexdigest; False - standard
-                    digest
+            hexdigest (Boolean): Return as a hexdigest; False - standard
+                digest
 
-            Returns:
+        Returns:
 
-                String: Either a Hexdigest or standard digest of sha256
+            String: Either a Hexdigest or standard digest of sha256
 
-            .. code-block:
-                # File size Tests
-                >>> file_exist(r"test_samples\\monty.csv", rtn_size=True)
-                76
-                >>> file_exist(r"test_samples\\small.csv", rtn_size=True)
-                44
-                >>> file_exist(r"test_samples\\monty_lives_here.csv",
-                                rtn_size=True)
-                False
-                >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
-                False
+        .. code-block:
+            # File size Tests
+            >>> file_exist(r"test_samples\\monty.csv", rtn_size=True)
+            76
+            >>> file_exist(r"test_samples\\small.csv", rtn_size=True)
+            44
+            >>> file_exist(r"test_samples\\monty_lives_here.csv",
+                            rtn_size=True)
+            False
+            >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
+            False
         """
         count = 0
         sha = sha224()
         if os.path.isfile(filename):
-            with open(filename, 'rb') as sha_file:
+            with open(filename, "rb") as sha_file:
                 while True:
                     # Reading is buffered, so we can read smaller chunks.
                     chunk = sha_file.read(sha.block_size)
@@ -476,7 +495,7 @@ class cached_exist():
                     if not chunk:
                         break
                     sha.update(chunk)
-                    if (count != 0 and maxsize != 0 and count >= maxsize):
+                    if count != 0 and maxsize != 0 and count >= maxsize:
                         break
         if hexdigest:
             return sha.hexdigest()
@@ -485,33 +504,35 @@ class cached_exist():
 
     def generate_imagehash(self, filename, debug=False):
         """
-            Args:
+        Args:
 
-                filename (string): The FQPN of the file to generate a
-                    sha256 from
+            filename (string): The FQPN of the file to generate a
+                sha256 from
 
-                hexdigest (Boolean): Return as a hexdigest; False - standard
-                    digest
+            hexdigest (Boolean): Return as a hexdigest; False - standard
+                digest
 
-            Returns:
+        Returns:
 
-                String: Either a Hexdigest or standard digest of sha256
+            String: Either a Hexdigest or standard digest of sha256
 
-            .. code-block:
-                # File size Tests
-                >>> file_exist(r"test_samples\\monty.csv", rtn_size=True)
-                76
-                >>> file_exist(r"test_samples\\small.csv", rtn_size=True)
-                44
-                >>> file_exist(r"test_samples\\monty_lives_here.csv",
-                                rtn_size=True)
-                False
-                >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
-                False
+        .. code-block:
+            # File size Tests
+            >>> file_exist(r"test_samples\\monty.csv", rtn_size=True)
+            76
+            >>> file_exist(r"test_samples\\small.csv", rtn_size=True)
+            44
+            >>> file_exist(r"test_samples\\monty_lives_here.csv",
+                            rtn_size=True)
+            False
+            >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
+            False
         """
         if os.path.isfile(filename):
             try:
-                return self.image_hasher(Image.open(filename), hash_size=self.image_hash_size)
+                return self.image_hasher(
+                    Image.open(filename), hash_size=self.image_hash_size
+                )
             except UnidentifiedImageError:
                 if debug:
                     print("Damaged Image File: ", filename)
@@ -523,21 +544,21 @@ class cached_exist():
 
     def processFile(self, dentry):
         """
-            Args:
+        Args:
 
-                filename (string): The filename of the file currently being
-                    processed
-
-
-             Returns:
-
-                Boolean: True, if the file should be processed, False if not
+            filename (string): The filename of the file currently being
+                processed
 
 
-            .. code-block:
-                # Boolean Tests
-                >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
-                False
+         Returns:
+
+            Boolean: True, if the file should be processed, False if not
+
+
+        .. code-block:
+            # Boolean Tests
+            >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
+            False
         """
         fext = os.path.splitext(dentry.name)[1]
         if self.use_image_hash and fext.lower() not in self._graphics:
@@ -559,39 +580,38 @@ class cached_exist():
 
     def addFileDirEntry(self, fileentry, sha_hd=None, img_hash=None):
         """
-            sanitize_filenames - sanitize the filename to windows standards.
-                optionally force the rename of the files.
+        sanitize_filenames - sanitize the filename to windows standards.
+            optionally force the rename of the files.
 
-            Args:
+        Args:
 
-                fileentry (DirEntry): The DirEntry of the file to be added
+            fileentry (DirEntry): The DirEntry of the file to be added
 
-                sha_hd (boolean): The Sha224 HexDigest of the file in question
+            sha_hd (boolean): The Sha224 HexDigest of the file in question
 
-             .. code-block:
-                # Boolean Tests
-                >>> file_exist(r"test_samples\\monty.csv")
-                True
-                >>> file_exist(r"test_samples\\small.csv")
-                True
-                >>> file_exist(r"test_samples\\monty_lives_here.csv")
-                False
-                >>> file_exist(r"test_samples\\I_DONT-EXIST.txt")
-                False
+         .. code-block:
+            # Boolean Tests
+            >>> file_exist(r"test_samples\\monty.csv")
+            True
+            >>> file_exist(r"test_samples\\small.csv")
+            True
+            >>> file_exist(r"test_samples\\monty_lives_here.csv")
+            False
+            >>> file_exist(r"test_samples\\I_DONT-EXIST.txt")
+            False
 
-                # File size Tests
-                >>> file_exist(r"test_samples\\monty.csv", rtn_size=True)
-                76
-                >>> file_exist(r"test_samples\\small.csv", rtn_size=True)
-                44
-                >>> file_exist(r"test_samples\\monty_lives_here.csv",
-                                rtn_size=True)
-                False
-                >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
-                False
+            # File size Tests
+            >>> file_exist(r"test_samples\\monty.csv", rtn_size=True)
+            76
+            >>> file_exist(r"test_samples\\small.csv", rtn_size=True)
+            44
+            >>> file_exist(r"test_samples\\monty_lives_here.csv",
+                            rtn_size=True)
+            False
+            >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
+            False
         """
-        dirpath = os.path.normpath(os.path.split(
-            fileentry.path.strip())[0]).title()
+        dirpath = os.path.normpath(os.path.split(fileentry.path.strip())[0]).title()
         filename = fileentry.name.strip().title()
         if dirpath not in self.scanned_paths:
             self.scanned_paths[dirpath] = {}
@@ -726,8 +746,7 @@ class cached_exist():
         """
         dirpath = os.path.normpath(dirpath.title().strip())
 
-        if (self.check_count(dirpath) is True and
-                self.check_lastmod(dirpath) is True):
+        if self.check_count(dirpath) is True and self.check_lastmod(dirpath) is True:
             # Skip, no need for refresh
             return True
 
@@ -735,7 +754,7 @@ class cached_exist():
             self.scanned_paths[dirpath] = {}
             self.sha_paths[dirpath] = {}
             self.extended[dirpath] = {}
-            self.last_mods[dirpath] = ('', 0, 0)
+            self.last_mods[dirpath] = ("", 0, 0)
             directory_data = os.scandir(dirpath)
             for entry in directory_data:
                 fext = os.path.splitext(entry.name)[1].lower()
@@ -745,19 +764,20 @@ class cached_exist():
                     if self.use_shas:
                         if self.MAX_SHA_SIZE not in [None, 0]:
                             if self.MAX_SHA_SIZE > entry.stat().st_size:
-                                sha = self.generate_sha224(os.path.join(dirpath,
-                                                                        entry),
-                                                           hexdigest=True)
+                                sha = self.generate_sha224(
+                                    os.path.join(dirpath, entry), hexdigest=True
+                                )
                         else:
-                            sha = self.generate_sha224(os.path.join(dirpath,
-                                                                    entry),
-                                                       hexdigest=True)
+                            sha = self.generate_sha224(
+                                os.path.join(dirpath, entry), hexdigest=True
+                            )
                         self.addFileDirEntry(entry, sha)
 
                     elif self.use_image_hash:
                         try:
-                            img_hash = self.generate_imagehash(os.path.join(dirpath,
-                                                                            entry))
+                            img_hash = self.generate_imagehash(
+                                os.path.join(dirpath, entry)
+                            )
                             self.addFileDirEntry(entry, sha_hd=None, img_hash=img_hash)
                         except OSError:
                             print("Bad image file:", os.path.join(dirpath, entry))
@@ -766,8 +786,11 @@ class cached_exist():
 
                     if self.use_modify:
                         if entry.stat().st_mtime > self.last_mods[dirpath][1]:
-                            self.last_mods[dirpath] = (entry.name.title(),
-                                                       entry.stat().st_mtime, time.time())
+                            self.last_mods[dirpath] = (
+                                entry.name.title(),
+                                entry.stat().st_mtime,
+                                time.time(),
+                            )
 
                 elif entry.is_dir() and recursive is True:
                     self.read_path(os.path.join(dirpath, entry.name))
@@ -788,58 +811,58 @@ class cached_exist():
 
     def fexistName(self, filename, rtn_size=False):
         """
-            Does the file exist?
+        Does the file exist?
 
-            The filename should be a path included (eg .\\test.txt, or fqpn)
-            filename.  The filename is split into directory path (dirpath),
-            and filename.
+        The filename should be a path included (eg .\\test.txt, or fqpn)
+        filename.  The filename is split into directory path (dirpath),
+        and filename.
 
-            The dirpath is used to locate the directory contents in the
-            dictionary (Associated hashmap).  If it is not located/available,
-            then it will be scanned via read_path.
+        The dirpath is used to locate the directory contents in the
+        dictionary (Associated hashmap).  If it is not located/available,
+        then it will be scanned via read_path.
 
-            Once the directory is available, a simple lookup is performed on the
-            list containing the directory & filenames that are contained in the
-            directory.
+        Once the directory is available, a simple lookup is performed on the
+        list containing the directory & filenames that are contained in the
+        directory.
 
-            Args:
+        Args:
 
-                filename (string): The path enabled filename, eg. .\\test.txt,
-                    c:\\users\\bschollnick\\test.txt.
-                    The filename is split (os.path.split) into the directory,
-                    and the filename.
+            filename (string): The path enabled filename, eg. .\\test.txt,
+                c:\\users\\bschollnick\\test.txt.
+                The filename is split (os.path.split) into the directory,
+                and the filename.
 
-                rtn_size (boolean): If True, and the file exists, return
-                    filesize
+            rtn_size (boolean): If True, and the file exists, return
+                filesize
 
-            Returns:
+        Returns:
 
-                Boolean: True if the file exists, or false if it doesn't.
-                Integer: If rtn_size is true, an existing file will return
-                    an integer
+            Boolean: True if the file exists, or false if it doesn't.
+            Integer: If rtn_size is true, an existing file will return
+                an integer
 
 
-            .. code-block:
-                # Boolean Tests
-                >>> file_exist(r"test_samples\\monty.csv")
-                True
-                >>> file_exist(r"test_samples\\small.csv")
-                True
-                >>> file_exist(r"test_samples\\monty_lives_here.csv")
-                False
-                >>> file_exist(r"test_samples\\I_DONT-EXIST.txt")
-                False
+        .. code-block:
+            # Boolean Tests
+            >>> file_exist(r"test_samples\\monty.csv")
+            True
+            >>> file_exist(r"test_samples\\small.csv")
+            True
+            >>> file_exist(r"test_samples\\monty_lives_here.csv")
+            False
+            >>> file_exist(r"test_samples\\I_DONT-EXIST.txt")
+            False
 
-                # File size Tests
-                >>> file_exist(r"test_samples\\monty.csv", rtn_size=True)
-                76
-                >>> file_exist(r"test_samples\\small.csv", rtn_size=True)
-                44
-                >>> file_exist(r"test_samples\\monty_lives_here.csv",
-                                rtn_size=True)
-                False
-                >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
-                False
+            # File size Tests
+            >>> file_exist(r"test_samples\\monty.csv", rtn_size=True)
+            76
+            >>> file_exist(r"test_samples\\small.csv", rtn_size=True)
+            44
+            >>> file_exist(r"test_samples\\monty_lives_here.csv",
+                            rtn_size=True)
+            False
+            >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
+            False
 
         """
         self.verify_count += 1
@@ -860,61 +883,61 @@ class cached_exist():
 
     def fexistSha(self, filename=None, rtn_size=False, sha_hd=None):
         """
-            Does the file exist?
+        Does the file exist?
 
-            The filename should be a path included (eg .\\test.txt, or fqpn)
-            filename. The filename is split into directory path (dirpath), and
-            filename.
+        The filename should be a path included (eg .\\test.txt, or fqpn)
+        filename. The filename is split into directory path (dirpath), and
+        filename.
 
-            The dirpath is used to locate the directory contents in the
-            dictionary (Associated hashmap).  If it is not located/available,
-            then it will be
-            scanned via read_path.
+        The dirpath is used to locate the directory contents in the
+        dictionary (Associated hashmap).  If it is not located/available,
+        then it will be
+        scanned via read_path.
 
-            Once the directory is available, a simple lookup is performed on the
-            list containing the directory & filenames that are contained in the
-            directory.
+        Once the directory is available, a simple lookup is performed on the
+        list containing the directory & filenames that are contained in the
+        directory.
 
-            Args:
+        Args:
 
-                filename (string): The path enabled filename, eg. .\\test.txt,
-                    c:\\users\\bschollnick\\test.txt.
-                    The filename is split (os.path.split) into the directory,
-                    and the filename.
+            filename (string): The path enabled filename, eg. .\\test.txt,
+                c:\\users\\bschollnick\\test.txt.
+                The filename is split (os.path.split) into the directory,
+                and the filename.
 
-                rtn_size (boolean): If True, and the file exists, return
-                    filesize
+            rtn_size (boolean): If True, and the file exists, return
+                filesize
 
-                sha_hd (string): sha hexdigest
+            sha_hd (string): sha hexdigest
 
-            Returns:
+        Returns:
 
-                Boolean: True if the file exists, or false if it doesn't.
-                Integer: If rtn_size is true, an existing file will return
-                    an integer
+            Boolean: True if the file exists, or false if it doesn't.
+            Integer: If rtn_size is true, an existing file will return
+                an integer
 
 
-            .. code-block:
-                # Boolean Tests
-                >>> file_exist(r"test_samples\\monty.csv")
-                True
-                >>> file_exist(r"test_samples\\small.csv")
-                True
-                >>> file_exist(r"test_samples\\monty_lives_here.csv")
-                False
-                >>> file_exist(r"test_samples\\I_DONT-EXIST.txt")
-                False
+        .. code-block:
+            # Boolean Tests
+            >>> file_exist(r"test_samples\\monty.csv")
+            True
+            >>> file_exist(r"test_samples\\small.csv")
+            True
+            >>> file_exist(r"test_samples\\monty_lives_here.csv")
+            False
+            >>> file_exist(r"test_samples\\I_DONT-EXIST.txt")
+            False
 
-                # File size Tests
-                >>> file_exist(r"test_samples\\monty.csv", rtn_size=True)
-                76
-                >>> file_exist(r"test_samples\\small.csv", rtn_size=True)
-                44
-                >>> file_exist(r"test_samples\\monty_lives_here.csv",
-                               rtn_size=True)
-                False
-                >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
-                False
+            # File size Tests
+            >>> file_exist(r"test_samples\\monty.csv", rtn_size=True)
+            76
+            >>> file_exist(r"test_samples\\small.csv", rtn_size=True)
+            44
+            >>> file_exist(r"test_samples\\monty_lives_here.csv",
+                           rtn_size=True)
+            False
+            >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
+            False
 
         """
         self.verify_count += 1
@@ -932,7 +955,8 @@ class cached_exist():
             if self.use_shas:
                 if sha_hd is None and filename not in ["", None]:
                     sha_hd = self.generate_sha224(
-                        os.path.join(dirpath, filename), hexdigest=True)
+                        os.path.join(dirpath, filename), hexdigest=True
+                    )
                 if rtn_size:
                     return self.sha_paths[dirpath][sha_hd][0]
                 #                elif rtn_name:
@@ -1042,11 +1066,11 @@ class cached_exist():
 
     def return_sha224_name(self, shaHD=None):
         """
-import cached_exists
-filedb = cached_exists.cached_exist(use_shas=True, FilesOnly=True)
-filedb.read_path(".")
-filedb.search_sha224_exist(shaHD="49dbafd07e1415c383baa9f61f6381ace7c057da4f90b7e2e19a5c57") # ftypes.py
-filedb.return_sha224_name(shaHD="49dbafd07e1415c383baa9f61f6381ace7c057da4f90b7e2e19a5c57")
+        import cached_exists
+        filedb = cached_exists.cached_exist(use_shas=True, FilesOnly=True)
+        filedb.read_path(".")
+        filedb.search_sha224_exist(shaHD="49dbafd07e1415c383baa9f61f6381ace7c057da4f90b7e2e19a5c57") # ftypes.py
+        filedb.return_sha224_name(shaHD="49dbafd07e1415c383baa9f61f6381ace7c057da4f90b7e2e19a5c57")
         """
         doesExist, DirExistIn = self.search_sha224_exist(shaHD=shaHD)
         if doesExist:
@@ -1103,61 +1127,61 @@ filedb.return_sha224_name(shaHD="49dbafd07e1415c383baa9f61f6381ace7c057da4f90b7e
 
     def fexistImgHash(self, filename=None, rtn_size=False, img_hash=None):
         """
-            Does the file exist?
+        Does the file exist?
 
-            The filename should be a path included (eg .\\test.txt, or fqpn)
-            filename. The filename is split into directory path (dirpath), and
-            filename.
+        The filename should be a path included (eg .\\test.txt, or fqpn)
+        filename. The filename is split into directory path (dirpath), and
+        filename.
 
-            The dirpath is used to locate the directory contents in the
-            dictionary (Associated hashmap).  If it is not located/available,
-            then it will be
-            scanned via read_path.
+        The dirpath is used to locate the directory contents in the
+        dictionary (Associated hashmap).  If it is not located/available,
+        then it will be
+        scanned via read_path.
 
-            Once the directory is available, a simple lookup is performed on the
-            list containing the directory & filenames that are contained in the
-            directory.
+        Once the directory is available, a simple lookup is performed on the
+        list containing the directory & filenames that are contained in the
+        directory.
 
-            Args:
+        Args:
 
-                filename (string): The path enabled filename, eg. .\\test.txt,
-                    c:\\users\\bschollnick\\test.txt.
-                    The filename is split (os.path.split) into the directory,
-                    and the filename.
+            filename (string): The path enabled filename, eg. .\\test.txt,
+                c:\\users\\bschollnick\\test.txt.
+                The filename is split (os.path.split) into the directory,
+                and the filename.
 
-                rtn_size (boolean): If True, and the file exists, return
-                    filesize
+            rtn_size (boolean): If True, and the file exists, return
+                filesize
 
-                sha_hd (string): sha hexdigest
+            sha_hd (string): sha hexdigest
 
-            Returns:
+        Returns:
 
-                Boolean: True if the file exists, or false if it doesn't.
-                Integer: If rtn_size is true, an existing file will return
-                    an integer
+            Boolean: True if the file exists, or false if it doesn't.
+            Integer: If rtn_size is true, an existing file will return
+                an integer
 
 
-            .. code-block:
-                # Boolean Tests
-                >>> file_exist(r"test_samples\\monty.csv")
-                True
-                >>> file_exist(r"test_samples\\small.csv")
-                True
-                >>> file_exist(r"test_samples\\monty_lives_here.csv")
-                False
-                >>> file_exist(r"test_samples\\I_DONT-EXIST.txt")
-                False
+        .. code-block:
+            # Boolean Tests
+            >>> file_exist(r"test_samples\\monty.csv")
+            True
+            >>> file_exist(r"test_samples\\small.csv")
+            True
+            >>> file_exist(r"test_samples\\monty_lives_here.csv")
+            False
+            >>> file_exist(r"test_samples\\I_DONT-EXIST.txt")
+            False
 
-                # File size Tests
-                >>> file_exist(r"test_samples\\monty.csv", rtn_size=True)
-                76
-                >>> file_exist(r"test_samples\\small.csv", rtn_size=True)
-                44
-                >>> file_exist(r"test_samples\\monty_lives_here.csv",
-                               rtn_size=True)
-                False
-                >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
-                False
+            # File size Tests
+            >>> file_exist(r"test_samples\\monty.csv", rtn_size=True)
+            76
+            >>> file_exist(r"test_samples\\small.csv", rtn_size=True)
+            44
+            >>> file_exist(r"test_samples\\monty_lives_here.csv",
+                           rtn_size=True)
+            False
+            >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
+            False
 
         """
         self.verify_count += 1
@@ -1235,12 +1259,12 @@ filedb.return_sha224_name(shaHD="49dbafd07e1415c383baa9f61f6381ace7c057da4f90b7e
 
     def return_imagehash_name(self, img_hash=None):
         """
-    import cached_exists
-    filedb = cached_exists.cached_exist(use_shas=True, FilesOnly=True)
-    filedb.read_path(".")
-    filedb.search_sha224_exist(shaHD="49dbafd07e1415c383baa9f61f6381ace7c057da4f90b7e2e19a5c57") # ftypes.py
-    filedb.return_sha224_name(shaHD="49dbafd07e1415c383baa9f61f6381ace7c057da4f90b7e2e19a5c57")
-            """
+        import cached_exists
+        filedb = cached_exists.cached_exist(use_shas=True, FilesOnly=True)
+        filedb.read_path(".")
+        filedb.search_sha224_exist(shaHD="49dbafd07e1415c383baa9f61f6381ace7c057da4f90b7e2e19a5c57") # ftypes.py
+        filedb.return_sha224_name(shaHD="49dbafd07e1415c383baa9f61f6381ace7c057da4f90b7e2e19a5c57")
+        """
         doesExist, DirExistIn = self.search_imagehash_exist(img_hash=img_hash)
         if doesExist:
             return self.image_paths[DirExistIn][img_hash][1]
@@ -1257,27 +1281,27 @@ def clear_scanned_paths():
 
 def read_path(dirpath, recursive=False):
     """
-        Read a path using SCANDIR (https://pypi.org/project/scandir/).
+    Read a path using SCANDIR (https://pypi.org/project/scandir/).
 
-        Args:
+    Args:
 
-            dirpath (string): The directory path to read
+        dirpath (string): The directory path to read
 
-        Returns:
+    Returns:
 
-            boolean: True successful read the directory,
-                     False if unable to read
+        boolean: True successful read the directory,
+                 False if unable to read
 
-        Using the scandir.walk(dirpath).next() functionality to dump the listing
-            into a set, so that we do not have to iterate through the generator
-            making it ourselves.
+    Using the scandir.walk(dirpath).next() functionality to dump the listing
+        into a set, so that we do not have to iterate through the generator
+        making it ourselves.
 
-        .. code-block:
+    .. code-block:
 
-            >>> read_path(r".")
-            True
-            >>> read_path(r"c:\\turnup\\test.me")
-            False
+        >>> read_path(r".")
+        True
+        >>> read_path(r"c:\\turnup\\test.me")
+        False
     """
     try:
         dirpath = os.path.normpath(dirpath.title().strip())
@@ -1285,8 +1309,7 @@ def read_path(dirpath, recursive=False):
         SCANNED_PATHS[dirpath] = {}
         for entry in directory_data:
             if entry.is_file:
-                SCANNED_PATHS[dirpath][entry.name.title()] = \
-                    entry.stat().st_size
+                SCANNED_PATHS[dirpath][entry.name.title()] = entry.stat().st_size
             elif entry.is_dir() and recursive is True:
                 read_path(os.path.join(dirpath, entry.name))
 
@@ -1302,56 +1325,56 @@ def read_path(dirpath, recursive=False):
 
 def file_exist(filename, rtn_size=False):
     """
-        Does the file exist?
+    Does the file exist?
 
-        The filename should be a path included (eg .\\test.txt, or fqpn)
-        filename. The filename is split into directory path (dirpath), and
-        filename.
+    The filename should be a path included (eg .\\test.txt, or fqpn)
+    filename. The filename is split into directory path (dirpath), and
+    filename.
 
-        The dirpath is used to locate the directory contents in the dictionary
-        (Associated hashmap).  If it is not located/available, then it will be
-        scanned via read_path.
+    The dirpath is used to locate the directory contents in the dictionary
+    (Associated hashmap).  If it is not located/available, then it will be
+    scanned via read_path.
 
-        Once the directory is available, a simple lookup is performed on the
-        list containing the directory & filenames that are contained in the
-        directory.
+    Once the directory is available, a simple lookup is performed on the
+    list containing the directory & filenames that are contained in the
+    directory.
 
-        Args:
+    Args:
 
-            filename (string): The path enabled filename, eg. .\\test.txt,
-                c:\\users\\bschollnick\\test.txt.
-                The filename is split (os.path.split) into the directory,
-                and the filename.
+        filename (string): The path enabled filename, eg. .\\test.txt,
+            c:\\users\\bschollnick\\test.txt.
+            The filename is split (os.path.split) into the directory,
+            and the filename.
 
-            rtn_size (boolean): If True, and the file exists, return filesize
+        rtn_size (boolean): If True, and the file exists, return filesize
 
-        Returns:
+    Returns:
 
-            Boolean: True if the file exists, or false if it doesn't.
-            Integer: If rtn_size is true, an existing file will return
-                an integer
+        Boolean: True if the file exists, or false if it doesn't.
+        Integer: If rtn_size is true, an existing file will return
+            an integer
 
 
-        .. code-block:
-            # Boolean Tests
-            >>> file_exist(r"test_samples\\monty.csv")
-            True
-            >>> file_exist(r"test_samples\\small.csv")
-            True
-            >>> file_exist(r"test_samples\\monty_lives_here.csv")
-            False
-            >>> file_exist(r"test_samples\\I_DONT-EXIST.txt")
-            False
+    .. code-block:
+        # Boolean Tests
+        >>> file_exist(r"test_samples\\monty.csv")
+        True
+        >>> file_exist(r"test_samples\\small.csv")
+        True
+        >>> file_exist(r"test_samples\\monty_lives_here.csv")
+        False
+        >>> file_exist(r"test_samples\\I_DONT-EXIST.txt")
+        False
 
-            # File size Tests
-            >>> file_exist(r"test_samples\\monty.csv", rtn_size=True)
-            76
-            >>> file_exist(r"test_samples\\small.csv", rtn_size=True)
-            44
-            >>> file_exist(r"test_samples\\monty_lives_here.csv", rtn_size=True)
-            False
-            >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
-            False
+        # File size Tests
+        >>> file_exist(r"test_samples\\monty.csv", rtn_size=True)
+        76
+        >>> file_exist(r"test_samples\\small.csv", rtn_size=True)
+        44
+        >>> file_exist(r"test_samples\\monty_lives_here.csv", rtn_size=True)
+        False
+        >>> file_exist(r"test_samples\\I_DONT-EXIST.txt", rtn_size=True)
+        False
 
     """
     global VERIFY_COUNT

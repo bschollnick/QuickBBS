@@ -1,16 +1,16 @@
-#from frontend.bonjour import info, Zeroconf, IPVersion
-#import sys
+# from frontend.bonjour import info, Zeroconf, IPVersion
+# import sys
 
 #
 #   Boot strap by loading the configuration path data
 #
-__version__ = '2.9'
+__version__ = "2.9"
 
-__author__ = 'Benjamin Schollnick'
-__email__ = 'Benjamin@schollnick.net'
+__author__ = "Benjamin Schollnick"
+__email__ = "Benjamin@schollnick.net"
 
-__url__ = 'https://github.com/bschollnick/quickbbs'
-__license__ = ''
+__url__ = "https://github.com/bschollnick/quickbbs"
+__license__ = ""
 
 # here = os.path.dirname(__file__)
 # cfg_path = os.path.abspath(os.path.join(here, r"../../cfg"))
@@ -18,7 +18,7 @@ __license__ = ''
 # config.load_data(os.path.join(cfg_path, "settings.ini"))
 # config.load_data(os.path.join(cfg_path, "filetypes.ini"))
 
-#signal.signal(signal.SIGINT, watchdogmon.watchdog.shutdown)
+# signal.signal(signal.SIGINT, watchdogmon.watchdog.shutdown)
 # import signal
 # def my_signal_handler(*args):
 #    zc.unregister_service(info)

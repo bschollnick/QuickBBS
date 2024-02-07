@@ -12,7 +12,8 @@ from django.conf import settings
 # from django.conf import settings
 from django.views.decorators.cache import never_cache
 from django.contrib.auth import authenticate, login
-from django.http import (FileResponse, StreamingHttpResponse)
+from django.http import FileResponse, StreamingHttpResponse
+
 # from ranged_fileresponse import RangedFileResponse
 
 
@@ -30,8 +31,8 @@ def verify_login_status(request, force_login=False) -> bool:
         force_login (bool) : tbd
 
     """
-    username = request.POST['username']
-    password = request.POST['password']
+    username = request.POST["username"]
+    password = request.POST["password"]
     user = authenticate(username=username, password=password)
     if user is not None:
         if user.is_active:
@@ -61,27 +62,27 @@ def g_option(request, option_name, def_value):
 
 
 def return_inline_attach(filename, binaryblob):
-
     """
-    Output a http response header, for an image attachment.
+     Output a http response header, for an image attachment.
 
-   Args:
-        filename (str): Filename of the file to be sent as the attachment name
-        binaryblob (bin): The blob of data that is the image file
+    Args:
+         filename (str): Filename of the file to be sent as the attachment name
+         binaryblob (bin): The blob of data that is the image file
 
-    Returns:
-        object::
-            The Django response object that contains the attachment and header
+     Returns:
+         object::
+             The Django response object that contains the attachment and header
 
-    Raises:
-        None
+     Raises:
+         None
 
-    Examples
-    --------
-    return_img_attach("test.png", img_data, "JPEG")
+     Examples
+     --------
+     return_img_attach("test.png", img_data, "JPEG")
 
     """
     return return_img_attach(filename, binaryblob, fext_override="JPEG")
+
 
 def detect_mobile(request):
     """
@@ -101,22 +102,22 @@ def detect_mobile(request):
 
 def return_img_attach(filename, binaryblob, fext_override=None, use_ranged=False):
     """
-    Output a http response header, for an image attachment.
+     Output a http response header, for an image attachment.
 
-   Args:
-        filename (str): Filename of the file to be sent as the attachment name
-        binaryblob (bin): The blob of data that is the image file
+    Args:
+         filename (str): Filename of the file to be sent as the attachment name
+         binaryblob (bin): The blob of data that is the image file
 
-    Returns:
-        object::
-            The Django response object that contains the attachment and header
+     Returns:
+         object::
+             The Django response object that contains the attachment and header
 
-    Raises:
-        None
+     Raises:
+         None
 
-    Examples
-    --------
-    return_img_attach("test.png", img_data)
+     Examples
+     --------
+     return_img_attach("test.png", img_data)
 
 
     """
@@ -133,19 +134,22 @@ def return_img_attach(filename, binaryblob, fext_override=None, use_ranged=False
     #    mtype, encoding = mimetypes.guess_type(filename)
     mtype = mimetypes.guess_type(mimetype_filename)[0]
     if mtype is None:
-        mtype = 'application/octet-stream'
+        mtype = "application/octet-stream"
 
     if use_ranged:
         response = stream_video(request, filename, content_type=mtype)
 
     else:
-        response = FileResponse(io.BytesIO(binaryblob),
-                                content_type=mtype,
-                                as_attachment=False,
-                                filename=filename)
+        response = FileResponse(
+            io.BytesIO(binaryblob),
+            content_type=mtype,
+            as_attachment=False,
+            filename=filename,
+        )
         response["Content-Type"] = mtype
-        response['Content-Length'] = len(binaryblob)
+        response["Content-Length"] = len(binaryblob)
     return response
+
 
 @never_cache
 def respond_as_attachment(request, file_path, original_filename):
@@ -153,11 +157,13 @@ def respond_as_attachment(request, file_path, original_filename):
     if os.path.exists(filename):
         mtype = mimetypes.guess_type(filename)[0]
         if mtype is None:
-            mtype = 'application/octet-stream'
-        response = FileResponse(open(filename, 'rb'),
-                                content_type=mtype,
-                                as_attachment=True,
-                                filename=filename)
+            mtype = "application/octet-stream"
+        response = FileResponse(
+            open(filename, "rb"),
+            content_type=mtype,
+            as_attachment=True,
+            filename=filename,
+        )
     return response
 
 
@@ -171,9 +177,7 @@ def file_iterator(file_path, chunk_size=8192, offset=0, length=None):
         remaining = length
         while True:
             bytes_length = (
-                chunk_size
-                if remaining is None
-                else min(remaining, chunk_size)
+                chunk_size if remaining is None else min(remaining, chunk_size)
             )
             data = f.read(bytes_length)
             if not data:
@@ -181,6 +185,7 @@ def file_iterator(file_path, chunk_size=8192, offset=0, length=None):
             if remaining:
                 remaining -= len(data)
             yield data
+
 
 def stream_audio(request):
     """
@@ -217,7 +222,8 @@ def stream_audio(request):
     response["Accept-Ranges"] = "bytes"
     return response
 
-def stream_video(request, fqpn, content_type = "video/mp4"):
+
+def stream_video(request, fqpn, content_type="video/mp4"):
     """
     https://www.djangotricks.com/tricks/Jw4jNwFziSXD/
     :param request:
@@ -249,8 +255,8 @@ def stream_video(request, fqpn, content_type = "video/mp4"):
     else:
         response = StreamingHttpResponse(
             file_iterator(path, offset=0, length=size),
-#            FileWrapper(open(path, "rb")),
-            content_type=content_type
+            #            FileWrapper(open(path, "rb")),
+            content_type=content_type,
         )
     response["Accept-Ranges"] = "bytes"
     return response

@@ -1,10 +1,12 @@
 import sys
 
 import fitz
+
 # import pdf_utilities
 from PIL import Image
 
 repeat = 200
+
 
 def check_pdf(filename):
     """
@@ -40,9 +42,9 @@ def check_pdf(filename):
     try:
         pdffile = fitz.open(filename)
         print("Before")
-#        print(fitz.TOOLS.mupdf_warnings())
+        #        print(fitz.TOOLS.mupdf_warnings())
         print("After")
-        #raw_errmsg = ""
+        # raw_errmsg = ""
         raw_errmsg = fitz.TOOLS.mupdf_warnings()
         print("Really after")
     except RuntimeError:
@@ -52,10 +54,10 @@ def check_pdf(filename):
         raw_errmsg = "File Not Found"
         errorcode = -1
 
-    if raw_errmsg != "":    # There is an error
+    if raw_errmsg != "":  # There is an error
         errorcode = 1
-        if "(" in raw_errmsg:   # Does it have an (?
-            errmsg = raw_errmsg[0:raw_errmsg.find("(")].strip()
+        if "(" in raw_errmsg:  # Does it have an (?
+            errmsg = raw_errmsg[0 : raw_errmsg.find("(")].strip()
         else:
             errmsg = raw_errmsg
     return (errorcode == 0, errmsg, raw_errmsg)
@@ -86,15 +88,15 @@ def return_image_obj(fs_path, memory=False):
     source_image = None
     if os.path.splitext(fs_path)[1][1:].lower() == "pdf":
         results = check_pdf(fs_path)
-#        if results[0] == False:
-#            pdf_utilities.repair_pdf(fs_path, fs_path)
+        #        if results[0] == False:
+        #            pdf_utilities.repair_pdf(fs_path, fs_path)
 
-        print("after : ",results)
+        print("after : ", results)
         print("Opening")
         pdf_file = fitz.open(fs_path)
         print("Loading page 0")
         pdf_page = pdf_file.loadPage(0)
-        pix = pdf_page.getPixmap(alpha=True)#matrix=fitz.Identity, alpha=True)
+        pix = pdf_page.getPixmap(alpha=True)  # matrix=fitz.Identity, alpha=True)
 
         try:
             source_image = Image.open(BytesIO(pix.getPNGData()))
@@ -105,7 +107,7 @@ def return_image_obj(fs_path, memory=False):
         if not memory:
             source_image = Image.open(fs_path)
         else:
-            try:# fs_path is a byte stream
+            try:  # fs_path is a byte stream
                 source_image = Image.open(BytesIO(fs_path))
             except OSError:
                 print("IOError")
@@ -113,12 +115,12 @@ def return_image_obj(fs_path, memory=False):
             except UserWarning:
                 print("UserWarning!")
                 source_image = None
-#        if source_image.mode != "RGB":
-#            source_image = source_image.convert('RGB')
+    #        if source_image.mode != "RGB":
+    #            source_image = source_image.convert('RGB')
     return source_image
 
 
 for count in range(0, repeat):
-    print ("Before check")
+    print("Before check")
     print(count, check_pdf(sys.argv[1]))
-    print ("after check")
+    print("after check")

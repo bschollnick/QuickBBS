@@ -1,6 +1,7 @@
 """
 Utilities for QuickBBS, the python edition.
 """
+
 import logging
 import os
 import os.path
@@ -26,8 +27,10 @@ from quickbbs.models import filetypes, index_data, Index_Dirs
 import filetypes.models as filetype_models
 import frontend.archives3 as archives
 import frontend.constants as constants
-#from cache.models import fs_Cache_Tracking as Cache_Tracking
+
+# from cache.models import fs_Cache_Tracking as Cache_Tracking
 from cache.models import Cache_Storage
+
 # from quickbbs.models import Index_Dirs
 
 log = logging.getLogger(__name__)
@@ -190,15 +193,15 @@ def load_movie(fspath, offset_from=30):
         container.seek(container.duration // 2)
         frame = container.decode(stream)
         image = next(frame).to_image()
-       # endcount = None
-       # for count, frame in enumerate(container.decode(stream)):
-       #     image = frame.to_image()
-       #     extrema = image.convert("L").getextrema()
-       #     if extrema not in [(0, 0), (255, 255)]:
-       #         if endcount is None:
-       #             endcount = count + offset_from
-       #     if endcount is not None and count >= endcount:
-       #         break
+    # endcount = None
+    # for count, frame in enumerate(container.decode(stream)):
+    #     image = frame.to_image()
+    #     extrema = image.convert("L").getextrema()
+    #     if extrema not in [(0, 0), (255, 255)]:
+    #         if endcount is None:
+    #             endcount = count + offset_from
+    #     if endcount is not None and count >= endcount:
+    #         break
     return image
 
 
@@ -331,15 +334,14 @@ def cr_tnail_img(source_image, size, fext) -> Image:
     with BytesIO() as image_data:  # = BytesIO()
         source_image.thumbnail((size, size), Image.Resampling.LANCZOS)
         try:
-            source_image.save(fp=image_data,
-                              format="PNG",  # Need alpha channel support for icons, etc.
-                              optimize=False)
+            source_image.save(
+                fp=image_data,
+                format="PNG",  # Need alpha channel support for icons, etc.
+                optimize=False,
+            )
         except OSError:
-            source_image = source_image.convert('RGB')
-            source_image.save(fp=image_data,
-                              format="JPEG",
-                              optimize=False
-                              )
+            source_image = source_image.convert("RGB")
+            source_image.save(fp=image_data, format="JPEG", optimize=False)
         image_data.seek(0)
         return image_data.getvalue()
 
@@ -381,7 +383,9 @@ def multiple_replace(repl_dict, text):
     """
     # Create a regular expression  from the dictionary keys
     # For each match, look-up corresponding value in dictionary
-    return constants.regex.sub(lambda mo: repl_dict[mo.string[mo.start():mo.end()]], text)
+    return constants.regex.sub(
+        lambda mo: repl_dict[mo.string[mo.start() : mo.end()]], text
+    )
 
 
 def return_disk_listing(fqpn, enable_rename=False) -> (bool, dict):
@@ -439,8 +443,9 @@ def return_disk_listing(fqpn, enable_rename=False) -> (bool, dict):
             # The file extension is not in FILETYPE_DATA, so ignore it.
             continue
 
-        if (fext in settings.EXTENSIONS_TO_IGNORE) or \
-                (item.name.lower() in settings.FILES_TO_IGNORE):
+        if (fext in settings.EXTENSIONS_TO_IGNORE) or (
+            item.name.lower() in settings.FILES_TO_IGNORE
+        ):
             # file extension is in EXTENSIONS_TO_IGNORE, so skip it.
             # or the filename is in FILES_TO_IGNORE, so skip it.
             continue
@@ -468,7 +473,7 @@ def break_down_urls(uri_path) -> Union[list[bytes], list[str]]:
     >>> break_down_urls("https://www.google.com")
     """
     path = urllib.parse.urlsplit(uri_path).path
-    return path.split('/')
+    return path.split("/")
 
 
 def return_breadcrumbs(uri_path=""):
@@ -488,7 +493,7 @@ def return_breadcrumbs(uri_path=""):
     data = []
     for count in range(1, len(uris)):
         name = uris[count].split("/")[-1]
-        url = "/".join(uris[0:count + 1])
+        url = "/".join(uris[0 : count + 1])
         if name == "":
             continue
         data.append([name, url, f"<a href='{url}'>{name}</a>"])
@@ -509,8 +514,10 @@ def fs_counts(fs_entries) -> (int, int):
     tuple - (# of files, # of dirs)
 
     """
+
     def isfile(entry):
         return entry.is_file()
+
     # files = sum(map(os.DirEntry.is_file, fs_entries.values()))
     files = len(list(filter(isfile, fs_entries.values())))
     dirs = len(fs_entries) - files
@@ -556,7 +563,9 @@ def process_filedata(fs_entry, db_record, v3=False) -> index_data:
     :doc-author: Trelent
     """
     db_record.fqpndirectory, db_record.name = os.path.split(fs_entry.absolute())
-    db_record.fqpndirectory = ensures_endswith(db_record.fqpndirectory.lower().replace("//", "/"), os.sep)
+    db_record.fqpndirectory = ensures_endswith(
+        db_record.fqpndirectory.lower().replace("//", "/"), os.sep
+    )
     db_record.name = db_record.name.title().replace("//", "/").strip()
     db_record.fileext = fs_entry.suffix.lower()
     db_record.is_dir = fs_entry.is_dir()
@@ -571,7 +580,7 @@ def process_filedata(fs_entry, db_record, v3=False) -> index_data:
     #    webpath = ensures_endswith(fs_entry.resolve().lower().replace("//", "/"), os.sep)
     db_record.uuid = uuid.uuid4()
     # db_record.fqpndirectory = ensures_endswith(os.path.split(fs_entry["path"])[0].lower(), os.sep)
-#    db_record.sortname = naturalize(db_record.name)
+    #    db_record.sortname = naturalize(db_record.name)
     db_record.size = fs_entry.stat()[stat.ST_SIZE]
     db_record.lastmod = fs_entry.stat()[stat.ST_MTIME]
     db_record.lastscan = time.time()
@@ -584,15 +593,20 @@ def process_filedata(fs_entry, db_record, v3=False) -> index_data:
     db_record.is_animated = False
 
     if db_record.is_dir:  # or db_entry["unified_dirs"]:
-        _, subdirectory = return_disk_listing(os.path.join(db_record.fqpndirectory, db_record.name))
-        fs_file_count, fs_dir_count = fs_counts(subdirectory)
-        db_record.numfiles, db_record.numdirs = fs_file_count, fs_dir_count
+        SubDirFqpn = os.path.join(db_record.fqpndirectory, db_record.name)
+        sync_database_disk(SubDirFqpn)
+        return None
+        # _, subdirectory = return_disk_listing(SubDirFqpn)
+        # fs_file_count, fs_dir_count = fs_counts(subdirectory)
+        # db_record.numfiles, db_record.numdirs = fs_file_count, fs_dir_count
 
-    if filetype_models.FILETYPE_DATA[db_record.fileext]["is_image"] and \
-            db_record.fileext in [".gif"]:
+    if filetype_models.FILETYPE_DATA[db_record.fileext][
+        "is_image"
+    ] and db_record.fileext in [".gif"]:
         try:
-            db_record.is_animated = Image.open(os.path.join(db_record.fqpndirectory,
-                                                            db_record.name)).is_animated
+            db_record.is_animated = Image.open(
+                os.path.join(db_record.fqpndirectory, db_record.name)
+            ).is_animated
         except AttributeError:
             db_record.is_animated = False
 
@@ -639,7 +653,9 @@ def sync_database_disk(directoryname):
     found, dirpath_id = Index_Dirs.search_for_directory(fqpn_directory=dirpath)
     if found is False:
         dirpath_id = Index_Dirs.add_directory(dirpath)
-#    print(dirpath, dirpath_id)
+        print("\tAdding ", dirpath)
+
+    #    print(dirpath, dirpath_id)
 
     records_to_update = []
     cached = Cache_Storage.name_exists_in_cache(DirName=dirpath) is True
@@ -655,9 +671,10 @@ def sync_database_disk(directoryname):
         count, db_data = IDirs.files_in_dir()
         if count in [0, None]:
             db_data = index_data.objects.select_related("filetype", "directory").filter(
-                fqpndirectory=webpath, delete_pending=False, ignore=False)
+                fqpndirectory=webpath, delete_pending=False, ignore=False
+            )
 
-#        print(count, db_data)
+        #        print(count, db_data)
         # db_data = index_data.search_for_directory(fqpn_directory=webpath)
         update = False
         for db_entry in db_data:
@@ -667,19 +684,22 @@ def sync_database_disk(directoryname):
                 db_entry.ignore = True
                 db_entry.delete_pending = True
                 db_entry.parent_dir = dirpath_id
-#                db_entry.DirName = db_entry.name.strip()
+                #                db_entry.fqpndirectory = db_entry.name.strip()
                 records_to_update.append(db_entry)
-    #            db_entry.save()
+            #            db_entry.save()
             else:
                 # The db_entry does exist in the file system.
                 # Does the lastmod match?
                 # Does size match?
                 # If directory, does the numfiles, numdirs, count_subfiles match?
                 # update = False, unncessary, moved to above the for loop.
-                if db_entry.parent_dir is None:
-                    db_entry.parent_dir = dirpath_id
-                    update = True
+                # if db_entry.parent_dir is None:
+                #     db_entry.parent_dir = dirpath_id
+                #     update = True
                 entry = fs_entries[db_entry.name.title()]
+                #                if db_entry.directory:  # or db_entry["unified_dirs"]:
+                #                    _, subdirectory = return_disk_listing(str(entry.absolute()))
+                #                    continue
                 if db_entry.lastmod != entry.stat()[stat.ST_MTIME]:
                     # print("LastMod mismatch")
                     db_entry.lastmod = entry.stat()[stat.ST_MTIME]
@@ -688,21 +708,25 @@ def sync_database_disk(directoryname):
                     # print("Size mismatch")
                     db_entry.size = entry.stat()[stat.ST_SIZE]
                     update = True
-                if db_entry.directory:  # or db_entry["unified_dirs"]:
-                    _, subdirectory = return_disk_listing(str(entry.absolute()))
+                    # print(" sync - ",str(entry.absolute))
+                    # sync_database_disk(str(entry.absolute()))
                     # fs_file_count, fs_dir_count = fs_counts(subdirectory)
-                    fs_file_count, fs_dir_count = fs_counts(subdirectory)
-                    if db_entry.numfiles != fs_file_count or db_entry.numdirs != fs_dir_count:
-                        db_entry.numfiles, db_entry.numdirs = fs_file_count, fs_dir_count
-                        update = True
+                    # fs_file_count, fs_dir_count = fs_counts(subdirectory)
+                    # if db_entry.numfiles != fs_file_count or db_entry.numdirs != fs_dir_count:
+                    #     db_entry.numfiles, db_entry.numdirs = fs_file_count, fs_dir_count
+                    #     update = True
                 if update:
                     records_to_update.append(db_entry)
                     print("Database record being updated: ", db_entry.name)
-#                    db_entry.save()
+                    #                    db_entry.save()
                     update = False
 
         # Check for entries that are not in the database, but do exist in the file system
-        names = index_data.objects.filter(fqpndirectory=webpath).only("name").values_list("name", flat=True)
+        names = (
+            index_data.objects.filter(fqpndirectory=webpath)
+            .only("name")
+            .values_list("name", flat=True)
+        )
         # fetch an updated set of records, since we may have changed it from above.
         records_to_create = []
         for name, entry in fs_entries.items():
@@ -712,17 +736,27 @@ def sync_database_disk(directoryname):
                 # add it.
                 record = index_data()
                 record = process_filedata(entry, record, v3=False)
-                record.parent_dir = dirpath_id
                 if record is None:
                     continue
+                record.parent_dir = dirpath_id
                 if record.filetype.is_archive:
                     print("Archive detected ", record.name)
                 records_to_create.append(record)
         if records_to_update:
             try:
-                index_data.objects.bulk_update(records_to_update, ["ignore", "lastmod", "delete_pending",
-                                                                   "size", "numfiles", "numdirs",
-                                                                   "parent_dir_id"], 50)
+                index_data.objects.bulk_update(
+                    records_to_update,
+                    [
+                        "ignore",
+                        "lastmod",
+                        "delete_pending",
+                        "size",
+                        "numfiles",
+                        "numdirs",
+                        "parent_dir_id",
+                    ],
+                    50,
+                )
             except django.db.utils.IntegrityError:
                 return None
         else:
@@ -749,8 +783,9 @@ def sync_database_disk(directoryname):
         # new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
         # new_rec.save()
 
+
 #        index_data.objects.filter(delete_pending=True).delete()
-    # scan_lock.release_scan(webpath)
+# scan_lock.release_scan(webpath)
 
 
 def read_from_disk(dir_to_scan, skippable=True):

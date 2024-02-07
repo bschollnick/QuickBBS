@@ -19,7 +19,7 @@ class cache(AppConfig):
         try:
             if not self.cold_start:
                 print("Clearing all entries from Cache Tracking")
-                Cache_Storage.clear_all_records()
+                #Cache_Storage.clear_all_records()
                 self.cold_start = True
                 cold_start = True
         except ProgrammingError:
