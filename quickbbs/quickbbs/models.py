@@ -239,7 +239,7 @@ class Index_Dirs(models.Model):
             Django URL object
 
         """
-        return reverse("thumbnail_dir") + f"{self.uuid}?size=small"
+        return reverse(r"thumbnail_dir", args=(self.uuid,))
 
     def send_thumbnail(self):
         """

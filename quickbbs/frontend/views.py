@@ -112,11 +112,12 @@ def ThumbnailDir(request: WSGIRequest, tnail_id: str = None):
         return Http404
 
     entry = directory_to_tnail[0]
+    count = 0
     if entry.is_generic_icon:
-        count, files = Index_Dirs.files_in_dir()
+        count, files = entry.files_in_dir()
         if count in [0, None]:
             entry.SmallThumb = None
-    print("*:",entry.DirName, count, entry.filetype, entry.is_generic_icon)
+    print("*:",entry.fqpndirectory, count, entry.filetype, entry.is_generic_icon)
     if entry.SmallThumb in [b"", None, ""]:
         new_process_dir2(entry)
 
@@ -211,7 +212,7 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
             entry.directory = Thumbnails_Dirs()
             entry.directory.uuid = entry.uuid
             entry.directory.FilePath = fs_item
-            entry.directory.DirName = fname
+            entry.directory.fqpndirectory = fname
             new_process_dir(entry)
         except IntegrityError:
             print("IntegrityError")
@@ -396,8 +397,8 @@ def new_viewgallery(request: WSGIRequest):
     )
 
     response = render(
-        request, "frontend/gallery_listing.jinja", context, using="Jinja2"
-        #        request, "frontend/gallery_listing2.jinja", context, using="Jinja2"
+        #request, "frontend/gallery_listing.jinja", context, using="Jinja2"
+        request, "frontend/gallery_listing2.jinja", context, using="Jinja2"
     )
     print(
         "Gallery View, processing time: ", time.perf_counter() - start_time

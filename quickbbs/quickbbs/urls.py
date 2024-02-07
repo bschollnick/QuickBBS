@@ -44,7 +44,7 @@ urlpatterns += [
     re_path('^albums/', frontend.views.new_viewgallery, name="directories"),
     path('thumbnails/<uuid:tnail_id>', frontend.views.thumbnails, name="thumbnails"),
     path('thumbnail_file/<uuid:tnail_id>', frontend.views.ThumbnailFile, name="thumbnail_file"),
-    path('thumbnail/directory/', frontend.views.ThumbnailDir, name="thumbnail_dir"),
+    path('thumbnail_directory/<uuid:tnail_id>', frontend.views.ThumbnailDir, name="thumbnail_dir"),
     path('thumbnails/', frontend.views.thumbnails, name="thumbnailspath"),
     path('resources/<path:pathstr>', frontend.serve_up.resources),
     path('static/<path:pathstr>', frontend.serve_up.static),
