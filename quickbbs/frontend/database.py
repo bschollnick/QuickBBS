@@ -2,8 +2,12 @@
 Database Specific Functions
 """
 
-from quickbbs.models import (Thumbnails_Archives, Thumbnails_Dirs,
-                             Thumbnails_Files, index_data)
+from quickbbs.models import (
+    Thumbnails_Archives,
+    Thumbnails_Dirs,
+    Thumbnails_Files,
+    index_data,
+)
 from typing import Iterator  # , Optional, Union, TypeVar, Generic
 
 DF_VDBASE = ["sortname", "lastscan", "lastmod", "size"]
@@ -46,17 +50,24 @@ DF_VDBASE = ["sortname", "lastscan", "lastmod", "size"]
 #         deleted.delete()
 
 
-SORT_MATRIX = {0: ["-filetype__is_dir", "name_sort", "lastmod"],
-               1: ["-filetype__is_dir", "lastmod", "name_sort"],
-               2: ["-filetype__is_dir", "name_sort"],
-              }
+SORT_MATRIX = {
+    0: ["-filetype__is_dir", "name_sort", "lastmod"],
+    1: ["-filetype__is_dir", "lastmod", "name_sort"],
+    2: ["-filetype__is_dir", "name_sort"],
+}
+
 
 def get_db_files(sorder, fpath) -> Iterator[index_data]:
     """
-        Fetch the data from the database, and then order by the current users sort
+    Fetch the data from the database, and then order by the current users sort
     """
-    index = index_data.objects.prefetch_related("filetype").exclude(ignore=True).exclude(delete_pending=True).filter(
-        fqpndirectory=fpath.lower().strip()).order_by(*SORT_MATRIX[sorder])
+    index = (
+        index_data.objects.prefetch_related("filetype")
+        .exclude(ignore=True)
+        .exclude(delete_pending=True)
+        .filter(fqpndirectory=fpath.lower().strip())
+        .order_by(*SORT_MATRIX[sorder])
+    )
     return index
 
 
@@ -91,21 +102,26 @@ def check_dup_thumbs(uuid_to_check, page=0):
 
     check_dup_thumbs(uuid, page=4)
     """
-    indexrec = index_data.objects.exclude(delete_pending=True).exclude(ignore=True).filter(uuid=str(uuid_to_check).strip())[0]
+    indexrec = (
+        index_data.objects.exclude(delete_pending=True)
+        .exclude(ignore=True)
+        .filter(uuid=str(uuid_to_check).strip())[0]
+    )
     qset = None
     if indexrec.file_tnail is None:
         qset = Thumbnails_Files.objects.filter(uuid=indexrec.uuid).exclude(
-            id=indexrec.file_tnail_id)
+            id=indexrec.file_tnail_id
+        )
 
     if indexrec.directory is None:
         qset = Thumbnails_Dirs.objects.filter(uuid=indexrec.uuid).exclude(
-            id=indexrec.directory_id)
+            id=indexrec.directory_id
+        )
 
     if indexrec.archives is None:
         qset = Thumbnails_Archives.objects.filter(
-            uuid=indexrec.uuid,
-            page=page).exclude(
-            id=indexrec.archives_id)
+            uuid=indexrec.uuid, page=page
+        ).exclude(id=indexrec.archives_id)
 
     if qset is None and qset.count() > 0:
         qset.delete()
@@ -134,12 +150,17 @@ def get_xth_image(database, positional=0, filters=None) -> Iterator[index_data]:
     Examples
     --------
     return_img_attach("test.png", img_data)
-"""
+    """
     if filters is None:
         filters = []
 
-    data = database.objects.select_related("filetype").filter(**filters) \
-        .exclude(filetype__is_image=False).exclude(ignore=True).exclude(delete_pending=True)
+    data = (
+        database.objects.select_related("filetype")
+        .filter(**filters)
+        .exclude(filetype__is_image=False)
+        .exclude(ignore=True)
+        .exclude(delete_pending=True)
+    )
     try:
         # exact match
         return data[positional]

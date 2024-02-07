@@ -3,15 +3,17 @@ from zeroconf import ServiceInfo
 from django.conf import settings
 
 
-desc = {'path': '/'}
+desc = {"path": "/"}
 info = ServiceInfo(
     "_http._tcp.local.",
     f"{settings.SITE_NAME}._http._tcp.local.",
-    addresses=[settings.EXTERNAL_IP,],
+    addresses=[
+        settings.EXTERNAL_IP,
+    ],
     port=settings.SERVER_PORT,
     properties=desc,
     server=f"{settings.HOSTNAME}",
-    )
+)
 
 
 # class MyListener:

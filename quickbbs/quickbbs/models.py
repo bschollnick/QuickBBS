@@ -1,6 +1,7 @@
 import io
 import hashlib
 import os
+import pathlib
 import time
 import uuid
 
@@ -105,8 +106,8 @@ class Thumbnails_Small(models.Model):
 
 class Index_Dirs(models.Model):
     uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True, blank=True)
-    DirName = models.CharField(db_index=False, max_length=384,default='', unique=True, blank=True)  # FQFN of the file itself
-    # WebPath_md5 = models.CharField(db_index=True, max_length=32, unique=False)
+    fqpndirectory = models.CharField(db_index=False, max_length=384,default='', unique=True, blank=True)  # FQFN of the file itself
+        # WebPath_md5 = models.CharField(db_index=True, max_length=32, unique=False)
     DirName_md5 = models.CharField(db_index=True, max_length=32, unique=False)
         # DirName is the just the directory name (eg test1)
     Combined_md5 = models.CharField(db_index=True, max_length=32, unique=True)
@@ -115,7 +116,7 @@ class Index_Dirs(models.Model):
         # Is the FQPN of the parent directory (eg /var/albums/test)
     lastscan = models.FloatField(db_index=True, default=None)  # Stored as Unix TimeStamp (ms)
     lastmod = models.FloatField(db_index=True, default=None)  # Stored as Unix TimeStamp (ms)
-    name_sort = NaturalSortField(for_field="DirName", max_length=384, default='')
+    name_sort = NaturalSortField(for_field="fqpndirectory", max_length=384, default='')
     is_generic_icon = models.BooleanField(default=False, db_index=True)  # File is to be ignored
     ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
     delete_pending = models.BooleanField(default=False, db_index=True)  # File is to be deleted,
@@ -132,23 +133,45 @@ class Index_Dirs(models.Model):
 
     @staticmethod
     def add_directory(fqpn_directory, FileCount=-1, DirCount=-1, thumbnail=b""):
-        dir_seg, filename_seg = os.path.split(fqpn_directory)
+        Path = pathlib.Path(fqpn_directory)
+        fqpn_directory = Index_Dirs.normalize_fqpn(str(Path.resolve()))
+        parent_dir = Index_Dirs.normalize_fqpn(str(Path.parent.resolve()))
+        filename_seg = str(Path.name)
+
+        #dir_seg, filename_seg = os.path.split(fqpn_directory)
         new_rec = Index_Dirs()
-        new_rec.DirName = Index_Dirs.normalize_fqpn(fqpn_directory)
-        parent_dir = os.path.abspath(os.path.join(fqpn_directory,".."))
-        md5 = convert_text_to_md5_hdigest(parent_dir)
-        new_rec.Parent_Dir_md5 = md5
-        new_rec.DirName_md5 = convert_text_to_md5_hdigest(filename_seg)
-        new_rec.Combined_md5 = convert_text_to_md5_hdigest(fqpn_directory)
+        new_rec.fqpndirectory = fqpn_directory
+        new_rec.DirName_md5 = convert_text_to_md5_hdigest(Index_Dirs.normalize_fqpn(filename_seg))
+        new_rec.Combined_md5 = convert_text_to_md5_hdigest(Index_Dirs.normalize_fqpn(fqpn_directory))
+        new_rec.Parent_Dir_md5 = convert_text_to_md5_hdigest(parent_dir)
         new_rec.uuid = uuid.uuid4()
         new_rec.FileCount = FileCount
         new_rec.DirCount = DirCount
         new_rec.SmallThumb = thumbnail
-        new_rec.lastmod = os.path.getmtime(new_rec.DirName)
+        new_rec.lastmod = os.path.getmtime(new_rec.fqpndirectory)
         new_rec.lastscan = time.time()
         new_rec.filetype = filetypes(fileext=".dir")
         new_rec.save()
         return new_rec
+
+    @property
+    def numdirs(self):
+        return None
+
+    @property
+    def numfiles(self):
+        return None
+
+    @property
+    def name(self):
+        return os.path.basename(self.fqpndirectory)
+
+    @staticmethod
+    def delete_directory(fqpn_directory):
+        Combined_md5 = convert_text_to_md5_hdigest(Index_Dirs.normalize_fqpn(fqpn_directory))
+        Index_Dirs.objects.filter(Combined_md5=Combined_md5).delete()
+        index_data.objects.filter(parent_dir_id=Combined_md5).delete()
+
 
     def get_counts(self):
         d_files = index_data.objects.filter(parent_dir__Combined_md5=self.Combined_md5)
@@ -158,18 +181,10 @@ class Index_Dirs(models.Model):
         totals["all_files"] = d_files.filter().count() - totals["dir"]
         return totals
 
-    # def update_directory(self, record_to_update):
-    #     record_to_update.save()
-
-    @staticmethod
-    def delete_directory(fqpn_directory):
-        Combined_md5 = convert_text_to_md5_hdigest(Index_Dirs.normalize_fqpn(fqpn_directory))
-        Index_Dirs.objects.filter(Combined_md5=Combined_md5).delete()
-        index_data.objects.filter(parent_dir_id=Combined_md5).delete()
-
     @staticmethod
     def search_for_directory(fqpn_directory):
-        fqpn_directory = Index_Dirs.normalize_fqpn(fqpn_directory)
+        Path = pathlib.Path(fqpn_directory)
+        fqpn_directory = Index_Dirs.normalize_fqpn(str(Path.resolve()))
         query = Index_Dirs.objects.filter(Combined_md5=convert_text_to_md5_hdigest(fqpn_directory),
                                           delete_pending=False,
                                           ignore=False)
@@ -177,15 +192,43 @@ class Index_Dirs(models.Model):
             record = query[0]
             return (True, record)
         else:
-            return (False, None)
+            return (False, query)   # return an empty query set
 
     def files_in_dir(self):
-        files = index_data.objects.select_related("filetype").filter(parent_dir=self.pk, delete_pending=False)
+        files = index_data.objects.select_related("filetype").filter(parent_dir=self.pk, delete_pending=False)#.exclude(filetype__is_dir=True)
         return files.count(), files
 
     def dirs_in_dir(self):
-        dirs = Index_Dirs.objects.filter(Combined_md5=self.Combined_md5, delete_pending=False)
+        dir_scan = str((pathlib.Path(self.fqpndirectory)).resolve())
+        dir_scan = Index_Dirs.normalize_fqpn(dir_scan)
+        dir_scan_md5 = convert_text_to_md5_hdigest(dir_scan)
+        #dirs = Index_Dirs.objects.filter(Combined_md5=self.Combined_md5, delete_pending=False)
+        dirs = Index_Dirs.objects.filter(Parent_Dir_md5=dir_scan_md5, delete_pending=False)
         return dirs.count(), dirs
+
+    def get_view_url(self):
+        """
+        Generate the URL for the viewing of the current database item
+
+        Returns
+        -------
+            Django URL object
+
+        """
+        options = {}
+        options["i_uuid"] = str(self.uuid)
+        parameters = []
+        return reverse('directories') + self.fqpndirectory
+
+    def get_bg_color(self):
+        """
+        Get the html / Cell background color of the file.
+
+        Returns
+        -------
+        * The background hex color code of the current database entry
+        """
+        return self.filetype.color
 
     def get_thumbnail_url(self):
         """
@@ -196,7 +239,7 @@ class Index_Dirs(models.Model):
             Django URL object
 
         """
-        return reverse("thumbnailspath") + f"{self.uuid}?size=small"
+        return reverse("thumbnail_dir") + f"{self.uuid}?size=small"
 
     def send_thumbnail(self):
         """
@@ -227,7 +270,7 @@ class Index_Dirs(models.Model):
         response = FileResponse(io.BytesIO(self.SmallThumb),
                                 content_type=mtype,
                                 as_attachment=False,
-                                filename=os.path.basename(self.DirName)+".jpg")
+                                filename=os.path.basename(self.fqpndirectory)+".jpg")
         response["Content-Type"] = mtype
         response['Content-Length'] = len(self.SmallThumb)
         return response

@@ -113,9 +113,11 @@ def ThumbnailDir(request: WSGIRequest, tnail_id: str = None):
 
     entry = directory_to_tnail[0]
     if entry.is_generic_icon:
-        if Index_Dirs.objects.filter(Combined_md5=entry.Combined_md5, delete_pending=False).exist():
+        count, files = Index_Dirs.files_in_dir()
+        if count in [0, None]:
             entry.SmallThumb = None
-    if entry.SmallThumb in [b'', None, ""]:
+    print("*:",entry.DirName, count, entry.filetype, entry.is_generic_icon)
+    if entry.SmallThumb in [b"", None, ""]:
         new_process_dir2(entry)
 
     return entry.send_thumbnail()  # Send existing thumbnail
@@ -139,17 +141,16 @@ def ThumbnailFile(request: WSGIRequest, tnail_id: str = None):
         # send the existing thumbnail
         return entry.send_thumbnail(size=size)
 
-
     if entry.filetype.is_pdf or entry.filetype.is_image or entry.filetype.is_movie:
         # add in file size comparison
         entry.file_tnail = Thumbnails_Files()
         entry.file_tnail.uuid = entry.uuid
         entry.file_tnail.FilePath = fs_item
         entry.file_tnail.FileName = fname
-        #entry.file_tnail.save()
+        # entry.file_tnail.save()
         try:
             entry = new_process_img(entry, request)
-            #entry.refresh_from_db()
+            # entry.refresh_from_db()
         except IntegrityError:
             print("File - IntegrityError", tnail_id, entry.uuid)
             time.sleep(0.5)
@@ -341,14 +342,14 @@ def new_viewgallery(request: WSGIRequest):
     counts = 0
     if found:
         counts = directory.get_counts()
-#        if counts["all_files"] == 0:
+        #        if counts["all_files"] == 0:
         found_dirs, directories = directory.dirs_in_dir()
         directories = directories.order_by(*SORT_MATRIX[sort_order(request)])
         found_files, files = directory.files_in_dir()
         files = files.order_by(*SORT_MATRIX[sort_order(request)])
         counts = directory.get_counts()
 
-    #print("Sort Order",sort_order(request), *SORT_MATRIX[sort_order(request)])
+    # print("Sort Order",sort_order(request), *SORT_MATRIX[sort_order(request)])
     context = {
         "debug": settings.DEBUG,
         "small": g_option(request, "size", settings.IMAGE_SIZE["small"]),
@@ -366,17 +367,21 @@ def new_viewgallery(request: WSGIRequest):
         "up_uri": "/".join(request.build_absolute_uri().split("/")[0:-1]),
         "missing": [],
         "search": False,
-        "directories":directories,
-        "files":files,
+        "directories": directories,
+        "files": files,
     }
 
+    context["all_listings"] = list(directories)
+    context["all_listings"].extend(list(files))
+    #print(context["all_listings"])
     # The only thing left is a directory.
     fs_path = ensures_endswith(
         os.path.abspath(os.path.join(settings.ALBUMS_PATH, paths["webpath"][1:])),
         os.sep,
     )
     #index = get_db_files(context["sort"], fs_path)
-    chk_list = Paginator(files, 30)
+    #chk_list = Paginator(files, 30)
+    chk_list = Paginator(context["all_listings"], 30)
     context["page_cnt"] = list(arange(1, chk_list.num_pages + 1))
 
     try:
@@ -389,19 +394,10 @@ def new_viewgallery(request: WSGIRequest):
     context["prev_uri"], context["next_uri"] = return_prev_next(
         os.path.dirname(paths["album_viewing"]), paths["webpath"], context["sort"]
     )
-    # missing_files = index.filter(
-    #     Q(file_tnail=None)
-    #     & (
-    #             Q(filetype__is_pdf=True)
-    #             | Q(filetype__is_image=True)
-    #             | Q(filetype__is_movie=True)
-    #     )
-    # ).order_by("-lastmod")
-    # if missing_files.exists():
-    #     missing_files = missing_files[0:5]
-    #     context["missing"] = [entry.get_thumbnail_url() for entry in missing_files]
+
     response = render(
         request, "frontend/gallery_listing.jinja", context, using="Jinja2"
+        #        request, "frontend/gallery_listing2.jinja", context, using="Jinja2"
     )
     print(
         "Gallery View, processing time: ", time.perf_counter() - start_time
@@ -523,7 +519,7 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
     if page_contents.has_previous():
         context["previous_uuid"] = catalog_qs[
             page_contents.previous_page_number() - 1
-            ].uuid
+        ].uuid
     # print("item info - Process time: ", time.perf_counter() - context["start_time"], "secs")
     return Response(context)
 
@@ -633,9 +629,9 @@ def new_view_archive(request: WSGIRequest, i_uuid: str):
     # context["djicons"] = django_icons.templatetags.icons.icon
     context["djicons"] = django_icons.templatetags.icons.icon_tag
     arc_filename = (
-            settings.ALBUMS_PATH
-            + context["webpath"].replace("/", os.sep).replace("//", "/")
-            + entry.name
+        settings.ALBUMS_PATH
+        + context["webpath"].replace("/", os.sep).replace("//", "/")
+        + entry.name
     )
     archive_file = archives.id_cfile_by_sig(arc_filename)
     archive_file.get_listings()

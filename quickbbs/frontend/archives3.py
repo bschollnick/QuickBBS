@@ -60,63 +60,65 @@ class NotInitializedYet(Exception):
     assigned, yet, the code has been asked to process (eg Open) the
     compressed file.
     """
+
     pass
 
 
-class CompressedFile():
+class CompressedFile:
     r"""
-    The mainstay of the Archive2 code.
+        The mainstay of the Archive2 code.
 
-    This object is the framework that the inherited archive types are
-    based off of.
+        This object is the framework that the inherited archive types are
+        based off of.
 
-    extensions - is a list of the file extensions that the archive is known
-                 to use.  For example, a zip file would be ['zip', 'cbz'].
-                 Currently, this is not used, but in the future it maybe.
+        extensions - is a list of the file extensions that the archive is known
+                     to use.  For example, a zip file would be ['zip', 'cbz'].
+                     Currently, this is not used, but in the future it maybe.
 
-                 - Possible future uses:
-                     - Check for archive by filename (with verification by
-                       signature done after matching by filename)
+                     - Possible future uses:
+                         - Check for archive by filename (with verification by
+                           signature done after matching by filename)
 
-    mime_type - The standard mimetype for the archive ()
-                For example, for zip, it is 'compressed/zip'.
-                Can be used, to identify the mimetype to a web server.
+        mime_type - The standard mimetype for the archive ()
+                    For example, for zip, it is 'compressed/zip'.
+                    Can be used, to identify the mimetype to a web server.
 
-    filename - Fully qualified local system Filename to the archive
-               (eg c:\users\JohnCleese\archives\scripts101.zip)
+        filename - Fully qualified local system Filename to the archive
+                   (eg c:\users\JohnCleese\archives\scripts101.zip)
 
-    listings - default value []
+        listings - default value []
 
-               This contains the listings of the archive file.
+                   This contains the listings of the archive file.
 
-               **This is populated by the get_listings() function.**
+                   **This is populated by the get_listings() function.**
 
-               This is somewhat non-intuitive.  But the logic is that
-               the programmer may want to add, remove, etc.  Open just
-               opens the the file, so that you can manipulate the
-               underlying archive file.
+                   This is somewhat non-intuitive.  But the logic is that
+                   the programmer may want to add, remove, etc.  Open just
+                   opens the the file, so that you can manipulate the
+                   underlying archive file.
 
-    handler - Is the "pointer" to the archiver function used to manipulate
-              the archive file.  For example:
+        handler - Is the "pointer" to the archiver function used to manipulate
+                  the archive file.  For example:
 
-                  zip file - zipfile.ZipFile
-                  rar file - rarfile.RarFile
+                      zip file - zipfile.ZipFile
+                      rar file - rarfile.RarFile
 
-              **This is normally populated by the id_cfile_by_sig function.**
+                  **This is normally populated by the id_cfile_by_sig function.**
 
-    signature - This is the "magic" signature that is used to identify
-                the archive file.  It is used to compare the first xx bytes
-                of the archive.  If it matches, then it is that type of
-                archive.
+        signature - This is the "magic" signature that is used to identify
+                    the archive file.  It is used to compare the first xx bytes
+                    of the archive.  If it matches, then it is that type of
+                    archive.
 
-Example:
+    Example:
 
-filename='test.zip'
-archive_file = archives2.id_cfile_by_sig(filename)
-archive_file.get_listings()
-print archive_file.listings
-print filename, 'is a', cf.mime_type, 'file'
+    filename='test.zip'
+    archive_file = archives2.id_cfile_by_sig(filename)
+    archive_file.get_listings()
+    print archive_file.listings
+    print filename, 'is a', cf.mime_type, 'file'
     """
+
     extensions = None
     mime_type = None
     filename = None
@@ -162,11 +164,11 @@ print filename, 'is a', cf.mime_type, 'file'
         Inputs - None
 
         Returns - Handler as assigned by self.handler
-       """
+        """
         if self.handler is not None:
             # pylint: disable=E1102
             try:
-                return self.handler(self.filename, 'r')
+                return self.handler(self.filename, "r")
             except rarfile.NeedFirstVolume:
                 return None
             except rarfile.TypeError:
@@ -202,8 +204,7 @@ print filename, 'is a', cf.mime_type, 'file'
         with handle() as cfile:
             count = 0
             for offset, afn in enumerate(cfile.namelist(), start=0):
-                if not (afn.startswith("__MACOSX") or
-                        os.path.split(afn)[1] == ""):
+                if not (afn.startswith("__MACOSX") or os.path.split(afn)[1] == ""):
                     self.listings.append((afn, offset, count))
                     count += 1
             sorted(self.listings, key=itemgetter(0))
@@ -236,17 +237,19 @@ print filename, 'is a', cf.mime_type, 'file'
         inputs - filename to extract
         returns - blob from the archive.
         """
-        translate = {'JPG': 'JPEG',
-                     'JPEG': 'JPEG',
-                     'PNG': 'PNG',
-                     'GIF': 'GIF',
-                     'BMP': 'BMP',
-                     'EPS': 'EPS',
-                     'MSP': 'MSP',
-                     'PCX': 'PCX',
-                     'PPM': 'PPM',
-                     'TIF': 'TIF',
-                     'TIFF': 'TIF'}
+        translate = {
+            "JPG": "JPEG",
+            "JPEG": "JPEG",
+            "PNG": "PNG",
+            "GIF": "GIF",
+            "BMP": "BMP",
+            "EPS": "EPS",
+            "MSP": "MSP",
+            "PCX": "PCX",
+            "PPM": "PPM",
+            "TIF": "TIF",
+            "TIFF": "TIF",
+        }
 
         handle = self._open
         if handle is None:
@@ -268,41 +271,35 @@ print filename, 'is a', cf.mime_type, 'file'
                 return None
 
 
-signatures = {'\x50\x4b\x03\x04': (['zip', 'cbz', 'pk3', 'pk4'],
-                                   'compressed/zip',
-                                   zipfile.ZipFile),
-              '\x50\x4b\x05\x06': (['zip', 'cbz', 'pk3', 'pk4'],
-                                   'compressed/zip',
-                                   zipfile.ZipFile),
-              '\x50\x4b\x07\x08': (['zip', 'cbz', 'pk3', 'pk4'],
-                                   'compressed/zip',
-                                   zipfile.ZipFile),
-              b'PK\x03\x04': (['zip', 'cbz', 'pk3', 'pk4'],
-                               'compressed/zip',
-                               zipfile.ZipFile),
-              '\x52\x61\x72\x21': (['rar', 'cbr'],
-                                    'application/x-rar-compressed',
-                                    rarfile.RarFile),
-              b'Rar!': (['rar', 'cbr'],
-                        'application/x-rar-compressed',
-                        rarfile.RarFile),
-              b'\x1F\\9D': (['lzh'],
-                            'tar lzh compression',
-                            None),
-              b'\x1F\\A0': (['lzh'],
-                            'tar lzh compression',
-                            None),
-              b'\x42\x5A\x68': (['bzip', 'bz'],
-                                'bzip compression',
-                                None),
-              b'\x37\x7A\xBC\xAF\x27\x1C': (['7z'],
-                                            '7zip compression',
-                                            None),
-              b'\x1F\x8B': (['gz'],
-                            'gzip compression',
-                            None),
-
-              }
+signatures = {
+    "\x50\x4b\x03\x04": (
+        ["zip", "cbz", "pk3", "pk4"],
+        "compressed/zip",
+        zipfile.ZipFile,
+    ),
+    "\x50\x4b\x05\x06": (
+        ["zip", "cbz", "pk3", "pk4"],
+        "compressed/zip",
+        zipfile.ZipFile,
+    ),
+    "\x50\x4b\x07\x08": (
+        ["zip", "cbz", "pk3", "pk4"],
+        "compressed/zip",
+        zipfile.ZipFile,
+    ),
+    b"PK\x03\x04": (["zip", "cbz", "pk3", "pk4"], "compressed/zip", zipfile.ZipFile),
+    "\x52\x61\x72\x21": (
+        ["rar", "cbr"],
+        "application/x-rar-compressed",
+        rarfile.RarFile,
+    ),
+    b"Rar!": (["rar", "cbr"], "application/x-rar-compressed", rarfile.RarFile),
+    b"\x1F\\9D": (["lzh"], "tar lzh compression", None),
+    b"\x1F\\A0": (["lzh"], "tar lzh compression", None),
+    b"\x42\x5A\x68": (["bzip", "bz"], "bzip compression", None),
+    b"\x37\x7A\xBC\xAF\x27\x1C": (["7z"], "7zip compression", None),
+    b"\x1F\x8B": (["gz"], "gzip compression", None),
+}
 
 sign_byte_count = 4
 
@@ -310,33 +307,33 @@ sign_byte_count = 4
 # factory function to create a suitable instance for accessing files
 def id_cfile_by_sig(fname):
     """
-    Effectively the core function of the module.
+        Effectively the core function of the module.
 
-    It established and configures the archive functionality for the
-    filename passed to it.
+        It established and configures the archive functionality for the
+        filename passed to it.
 
-    Inputs - Fully qualified local filepathname of the archive file
+        Inputs - Fully qualified local filepathname of the archive file
 
-    Returns - The initialized archive class, that is configured to work
-              with the archive (eg. ZIPFile class, or RarFile)
+        Returns - The initialized archive class, that is configured to work
+                  with the archive (eg. ZIPFile class, or RarFile)
 
-    This function will read 128 bytes from the beginning of the file
-    and then step through the ARCHIVE_CLASSES, checking the signature
-    of each ARCHIVE_CLASSES, against the file contents.
+        This function will read 128 bytes from the beginning of the file
+        and then step through the ARCHIVE_CLASSES, checking the signature
+        of each ARCHIVE_CLASSES, against the file contents.
 
-    If it finds a match, it will then return that class with the proper
-    filename.
+        If it finds a match, it will then return that class with the proper
+        filename.
 
-Example:
+    Example:
 
-filename='test.zip'
-archive_file = archives2.id_cfile_by_sig(filename)
-archive_file.get_listings()
-print archive_file.listings
-print filename, 'is a', cf.mime_type, 'file'
+    filename='test.zip'
+    archive_file = archives2.id_cfile_by_sig(filename)
+    archive_file.get_listings()
+    print archive_file.listings
+    print filename, 'is a', cf.mime_type, 'file'
     """
     if os.path.isfile(fname):
-        with open(fname, 'rb') as cfile:
+        with open(fname, "rb") as cfile:
             start_of_file = cfile.read(sign_byte_count)
             cfile.seek(0)
             if start_of_file in signatures:
@@ -345,13 +342,13 @@ print filename, 'is a', cf.mime_type, 'file'
                 identified.mime_type = signatures[start_of_file][1]
                 identified.handler = signatures[start_of_file][2]
                 return identified
-            #else:
+            # else:
             #    print("Unidentified: ", start_of_file)
     return None
 
 
 if __name__ == "__main__":
-    filename = 'test.rar'
+    filename = "test.rar"
     cf = id_cfile_by_sig(filename)
     if cf is not None:
-        print(filename, 'is a', cf.mime_type, 'file')
+        print(filename, "is a", cf.mime_type, "file")

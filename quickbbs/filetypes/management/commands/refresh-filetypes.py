@@ -120,6 +120,8 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         # ...
    #     try:
+            print("Starting to refresh all filetypes")
             self.refresh_filetypes()
+            print("filetypes have been refreshed.")
     #    except:
      #       print("Unable to validate or create FileType database table.")

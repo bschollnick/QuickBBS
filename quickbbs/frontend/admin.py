@@ -6,36 +6,72 @@ from quickbbs.models import *
 #     fields = ('fileext', 'icon_filename', 'color', 'generic', 'filetype')
 #     list_display = ('fileext', 'icon_filename', 'color', 'generic', 'filetype')
 
+
 @admin.register(Thumbnails_Dirs)
 class AdminThumbnail_Dirs(admin.ModelAdmin):
-    readonly_fields = ('id', 'uuid',)
-    list_display = ('FilePath', 'DirName', 'FileSize')
-    fields = ('uuid', 'FilePath', 'DirName', 'FileSize')
+    readonly_fields = (
+        "id",
+        "uuid",
+    )
+    list_display = ("FilePath", "DirName", "FileSize")
+    fields = ("uuid", "FilePath", "DirName", "FileSize")
 
 
 @admin.register(Thumbnails_Files)
 class AdminThumbnail_Files(admin.ModelAdmin):
-    readonly_fields = ('id', 'uuid',)
-    list_display = ('id', 'uuid', 'FileName', 'FilePath', 'FileSize')
-    fields = ('id', 'uuid', 'FileName', 'FilePath', 'FileSize')
+    readonly_fields = (
+        "id",
+        "uuid",
+    )
+    list_display = ("id", "uuid", "FileName", "FilePath", "FileSize")
+    fields = ("id", "uuid", "FileName", "FilePath", "FileSize")
 
 
 @admin.register(Thumbnails_Archives)
 class AdminThumbnail_Archives(admin.ModelAdmin):
-    readonly_fields = ('id', 'uuid',)
-    list_display = ('zipfilepath', 'FilePath', 'FileName', 'page', 'FileSize')
-    fields = ('uuid', 'zipfilepath', 'FilePath', 'FileName', 'page', 'FileSize')
+    readonly_fields = (
+        "id",
+        "uuid",
+    )
+    list_display = ("zipfilepath", "FilePath", "FileName", "page", "FileSize")
+    fields = ("uuid", "zipfilepath", "FilePath", "FileName", "page", "FileSize")
 
 
 @admin.register(index_data)
 class AdminMaster_Index(admin.ModelAdmin):
-    readonly_fields = ('id', 'uuid', 'name_sort')
+    readonly_fields = ("id", "uuid", "name_sort")
     list_display = (
-        'id', 'uuid', 'name', 'lastscan', 'lastmod', 'size', 'fqpndirectory', 'ignore', 'delete_pending', 'file_tnail',
-        'directory', 'archives', 'ownership', 'filetype')
+        "id",
+        "uuid",
+        "name",
+        "lastscan",
+        "lastmod",
+        "size",
+        "fqpndirectory",
+        "ignore",
+        "delete_pending",
+        "file_tnail",
+        "directory",
+        "archives",
+        "ownership",
+        "filetype",
+    )
     fields = (
-        'id', 'uuid', 'name', 'lastscan', 'lastmod', 'size', 'fqpndirectory', 'ignore', 'delete_pending', 'file_tnail',
-        'directory', 'archives', 'ownership','filetype')
+        "id",
+        "uuid",
+        "name",
+        "lastscan",
+        "lastmod",
+        "size",
+        "fqpndirectory",
+        "ignore",
+        "delete_pending",
+        "file_tnail",
+        "directory",
+        "archives",
+        "ownership",
+        "filetype",
+    )
 
 
 # @admin.register(Cache_Tracking)
