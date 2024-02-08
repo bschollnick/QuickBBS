@@ -18,17 +18,8 @@ def delete_from_cache_tracking(event):
         dhash = create_hash(dirpath)
         if Cache_Storage.remove_from_cache_hdigest(dhash):
             print(f"{time.ctime()} Deleted {dirpath}\n")
-    # print(cache.keys()[:5])
-
-
-#        count, _ = fs_Cache_Tracking.objects.filter(DirName=dirpath).delete()
-#        if count:
-#            print(f"{time.ctime()} Deleted {dirpath}\n")
-#        cache.clear()
-
 
 def create_hash(text):
-    # return hashlib.md5(text.title().strip().encode("utf-8")).hexdigest()
     return hashlib.md5(text.title().strip().encode("utf-16")).hexdigest()
 
 

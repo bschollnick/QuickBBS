@@ -211,19 +211,31 @@ class Index_Dirs(models.Model):
         index_data.objects.filter(parent_dir_id=Combined_md5).delete()
 
     def get_file_counts(self):
-        return index_data.objects.filter(parent_dir=self.pk, delete_pending=False).count()
+        return index_data.objects.filter(
+            parent_dir=self.pk, delete_pending=False
+        ).count()
 
     def get_dir_counts(self):
-        return Index_Dirs.objects.filter(Parent_Dir_md5=self.Combined_md5, delete_pending=False).count()
+        return Index_Dirs.objects.filter(
+            Parent_Dir_md5=self.Combined_md5, delete_pending=False
+        ).count()
 
     def get_count_breakdown(self):
-        d_files = index_data.objects.filter(parent_dir_md5__Combined_md5=self.Combined_md5)
+        d_files = index_data.objects.filter(
+            parent_dir_md5__Combined_md5=self.Combined_md5
+        )
         totals = {}
         for key in FILETYPE_DATA.keys():
             totals[key[1:]] = d_files.filter(filetype__fileext=key).count()
-        totals["dir"] = Index_Dirs.objects.filter(Parent_Dir_md5=self.Combined_md5, delete_pending=False).count()
+        totals["dir"] = Index_Dirs.objects.filter(
+            Parent_Dir_md5=self.Combined_md5, delete_pending=False
+        ).count()
         totals["all_files"] = d_files.filter().count() - totals["dir"]
         return totals
+
+    def return_parent_directory(self):
+        parent_dir = Index_Dirs.objects.filter(Combined_md5=self.Parent_Dir_md5)
+        return parent_dir
 
     @staticmethod
     def search_for_directory(fqpn_directory):
@@ -240,20 +252,24 @@ class Index_Dirs(models.Model):
         else:
             return (False, query)  # return an empty query set
 
-    def files_in_dir(self):
+    def files_in_dir(self, sort=0):
+        from frontend.database import SORT_MATRIX
         files = index_data.objects.select_related("filetype").filter(
             parent_dir=self.pk, delete_pending=False
-        )  # .exclude(filetype__is_dir=True)
+        ).order_by(
+        *SORT_MATRIX[sort])
         return files.count(), files
 
-    def dirs_in_dir(self):
+    def dirs_in_dir(self, sort=0):
+        from frontend.database import SORT_MATRIX
         dir_scan = str((pathlib.Path(self.fqpndirectory)).resolve())
         dir_scan = Index_Dirs.normalize_fqpn(dir_scan)
         dir_scan_md5 = convert_text_to_md5_hdigest(dir_scan)
         # dirs = Index_Dirs.objects.filter(Combined_md5=self.Combined_md5, delete_pending=False)
         dirs = Index_Dirs.objects.filter(
             Parent_Dir_md5=dir_scan_md5, delete_pending=False
-        )
+        ).order_by(
+        *SORT_MATRIX[sort])
         return dirs.count(), dirs
 
     def get_view_url(self):
@@ -271,8 +287,8 @@ class Index_Dirs(models.Model):
         webpath = self.fqpndirectory.replace(
             settings.ALBUMS_PATH.lower() + r"/albums/", r""
         )
-        return reverse("directories") + webpath#, self.name)
-        #return reverse("directories") + os.path.basename(self.fqpndirectory)
+        return reverse("directories") + webpath  # , self.name)
+        # return reverse("directories") + os.path.basename(self.fqpndirectory)
 
     def get_bg_color(self):
         """
@@ -575,6 +591,7 @@ class index_data(models.Model):
         numfiles = 0
         numdirs = 0
         lastscan = time.time()
+
     def get_file_counts(self):
         return None
 
