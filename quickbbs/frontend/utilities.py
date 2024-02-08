@@ -236,11 +236,9 @@ def load_image(fspath, mem=False):
     else:
         try:  # fs_path is a byte stream
             source_image = Image.open(BytesIO(fspath))
-        #                source_image = None
         except OSError:
             print("IOError")
             log.debug("PIL was unable to identify as an image file")
-        #               source_image = None
         except UserWarning:
             print("UserWarning!")
     return source_image
@@ -277,18 +275,6 @@ def return_image_obj(fs_path, memory=False) -> Image:
         extension = ".none"
     if filetype_models.FILETYPE_DATA[extension]["is_pdf"]:
         source_image = load_pdf(fs_path)
-        # # Do not repair the PDF / validate the PDF.  If it's bad,
-        # # it should be repaired, not band-aided by a patch from the web server.
-        # # results = pdf_utilities.check_pdf(fs_path)
-        # with fitz.open(fs_path) as pdf_file:
-        #     pdf_page = pdf_file.load_page(0)
-        #     pix = pdf_page.get_pixmap(alpha=True)  # matrix=fitz.Identity, alpha=True)
-        #
-        #     try:
-        #         source_image = Image.open(BytesIO(pix.tobytes()))
-        #     except UserWarning:
-        #         print("UserWarning!")
-        #         source_image = None
 
     elif filetype_models.FILETYPE_DATA[extension]["is_movie"]:
         source_image = load_movie(fs_path)
@@ -296,9 +282,6 @@ def return_image_obj(fs_path, memory=False) -> Image:
     elif filetype_models.FILETYPE_DATA[extension]["is_image"]:
         source_image = load_image(fs_path, mem=memory)
 
-    # if filetype_models.FILETYPE_DATA[extension]["is_movie"]:
-    #      source_image = load_movie_av(fs_path)
-    #    replaced by movie
     return source_image
 
 
@@ -344,28 +327,6 @@ def cr_tnail_img(source_image, size, fext) -> Image:
             source_image.save(fp=image_data, format="JPEG", optimize=False)
         image_data.seek(0)
         return image_data.getvalue()
-
-
-# def naturalize(string) -> str:
-#     """
-#         return <STRING> as a english sortable <STRING>
-#
-#         args:
-#             str: String
-#
-#         returns:
-#             str: The now english sortable string
-#     """
-#
-#     def naturalize_int_match(match):
-#         """ reformat as a human sortable number
-#         """
-#         return '%08d' % (int(match.group(0)),)
-#
-#     string = string.lower().strip()
-#     string = re.sub(r'^the\s+', '', string)
-#     string = re.sub(r'\d+', naturalize_int_match, string)
-#     return string
 
 
 def multiple_replace(repl_dict, text):
@@ -573,19 +534,16 @@ def process_filedata(fs_entry, db_record, v3=False) -> index_data:
         db_record.fileext = ".dir"
     if db_record.fileext in [".", ""]:
         db_record.fileext = ".none"
-    if db_record.fileext in filetype_models.FILETYPE_DATA:
-        db_record.filetype = filetypes(fileext=db_record.fileext)
-    else:
+    if db_record.fileext not in filetype_models.FILETYPE_DATA:
         return None
-    #    webpath = ensures_endswith(fs_entry.resolve().lower().replace("//", "/"), os.sep)
+
+    db_record.filetype = filetypes(fileext=db_record.fileext)
     db_record.uuid = uuid.uuid4()
-    # db_record.fqpndirectory = ensures_endswith(os.path.split(fs_entry["path"])[0].lower(), os.sep)
-    #    db_record.sortname = naturalize(db_record.name)
     db_record.size = fs_entry.stat()[stat.ST_SIZE]
     db_record.lastmod = fs_entry.stat()[stat.ST_MTIME]
     db_record.lastscan = time.time()
-    db_record.is_file = fs_entry.is_file  # ["is_file"]
 
+    db_record.is_file = fs_entry.is_file  # ["is_file"]
     db_record.is_archive = db_record.filetype.is_archive
     db_record.is_image = db_record.filetype.is_image
     db_record.is_movie = db_record.filetype.is_movie
@@ -686,6 +644,7 @@ def sync_database_disk(directoryname):
                 db_entry.parent_dir = dirpath_id
                 #                db_entry.fqpndirectory = db_entry.name.strip()
                 records_to_update.append(db_entry)
+
             #            db_entry.save()
             else:
                 # The db_entry does exist in the file system.

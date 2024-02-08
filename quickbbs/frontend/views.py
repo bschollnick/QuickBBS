@@ -6,6 +6,7 @@ import datetime
 import logging
 import os
 import os.path
+import pathlib
 import time
 import warnings
 from pathlib import Path
@@ -69,7 +70,7 @@ def return_prev_next(fqpn, currentpath, sorder) -> tuple:
     prevdir = ""
     fqpn = ensures_endswith(fqpn.lower(), os.sep).replace("//", "/")
     currentpath = os.path.split(currentpath.lower().strip())[1]
-    read_from_disk(fqpn, skippable=True)
+    # read_from_disk(fqpn, skippable=True)
     if currentpath not in [None, ""]:
         index = get_db_files(sorder, fqpn).exclude(filetype__is_dir=False)
         index = index.only("name")
@@ -91,6 +92,42 @@ def return_prev_next(fqpn, currentpath, sorder) -> tuple:
 
     return (prevdir, nextdir)
 
+def return_prev_next2(directory, sorder) -> tuple:
+    """
+    The return_prev_next function takes a fully qualified pathname,
+    and the current path as parameters. It returns the previous and next paths in a tuple.
+
+    :param fqpn: Get the path of the parent directory
+    :param currentpath: Determine the current offset in the list of files
+    :param sorder: Determine whether the index is sorted by name or size
+    :return: A tuple of two strings,
+
+    Note:
+    ORM only derived from https://stackoverflow.com/questions/1042596/
+            get-the-index-of-an-element-in-a-queryset
+                Specifically Richard's answer.
+    """
+    # Parent_path = Path(fqpn).parent
+    nextdir = ""  # unnecessary since going beyond the max offset will cause indexerror.
+    prevdir = ""
+    parent_dir = directory.return_parent_directory()
+    if parent_dir:
+        parent_dir = parent_dir[0]
+
+    count, directories = parent_dir.dirs_in_dir()
+    parent_dir_data = directories.values("pk", "fqpndirectory", "Parent_Dir_md5", "Combined_md5")
+    for count, entry in enumerate(parent_dir_data):
+        if entry["fqpndirectory"] == directory.fqpndirectory:
+            if count >= 1:
+                prevdir = pathlib.Path(parent_dir_data[count-1]["fqpndirectory"]).name
+
+            try:
+                nextdir = pathlib.Path(parent_dir_data[count+1]["fqpndirectory"]).name
+            except IndexError:
+                pass
+
+            break
+    return (prevdir, nextdir)
 
 def ThumbnailDir(request: WSGIRequest, tnail_id: str = None):
     """
@@ -331,6 +368,7 @@ def new_viewgallery(request: WSGIRequest):
             request.path.replace(r"/albums/", r"/thumbnails/"), "/"
         ),
     }
+    print(paths)
     read_from_disk(paths["album_viewing"], skippable=True)  # new_viewgallery
     if not os.path.exists(paths["album_viewing"]):
         #   Albums doesn't exist
@@ -345,13 +383,11 @@ def new_viewgallery(request: WSGIRequest):
         directories = directories.order_by(*SORT_MATRIX[sort_order(request)])
         count_files, files = directory.files_in_dir()
         files = files.order_by(*SORT_MATRIX[sort_order(request)])
-
-    # print("Sort Order",sort_order(request), *SORT_MATRIX[sort_order(request)])
     context = {
         "debug": settings.DEBUG,
         "small": g_option(request, "size", settings.IMAGE_SIZE["small"]),
-        "medium": g_option(request, "size", settings.IMAGE_SIZE["medium"]),
-        "large": g_option(request, "size", settings.IMAGE_SIZE["large"]),
+#        "medium": g_option(request, "size", settings.IMAGE_SIZE["medium"]),
+#        "large": g_option(request, "size", settings.IMAGE_SIZE["large"]),
         "user": request.user,
         "mobile": detect_mobile(request),
         "sort": sort_order(request),
@@ -360,7 +396,7 @@ def new_viewgallery(request: WSGIRequest):
         "fromtimestamp": datetime.datetime.fromtimestamp,
         "thumbpath": paths["thumbpath"],
         "current_page": request.GET.get("page", 1),
-        "gallery_name": os.path.split(request.path_info)[-1],
+        "gallery_name": pathlib.Path(paths["webpath"]).name,
         "up_uri": "/".join(request.build_absolute_uri().split("/")[0:-1]),
         "missing": [],
         "search": False,
@@ -386,8 +422,11 @@ def new_viewgallery(request: WSGIRequest):
         context["current_page"] = 1
     except EmptyPage:
         context["pagelist"] = chk_list.page(chk_list.num_pages)
-    context["prev_uri"], context["next_uri"] = return_prev_next(
-        os.path.dirname(paths["album_viewing"]), paths["webpath"], context["sort"]
+    # context["prev_uri"], context["next_uri"] = return_prev_next(
+    #     os.path.dirname(paths["album_viewing"]), paths["webpath"], context["sort"]
+    # )
+    context["prev_uri"], context["next_uri"] = return_prev_next2(
+        directory, context["sort"]
     )
 
     response = render(
