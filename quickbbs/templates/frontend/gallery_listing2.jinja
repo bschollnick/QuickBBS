@@ -133,7 +133,7 @@
                         {% for name, url, link in breadcrumbs %}
                             <li><a href='{{url}}'>{{name}}</a></li>
                         {% endfor %}
-                        <li class="is-active">{{ gallery_name|wordwrap(width=50,break_long_words=True) }}</li>
+                        <li class="is-active"><h3>{{ gallery_name|wordwrap(width=50,break_long_words=True) }}</h3></li>
                         </ul>
                    </nav>
                 </div>
@@ -141,14 +141,14 @@
                         {% if prev_uri not in ["", None] %}
                             <a href="{{ prev_uri }}?sort={{sort}}">
                                 {{ icon("angle-left fa-1x")}}
-                                {{ prev_uri[:30]|wordwrap(width=25,break_long_words=True) }}</a>
+                                {{ prev_uri.split("/")[-1][:30]|wordwrap(width=25,break_long_words=True) }}</a>
                         {% endif %}
                 </div>
                 <div class="column is-one-third has-text-centered">
                         {% if next_uri not in ["", None] %}
                             <a href="{{ next_uri }}?sort={{sort}}">
                             {{ icon("angle-right fa-1x")}}
-                            {{ next_uri[:30]|wordwrap(width=25,break_long_words=True)  }}</a>
+                            {{ next_uri.split("/")[-1][:30]|wordwrap(width=25,break_long_words=True)  }}</a>
                         {% endif %}
                 </div>
             </div><!-- Folder Navigation & Breadcrumbs -->
