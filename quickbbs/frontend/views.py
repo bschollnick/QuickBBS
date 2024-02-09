@@ -50,47 +50,48 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 # Sending File or zipfile - https://djangosnippets.org/snippets/365/
 
 
-def return_prev_next(fqpn, currentpath, sorder) -> tuple:
-    """
-    The return_prev_next function takes a fully qualified pathname,
-    and the current path as parameters. It returns the previous and next paths in a tuple.
+# def return_prev_next(fqpn, currentpath, sorder) -> tuple:
+#     """
+#     The return_prev_next function takes a fully qualified pathname,
+#     and the current path as parameters. It returns the previous and next paths in a tuple.
+#
+#     :param fqpn: Get the path of the parent directory
+#     :param currentpath: Determine the current offset in the list of files
+#     :param sorder: Determine whether the index is sorted by name or size
+#     :return: A tuple of two strings,
+#
+#     Note:
+#     ORM only derived from https://stackoverflow.com/questions/1042596/
+#             get-the-index-of-an-element-in-a-queryset
+#                 Specifically Richard's answer.
+#     """
+#     # Parent_path = Path(fqpn).parent
+#     nextdir = ""  # unnecessary since going beyond the max offset will cause indexerror.
+#     prevdir = ""
+#     fqpn = ensures_endswith(fqpn.lower(), os.sep).replace("//", "/")
+#     currentpath = os.path.split(currentpath.lower().strip())[1]
+#     # read_from_disk(fqpn, skippable=True)
+#     if currentpath not in [None, ""]:
+#         index = get_db_files(sorder, fqpn).exclude(filetype__is_dir=False)
+#         index = index.only("name")
+#         current_offset = 0
+#         if index.exists():
+#             try:
+#                 current_offset = list(index.values_list("name", flat=True)).index(
+#                     currentpath.title()
+#                 )
+#                 nextdir = index[current_offset + 1].name
+#             except IndexError:
+#                 pass
+#
+#             try:
+#                 if current_offset > 0:
+#                     prevdir = index[current_offset - 1].name
+#             except IndexError:
+#                 pass
+#
+#     return (prevdir, nextdir)
 
-    :param fqpn: Get the path of the parent directory
-    :param currentpath: Determine the current offset in the list of files
-    :param sorder: Determine whether the index is sorted by name or size
-    :return: A tuple of two strings,
-
-    Note:
-    ORM only derived from https://stackoverflow.com/questions/1042596/
-            get-the-index-of-an-element-in-a-queryset
-                Specifically Richard's answer.
-    """
-    # Parent_path = Path(fqpn).parent
-    nextdir = ""  # unnecessary since going beyond the max offset will cause indexerror.
-    prevdir = ""
-    fqpn = ensures_endswith(fqpn.lower(), os.sep).replace("//", "/")
-    currentpath = os.path.split(currentpath.lower().strip())[1]
-    # read_from_disk(fqpn, skippable=True)
-    if currentpath not in [None, ""]:
-        index = get_db_files(sorder, fqpn).exclude(filetype__is_dir=False)
-        index = index.only("name")
-        current_offset = 0
-        if index.exists():
-            try:
-                current_offset = list(index.values_list("name", flat=True)).index(
-                    currentpath.title()
-                )
-                nextdir = index[current_offset + 1].name
-            except IndexError:
-                pass
-
-            try:
-                if current_offset > 0:
-                    prevdir = index[current_offset - 1].name
-            except IndexError:
-                pass
-
-    return (prevdir, nextdir)
 
 def return_prev_next2(directory, sorder) -> tuple:
     """
@@ -113,21 +114,30 @@ def return_prev_next2(directory, sorder) -> tuple:
     parent_dir = directory.return_parent_directory()
     if parent_dir:
         parent_dir = parent_dir[0]
-
+    else:
+        return (None, None)
     count, directories = parent_dir.dirs_in_dir()
-    parent_dir_data = directories.values("pk", "fqpndirectory", "Parent_Dir_md5", "Combined_md5")
+    parent_dir_data = directories.values(
+        "pk", "fqpndirectory", "Parent_Dir_md5", "Combined_md5"
+    )
     for count, entry in enumerate(parent_dir_data):
         if entry["fqpndirectory"] == directory.fqpndirectory:
             if count >= 1:
-                prevdir = pathlib.Path(parent_dir_data[count-1]["fqpndirectory"]).name
+                prevdir = str(pathlib.Path(parent_dir_data[count - 1]["fqpndirectory"]))
+                prevdir = prevdir.replace(settings.ALBUMS_PATH, "")
 
             try:
-                nextdir = pathlib.Path(parent_dir_data[count+1]["fqpndirectory"]).name
+                nextdir = str(pathlib.Path(parent_dir_data[count + 1]["fqpndirectory"]))
+
+                # "webpath": request.path,
+                # "album_viewing": settings.ALBUMS_PATH + request.path,
+                nextdir = nextdir.replace(settings.ALBUMS_PATH, "")
             except IndexError:
                 pass
-
             break
+
     return (prevdir, nextdir)
+
 
 def ThumbnailDir(request: WSGIRequest, tnail_id: str = None):
     """
@@ -368,11 +378,10 @@ def new_viewgallery(request: WSGIRequest):
             request.path.replace(r"/albums/", r"/thumbnails/"), "/"
         ),
     }
-    print(paths)
-    read_from_disk(paths["album_viewing"], skippable=True)  # new_viewgallery
     if not os.path.exists(paths["album_viewing"]):
         #   Albums doesn't exist
         return HttpResponseNotFound("<h1>gallery not found</h1>")
+    read_from_disk(paths["album_viewing"], skippable=True)  # new_viewgallery
 
     found, directory = Index_Dirs.search_for_directory(paths["album_viewing"])
     directories = []
@@ -386,8 +395,6 @@ def new_viewgallery(request: WSGIRequest):
     context = {
         "debug": settings.DEBUG,
         "small": g_option(request, "size", settings.IMAGE_SIZE["small"]),
-#        "medium": g_option(request, "size", settings.IMAGE_SIZE["medium"]),
-#        "large": g_option(request, "size", settings.IMAGE_SIZE["large"]),
         "user": request.user,
         "mobile": detect_mobile(request),
         "sort": sort_order(request),
@@ -404,14 +411,14 @@ def new_viewgallery(request: WSGIRequest):
 
     context["all_listings"] = list(directories)
     context["all_listings"].extend(list(files))
-    #print(context["all_listings"])
+    # print(context["all_listings"])
     # The only thing left is a directory.
     fs_path = ensures_endswith(
         os.path.abspath(os.path.join(settings.ALBUMS_PATH, paths["webpath"][1:])),
         os.sep,
     )
-    #index = get_db_files(context["sort"], fs_path)
-    #chk_list = Paginator(files, 30)
+    # index = get_db_files(context["sort"], fs_path)
+    # chk_list = Paginator(files, 30)
     chk_list = Paginator(context["all_listings"], 30)
     context["page_cnt"] = list(arange(1, chk_list.num_pages + 1))
 
@@ -430,8 +437,11 @@ def new_viewgallery(request: WSGIRequest):
     )
 
     response = render(
-        #request, "frontend/gallery_listing.jinja", context, using="Jinja2"
-        request, "frontend/gallery_listing2.jinja", context, using="Jinja2"
+        # request, "frontend/gallery_listing.jinja", context, using="Jinja2"
+        request,
+        "frontend/gallery_listing2.jinja",
+        context,
+        using="Jinja2",
     )
     print(
         "Gallery View, processing time: ", time.perf_counter() - start_time
