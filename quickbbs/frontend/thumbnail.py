@@ -228,7 +228,7 @@ def invalidate_thumb(thumbnail):
     return thumbnail
 
 
-def new_process_img(entry, request, imagesize="Small"):
+def new_process_img(entry, request, imagesize="small"):
     """
     input:
         entry - The IndexData entry
@@ -242,17 +242,16 @@ def new_process_img(entry, request, imagesize="Small"):
     Since we are just looking for a thumbnailable image, it doesn't have
     to be the most up to date, nor the most current.  Cached is fine.
     """
-    thumb_size = g_option(request, "size", "Small").lower()
-    existing_data = getattr(entry.file_tnail, f"{thumb_size}_thumb")
-    if existing_data != b"":
-        # Does the thumbnail exist?
-        if entry.size == entry.file_tnail.FileSize:
-            # If size matches, then image is most likely the existing cached image
-            # return the existing cached image
-            # return return_inline_attach(entry.name, existing_data)
-            # entry.send_thumbnail(filename=entry.name, fext_override=None, size=imagesize)
-            return entry
-
+    # thumb_size = g_option(request, "size", "Small").lower()
+    # existing_data = getattr(entry.file_tnail, f"{imagesize}_thumb")
+    # if existing_data != b"":
+    #     # Does the thumbnail exist?
+    #     if entry.size == entry.file_tnail.FileSize:
+    #         # If size matches, then image is most likely the existing cached image
+    #         # return the existing cached image
+    #         # return return_inline_attach(entry.name, existing_data)
+    #         # entry.send_thumbnail(filename=entry.name, fext_override=None, size=imagesize)
+    #         return existing_data
     fs_fname = os.path.join(entry.fqpndirectory, entry.name).replace("//", "/")
     # file system location of directory
 
@@ -262,20 +261,13 @@ def new_process_img(entry, request, imagesize="Small"):
     # https://stackoverflow.com/questions/1167398/python-access-class-property-from-string
     temp = return_image_obj(fs_fname)
     #
-    for size in ["Large", "Medium", "Small"]:
-        imagedata = cr_tnail_img(temp, settings.IMAGE_SIZE[size.lower()], fext=fext)
-        setattr(entry.file_tnail, f"{size}Thumb", imagedata)
+    for size in ["large", "medium", "small"]:
+        imagedata = cr_tnail_img(temp, settings.IMAGE_SIZE[size], fext=fext)
+        setattr(entry.file_tnail, f"{size}_thumb", imagedata)
 
     entry.file_tnail.FileSize = entry.size
     # entry.file_tnail.save()
     return entry
-    #
-    #   switch to new
-    # entry.send_inline
-
-
-#    imagedata = getattr(entry.file_tnail, f"{thumb_size}Thumb")
-#    return return_img_attach(entry.name, imagedata, fext_override="JPEG")
 
 
 def new_process_archive(ind_entry, request, page=0):

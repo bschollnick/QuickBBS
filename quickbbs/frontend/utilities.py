@@ -599,6 +599,7 @@ def sync_database_disk(directoryname):
     * Logic Update
         * If there are no database entries for the directory, the fs comparing to the database
     """
+    bulk_size = 100
     bootstrap = False
     if directoryname in [os.sep, r"/"]:
         directoryname = settings.ALBUMS_PATH
@@ -618,13 +619,13 @@ def sync_database_disk(directoryname):
         # If the directory is not found in the Cache_Tracking table, then it needs to be rescanned.
         # Remember, directory is placed in there, when it is scanned.
         # If changed, then watchdog should have removed it from the path.
-        print(f"{dirpath=} not in Cache_Tracking")
+        # print(f"{dirpath=} not in Cache_Tracking")
         _, fs_entries = return_disk_listing(dirpath)
 
         success, IDirs = IndexDirs.search_for_directory(dirpath)
         count, db_data = IDirs.files_in_dir()
         if count in [0, None]:
-            db_data = IndexData.objects.select_related("filetype", "directory").filter(
+            db_data = IndexData.objects.select_related("filetype").filter(
                 fqpndirectory=webpath, delete_pending=False, ignore=False
             )
 
@@ -710,22 +711,23 @@ def sync_database_disk(directoryname):
                         "numdirs",
                         "parent_dir_id",
                     ],
-                    50,
+                    bulk_size,
                 )
             except django.db.utils.IntegrityError:
                 return None
         else:
-            print("No records to update")
+            pass
+            # print("No records to update")
         # The record is in the database, so it's already been vetted in the database comparison
         if records_to_create:
-            print("Creating records")
             try:
-                IndexData.objects.bulk_create(records_to_create, 50)
+                IndexData.objects.bulk_create(records_to_create, bulk_size)
             except django.db.utils.IntegrityError:
                 return None
             # The record is in the database, so it's already been vetted in the database comparison
         else:
-            print("No records to create")
+            pass
+            # print("No records to create")
         if bootstrap:
             IndexData.objects.filter(delete_pending=True).delete()
 
