@@ -4,8 +4,12 @@ Database Specific Functions
 
 from typing import Iterator  # , Optional, Union, TypeVar, Generic
 
-from quickbbs.models import (Thumbnails_Archives, Thumbnails_Dirs,
-                             Thumbnails_Files, index_data)
+from quickbbs.models import (
+    Thumbnails_Archives,
+    Thumbnails_Dirs,
+    Thumbnails_Files,
+    Index_Data,
+)
 
 DF_VDBASE = ["sortname", "lastscan", "lastmod", "size"]
 
@@ -19,7 +23,7 @@ DF_VDBASE = ["sortname", "lastscan", "lastmod", "size"]
 #     fqpn = os.path.join(settings.ALBUMS_PATH, dir_to_scan)
 #     fqpn = fqpn.replace("//", "/")
 #     webpath = fqpn.replace(settings.ALBUMS_PATH, "")
-#     temp = get_filtered(index_data.objects,
+#     temp = get_filtered(Index_Data.objects,
 #                         {'fqpndirectory': webpath, 'ignore': False})
 #     print("validate triggered :", dir_to_scan)
 #     for entry in temp:
@@ -41,7 +45,7 @@ DF_VDBASE = ["sortname", "lastscan", "lastmod", "size"]
 #     potentially depreciated due to watchdog and v3
 #     """
 #     #    print(sys._getframe().f_code.co_name)
-#     deleted = index_data.objects.filter(delete_pending=True)
+#     deleted = Index_Data.objects.filter(delete_pending=True)
 #     if deleted.exists():
 #         print("Deleting old deleted records")
 #         deleted.delete()
@@ -54,12 +58,12 @@ SORT_MATRIX = {
 }
 
 
-def get_db_files(sorder, fpath) -> Iterator[index_data]:
+def get_db_files(sorder, fpath) -> Iterator[Index_Data]:
     """
     Fetch the data from the database, and then order by the current users sort
     """
     index = (
-        index_data.objects.prefetch_related("filetype")
+        Index_Data.objects.prefetch_related("filetype")
         .exclude(ignore=True)
         .exclude(delete_pending=True)
         .filter(fqpndirectory=fpath.lower().strip())
@@ -74,7 +78,7 @@ def get_db_files(sorder, fpath) -> Iterator[index_data]:
 #
 #             potentially depreciated due to watchdog and v3
 #     """
-#     entries = index_data.objects.exclude(ignore=True).exclude(delete_pending=True).filter(
+#     entries = Index_Data.objects.exclude(ignore=True).exclude(delete_pending=True).filter(
 #         fqpndirectory=fpath.lower().strip()).order_by(*SORT_MATRIX[sorder])
 #     tpk = entries.filter(uuid=tuuid.strip())[0].pk
 #     count = entries.filter(pk__lte=tpk).count() - 1
@@ -100,7 +104,7 @@ def check_dup_thumbs(uuid_to_check, page=0):
     check_dup_thumbs(uuid, page=4)
     """
     indexrec = (
-        index_data.objects.exclude(delete_pending=True)
+        Index_Data.objects.exclude(delete_pending=True)
         .exclude(ignore=True)
         .filter(uuid=str(uuid_to_check).strip())[0]
     )
@@ -124,7 +128,7 @@ def check_dup_thumbs(uuid_to_check, page=0):
         qset.delete()
 
 
-def get_xth_image(database, positional=0, filters=None) -> Iterator[index_data]:
+def get_xth_image(database, positional=0, filters=None) -> Iterator[Index_Data]:
     """
     Return the xth image from the database, using the passed filters
 

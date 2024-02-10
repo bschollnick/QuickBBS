@@ -5,17 +5,11 @@ import pathlib
 import time
 import uuid
 
-# from django.utils.decorators import method_decorator
-# from django.views.decorators.cache import cache_control
-# import quickbbs.natsort_model as natsort_model
 import thumbnails.models
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import models
 
-# from django.conf import settings
-# from django.views.decorators.cache import never_cache
-# , StreamingHttpResponse)
 from django.http import FileResponse, Http404, HttpResponse
 from django.urls import reverse
 from filetypes.models import FILETYPE_DATA, filetypes
@@ -59,7 +53,7 @@ def is_valid_uuid(uuid_to_test, version=4):
     return str(uuid_obj) == uuid_to_test
 
 
-class owners(models.Model):
+class Owners(models.Model):
     id = models.AutoField(primary_key=True)
     uuid = models.UUIDField(
         default=None, null=True, editable=False, blank=True, db_index=True
@@ -210,10 +204,10 @@ class Index_Dirs(models.Model):
             Index_Dirs.normalize_fqpn(fqpn_directory)
         )
         Index_Dirs.objects.filter(Combined_md5=Combined_md5).delete()
-        index_data.objects.filter(parent_dir_id=Combined_md5).delete()
+        Index_Data.objects.filter(parent_dir_id=Combined_md5).delete()
 
     def get_file_counts(self):
-        return index_data.objects.filter(
+        return Index_Data.objects.filter(
             parent_dir=self.pk, delete_pending=False
         ).count()
 
@@ -223,7 +217,7 @@ class Index_Dirs(models.Model):
         ).count()
 
     def get_count_breakdown(self):
-        d_files = index_data.objects.filter(
+        d_files = Index_Data.objects.filter(
             parent_dir_md5__Combined_md5=self.Combined_md5
         )
         totals = {}
@@ -258,7 +252,7 @@ class Index_Dirs(models.Model):
         from frontend.database import SORT_MATRIX
 
         files = (
-            index_data.objects.select_related("filetype")
+            Index_Data.objects.select_related("filetype")
             .filter(parent_dir=self.pk, delete_pending=False)
             .order_by(*SORT_MATRIX[sort])
         )
@@ -446,7 +440,11 @@ class Thumbnails_Archives(models.Model):
         ]
 
 
-class index_data(models.Model):
+class Index_Data(models.Model):
+    """
+    The Master Index for All files in the Gallery.  (See Index_Dirs for the counterpart for Directories)
+    """
+
     id = models.AutoField(primary_key=True)
     uuid = models.UUIDField(
         default=None, null=True, editable=False, db_index=True, blank=True
@@ -532,7 +530,7 @@ class index_data(models.Model):
     )
 
     ownership = models.OneToOneField(
-        owners,
+        Owners,
         on_delete=models.CASCADE,
         db_index=True,
         default=None,
@@ -541,13 +539,17 @@ class index_data(models.Model):
     )
 
     def get_webpath(self):
+        """
+        Convert the fqpndirectory to an web path
+        :return:
+        """
         return self.fqpndirectory.replace(
             settings.ALBUMS_PATH.lower() + r"/albums/", r""
         )
 
     # def write_to_db_entry(self, fileentry, fqpn, version=4):
     #     """
-    #     The write_to_db_entry function writes the fileentry to the index_data database.
+    #     The write_to_db_entry function writes the fileentry to the Index_Data database.
     #     It takes a scandir entry and a fully qualified pathname as parameters.
     #     The function then determines if it is dealing with a directory or not, and
     #     then creates an appropriate FileType object for that file extension.
@@ -599,9 +601,19 @@ class index_data(models.Model):
     #     lastscan = time.time()
 
     def get_file_counts(self):
+        """
+        Stub method to allow the same behavior between a Index_Dir objects and Index_Data object.
+
+        :return: None
+        """
         return None
 
     def get_dir_counts(self):
+        """
+        Stub method to allow the same behavior between a Index_Dir objects and Index_Data object.
+
+        :return: None
+        """
         return None
 
     def get_bg_color(self):
@@ -684,36 +696,41 @@ class index_data(models.Model):
 
          Examples
          --------
-         return_img_attach("test.png", img_data)
+         send_thumbnail("test.png")
 
+        References:
+            https://stackoverflow.com/questions/36392510/django-download-a-file
+            https://stackoverflow.com/questions/27712778/
+                   video-plays-in-other-browsers-but-not-safari
+            https://stackoverflow.com/questions/720419/
+                    how-can-i-find-out-whether-a-server-supports-the-range-header
 
         """
 
         def get_sized_tnail(size="small", tnail=None):
-            blob = b""
+            """
+            Helper to get and pick the right size for the thumbnail to be sent
+            :param size: The size string
+            :param tnail: The thumbnail record to be checked
+            :return: the blob that contains the image data
+            """
+            blobdata = b""
             if tnail is None:
                 return b""
             match size.lower():
                 case "small":
-                    blob = tnail.SmallThumb
+                    blobdata = tnail.SmallThumb
                 case "medium":
-                    blob = tnail.MediumThumb
+                    blobdata = tnail.MediumThumb
                 case "large":
-                    blob = tnail.LargeThumb
+                    blobdata = tnail.LargeThumb
                 case _:
-                    blob = b""
-            return blob
+                    blobdata = b""
+            return blobdata
 
-        # https://stackoverflow.com/questions/36392510/django-download-a-file
-        # https://stackoverflow.com/questions/27712778/
-        #               video-plays-in-other-browsers-but-not-safari
-        # https://stackoverflow.com/questions/720419/
-        #               how-can-i-find-out-whether-a-server-supports-the-range-header
         mtype = "application/octet-stream"
         if self.file_tnail is not None:
             blob = get_sized_tnail(size=size, tnail=self.file_tnail)
-        # elif self.directory is not None:
-        #    blob = get_sized_tnail(size=size, tnail=self.directory)
         response = FileResponse(
             io.BytesIO(blob),
             content_type=mtype,
@@ -726,11 +743,25 @@ class index_data(models.Model):
 
     # @method_decorator(cache_control(private=True))
     def inline_sendfile(self, request, ranged=False):
-        # https://stackoverflow.com/questions/36392510/django-download-a-file
-        # https://stackoverflow.com/questions/27712778/
-        #       video-plays-in-other-browsers-but-not-safari
-        # https://stackoverflow.com/questions/720419/
-        # how-can-i-find-out-whether-a-server-supports-the-range-header
+        """
+         Send an file either using an RangedFileResponse, or HTTP Respsonse
+
+        Args:
+             request : Dango Request Object
+             ranged (boolean): is an media file (eg Mp3, Mp4, etc) that allows ranged sending
+
+         Returns:
+             object::
+                 The Django response object that contains the attachment and header
+
+         Raises:
+             FileNotFoundError
+
+         Examples
+         --------
+         send_thumbnail("test.png")
+
+        """
         fqpn_filename = os.path.join(self.fqpndirectory, self.name)
         try:
             mtype = self.filetype.mimetype
