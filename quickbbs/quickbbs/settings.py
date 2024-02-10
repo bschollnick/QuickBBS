@@ -14,10 +14,10 @@ import os
 import socket
 from pathlib import Path
 
-# import quickbbs.jinjaenv
-from quickbbs.quickbbs_settings import *
 import django_icons
 
+# import quickbbs.jinjaenv
+from quickbbs.quickbbs_settings import *
 
 #
 #   Debug, enables the debugging mode

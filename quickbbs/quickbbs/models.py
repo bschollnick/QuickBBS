@@ -1,25 +1,27 @@
-import io
 import hashlib
+import io
 import os
 import pathlib
 import time
 import uuid
 
-# from django.conf import settings
-from django.views.decorators.cache import never_cache
-from django.http import FileResponse, Http404, HttpResponse  # , StreamingHttpResponse)
-from ranged_fileresponse import RangedFileResponse
-
+# from django.utils.decorators import method_decorator
+# from django.views.decorators.cache import cache_control
+# import quickbbs.natsort_model as natsort_model
+import thumbnails.models
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import models
+
+# from django.conf import settings
+# from django.views.decorators.cache import never_cache
+# , StreamingHttpResponse)
+from django.http import FileResponse, Http404, HttpResponse
 from django.urls import reverse
-from django.conf import settings
-from django.utils.decorators import method_decorator
-from django.views.decorators.cache import cache_control
-import quickbbs.natsort_model as natsort_model
-import thumbnails.models
+from filetypes.models import FILETYPE_DATA, filetypes
+from ranged_fileresponse import RangedFileResponse
+
 from quickbbs.natsort_model import NaturalSortField
-from filetypes.models import filetypes, FILETYPE_DATA
 
 
 def convert_text_to_md5_hdigest(text):
@@ -254,22 +256,24 @@ class Index_Dirs(models.Model):
 
     def files_in_dir(self, sort=0):
         from frontend.database import SORT_MATRIX
-        files = index_data.objects.select_related("filetype").filter(
-            parent_dir=self.pk, delete_pending=False
-        ).order_by(
-        *SORT_MATRIX[sort])
+
+        files = (
+            index_data.objects.select_related("filetype")
+            .filter(parent_dir=self.pk, delete_pending=False)
+            .order_by(*SORT_MATRIX[sort])
+        )
         return files.count(), files
 
     def dirs_in_dir(self, sort=0):
         from frontend.database import SORT_MATRIX
+
         dir_scan = str((pathlib.Path(self.fqpndirectory)).resolve())
         dir_scan = Index_Dirs.normalize_fqpn(dir_scan)
         dir_scan_md5 = convert_text_to_md5_hdigest(dir_scan)
         # dirs = Index_Dirs.objects.filter(Combined_md5=self.Combined_md5, delete_pending=False)
         dirs = Index_Dirs.objects.filter(
             Parent_Dir_md5=dir_scan_md5, delete_pending=False
-        ).order_by(
-        *SORT_MATRIX[sort])
+        ).order_by(*SORT_MATRIX[sort])
         return dirs.count(), dirs
 
     def get_view_url(self):
@@ -447,18 +451,20 @@ class index_data(models.Model):
     uuid = models.UUIDField(
         default=None, null=True, editable=False, db_index=True, blank=True
     )
-    lastscan = models.FloatField(db_index=True)  # Stored as Unix TimeStamp (ms)
+    # Stored as Unix TimeStamp (ms)
+    lastscan = models.FloatField(db_index=True)
     lastmod = models.FloatField(db_index=True)  # Stored as Unix TimeStamp (ms)
     name = models.CharField(db_index=True, max_length=384, default=None)
     # FQFN of the file itself
     # sortname = models.CharField(editable=False, max_length=384, default='')
     name_sort = NaturalSortField(for_field="name", max_length=384, default="")
     size = models.BigIntegerField(default=0)  # File size
-    numfiles = models.IntegerField(default=0)  # The # of files in this directory
-    numdirs = models.IntegerField(
-        default=0
-    )  # The # of Children Directories in this directory
-    count_subfiles = models.BigIntegerField(default=0)  # the # of subfiles in archive
+    # The # of files in this directory
+    #    numfiles = models.IntegerField(default=0)
+    #    numdirs = models.IntegerField(
+    #        default=0
+    #    )  # The # of Children Directories in this directory
+    #    count_subfiles = models.BigIntegerField(default=0)  # the # of subfiles in archive
     fqpndirectory = models.CharField(default=0, db_index=True, max_length=384)
     # Directory of the file, lower().replace("//", "/"), ensure it is path, and not path + filename
     parent_dir = models.ForeignKey(
@@ -507,14 +513,14 @@ class index_data(models.Model):
         blank=True,
     )
 
-    directory = models.OneToOneField(
-        Thumbnails_Dirs,
-        on_delete=models.CASCADE,
-        db_index=True,
-        default=None,
-        null=True,
-        blank=True,
-    )
+    # directory = models.OneToOneField(
+    #     Thumbnails_Dirs,
+    #     on_delete=models.CASCADE,
+    #     db_index=True,
+    #     default=None,
+    #     null=True,
+    #     blank=True,
+    # )
     # https://stackoverflow.com/questions/38388423
     archives = models.OneToOneField(
         Thumbnails_Archives,
@@ -539,58 +545,58 @@ class index_data(models.Model):
             settings.ALBUMS_PATH.lower() + r"/albums/", r""
         )
 
-    def write_to_db_entry(self, fileentry, fqpn, version=4):
-        """
-        The write_to_db_entry function writes the fileentry to the index_data database.
-        It takes a scandir entry and a fully qualified pathname as parameters.
-        The function then determines if it is dealing with a directory or not, and
-        then creates an appropriate FileType object for that file extension.
-        If it is not an image, video, audio or archive type of file (as defined in
-        the FILETYPE_DATA dictionary), then we will just create a generic FileType object
-        that has no other attributes than being there.
-
-        :param self: Reference the class instance
-        :param fileentry: scandir entry
-        :param fqpn: Pass the fully qualified pathname of the file to be scanned
-        :param version=4: Generate a uuid version 4
-        :return: None
-        """
-        """
-        Start of Unified code.  WIP
-        Intended to be the glue that writes the database entry.
-        Parameters
-        ----------
-        fileentry : The scandir entry 
-        fqpn : The fully qualified pathname of the file
-        version : uuid version number
-
-        Returns
-        -------
-            None:
-
-        """
-        if self.uuid is None:
-            self.uuid = uuid.uuid(version=version)
-
-        fext = os.path.splitext(fileentry.name)[1].lower()
-        if fext == "":
-            fext = ".none"
-        self.filetypes(fileext=fext)
-
-        if fileentry.is_dir():
-            self.filetypes(fileext=".dir")
-            fext = ".dir"
-
-        if fext in [".gif"] and filetype_models.FILETYPE_DATA[fext]["is_image"]:
-            try:
-                animated = Image.open(os.path.join(fqpn, filename)).is_animated
-                force_save = True
-            except AttributeError:
-                print(f"{fext} is not an animated GIF")
-
-        numfiles = 0
-        numdirs = 0
-        lastscan = time.time()
+    # def write_to_db_entry(self, fileentry, fqpn, version=4):
+    #     """
+    #     The write_to_db_entry function writes the fileentry to the index_data database.
+    #     It takes a scandir entry and a fully qualified pathname as parameters.
+    #     The function then determines if it is dealing with a directory or not, and
+    #     then creates an appropriate FileType object for that file extension.
+    #     If it is not an image, video, audio or archive type of file (as defined in
+    #     the FILETYPE_DATA dictionary), then we will just create a generic FileType object
+    #     that has no other attributes than being there.
+    #
+    #     :param self: Reference the class instance
+    #     :param fileentry: scandir entry
+    #     :param fqpn: Pass the fully qualified pathname of the file to be scanned
+    #     :param version=4: Generate a uuid version 4
+    #     :return: None
+    #     """
+    #     """
+    #     Start of Unified code.  WIP
+    #     Intended to be the glue that writes the database entry.
+    #     Parameters
+    #     ----------
+    #     fileentry : The scandir entry
+    #     fqpn : The fully qualified pathname of the file
+    #     version : uuid version number
+    #
+    #     Returns
+    #     -------
+    #         None:
+    #
+    #     """
+    #     if self.uuid is None:
+    #         self.uuid = uuid.uuid(version=version)
+    #
+    #     fext = os.path.splitext(fileentry.name)[1].lower()
+    #     if fext == "":
+    #         fext = ".none"
+    #     self.filetypes(fileext=fext)
+    #
+    #     if fileentry.is_dir():
+    #         self.filetypes(fileext=".dir")
+    #         fext = ".dir"
+    #
+    #     if fext in [".gif"] and filetype_models.FILETYPE_DATA[fext]["is_image"]:
+    #         try:
+    #             animated = Image.open(os.path.join(fqpn, filename)).is_animated
+    #             force_save = True
+    #         except AttributeError:
+    #             print(f"{fext} is not an animated GIF")
+    #
+    #     numfiles = 0
+    #     numdirs = 0
+    #     lastscan = time.time()
 
     def get_file_counts(self):
         return None
@@ -706,8 +712,8 @@ class index_data(models.Model):
         mtype = "application/octet-stream"
         if self.file_tnail is not None:
             blob = get_sized_tnail(size=size, tnail=self.file_tnail)
-        elif self.directory is not None:
-            blob = get_sized_tnail(size=size, tnail=self.directory)
+        # elif self.directory is not None:
+        #    blob = get_sized_tnail(size=size, tnail=self.directory)
         response = FileResponse(
             io.BytesIO(blob),
             content_type=mtype,
@@ -730,7 +736,6 @@ class index_data(models.Model):
             mtype = self.filetype.mimetype
             if mtype is None:
                 mtype = "application/octet-stream"
-            #            basefilename = os.path.basename(self.name)
             with open(fqpn_filename, "rb") as fh:
                 if ranged:
                     # open must be in the RangedFielRequest, to allow seeking

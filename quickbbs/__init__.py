@@ -1,10 +1,10 @@
 #
 #   Boot strap by loading the configuration path data
 #
-__version__ = '1.5'
+__version__ = "1.5"
 
-__author__ = 'Benjamin Schollnick'
-__email__ = 'Benjamin@schollnick.net'
+__author__ = "Benjamin Schollnick"
+__email__ = "Benjamin@schollnick.net"
 
-__url__ = 'https://github.com/bschollnick/bschollnick'
-__license__ = ''
+__url__ = "https://github.com/bschollnick/bschollnick"
+__license__ = ""

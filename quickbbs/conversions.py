@@ -2,10 +2,15 @@ import os, sys
 import django
 
 # sys.path.append('/abs/path/to/my-project/)
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'quickbbs.settings')
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "quickbbs.settings")
 django.setup()
 
-from quickbbs.models import Index_Dirs, Thumbnails_Dirs, convert_text_to_md5_hdigest, index_data
+from quickbbs.models import (
+    Index_Dirs,
+    Thumbnails_Dirs,
+    convert_text_to_md5_hdigest,
+    index_data,
+)
 
 new_dir_index = Index_Dirs
 
@@ -22,7 +27,7 @@ new_dir_index = Index_Dirs
 
 for directory in index_data.objects.all().values("fqpndirectory").distinct():
     found, dir_entry = Index_Dirs.search_for_directory(directory["fqpndirectory"])
-    #print(found, directory["fqpndirectory"], dir_entry)
+    # print(found, directory["fqpndirectory"], dir_entry)
     files = index_data.objects.filter(fqpndirectory=directory["fqpndirectory"])
     if dir_entry != files[0].parent_dir:
         print(f"updated {dir_entry.DirName}")
@@ -54,4 +59,3 @@ for directory in index_data.objects.all().values("fqpndirectory").distinct():
 
 
 #    sys.exit()
-
