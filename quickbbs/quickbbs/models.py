@@ -216,11 +216,14 @@ class IndexDirs(models.Model):
         :param fqpn_directory: text string of fully qualified pathname of the directory
         :return:
         """
+        from cache.models import Cache_Storage
+
         combined_md5 = convert_text_to_md5_hdigest(
             IndexDirs.normalize_fqpn(fqpn_directory)
         )
+        Cache_Storage.remove_from_cache_name(fqpn_directory)
         IndexDirs.objects.filter(combined_md5=combined_md5).delete()
-        IndexData.objects.filter(parent_dir_id=combined_md5).delete()
+        # IndexData.objects.filter(parent_dir_id=combined_md5).delete()
         # This should be redundant, but need to test to verify.
 
     def get_file_counts(self):
@@ -357,7 +360,7 @@ class IndexDirs(models.Model):
         """
         return self.filetype.color
 
-    def get_thumbnail_url(self):
+    def get_thumbnail_url(self, size=None):
         """
         Generate the URL for the thumbnail of the current item
 
@@ -417,6 +420,7 @@ class Thumbnails_Files(models.Model):
         db_index=True, max_length=384, default=None
     )  # FQFN of the file itself
     FileSize = models.BigIntegerField(default=-1)
+
     small_thumb = models.BinaryField(default=b"")
     medium_thumb = models.BinaryField(default=b"")
     large_thumb = models.BinaryField(default=b"")
@@ -698,7 +702,8 @@ class IndexData(models.Model):
         size = size.lower()
 
         # options = {"i_uuid": str(self.uuid)}
-        return reverse(r"thumbnail_file", args=(self.uuid,)) + f"?size={size}"
+        url = reverse(r"thumbnail_file", args=(self.uuid,)) + f"?size={size}"
+        return url
 
     def get_download_url(self):
         """

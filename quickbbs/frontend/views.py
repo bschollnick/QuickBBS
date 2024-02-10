@@ -76,7 +76,7 @@ def return_prev_next2(directory, sorder) -> tuple:
         return (None, None)
     count, directories = parent_dir.dirs_in_dir(sort=sorder)
     parent_dir_data = directories.values(
-        "pk", "fqpndirectory", "Parent_Dir_md5", "combined_md5"
+        "pk", "fqpndirectory", "parent_dir_md5", "combined_md5"
     )
     for count, entry in enumerate(parent_dir_data):
         if entry["fqpndirectory"] == directory.fqpndirectory:
@@ -134,41 +134,38 @@ def thumbnail_file(request: WSGIRequest, tnail_id: str = None):
         print(tnail_id, "File not found - No records returned.")
         return Http404
 
-    size = request.GET.get("size", "small").lower()
+    thumbsize = request.GET.get("size", "small").lower()
     entry = index_qs[0]
     fs_item = os.path.join(entry.fqpndirectory, entry.name)
     fname = os.path.basename(entry.name).title()
-    existing_data = None
     if entry.file_tnail is not None:
-        existing_data = getattr(entry.file_tnail, f"{size}_thumb")
-    if existing_data not in ["", b"", None]:  # == None:
-        # send the existing thumbnail
-        return entry.send_thumbnail(size=size)
+        existing_data = getattr(entry.file_tnail, f"{thumbsize}_thumb")
+        if existing_data not in ["", b"", None]:  # == None:
+            # send the existing thumbnail
+            return entry.send_thumbnail(size=thumbsize)
 
     if entry.filetype.is_pdf or entry.filetype.is_image or entry.filetype.is_movie:
         # add in file size comparison
-        entry.file_tnail = Thumbnails_Files()
+        if entry.file_tnail is None:
+            entry.file_tnail = Thumbnails_Files()
         entry.file_tnail.uuid = entry.uuid
         entry.file_tnail.FilePath = fs_item
         entry.file_tnail.FileName = fname
-        # entry.file_tnail.save()
         try:
-            entry = new_process_img(entry, request)
-            # entry.refresh_from_db()
+            entry = new_process_img(entry, request, imagesize=thumbsize)
         except IntegrityError:
-            print("File - IntegrityError", tnail_id, entry.uuid)
             time.sleep(0.5)
             entry = new_process_img(entry, request)
         entry.file_tnail.save()
-
         entry.save()
-        return entry.send_thumbnail(size=size)
+        return entry.send_thumbnail(size=thumbsize)
 
     if entry.filetype.icon_filename not in ["", None]:
         entry.is_generic_icon = True
         entry.fqpndirectory = os.path.join(
             settings.RESOURCES_PATH, "images", entry.filetype.icon_filename
         )
+        entry.save()
         return respond_as_attachment(
             request,
             os.path.join(settings.RESOURCES_PATH, "Images"),
@@ -234,7 +231,7 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
         entry.file_tnail.FilePath = fs_item
         entry.file_tnail.FileName = fname
         try:
-            new_process_img(entry, request)
+            new_process_img(entry, request, size=size)
         except IntegrityError:
             print("IntegrityError")
             time.sleep(0.5)
@@ -476,9 +473,9 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
             "uuid": entry.uuid,
             "filename": entry.name,
             "filesize": entry.size,
-            "filecount": entry.numfiles,
-            "dircount": entry.numdirs,
-            "subdircount": entry.count_subfiles,
+            #   "filecount": entry.numfiles,
+            #   "dircount": entry.numdirs,
+            #   "subdircount": entry.count_subfiles,
             "is_animated": entry.is_animated,
             "lastmod": entry.lastmod,
             "lastmod_ds": datetime.datetime.fromtimestamp(entry.lastmod).strftime(
