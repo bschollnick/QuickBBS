@@ -76,7 +76,7 @@ def return_prev_next2(directory, sorder) -> tuple:
         return (None, None)
     count, directories = parent_dir.dirs_in_dir(sort=sorder)
     parent_dir_data = directories.values(
-        "pk", "fqpndirectory", "Parent_Dir_md5", "Combined_md5"
+        "pk", "fqpndirectory", "Parent_Dir_md5", "combined_md5"
     )
     for count, entry in enumerate(parent_dir_data):
         if entry["fqpndirectory"] == directory.fqpndirectory:
@@ -120,8 +120,8 @@ def thumbnail_dir(request: WSGIRequest, tnail_id: str = None):
     if entry.is_generic_icon:
         count = entry.get_file_counts()
         if count in [0, None]:
-            entry.SmallThumb = None
-    if entry.SmallThumb in [b"", None, ""]:
+            entry.small_thumb = None
+    if entry.small_thumb in [b"", None, ""]:
         new_process_dir2(entry)
 
     return entry.send_thumbnail()  # Send existing thumbnail
@@ -134,13 +134,13 @@ def thumbnail_file(request: WSGIRequest, tnail_id: str = None):
         print(tnail_id, "File not found - No records returned.")
         return Http404
 
-    size = request.GET.get("size", "small").title()
+    size = request.GET.get("size", "small").lower()
     entry = index_qs[0]
     fs_item = os.path.join(entry.fqpndirectory, entry.name)
     fname = os.path.basename(entry.name).title()
     existing_data = None
     if entry.file_tnail is not None:
-        existing_data = getattr(entry.file_tnail, f"{size}Thumb")
+        existing_data = getattr(entry.file_tnail, f"{size}_thumb")
     if existing_data not in ["", b"", None]:  # == None:
         # send the existing thumbnail
         return entry.send_thumbnail(size=size)

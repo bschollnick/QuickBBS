@@ -107,11 +107,11 @@ class IndexDirs(models.Model):
         db_index=False, max_length=384, default="", unique=True, blank=True
     )  # FQFN of the file itself
     # WebPath_md5 = models.CharField(db_index=True, max_length=32, unique=False)
-    DirName_md5 = models.CharField(db_index=True, max_length=32, unique=False)
+    dir_name_md5 = models.CharField(db_index=True, max_length=32, unique=False)
     # DirName is the just the directory name (eg test1)
-    Combined_md5 = models.CharField(db_index=True, max_length=32, unique=True)
+    combined_md5 = models.CharField(db_index=True, max_length=32, unique=True)
     # Combined is the FQPN md5  (eg /var/albums/test/test1)
-    Parent_Dir_md5 = models.CharField(db_index=True, max_length=32, unique=False)
+    parent_dir_md5 = models.CharField(db_index=True, max_length=32, unique=False)
     # Is the FQPN of the parent directory (eg /var/albums/test)
     lastscan = models.FloatField(
         db_index=True, default=None
@@ -134,7 +134,7 @@ class IndexDirs(models.Model):
         db_index=True,
         default=".dir",
     )
-    SmallThumb = models.BinaryField(default=b"")
+    small_thumb = models.BinaryField(default=b"")
 
     @staticmethod
     def normalize_fqpn(fqpn_directory):
@@ -165,17 +165,17 @@ class IndexDirs(models.Model):
         # dir_seg, filename_seg = os.path.split(fqpn_directory)
         new_rec = IndexDirs()
         new_rec.fqpndirectory = fqpn_directory
-        new_rec.DirName_md5 = convert_text_to_md5_hdigest(
+        new_rec.dir_name_md5 = convert_text_to_md5_hdigest(
             IndexDirs.normalize_fqpn(filename_seg)
         )
-        new_rec.Combined_md5 = convert_text_to_md5_hdigest(
+        new_rec.combined_md5 = convert_text_to_md5_hdigest(
             IndexDirs.normalize_fqpn(fqpn_directory)
         )
-        new_rec.Parent_Dir_md5 = convert_text_to_md5_hdigest(parent_dir)
+        new_rec.parent_dir_md5 = convert_text_to_md5_hdigest(parent_dir)
         new_rec.uuid = uuid.uuid4()
         #        new_rec.FileCount = FileCount
         #        new_rec.DirCount = DirCount
-        new_rec.SmallThumb = thumbnail
+        new_rec.small_thumb = thumbnail
         new_rec.lastmod = os.path.getmtime(new_rec.fqpndirectory)
         new_rec.lastscan = time.time()
         new_rec.filetype = filetypes(fileext=".dir")
@@ -216,11 +216,11 @@ class IndexDirs(models.Model):
         :param fqpn_directory: text string of fully qualified pathname of the directory
         :return:
         """
-        Combined_md5 = convert_text_to_md5_hdigest(
+        combined_md5 = convert_text_to_md5_hdigest(
             IndexDirs.normalize_fqpn(fqpn_directory)
         )
-        IndexDirs.objects.filter(Combined_md5=Combined_md5).delete()
-        IndexData.objects.filter(parent_dir_id=Combined_md5).delete()
+        IndexDirs.objects.filter(combined_md5=combined_md5).delete()
+        IndexData.objects.filter(parent_dir_id=combined_md5).delete()
         # This should be redundant, but need to test to verify.
 
     def get_file_counts(self):
@@ -238,7 +238,7 @@ class IndexDirs(models.Model):
         :return: Integer - Number of directories
         """
         return IndexDirs.objects.filter(
-            Parent_Dir_md5=self.Combined_md5, delete_pending=False
+            parent_dir_md5=self.combined_md5, delete_pending=False
         ).count()
 
     def get_count_breakdown(self):
@@ -250,14 +250,14 @@ class IndexDirs(models.Model):
         for directories).  (all_files is the sum of all file types, except "dir")
         """
         d_files = IndexData.objects.filter(
-            parent_dir_md5__Combined_md5=self.Combined_md5
+            parent_dir_md5__combined_md5=self.combined_md5
         )
         totals = {}
         for key in FILETYPE_DATA.keys():
             totals[key[1:]] = d_files.filter(filetype__fileext=key).count()
         totals["dir"] = self.get_dir_counts()
         # totals["dir"] = IndexDirs.objects.filter(
-        #    Parent_Dir_md5=self.Combined_md5, delete_pending=False
+        #    parent_dir_md5=self.combined_md5, delete_pending=False
         # ).count()
         # totals["all_files"] = d_files.filter().count() - totals["dir"]
         totals["all_files"] = self.get_file_counts()
@@ -268,7 +268,7 @@ class IndexDirs(models.Model):
         Return the database object of the parent directory to the current directory
         :return: database record of parent directory
         """
-        parent_dir = IndexDirs.objects.filter(Combined_md5=self.Parent_Dir_md5)
+        parent_dir = IndexDirs.objects.filter(combined_md5=self.parent_dir_md5)
         return parent_dir
 
     @staticmethod
@@ -281,7 +281,7 @@ class IndexDirs(models.Model):
         Path = pathlib.Path(fqpn_directory)
         fqpn_directory = IndexDirs.normalize_fqpn(str(Path.resolve()))
         query = IndexDirs.objects.filter(
-            Combined_md5=convert_text_to_md5_hdigest(fqpn_directory),
+            combined_md5=convert_text_to_md5_hdigest(fqpn_directory),
             delete_pending=False,
             ignore=False,
         )
@@ -325,9 +325,9 @@ class IndexDirs(models.Model):
         dir_scan = str((pathlib.Path(self.fqpndirectory)).resolve())
         dir_scan = IndexDirs.normalize_fqpn(dir_scan)
         dir_scan_md5 = convert_text_to_md5_hdigest(dir_scan)
-        # dirs = IndexDirs.objects.filter(Combined_md5=self.Combined_md5, delete_pending=False)
+        # dirs = IndexDirs.objects.filter(combined_md5=self.combined_md5, delete_pending=False)
         dirs = IndexDirs.objects.filter(
-            Parent_Dir_md5=dir_scan_md5, delete_pending=False
+            parent_dir_md5=dir_scan_md5, delete_pending=False
         ).order_by(*SORT_MATRIX[sort])
         return dirs.count(), dirs
 
@@ -395,13 +395,13 @@ class IndexDirs(models.Model):
         """
         mtype = "application/octet-stream"
         response = FileResponse(
-            io.BytesIO(self.SmallThumb),
+            io.BytesIO(self.small_thumb),
             content_type=mtype,
             as_attachment=False,
             filename=os.path.basename(self.fqpndirectory) + ".jpg",
         )
         response["Content-Type"] = mtype
-        response["Content-Length"] = len(self.SmallThumb)
+        response["Content-Length"] = len(self.small_thumb)
         return response
 
 
@@ -417,9 +417,9 @@ class Thumbnails_Files(models.Model):
         db_index=True, max_length=384, default=None
     )  # FQFN of the file itself
     FileSize = models.BigIntegerField(default=-1)
-    SmallThumb = models.BinaryField(default=b"")
-    MediumThumb = models.BinaryField(default=b"")
-    LargeThumb = models.BinaryField(default=b"")
+    small_thumb = models.BinaryField(default=b"")
+    medium_thumb = models.BinaryField(default=b"")
+    large_thumb = models.BinaryField(default=b"")
 
     class Meta:
         verbose_name = "Image File Thumbnails Cache"
@@ -458,9 +458,9 @@ class Thumbnails_Archives(models.Model):
     )  # FQFN of the file itself
     page = models.IntegerField(default=0)  # The
     FileSize = models.BigIntegerField(default=-1)
-    SmallThumb = models.BinaryField(default=b"")
-    MediumThumb = models.BinaryField(default=b"")
-    LargeThumb = models.BinaryField(default=b"")
+    small_thumb = models.BinaryField(default=b"")
+    medium_thumb = models.BinaryField(default=b"")
+    large_thumb = models.BinaryField(default=b"")
 
     class Meta:
         verbose_name = "Archive Thumbnails Cache"
@@ -753,21 +753,26 @@ class IndexData(models.Model):
                 return b""
             match size.lower():
                 case "small":
-                    blobdata = tnail.SmallThumb
+                    blobdata = tnail.small_thumb
                 case "medium":
-                    blobdata = tnail.MediumThumb
+                    blobdata = tnail.medium_thumb
                 case "large":
-                    blobdata = tnail.LargeThumb
+                    blobdata = tnail.large_thumb
                 case _:
                     blobdata = b""
             return blobdata
 
         if fext_override is not None:
             mimetype_filename = os.path.join(self.name, fext_override)
-        else:
+        elif filename:
             mimetype_filename = filename
-        mtype = mimetypes.guess_type(mimetype_filename)[0]
-        # mtype = "application/octet-stream"
+        else:
+            mimetype_filename = None
+
+        if mimetype_filename:
+            mtype = mimetypes.guess_type(mimetype_filename)[0]
+        else:
+            mtype = "application/octet-stream"
         if self.file_tnail is not None:
             blob = get_sized_tnail(size=size, tnail=self.file_tnail)
         response = FileResponse(
