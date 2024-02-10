@@ -212,7 +212,7 @@ class IndexDirs(models.Model):
     def delete_directory(fqpn_directory):
         """
         Delete the Index_Dirs data for the fqpn_directory, and ensure that all
-        Index_Data records are wiped as well.
+        IndexData records are wiped as well.
         :param fqpn_directory: text string of fully qualified pathname of the directory
         :return:
         """
@@ -220,38 +220,64 @@ class IndexDirs(models.Model):
             IndexDirs.normalize_fqpn(fqpn_directory)
         )
         IndexDirs.objects.filter(Combined_md5=Combined_md5).delete()
-        Index_Data.objects.filter(parent_dir_id=Combined_md5).delete()
+        IndexData.objects.filter(parent_dir_id=Combined_md5).delete()
         # This should be redundant, but need to test to verify.
 
     def get_file_counts(self):
-        return Index_Data.objects.filter(
+        """
+        Return the number of files that are in the database for the current directory
+        :return: Integer - Number of files in the database for the directory
+        """
+        return IndexData.objects.filter(
             parent_dir=self.pk, delete_pending=False
         ).count()
 
     def get_dir_counts(self):
+        """
+        Return the number of directories that are in the database for the current directory
+        :return: Integer - Number of directories
+        """
         return IndexDirs.objects.filter(
             Parent_Dir_md5=self.Combined_md5, delete_pending=False
         ).count()
 
     def get_count_breakdown(self):
-        d_files = Index_Data.objects.filter(
+        """
+        Return the count of items in the directory, broken down by filetype.
+        :return: dictionary, where the key is the filetype (e.g. "dir", "jpg", "mp4"),
+        and the value is the number of items of that filetype.
+        A special "all_files" key is used to store the # of all items in the directory (except
+        for directories).  (all_files is the sum of all file types, except "dir")
+        """
+        d_files = IndexData.objects.filter(
             parent_dir_md5__Combined_md5=self.Combined_md5
         )
         totals = {}
         for key in FILETYPE_DATA.keys():
             totals[key[1:]] = d_files.filter(filetype__fileext=key).count()
-        totals["dir"] = IndexDirs.objects.filter(
-            Parent_Dir_md5=self.Combined_md5, delete_pending=False
-        ).count()
-        totals["all_files"] = d_files.filter().count() - totals["dir"]
+        totals["dir"] = self.get_dir_counts()
+        # totals["dir"] = IndexDirs.objects.filter(
+        #    Parent_Dir_md5=self.Combined_md5, delete_pending=False
+        # ).count()
+        # totals["all_files"] = d_files.filter().count() - totals["dir"]
+        totals["all_files"] = self.get_file_counts()
         return totals
 
     def return_parent_directory(self):
+        """
+        Return the database object of the parent directory to the current directory
+        :return: database record of parent directory
+        """
         parent_dir = IndexDirs.objects.filter(Combined_md5=self.Parent_Dir_md5)
         return parent_dir
 
     @staticmethod
     def search_for_directory(fqpn_directory):
+        """
+        Return the database object matching the fqpn_directory
+        :param fqpn_directory: The fully qualified pathname of the directory
+        :return: A boolean representing the success of the search, and the resultant record
+        """
         Path = pathlib.Path(fqpn_directory)
         fqpn_directory = IndexDirs.normalize_fqpn(str(Path.resolve()))
         query = IndexDirs.objects.filter(
@@ -266,17 +292,35 @@ class IndexDirs(models.Model):
             return (False, query)  # return an empty query set
 
     def files_in_dir(self, sort=0):
-        from frontend.database import SORT_MATRIX
+        """
+        Return the files in the current directory
+        :param sort: The sort order of the files (0-2)
+        :return: The sorted query of files
+        """
+        # necessary to prevent circular references on startup
+        # pylint: disable-next=import-outside-toplevel
+        from frontend.database import (
+            SORT_MATRIX,
+        )
 
         files = (
-            Index_Data.objects.select_related("filetype")
+            IndexData.objects.select_related("filetype")
             .filter(parent_dir=self.pk, delete_pending=False)
             .order_by(*SORT_MATRIX[sort])
         )
         return files.count(), files
 
     def dirs_in_dir(self, sort=0):
-        from frontend.database import SORT_MATRIX
+        """
+        Return the directories in the current directory
+        :param sort: The sort order of the directories (0-2)
+        :return: The sorted query of directories
+        """
+        # necessary to prevent circular references on startup
+        # pylint: disable-next=import-outside-toplevel
+        from frontend.database import (
+            SORT_MATRIX,
+        )
 
         dir_scan = str((pathlib.Path(self.fqpndirectory)).resolve())
         dir_scan = IndexDirs.normalize_fqpn(dir_scan)
@@ -429,7 +473,7 @@ class Thumbnails_Archives(models.Model):
         ]
 
 
-class Index_Data(models.Model):
+class IndexData(models.Model):
     """
     The Master Index for All files in the Gallery.  (See IndexDirs for the counterpart
     for Directories)
@@ -539,7 +583,7 @@ class Index_Data(models.Model):
 
     # def write_to_db_entry(self, fileentry, fqpn, version=4):
     #     """
-    #     The write_to_db_entry function writes the fileentry to the Index_Data database.
+    #     The write_to_db_entry function writes the fileentry to the IndexData database.
     #     It takes a scandir entry and a fully qualified pathname as parameters.
     #     The function then determines if it is dealing with a directory or not, and
     #     then creates an appropriate FileType object for that file extension.
@@ -592,7 +636,7 @@ class Index_Data(models.Model):
 
     def get_file_counts(self):
         """
-        Stub method to allow the same behavior between a Index_Dir objects and Index_Data object.
+        Stub method to allow the same behavior between a Index_Dir objects and IndexData object.
 
         :return: None
         """
@@ -600,7 +644,7 @@ class Index_Data(models.Model):
 
     def get_dir_counts(self):
         """
-        Stub method to allow the same behavior between a Index_Dir objects and Index_Data object.
+        Stub method to allow the same behavior between a Index_Dir objects and IndexData object.
 
         :return: None
         """
@@ -633,10 +677,10 @@ class Index_Data(models.Model):
         #    parameters.append("&pdf")
         # elif self.filetype.is_archive:
         #    parameters.append("&arch")
-        if self.filetype.is_dir:
-            return reverse("directories") + os.path.join(self.get_webpath(), self.name)
-        else:
-            return reverse("new_viewitem", kwargs=options) + "".join(parameters)
+        # if self.filetype.is_dir:
+        #     return reverse("directories") + os.path.join(self.get_webpath(), self.name)
+        # else:
+        return reverse("new_viewitem", kwargs=options) + "".join(parameters)
 
     def get_thumbnail_url(self, size=None):
         """
