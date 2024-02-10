@@ -20,20 +20,24 @@ from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
 from django.db.utils import IntegrityError
 from django.http import Http404, HttpResponseBadRequest, HttpResponseNotFound
 from django.shortcuts import render
+
 # from django.db.models import Q
 from numpy import arange
 from PIL import Image, ImageFile
-from quickbbs.models import (Index_Dirs, Thumbnails_Dirs, Thumbnails_Files,
-                             index_data)
+from quickbbs.models import Index_Dirs, Thumbnails_Dirs, Thumbnails_Files, Index_Data
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 import frontend.archives3 as archives
 from frontend.database import SORT_MATRIX, get_db_files  # check_dup_thumbs
-from frontend.thumbnail import (new_process_dir, new_process_dir2,
-                                new_process_img)
-from frontend.utilities import (ensures_endswith, is_valid_uuid,
-                                read_from_disk, return_breadcrumbs, sort_order)
+from frontend.thumbnail import new_process_dir, new_process_dir2, new_process_img
+from frontend.utilities import (
+    ensures_endswith,
+    is_valid_uuid,
+    read_from_disk,
+    return_breadcrumbs,
+    sort_order,
+)
 from frontend.web import detect_mobile, g_option, respond_as_attachment
 
 log = logging.getLogger(__name__)
@@ -124,7 +128,7 @@ def thumbnail_dir(request: WSGIRequest, tnail_id: str = None):
 
 
 def thumbnail_file(request: WSGIRequest, tnail_id: str = None):
-    index_qs = index_data.objects.prefetch_related("filetype").filter(uuid=tnail_id)
+    index_qs = Index_Data.objects.prefetch_related("filetype").filter(uuid=tnail_id)
     if not index_qs.exists():
         # does not exist
         print(tnail_id, "File not found - No records returned.")
@@ -188,7 +192,7 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
     :raises: HttpResponseBadRequest - If the uuid can not be found
     """
     #    if is_valid_uuid(str(tnail_id)):
-    index_qs = index_data.objects.prefetch_related("filetype").filter(uuid=tnail_id)
+    index_qs = Index_Data.objects.prefetch_related("filetype").filter(uuid=tnail_id)
     if not index_qs.exists():
         # does not exist
         print(tnail_id, "No records returned.")
@@ -279,7 +283,7 @@ def search_viewresults(request: WSGIRequest):
         "next_uri": "",
     }
 
-    index = index_data.objects.filter(name__icontains=context["searchtext"]).order_by(
+    index = Index_Data.objects.filter(name__icontains=context["searchtext"]).order_by(
         *SORT_MATRIX[context["sort"]]
     )
 
@@ -419,12 +423,12 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
         "breadcrumbs_list": [],
     }
 
-    entry = index_data.objects.select_related("filetype").filter(uuid=context["uuid"])[
+    entry = Index_Data.objects.select_related("filetype").filter(uuid=context["uuid"])[
         0
     ]
     if not entry:
         # sync_database_disk(entry.fqpndirectory)
-        entry = index_data.objects.select_related("filetype").filter(
+        entry = Index_Data.objects.select_related("filetype").filter(
             uuid=context["uuid"]
         )[0]
         if not entry:
@@ -563,10 +567,10 @@ def download_file(request: WSGIRequest):  # , filename=None):
     if d_uuid in ["", None]:
         raise Http404
 
-    # download = index_data.objects.select_related("filetype").exclude(ignore=True). \
+    # download = Index_Data.objects.select_related("filetype").exclude(ignore=True). \
     #     exclude(delete_pending=True).filter(uuid=d_uuid)
 
-    download = index_data.objects.prefetch_related("filetype").filter(uuid=d_uuid)
+    download = Index_Data.objects.prefetch_related("filetype").filter(uuid=d_uuid)
 
     # if not download.exists():
     #     # database entries do not exist
@@ -591,7 +595,7 @@ def new_view_archive(request: WSGIRequest, i_uuid: str):
     if not is_valid_uuid(i_uuid):
         return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
 
-    entry = index_data.objects.filter(uuid=i_uuid)[0]
+    entry = Index_Data.objects.filter(uuid=i_uuid)[0]
     context["basename"] = os.path.basename
     context["splitext"] = os.path.splitext
     context["small"] = g_option(request, "size", settings.IMAGE_SIZE["small"])
@@ -674,7 +678,7 @@ def new_archive_item(request, i_uuid):
 
     context["sort"] = sort_order(request)
     e_uuid = i_uuid
-    index_qs = index_data.objects.filter(uuid=e_uuid)
+    index_qs = Index_Data.objects.filter(uuid=e_uuid)
     entry = index_qs[0]
     context.update({})
     item_fs = os.path.join(settings.ALBUMS_PATH, entry.fqpndirectory[1:], entry.name)
@@ -734,7 +738,7 @@ def view_setup():
     #             pass
 
 
-#    index_data.objects.filter(delete_pending=True).delete()
+#    Index_Data.objects.filter(delete_pending=True).delete()
 
 
 if __name__ != "__main__":

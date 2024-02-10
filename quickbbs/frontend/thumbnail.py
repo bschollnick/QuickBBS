@@ -8,12 +8,16 @@ from typing import Iterator  # , Optional, Union, TypeVar, Generic
 from django.conf import settings
 from django.db.utils import IntegrityError
 from filetypes.models import FILETYPE_DATA
-from quickbbs.models import Thumbnails_Archives, index_data
+from quickbbs.models import Thumbnails_Archives, Index_Data
 
 import frontend.archives3 as archives
 from frontend.database import get_xth_image
-from frontend.utilities import (cr_tnail_img, read_from_disk, return_image_obj,
-                                sync_database_disk)
+from frontend.utilities import (
+    cr_tnail_img,
+    read_from_disk,
+    return_image_obj,
+    sync_database_disk,
+)
 from frontend.web import g_option  # , respond_as_attachment
 from frontend.web import return_img_attach  # , return_inline_attach
 
@@ -40,7 +44,7 @@ def ensures_endswith(string_to_check, value) -> str:
     return string_to_check
 
 
-def images_in_dir(database, webpath) -> Iterator[index_data]:
+def images_in_dir(database, webpath) -> Iterator[Index_Data]:
     """
     Check for images in the directory.
     If they do not exist, try to load the directory, and test again.
@@ -78,7 +82,7 @@ def images_in_dir(database, webpath) -> Iterator[index_data]:
 def new_process_dir2(db_entry):
     """
     input:
-        entry - The index_data entry
+        entry - The Index_Data entry
 
     Read directory, and identify the first thumbnailable file.
     Make thumbnail of that file
@@ -136,7 +140,7 @@ def new_process_dir2(db_entry):
 def new_process_dir(db_index):
     """
     input:
-        entry - The index_data entry
+        entry - The Index_Data entry
 
     Read directory, and identify the first thumbnailable file.
     Make thumbnail of that file
@@ -162,7 +166,7 @@ def new_process_dir(db_index):
         db_index.directory.SmallThumb = b""
 
     files = images_in_dir(
-        index_data,
+        Index_Data,
         ensures_endswith(
             os.path.join(db_index.fqpndirectory, db_index.name).lower(), os.sep
         ),
@@ -214,7 +218,7 @@ def invalidate_thumb(thumbnail):
 
     :param thumbnail: Store the thumbnail data
     :return: The thumbnail object
-    >>> test = quickbbs.models.index_data()
+    >>> test = quickbbs.models.Index_Data()
     >>> test = invalidate_thumb(test)
     """
     thumbnail.FileSize = -1
@@ -227,7 +231,7 @@ def invalidate_thumb(thumbnail):
 def new_process_img(entry, request, imagesize="Small"):
     """
     input:
-        entry - The index_data entry
+        entry - The Index_Data entry
         request - The request data from Django
         imagesize - (small, medium, large constant)
 

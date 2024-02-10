@@ -37,7 +37,7 @@ class AdminThumbnail_Archives(admin.ModelAdmin):
     fields = ("uuid", "zipfilepath", "FilePath", "FileName", "page", "FileSize")
 
 
-@admin.register(index_data)
+@admin.register(Index_Data)
 class AdminMaster_Index(admin.ModelAdmin):
     readonly_fields = ("id", "uuid", "name_sort")
     list_display = (
@@ -83,6 +83,6 @@ class AdminMaster_Index(admin.ModelAdmin):
 #     list_display = ('fqpndirectory',)
 #     fields = ('fqpndirectory',)
 
-admin.site.register(owners)
+admin.site.register(Owners)
 admin.site.register(Favorites)
 # admin.site.register(Cache_Tracking)

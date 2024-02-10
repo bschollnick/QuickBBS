@@ -26,7 +26,7 @@ import fitz  # PDF previews
 from cache.models import Cache_Storage
 from django.conf import settings
 from PIL import Image
-from quickbbs.models import Index_Dirs, filetypes, index_data
+from quickbbs.models import Index_Dirs, filetypes, Index_Data
 
 import frontend.archives3 as archives
 import frontend.constants as constants
@@ -504,10 +504,10 @@ def add_archive(fqpn, new_uuid):
             pass
 
 
-def process_filedata(fs_entry, db_record, v3=False) -> index_data:
+def process_filedata(fs_entry, db_record, v3=False) -> Index_Data:
     """
-    The process_filedata function takes a file system entry and returns an index_data object.
-    The index_data object contains the following attributes:
+    The process_filedata function takes a file system entry and returns an Index_Data object.
+    The Index_Data object contains the following attributes:
         fqpndirectory - The fully qualified path to the directory containing the file or folder.
         name - The name of the file or folder (without any parent directories).
         sortname - A normalized version of 'name' with all capital letters replaced by lower case letters,
@@ -625,12 +625,12 @@ def sync_database_disk(directoryname):
         success, IDirs = Index_Dirs.search_for_directory(dirpath)
         count, db_data = IDirs.files_in_dir()
         if count in [0, None]:
-            db_data = index_data.objects.select_related("filetype", "directory").filter(
+            db_data = Index_Data.objects.select_related("filetype", "directory").filter(
                 fqpndirectory=webpath, delete_pending=False, ignore=False
             )
 
         #        print(count, db_data)
-        # db_data = index_data.search_for_directory(fqpn_directory=webpath)
+        # db_data = Index_Data.search_for_directory(fqpn_directory=webpath)
         update = False
         for db_entry in db_data:
             if db_entry.name.strip() not in fs_entries:
@@ -679,7 +679,7 @@ def sync_database_disk(directoryname):
 
         # Check for entries that are not in the database, but do exist in the file system
         names = (
-            index_data.objects.filter(fqpndirectory=webpath)
+            Index_Data.objects.filter(fqpndirectory=webpath)
             .only("name")
             .values_list("name", flat=True)
         )
@@ -690,7 +690,7 @@ def sync_database_disk(directoryname):
             if test_name not in names:
                 # The record has not been found
                 # add it.
-                record = index_data()
+                record = Index_Data()
                 record = process_filedata(entry, record, v3=False)
                 if record is None:
                     continue
@@ -700,7 +700,7 @@ def sync_database_disk(directoryname):
                 records_to_create.append(record)
         if records_to_update:
             try:
-                index_data.objects.bulk_update(
+                Index_Data.objects.bulk_update(
                     records_to_update,
                     [
                         "ignore",
@@ -721,14 +721,14 @@ def sync_database_disk(directoryname):
         if records_to_create:
             print("Creating records")
             try:
-                index_data.objects.bulk_create(records_to_create, 50)
+                Index_Data.objects.bulk_create(records_to_create, 50)
             except django.db.utils.IntegrityError:
                 return None
             # The record is in the database, so it's already been vetted in the database comparison
         else:
             print("No records to create")
         if bootstrap:
-            index_data.objects.filter(delete_pending=True).delete()
+            Index_Data.objects.filter(delete_pending=True).delete()
 
         #        if not Cache_Tracking.objects.filter(DirName=dirpath).exists():
         # The path has not been seen since the Cache Tracking has been enabled
@@ -740,7 +740,7 @@ def sync_database_disk(directoryname):
         # new_rec.save()
 
 
-#        index_data.objects.filter(delete_pending=True).delete()
+#        Index_Data.objects.filter(delete_pending=True).delete()
 # scan_lock.release_scan(webpath)
 
 
