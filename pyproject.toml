@@ -1,0 +1,21 @@
+[project]
+name = "QuickBBS"
+version = "3.0.0"
+authors = [
+  { name="Benjamin Schollnick", email="Benjamin@schollnick.net" },
+]
+description = "Experimental Gallery / File Browser"
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/bschollnick/quickbbs"
+Issues = "https://github.com/bschollnick/quickBBS/issues"
+
+[black]
+max-line-length = 100

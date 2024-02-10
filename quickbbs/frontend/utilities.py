@@ -19,17 +19,17 @@ from typing import Union  # , List  # , Iterator, Optional, TypeVar, Generic
 # inside moviepy.editor
 import av  # Video Previews
 import django.db.utils
-import fitz  # PDF previews
-from PIL import Image
-from django.conf import settings
-from quickbbs.models import filetypes, index_data, Index_Dirs
-
 import filetypes.models as filetype_models
-import frontend.archives3 as archives
-import frontend.constants as constants
+import fitz  # PDF previews
 
 # from cache.models import fs_Cache_Tracking as Cache_Tracking
 from cache.models import Cache_Storage
+from django.conf import settings
+from PIL import Image
+from quickbbs.models import Index_Dirs, filetypes, index_data
+
+import frontend.archives3 as archives
+import frontend.constants as constants
 
 # from quickbbs.models import Index_Dirs
 
@@ -164,7 +164,8 @@ def load_pdf(fspath):
     # results = pdf_utilities.check_pdf(fs_path)
     with fitz.open(fspath) as pdf_file:
         pdf_page = pdf_file.load_page(0)
-        pix = pdf_page.get_pixmap(alpha=True)  # matrix=fitz.Identity, alpha=True)
+        # matrix=fitz.Identity, alpha=True)
+        pix = pdf_page.get_pixmap(alpha=True)
         try:
             source_image = Image.open(BytesIO(pix.tobytes()))
         except UserWarning:
@@ -479,13 +480,9 @@ def fs_counts(fs_entries) -> (int, int):
     def isfile(entry):
         return entry.is_file()
 
-    # files = sum(map(os.DirEntry.is_file, fs_entries.values()))
     files = len(list(filter(isfile, fs_entries.values())))
     dirs = len(fs_entries) - files
-    # files = 0
-    # for fs_item in fs_entries.values():
-    #     files += fs_item.is_file()
-    # dirs = len(fs_entries) - files
+
     return (files, dirs)
 
 

@@ -1,7 +1,6 @@
 # from zeroconf import ServiceBrowser, Zeroconf
-from zeroconf import ServiceInfo
 from django.conf import settings
-
+from zeroconf import ServiceInfo
 
 desc = {"path": "/"}
 info = ServiceInfo(

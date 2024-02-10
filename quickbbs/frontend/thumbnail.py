@@ -6,20 +6,16 @@ import os
 from typing import Iterator  # , Optional, Union, TypeVar, Generic
 
 from django.conf import settings
+from django.db.utils import IntegrityError
+from filetypes.models import FILETYPE_DATA
 from quickbbs.models import Thumbnails_Archives, index_data
 
 import frontend.archives3 as archives
-from filetypes.models import FILETYPE_DATA
 from frontend.database import get_xth_image
-from frontend.utilities import (
-    cr_tnail_img,
-    read_from_disk,
-    return_image_obj,
-    sync_database_disk,
-)
+from frontend.utilities import (cr_tnail_img, read_from_disk, return_image_obj,
+                                sync_database_disk)
 from frontend.web import g_option  # , respond_as_attachment
 from frontend.web import return_img_attach  # , return_inline_attach
-from django.db.utils import IntegrityError
 
 
 def ensures_endswith(string_to_check, value) -> str:
@@ -250,7 +246,8 @@ def new_process_img(entry, request, imagesize="Small"):
             # If size matches, then image is most likely the existing cached image
             # return the existing cached image
             # return return_inline_attach(entry.name, existing_data)
-            return entry  # entry.send_thumbnail(filename=entry.name, fext_override=None, size=imagesize)
+            # entry.send_thumbnail(filename=entry.name, fext_override=None, size=imagesize)
+            return entry
 
     fs_fname = os.path.join(entry.fqpndirectory, entry.name).replace("//", "/")
     # file system location of directory

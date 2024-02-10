@@ -14,30 +14,26 @@ from pathlib import Path
 # import bleach
 import django_icons.templatetags.icons
 import markdown2
-from PIL import Image, ImageFile
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
 from django.db.utils import IntegrityError
 from django.http import Http404, HttpResponseBadRequest, HttpResponseNotFound
 from django.shortcuts import render
-from django.db.models import Q
+# from django.db.models import Q
 from numpy import arange
-from quickbbs.models import Thumbnails_Dirs, Thumbnails_Files, Index_Dirs, index_data
+from PIL import Image, ImageFile
+from quickbbs.models import (Index_Dirs, Thumbnails_Dirs, Thumbnails_Files,
+                             index_data)
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 import frontend.archives3 as archives
-
-from frontend.database import get_db_files, SORT_MATRIX  # check_dup_thumbs
-from frontend.thumbnail import new_process_dir, new_process_dir2, new_process_img
-from frontend.utilities import (
-    ensures_endswith,
-    is_valid_uuid,
-    read_from_disk,
-    return_breadcrumbs,
-    sort_order,
-)
+from frontend.database import SORT_MATRIX, get_db_files  # check_dup_thumbs
+from frontend.thumbnail import (new_process_dir, new_process_dir2,
+                                new_process_img)
+from frontend.utilities import (ensures_endswith, is_valid_uuid,
+                                read_from_disk, return_breadcrumbs, sort_order)
 from frontend.web import detect_mobile, g_option, respond_as_attachment
 
 log = logging.getLogger(__name__)
@@ -48,49 +44,6 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 # https://stackoverflow.com/questions/12984426/
 
 # Sending File or zipfile - https://djangosnippets.org/snippets/365/
-
-
-# def return_prev_next(fqpn, currentpath, sorder) -> tuple:
-#     """
-#     The return_prev_next function takes a fully qualified pathname,
-#     and the current path as parameters. It returns the previous and next paths in a tuple.
-#
-#     :param fqpn: Get the path of the parent directory
-#     :param currentpath: Determine the current offset in the list of files
-#     :param sorder: Determine whether the index is sorted by name or size
-#     :return: A tuple of two strings,
-#
-#     Note:
-#     ORM only derived from https://stackoverflow.com/questions/1042596/
-#             get-the-index-of-an-element-in-a-queryset
-#                 Specifically Richard's answer.
-#     """
-#     # Parent_path = Path(fqpn).parent
-#     nextdir = ""  # unnecessary since going beyond the max offset will cause indexerror.
-#     prevdir = ""
-#     fqpn = ensures_endswith(fqpn.lower(), os.sep).replace("//", "/")
-#     currentpath = os.path.split(currentpath.lower().strip())[1]
-#     # read_from_disk(fqpn, skippable=True)
-#     if currentpath not in [None, ""]:
-#         index = get_db_files(sorder, fqpn).exclude(filetype__is_dir=False)
-#         index = index.only("name")
-#         current_offset = 0
-#         if index.exists():
-#             try:
-#                 current_offset = list(index.values_list("name", flat=True)).index(
-#                     currentpath.title()
-#                 )
-#                 nextdir = index[current_offset + 1].name
-#             except IndexError:
-#                 pass
-#
-#             try:
-#                 if current_offset > 0:
-#                     prevdir = index[current_offset - 1].name
-#             except IndexError:
-#                 pass
-#
-#     return (prevdir, nextdir)
 
 
 def return_prev_next2(directory, sorder) -> tuple:
@@ -109,14 +62,15 @@ def return_prev_next2(directory, sorder) -> tuple:
                 Specifically Richard's answer.
     """
     # Parent_path = Path(fqpn).parent
-    nextdir = ""  # unnecessary since going beyond the max offset will cause indexerror.
+    # unnecessary since going beyond the max offset will cause indexerror.
+    nextdir = ""
     prevdir = ""
     parent_dir = directory.return_parent_directory()
     if parent_dir:
         parent_dir = parent_dir[0]
     else:
         return (None, None)
-    count, directories = parent_dir.dirs_in_dir()
+    count, directories = parent_dir.dirs_in_dir(sort=sorder)
     parent_dir_data = directories.values(
         "pk", "fqpndirectory", "Parent_Dir_md5", "Combined_md5"
     )
@@ -135,11 +89,10 @@ def return_prev_next2(directory, sorder) -> tuple:
             except IndexError:
                 pass
             break
-
     return (prevdir, nextdir)
 
 
-def ThumbnailDir(request: WSGIRequest, tnail_id: str = None):
+def thumbnail_dir(request: WSGIRequest, tnail_id: str = None):
     """
     The thumbnails function is used to serve the thumbnail memory image.
     It takes a request and an optional uuid as arguments.
@@ -161,7 +114,7 @@ def ThumbnailDir(request: WSGIRequest, tnail_id: str = None):
     entry = directory_to_tnail[0]
     count = 0
     if entry.is_generic_icon:
-        count, files = entry.files_in_dir()
+        count = entry.get_file_counts()
         if count in [0, None]:
             entry.SmallThumb = None
     if entry.SmallThumb in [b"", None, ""]:
@@ -170,7 +123,7 @@ def ThumbnailDir(request: WSGIRequest, tnail_id: str = None):
     return entry.send_thumbnail()  # Send existing thumbnail
 
 
-def ThumbnailFile(request: WSGIRequest, tnail_id: str = None):
+def thumbnail_file(request: WSGIRequest, tnail_id: str = None):
     index_qs = index_data.objects.prefetch_related("filetype").filter(uuid=tnail_id)
     if not index_qs.exists():
         # does not exist
@@ -388,8 +341,8 @@ def new_viewgallery(request: WSGIRequest):
     files = []
     if found:
         #        if counts["all_files"] == 0:
-        count_dirs, directories = directory.dirs_in_dir(sort=sort_order(request))
-        count_files, files = directory.files_in_dir(sort=sort_order(request))
+        _, directories = directory.dirs_in_dir(sort=sort_order(request))
+        _, files = directory.files_in_dir(sort=sort_order(request))
     context = {
         "debug": settings.DEBUG,
         "small": g_option(request, "size", settings.IMAGE_SIZE["small"]),
@@ -409,14 +362,12 @@ def new_viewgallery(request: WSGIRequest):
 
     context["all_listings"] = list(directories)
     context["all_listings"].extend(list(files))
-    # print(context["all_listings"])
     # The only thing left is a directory.
-    fs_path = ensures_endswith(
-        os.path.abspath(os.path.join(settings.ALBUMS_PATH, paths["webpath"][1:])),
-        os.sep,
-    )
-    # index = get_db_files(context["sort"], fs_path)
-    # chk_list = Paginator(files, 30)
+    # fs_path = ensures_endswith(
+    #     os.path.abspath(os.path.join(settings.ALBUMS_PATH, paths["webpath"][1:])),
+    #     os.sep,
+    # )
+
     chk_list = Paginator(context["all_listings"], 30)
     context["page_cnt"] = list(arange(1, chk_list.num_pages + 1))
 
@@ -427,15 +378,11 @@ def new_viewgallery(request: WSGIRequest):
         context["current_page"] = 1
     except EmptyPage:
         context["pagelist"] = chk_list.page(chk_list.num_pages)
-    # context["prev_uri"], context["next_uri"] = return_prev_next(
-    #     os.path.dirname(paths["album_viewing"]), paths["webpath"], context["sort"]
-    # )
     context["prev_uri"], context["next_uri"] = return_prev_next2(
-        directory, context["sort"]
+        directory, sorder=context["sort"]
     )
 
     response = render(
-        # request, "frontend/gallery_listing.jinja", context, using="Jinja2"
         request,
         "frontend/gallery_listing2.jinja",
         context,
@@ -590,7 +537,7 @@ def new_json_viewitem(request: WSGIRequest, i_uuid: str):
     return response
 
 
-def downloadFile(request: WSGIRequest):  # , filename=None):
+def download_file(request: WSGIRequest):  # , filename=None):
     """
     Replaces new_download.
 

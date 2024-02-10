@@ -14,15 +14,13 @@ Including another URLconf
     2. Add a URL to urlpatterns:  url(r'^blog/', include('blog.urls'))
 """
 
+import frontend.serve_up
+import frontend.views
 from django.conf import settings
-
 # from django.conf.urls import url
 from django.contrib import admin
 from django.urls import include, path, re_path
 from django.views.generic import RedirectView
-
-import frontend.serve_up
-import frontend.views
 
 urlpatterns = []
 if settings.DEBUG_TOOLBAR:
@@ -34,7 +32,7 @@ if settings.DEBUG_TOOLBAR:
 
 urlpatterns += [
     path("search/", frontend.views.search_viewresults, name="search_viewresults"),
-    re_path("^download/", frontend.views.downloadFile, name="download"),
+    re_path("^download/", frontend.views.download_file, name="download"),
     # the filename is not used, but is there for web browser to see the expected filename
     # when it was download/<str:uuid>, the web browser would believe the filename was the
     # uuid, and ignore the filename in the download header.
@@ -58,12 +56,12 @@ urlpatterns += [
     path("thumbnails/<uuid:tnail_id>", frontend.views.thumbnails, name="thumbnails"),
     path(
         "thumbnail_file/<uuid:tnail_id>",
-        frontend.views.ThumbnailFile,
+        frontend.views.thumbnail_file,
         name="thumbnail_file",
     ),
     path(
         "thumbnail_directory/<uuid:tnail_id>",
-        frontend.views.ThumbnailDir,
+        frontend.views.thumbnail_dir,
         name="thumbnail_dir",
     ),
     path("thumbnails/", frontend.views.thumbnails, name="thumbnailspath"),
