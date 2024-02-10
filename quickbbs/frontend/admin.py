@@ -7,16 +7,6 @@ from quickbbs.models import *
 #     list_display = ('fileext', 'icon_filename', 'color', 'generic', 'filetype')
 
 
-@admin.register(Thumbnails_Dirs)
-class AdminThumbnail_Dirs(admin.ModelAdmin):
-    readonly_fields = (
-        "id",
-        "uuid",
-    )
-    list_display = ("FilePath", "DirName", "FileSize")
-    fields = ("uuid", "FilePath", "DirName", "FileSize")
-
-
 @admin.register(Thumbnails_Files)
 class AdminThumbnail_Files(admin.ModelAdmin):
     readonly_fields = (
