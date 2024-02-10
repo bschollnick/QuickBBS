@@ -8,7 +8,7 @@ from typing import Iterator  # , Optional, Union, TypeVar, Generic
 from django.conf import settings
 from django.db.utils import IntegrityError
 from filetypes.models import FILETYPE_DATA
-from quickbbs.models import Thumbnails_Archives, Index_Data
+from quickbbs.models import Thumbnails_Archives, IndexData
 
 import frontend.archives3 as archives
 from frontend.database import get_xth_image
@@ -44,7 +44,7 @@ def ensures_endswith(string_to_check, value) -> str:
     return string_to_check
 
 
-def images_in_dir(database, webpath) -> Iterator[Index_Data]:
+def images_in_dir(database, webpath) -> Iterator[IndexData]:
     """
     Check for images in the directory.
     If they do not exist, try to load the directory, and test again.
@@ -82,7 +82,7 @@ def images_in_dir(database, webpath) -> Iterator[Index_Data]:
 def new_process_dir2(db_entry):
     """
     input:
-        entry - The Index_Data entry
+        entry - The IndexData entry
 
     Read directory, and identify the first thumbnailable file.
     Make thumbnail of that file
@@ -140,7 +140,7 @@ def new_process_dir2(db_entry):
 def new_process_dir(db_index):
     """
     input:
-        entry - The Index_Data entry
+        entry - The IndexData entry
 
     Read directory, and identify the first thumbnailable file.
     Make thumbnail of that file
@@ -166,7 +166,7 @@ def new_process_dir(db_index):
         db_index.directory.SmallThumb = b""
 
     files = images_in_dir(
-        Index_Data,
+        IndexData,
         ensures_endswith(
             os.path.join(db_index.fqpndirectory, db_index.name).lower(), os.sep
         ),
@@ -218,7 +218,7 @@ def invalidate_thumb(thumbnail):
 
     :param thumbnail: Store the thumbnail data
     :return: The thumbnail object
-    >>> test = quickbbs.models.Index_Data()
+    >>> test = quickbbs.models.IndexData()
     >>> test = invalidate_thumb(test)
     """
     thumbnail.FileSize = -1
@@ -231,7 +231,7 @@ def invalidate_thumb(thumbnail):
 def new_process_img(entry, request, imagesize="Small"):
     """
     input:
-        entry - The Index_Data entry
+        entry - The IndexData entry
         request - The request data from Django
         imagesize - (small, medium, large constant)
 

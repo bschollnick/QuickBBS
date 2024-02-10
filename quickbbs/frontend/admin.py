@@ -27,7 +27,7 @@ class AdminThumbnail_Archives(admin.ModelAdmin):
     fields = ("uuid", "zipfilepath", "FilePath", "FileName", "page", "FileSize")
 
 
-@admin.register(Index_Data)
+@admin.register(IndexData)
 class AdminMaster_Index(admin.ModelAdmin):
     readonly_fields = ("id", "uuid", "name_sort")
     list_display = (

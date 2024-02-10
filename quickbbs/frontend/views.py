@@ -24,7 +24,7 @@ from django.shortcuts import render
 # from django.db.models import Q
 from numpy import arange
 from PIL import Image, ImageFile
-from quickbbs.models import IndexDirs, Thumbnails_Files, Index_Data
+from quickbbs.models import IndexDirs, Thumbnails_Files, IndexData
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
@@ -128,7 +128,7 @@ def thumbnail_dir(request: WSGIRequest, tnail_id: str = None):
 
 
 def thumbnail_file(request: WSGIRequest, tnail_id: str = None):
-    index_qs = Index_Data.objects.prefetch_related("filetype").filter(uuid=tnail_id)
+    index_qs = IndexData.objects.prefetch_related("filetype").filter(uuid=tnail_id)
     if not index_qs.exists():
         # does not exist
         print(tnail_id, "File not found - No records returned.")
@@ -192,7 +192,7 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
     :raises: HttpResponseBadRequest - If the uuid can not be found
     """
     #    if is_valid_uuid(str(tnail_id)):
-    index_qs = Index_Data.objects.prefetch_related("filetype").filter(uuid=tnail_id)
+    index_qs = IndexData.objects.prefetch_related("filetype").filter(uuid=tnail_id)
     if not index_qs.exists():
         # does not exist
         print(tnail_id, "No records returned.")
@@ -283,7 +283,7 @@ def search_viewresults(request: WSGIRequest):
         "next_uri": "",
     }
 
-    index = Index_Data.objects.filter(name__icontains=context["searchtext"]).order_by(
+    index = IndexData.objects.filter(name__icontains=context["searchtext"]).order_by(
         *SORT_MATRIX[context["sort"]]
     )
 
@@ -423,12 +423,10 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
         "breadcrumbs_list": [],
     }
 
-    entry = Index_Data.objects.select_related("filetype").filter(uuid=context["uuid"])[
-        0
-    ]
+    entry = IndexData.objects.select_related("filetype").filter(uuid=context["uuid"])[0]
     if not entry:
         # sync_database_disk(entry.fqpndirectory)
-        entry = Index_Data.objects.select_related("filetype").filter(
+        entry = IndexData.objects.select_related("filetype").filter(
             uuid=context["uuid"]
         )[0]
         if not entry:
@@ -567,10 +565,10 @@ def download_file(request: WSGIRequest):  # , filename=None):
     if d_uuid in ["", None]:
         raise Http404
 
-    # download = Index_Data.objects.select_related("filetype").exclude(ignore=True). \
+    # download = IndexData.objects.select_related("filetype").exclude(ignore=True). \
     #     exclude(delete_pending=True).filter(uuid=d_uuid)
 
-    download = Index_Data.objects.prefetch_related("filetype").filter(uuid=d_uuid)
+    download = IndexData.objects.prefetch_related("filetype").filter(uuid=d_uuid)
 
     # if not download.exists():
     #     # database entries do not exist
@@ -595,7 +593,7 @@ def new_view_archive(request: WSGIRequest, i_uuid: str):
     if not is_valid_uuid(i_uuid):
         return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
 
-    entry = Index_Data.objects.filter(uuid=i_uuid)[0]
+    entry = IndexData.objects.filter(uuid=i_uuid)[0]
     context["basename"] = os.path.basename
     context["splitext"] = os.path.splitext
     context["small"] = g_option(request, "size", settings.IMAGE_SIZE["small"])
@@ -678,7 +676,7 @@ def new_archive_item(request, i_uuid):
 
     context["sort"] = sort_order(request)
     e_uuid = i_uuid
-    index_qs = Index_Data.objects.filter(uuid=e_uuid)
+    index_qs = IndexData.objects.filter(uuid=e_uuid)
     entry = index_qs[0]
     context.update({})
     item_fs = os.path.join(settings.ALBUMS_PATH, entry.fqpndirectory[1:], entry.name)
@@ -738,7 +736,7 @@ def view_setup():
     #             pass
 
 
-#    Index_Data.objects.filter(delete_pending=True).delete()
+#    IndexData.objects.filter(delete_pending=True).delete()
 
 
 if __name__ != "__main__":
