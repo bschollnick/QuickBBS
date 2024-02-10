@@ -388,10 +388,8 @@ def new_viewgallery(request: WSGIRequest):
     files = []
     if found:
         #        if counts["all_files"] == 0:
-        count_dirs, directories = directory.dirs_in_dir()
-        directories = directories.order_by(*SORT_MATRIX[sort_order(request)])
-        count_files, files = directory.files_in_dir()
-        files = files.order_by(*SORT_MATRIX[sort_order(request)])
+        count_dirs, directories = directory.dirs_in_dir(sort=sort_order(request))
+        count_files, files = directory.files_in_dir(sort=sort_order(request))
     context = {
         "debug": settings.DEBUG,
         "small": g_option(request, "size", settings.IMAGE_SIZE["small"]),
