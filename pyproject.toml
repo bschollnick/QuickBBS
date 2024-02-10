@@ -18,4 +18,4 @@ Homepage = "https://github.com/bschollnick/quickbbs"
 Issues = "https://github.com/bschollnick/quickBBS/issues"
 
 [black]
-max-line-length = 100
+max-line-length = 120

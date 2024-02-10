@@ -24,7 +24,7 @@ from django.shortcuts import render
 # from django.db.models import Q
 from numpy import arange
 from PIL import Image, ImageFile
-from quickbbs.models import Index_Dirs, Thumbnails_Dirs, Thumbnails_Files, Index_Data
+from quickbbs.models import IndexDirs, Thumbnails_Files, Index_Data
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
@@ -109,7 +109,7 @@ def thumbnail_dir(request: WSGIRequest, tnail_id: str = None):
 
     :raises: HttpResponseBadRequest - If the uuid can not be found
     """
-    directory_to_tnail = Index_Dirs.objects.filter(uuid=tnail_id)
+    directory_to_tnail = IndexDirs.objects.filter(uuid=tnail_id)
     if not directory_to_tnail.exists():
         # does not exist
         print(tnail_id, "The directory Does not exist, No records returned.")
@@ -201,7 +201,7 @@ def thumbnails(request: WSGIRequest, tnail_id: str = None):
     size = request.GET.get("size", "small")
     entry = index_qs[0]
     fs_item = os.path.join(entry.fqpndirectory, entry.name)
-    found, dir_record = Index_Dirs.search_for_directory(fs_item)
+    found, dir_record = IndexDirs.search_for_directory(fs_item)
     # print(fs_item, found, dir_record)
     fname = os.path.basename(entry.name).title()
 
@@ -340,7 +340,7 @@ def new_viewgallery(request: WSGIRequest):
         return HttpResponseNotFound("<h1>gallery not found</h1>")
     read_from_disk(paths["album_viewing"], skippable=True)  # new_viewgallery
 
-    found, directory = Index_Dirs.search_for_directory(paths["album_viewing"])
+    found, directory = IndexDirs.search_for_directory(paths["album_viewing"])
     directories = []
     files = []
     if found:

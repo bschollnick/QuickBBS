@@ -1,24 +1,37 @@
+"""
+Django Models for quickbbs
+"""
+
 import hashlib
 import io
+import mimetypes
 import os
 import pathlib
 import time
 import uuid
 
-import thumbnails.models
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import models
-
 from django.http import FileResponse, Http404, HttpResponse
 from django.urls import reverse
-from filetypes.models import FILETYPE_DATA, filetypes
 from ranged_fileresponse import RangedFileResponse
 
+import thumbnails.models
+from filetypes.models import FILETYPE_DATA, filetypes
 from quickbbs.natsort_model import NaturalSortField
 
 
 def convert_text_to_md5_hdigest(text):
+    """
+    convert a text string to a md5 hash.  Text string is title cased, whitespace stripped, and
+    encoded as an utf-16 string.  The hash is exported as the hex digest.
+
+    This is used as key for database lookups, and is standardized using this helper.
+
+    :param text:String
+    :return: 32 character md5 hexadecimal string
+    """
     return hashlib.md5(text.title().strip().encode("utf-16")).hexdigest()
 
 
@@ -54,6 +67,10 @@ def is_valid_uuid(uuid_to_test, version=4):
 
 
 class Owners(models.Model):
+    """
+    Start of a permissions based model.
+    """
+
     id = models.AutoField(primary_key=True)
     uuid = models.UUIDField(
         default=None, null=True, editable=False, blank=True, db_index=True
@@ -68,54 +85,21 @@ class Owners(models.Model):
 
 
 class Favorites(models.Model):
+    """
+    Start of setting up a users based favorites for gallery items
+    """
+
     id = models.AutoField(primary_key=True)
     uuid = models.UUIDField(
         default=None, null=True, editable=False, blank=True, db_index=True
     )
 
 
-class Thumbnails_Dirs(models.Model):
-    id = models.AutoField(primary_key=True, db_index=True)
-    uuid = models.UUIDField(
-        default=None, null=True, editable=False, db_index=True, blank=True
-    )
-    DirName = models.CharField(
-        db_index=True, max_length=384, default="", blank=True
-    )  # FQFN of the file itself
-    FileSize = models.BigIntegerField(default=-1)
-    FilePath = models.CharField(
-        db_index=True, max_length=384, default=None
-    )  # FQFN of the file itself
-    SmallThumb = models.BinaryField(default=b"")
+class IndexDirs(models.Model):
+    """
+    The master index for Directory / Folders in the Filesystem for the gallery.
+    """
 
-    class Meta:
-        verbose_name = "Directory Thumbnails Cache"
-        verbose_name_plural = "Directory Thumbnails Cache"
-        constraints = [
-            models.UniqueConstraint(
-                fields=["DirName", "FilePath"], name="unique_dir_thumb"
-            )
-        ]
-
-
-class Thumbnails_Small(models.Model):
-    id = models.AutoField(primary_key=True, db_index=True)
-    Combined_md5 = models.CharField(
-        db_index=True, max_length=32, unique=True, null=True, default=None
-    )
-    # Webpath + Filename (eg WebFQPN - /gallery/folder1/test.jpg)
-    uuid = models.UUIDField(
-        default=None, null=True, editable=False, db_index=True, blank=True
-    )
-    Thumbnail = models.BinaryField(default=b"")
-    FileSize = models.BigIntegerField(default=-1)
-
-    class Meta:
-        verbose_name = "Image File Small Thumbnail Cache"
-        verbose_name_plural = "Image File Small Thumbnails Cache"
-
-
-class Index_Dirs(models.Model):
     uuid = models.UUIDField(
         default=None, null=True, editable=False, db_index=True, blank=True
     )
@@ -154,31 +138,43 @@ class Index_Dirs(models.Model):
 
     @staticmethod
     def normalize_fqpn(fqpn_directory):
+        """
+        Normalize the directory structure fully qualified pathname for conversion to a md5
+        hexdigest string.
+        :param fqpn_directory: String, the fully qualified pathname for the directory
+        :return: normalized string, all lowercase, whitespace stripped, ending with os.sep
+        """
         fqpn_directory = fqpn_directory.lower().strip()
         if not fqpn_directory.endswith(os.sep):
             fqpn_directory = fqpn_directory + os.sep
         return fqpn_directory
 
     @staticmethod
-    def add_directory(fqpn_directory, FileCount=-1, DirCount=-1, thumbnail=b""):
+    def add_directory(fqpn_directory, thumbnail=b""):
+        """
+        Create a new directory entry
+        :param fqpn_directory: The fully qualified pathname for the directory
+        :param thumbnail: thumbnail image to store for the thumbnail/cover art
+        :return: Database record
+        """
         Path = pathlib.Path(fqpn_directory)
-        fqpn_directory = Index_Dirs.normalize_fqpn(str(Path.resolve()))
-        parent_dir = Index_Dirs.normalize_fqpn(str(Path.parent.resolve()))
+        fqpn_directory = IndexDirs.normalize_fqpn(str(Path.resolve()))
+        parent_dir = IndexDirs.normalize_fqpn(str(Path.parent.resolve()))
         filename_seg = str(Path.name)
 
         # dir_seg, filename_seg = os.path.split(fqpn_directory)
-        new_rec = Index_Dirs()
+        new_rec = IndexDirs()
         new_rec.fqpndirectory = fqpn_directory
         new_rec.DirName_md5 = convert_text_to_md5_hdigest(
-            Index_Dirs.normalize_fqpn(filename_seg)
+            IndexDirs.normalize_fqpn(filename_seg)
         )
         new_rec.Combined_md5 = convert_text_to_md5_hdigest(
-            Index_Dirs.normalize_fqpn(fqpn_directory)
+            IndexDirs.normalize_fqpn(fqpn_directory)
         )
         new_rec.Parent_Dir_md5 = convert_text_to_md5_hdigest(parent_dir)
         new_rec.uuid = uuid.uuid4()
-        new_rec.FileCount = FileCount
-        new_rec.DirCount = DirCount
+        #        new_rec.FileCount = FileCount
+        #        new_rec.DirCount = DirCount
         new_rec.SmallThumb = thumbnail
         new_rec.lastmod = os.path.getmtime(new_rec.fqpndirectory)
         new_rec.lastscan = time.time()
@@ -188,23 +184,44 @@ class Index_Dirs(models.Model):
 
     @property
     def numdirs(self):
+        """
+        Place holder for backward compatibility reasons (matching the numdirs attribute
+        of IndexData)
+        :return: None
+        """
         return None
 
     @property
     def numfiles(self):
+        """
+        Place holder for backward compatibility reasons (matching the numdirs attribute
+        of IndexData)
+        :return: None
+        """
         return None
 
     @property
     def name(self):
-        return pathlib.Path(self.fqpndirectory).name
+        """
+        Return the directory name of the directory.
+        :return: String
+        """
+        return str(pathlib.Path(self.fqpndirectory).name)
 
     @staticmethod
     def delete_directory(fqpn_directory):
+        """
+        Delete the Index_Dirs data for the fqpn_directory, and ensure that all
+        Index_Data records are wiped as well.
+        :param fqpn_directory: text string of fully qualified pathname of the directory
+        :return:
+        """
         Combined_md5 = convert_text_to_md5_hdigest(
-            Index_Dirs.normalize_fqpn(fqpn_directory)
+            IndexDirs.normalize_fqpn(fqpn_directory)
         )
-        Index_Dirs.objects.filter(Combined_md5=Combined_md5).delete()
+        IndexDirs.objects.filter(Combined_md5=Combined_md5).delete()
         Index_Data.objects.filter(parent_dir_id=Combined_md5).delete()
+        # This should be redundant, but need to test to verify.
 
     def get_file_counts(self):
         return Index_Data.objects.filter(
@@ -212,7 +229,7 @@ class Index_Dirs(models.Model):
         ).count()
 
     def get_dir_counts(self):
-        return Index_Dirs.objects.filter(
+        return IndexDirs.objects.filter(
             Parent_Dir_md5=self.Combined_md5, delete_pending=False
         ).count()
 
@@ -223,21 +240,21 @@ class Index_Dirs(models.Model):
         totals = {}
         for key in FILETYPE_DATA.keys():
             totals[key[1:]] = d_files.filter(filetype__fileext=key).count()
-        totals["dir"] = Index_Dirs.objects.filter(
+        totals["dir"] = IndexDirs.objects.filter(
             Parent_Dir_md5=self.Combined_md5, delete_pending=False
         ).count()
         totals["all_files"] = d_files.filter().count() - totals["dir"]
         return totals
 
     def return_parent_directory(self):
-        parent_dir = Index_Dirs.objects.filter(Combined_md5=self.Parent_Dir_md5)
+        parent_dir = IndexDirs.objects.filter(Combined_md5=self.Parent_Dir_md5)
         return parent_dir
 
     @staticmethod
     def search_for_directory(fqpn_directory):
         Path = pathlib.Path(fqpn_directory)
-        fqpn_directory = Index_Dirs.normalize_fqpn(str(Path.resolve()))
-        query = Index_Dirs.objects.filter(
+        fqpn_directory = IndexDirs.normalize_fqpn(str(Path.resolve()))
+        query = IndexDirs.objects.filter(
             Combined_md5=convert_text_to_md5_hdigest(fqpn_directory),
             delete_pending=False,
             ignore=False,
@@ -262,10 +279,10 @@ class Index_Dirs(models.Model):
         from frontend.database import SORT_MATRIX
 
         dir_scan = str((pathlib.Path(self.fqpndirectory)).resolve())
-        dir_scan = Index_Dirs.normalize_fqpn(dir_scan)
+        dir_scan = IndexDirs.normalize_fqpn(dir_scan)
         dir_scan_md5 = convert_text_to_md5_hdigest(dir_scan)
-        # dirs = Index_Dirs.objects.filter(Combined_md5=self.Combined_md5, delete_pending=False)
-        dirs = Index_Dirs.objects.filter(
+        # dirs = IndexDirs.objects.filter(Combined_md5=self.Combined_md5, delete_pending=False)
+        dirs = IndexDirs.objects.filter(
             Parent_Dir_md5=dir_scan_md5, delete_pending=False
         ).order_by(*SORT_MATRIX[sort])
         return dirs.count(), dirs
@@ -281,12 +298,10 @@ class Index_Dirs(models.Model):
         """
         options = {}
         options["i_uuid"] = str(self.uuid)
-        parameters = []
         webpath = self.fqpndirectory.replace(
             settings.ALBUMS_PATH.lower() + r"/albums/", r""
         )
-        return reverse("directories") + webpath  # , self.name)
-        # return reverse("directories") + os.path.basename(self.fqpndirectory)
+        return reverse("directories") + webpath
 
     def get_bg_color(self):
         """
@@ -416,7 +431,8 @@ class Thumbnails_Archives(models.Model):
 
 class Index_Data(models.Model):
     """
-    The Master Index for All files in the Gallery.  (See Index_Dirs for the counterpart for Directories)
+    The Master Index for All files in the Gallery.  (See IndexDirs for the counterpart
+    for Directories)
     """
 
     id = models.AutoField(primary_key=True)
@@ -440,7 +456,7 @@ class Index_Data(models.Model):
     fqpndirectory = models.CharField(default=0, db_index=True, max_length=384)
     # Directory of the file, lower().replace("//", "/"), ensure it is path, and not path + filename
     parent_dir = models.ForeignKey(
-        Index_Dirs, on_delete=models.CASCADE, null=True, default=None
+        IndexDirs, on_delete=models.CASCADE, null=True, default=None
     )
     is_animated = models.BooleanField(default=False, db_index=True)
     ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
@@ -652,7 +668,7 @@ class Index_Data(models.Model):
         return reverse("download") + f"?UUID={self.uuid}"
         # null = System Owned
 
-    def send_thumbnail(self, filename="", fext_override=None, size="small"):
+    def send_thumbnail(self, filename=None, fext_override=None, size="small"):
         """
          Output a http response header, for an image attachment.
 
@@ -702,14 +718,19 @@ class Index_Data(models.Model):
                     blobdata = b""
             return blobdata
 
-        mtype = "application/octet-stream"
+        if fext_override is not None:
+            mimetype_filename = os.path.join(self.name, fext_override)
+        else:
+            mimetype_filename = filename
+        mtype = mimetypes.guess_type(mimetype_filename)[0]
+        # mtype = "application/octet-stream"
         if self.file_tnail is not None:
             blob = get_sized_tnail(size=size, tnail=self.file_tnail)
         response = FileResponse(
             io.BytesIO(blob),
             content_type=mtype,
             as_attachment=False,
-            filename=self.name,
+            filename=filename or self.name,
         )
         response["Content-Type"] = mtype
         response["Content-Length"] = len(blob)

@@ -26,12 +26,11 @@ import fitz  # PDF previews
 from cache.models import Cache_Storage
 from django.conf import settings
 from PIL import Image
-from quickbbs.models import Index_Dirs, filetypes, Index_Data
+from quickbbs.models import IndexDirs, filetypes, Index_Data
 
 import frontend.archives3 as archives
 import frontend.constants as constants
 
-# from quickbbs.models import Index_Dirs
 
 log = logging.getLogger(__name__)
 
@@ -604,10 +603,10 @@ def sync_database_disk(directoryname):
     if directoryname in [os.sep, r"/"]:
         directoryname = settings.ALBUMS_PATH
     webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
-    dirpath = Index_Dirs.normalize_fqpn(os.path.abspath(directoryname.title().strip()))
-    found, dirpath_id = Index_Dirs.search_for_directory(fqpn_directory=dirpath)
+    dirpath = IndexDirs.normalize_fqpn(os.path.abspath(directoryname.title().strip()))
+    found, dirpath_id = IndexDirs.search_for_directory(fqpn_directory=dirpath)
     if found is False:
-        dirpath_id = Index_Dirs.add_directory(dirpath)
+        dirpath_id = IndexDirs.add_directory(dirpath)
         print("\tAdding ", dirpath)
 
     #    print(dirpath, dirpath_id)
@@ -622,7 +621,7 @@ def sync_database_disk(directoryname):
         print(f"{dirpath=} not in Cache_Tracking")
         _, fs_entries = return_disk_listing(dirpath)
 
-        success, IDirs = Index_Dirs.search_for_directory(dirpath)
+        success, IDirs = IndexDirs.search_for_directory(dirpath)
         count, db_data = IDirs.files_in_dir()
         if count in [0, None]:
             db_data = Index_Data.objects.select_related("filetype", "directory").filter(

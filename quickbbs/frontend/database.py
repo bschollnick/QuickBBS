@@ -6,7 +6,6 @@ from typing import Iterator  # , Optional, Union, TypeVar, Generic
 
 from quickbbs.models import (
     Thumbnails_Archives,
-    Thumbnails_Dirs,
     Thumbnails_Files,
     Index_Data,
 )
