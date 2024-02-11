@@ -17,6 +17,7 @@ Including another URLconf
 import frontend.serve_up
 import frontend.views
 from django.conf import settings
+
 # from django.conf.urls import url
 from django.contrib import admin
 from django.urls import include, path, re_path
@@ -53,7 +54,7 @@ urlpatterns += [
         name="new_archive_item",
     ),
     re_path("^albums/", frontend.views.new_viewgallery, name="directories"),
-    path("thumbnails/<uuid:tnail_id>", frontend.views.thumbnails, name="thumbnails"),
+    # path("thumbnails/<uuid:tnail_id>", frontend.views.thumbnails, name="thumbnails"),
     path(
         "thumbnail_file/<uuid:tnail_id>",
         frontend.views.thumbnail_file,
@@ -64,7 +65,7 @@ urlpatterns += [
         frontend.views.thumbnail_dir,
         name="thumbnail_dir",
     ),
-    path("thumbnails/", frontend.views.thumbnails, name="thumbnailspath"),
+    # path("thumbnails/", frontend.views.thumbnails, name="thumbnailspath"),
     path("resources/<path:pathstr>", frontend.serve_up.resources),
     path("static/<path:pathstr>", frontend.serve_up.static),
     path("test", frontend.views.test, name="test"),

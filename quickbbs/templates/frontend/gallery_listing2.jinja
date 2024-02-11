@@ -176,16 +176,19 @@
                                     <br>
                                         {% if item.filetype.is_dir %}
                                             <a href="{{ item.get_thumbnail_url(size="small") }}" class="img-responsive" style="width:auto;max-width:100%"/>
+                                            <sub>{{ item.get_thumbnail_url(size="small")}}</sub>
                                         {% elif item.filetype.is_pdf %}
-                                            <a href="{{ item.get_thumbnail_url()}}?pdf&size=small" class="img-responsive" style="width:auto;max-width:100%"/>
+                                            <a href="{{ item.get_thumbnail_url(size="small")}}?pdf" class="img-responsive" style="width:auto;max-width:100%"/>
+                                            <sub>{{ item.get_thumbnail_url(size="small")}}?pdf</sub>
                                         {% elif item.filetype.is_archive %}
                                             <a href="{{ item.get_thumbnail_url(size="small")}} {{ item.uuid }}?arch=0" class="img-responsive" style="width:auto;max-width:100%"/>
+                                            <sub>{{ item.get_thumbnail_url(size="small")}}</sub>
                                         {% elif item.filetype.is_image  or item.filetype.is_movie %}
                                             <a href="{{ item.get_thumbnail_url(size="small") }}" class="img-responsive" style="width:auto;max-width:100%"/>
+                                            <sub>{{ item.get_thumbnail_url(size="small")}}</sub>
                                         {% else %}
                                             <a href="/resources/images/{{ item.filetype.icon_filename }}" class="img-responsive" style="width:auto;max-width:100%"/>
                                         {% endif -%}
-                                        <sub>{{ url('thumbnailspath') }}{{ item.uuid }}</sub>
                                         </a>
                                 {% endif %}
                                 <div class="column is-12 has-text-centered is-vcentered">

@@ -21,16 +21,14 @@ import av  # Video Previews
 import django.db.utils
 import filetypes.models as filetype_models
 import fitz  # PDF previews
-
 # from cache.models import fs_Cache_Tracking as Cache_Tracking
 from cache.models import Cache_Storage
 from django.conf import settings
 from PIL import Image
-from quickbbs.models import IndexDirs, filetypes, IndexData
+from quickbbs.models import IndexData, IndexDirs, filetypes
 
 import frontend.archives3 as archives
 import frontend.constants as constants
-
 
 log = logging.getLogger(__name__)
 

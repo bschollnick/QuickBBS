@@ -24,13 +24,13 @@ from django.shortcuts import render
 # from django.db.models import Q
 from numpy import arange
 from PIL import Image, ImageFile
-from quickbbs.models import IndexDirs, Thumbnails_Files, IndexData
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
+from quickbbs.models import IndexData, IndexDirs, Thumbnails_Files
 
 import frontend.archives3 as archives
 from frontend.database import SORT_MATRIX, get_db_files  # check_dup_thumbs
-from frontend.thumbnail import new_process_dir, new_process_dir2, new_process_img
+from frontend.thumbnail import new_process_dir2, new_process_img
 from frontend.utilities import (
     ensures_endswith,
     is_valid_uuid,
@@ -128,6 +128,12 @@ def thumbnail_dir(request: WSGIRequest, tnail_id: str = None):
 
 
 def thumbnail_file(request: WSGIRequest, tnail_id: str = None):
+    """
+    Check for a thumbnail / create a thumbnail for a particular file
+    :param request: Django Request object
+    :param tnail_id: The UUID of the file - IndexData object
+    :return: The sent thumbnail
+    """
     index_qs = IndexData.objects.prefetch_related("filetype").filter(uuid=tnail_id)
     if not index_qs.exists():
         # does not exist
@@ -147,6 +153,8 @@ def thumbnail_file(request: WSGIRequest, tnail_id: str = None):
     if entry.filetype.is_pdf or entry.filetype.is_image or entry.filetype.is_movie:
         # add in file size comparison
         if entry.file_tnail is None:
+            if Thumbnails_Files.objects.filter(uuid=entry.uuid).exists():
+                Thumbnails_Files.objects.filter(uuid=entry.uuid).delete()
             entry.file_tnail = Thumbnails_Files()
         entry.file_tnail.uuid = entry.uuid
         entry.file_tnail.FilePath = fs_item
@@ -175,81 +183,82 @@ def thumbnail_file(request: WSGIRequest, tnail_id: str = None):
     return HttpResponseBadRequest(content="Bad UUID or Unidentifable file.")
 
 
-def thumbnails(request: WSGIRequest, tnail_id: str = None):
-    """
-    The thumbnails function is used to serve the thumbnail memory image.
-    It takes a request and an optional uuid as arguments.
-    If no uuid is provided, it will return the default image for thumbnails.
-    Otherwise, it will attempt to find a matching UUID in the database and return that file's thumbnail.
-
-    :param request: Django Request object
-    :param tnail_id: the uuid of the original file / thumbnail uuid
-    :return: The image of the thumbnail to send
-
-    :raises: HttpResponseBadRequest - If the uuid can not be found
-    """
-    #    if is_valid_uuid(str(tnail_id)):
-    index_qs = IndexData.objects.prefetch_related("filetype").filter(uuid=tnail_id)
-    if not index_qs.exists():
-        # does not exist
-        print(tnail_id, "No records returned.")
-        return Http404
-
-    size = request.GET.get("size", "small")
-    entry = index_qs[0]
-    fs_item = os.path.join(entry.fqpndirectory, entry.name)
-    found, dir_record = IndexDirs.search_for_directory(fs_item)
-    # print(fs_item, found, dir_record)
-    fname = os.path.basename(entry.name).title()
-
-    if entry.filetype.is_dir:
-        # add in file size comparison
-        if entry.directory is not None:
-            # Send existing thumbnail
-            return entry.send_thumbnail(size=size)
-
-        try:
-            entry.directory = Thumbnails_Dirs()
-            entry.directory.uuid = entry.uuid
-            entry.directory.FilePath = fs_item
-            entry.directory.fqpndirectory = fname
-            new_process_dir(entry)
-        except IntegrityError:
-            print("IntegrityError")
-            time.sleep(0.5)
-            new_process_dir(entry)
-        return entry.send_thumbnail(size=size)
-
-    if entry.filetype.is_pdf or entry.filetype.is_image or entry.filetype.is_movie:
-        # add in file size comparison
-        if entry.file_tnail is not None:  # == None:
-            # send the existing thumbnail
-            return entry.send_thumbnail(size=size)
-
-        entry.file_tnail = Thumbnails_Files()
-        entry.file_tnail.uuid = entry.uuid
-        entry.file_tnail.FilePath = fs_item
-        entry.file_tnail.FileName = fname
-        try:
-            new_process_img(entry, request, size=size)
-        except IntegrityError:
-            print("IntegrityError")
-            time.sleep(0.5)
-            new_process_img(entry, request)
-        return entry.send_thumbnail(size=size)
-
-    if entry.filetype.icon_filename not in ["", None] and not entry.filetype.is_dir:
-        entry.is_generic_icon = True
-        entry.fqpndirectory = os.path.join(
-            settings.RESOURCES_PATH, "images", entry.filetype.icon_filename
-        )
-        return respond_as_attachment(
-            request,
-            os.path.join(settings.RESOURCES_PATH, "Images"),
-            entry.filetype.icon_filename,
-        )
-
-    return HttpResponseBadRequest(content="Bad UUID or Unidentifable file.")
+# def thumbnails(request: WSGIRequest, tnail_id: str = None):
+#     """
+#     The thumbnails function is used to serve the thumbnail memory image.
+#     It takes a request and an optional uuid as arguments.
+#     If no uuid is provided, it will return the default image for thumbnails.
+#     Otherwise, it will attempt to find a matching UUID in the database and return that file's thumbnail.
+#
+#     :param request: Django Request object
+#     :param tnail_id: the uuid of the original file / thumbnail uuid
+#     :return: The image of the thumbnail to send
+#
+#     :raises: HttpResponseBadRequest - If the uuid can not be found
+#     """
+#     #    if is_valid_uuid(str(tnail_id)):
+#     print("\n\n\t\t\t** Depreciated Thumbnail ** \n\n")
+#     index_qs = IndexData.objects.prefetch_related("filetype").filter(uuid=tnail_id)
+#     if not index_qs.exists():
+#         # does not exist
+#         print(tnail_id, "No records returned.")
+#         return Http404
+#
+#     size = request.GET.get("size", "small")
+#     entry = index_qs[0]
+#     fs_item = os.path.join(entry.fqpndirectory, entry.name)
+#     found, dir_record = IndexDirs.search_for_directory(fs_item)
+#     # print(fs_item, found, dir_record)
+#     fname = os.path.basename(entry.name).title()
+#
+#     if entry.filetype.is_dir:
+#         # add in file size comparison
+#         if entry.directory is not None:
+#             # Send existing thumbnail
+#             return entry.send_thumbnail(size=size)
+#
+#         try:
+#             entry.directory = Thumbnails_Dirs()
+#             entry.directory.uuid = entry.uuid
+#             entry.directory.FilePath = fs_item
+#             entry.directory.fqpndirectory = fname
+#             new_process_dir(entry)
+#         except IntegrityError:
+#             print("IntegrityError")
+#             time.sleep(0.5)
+#             new_process_dir(entry)
+#         return entry.send_thumbnail(size=size)
+#
+#     if entry.filetype.is_pdf or entry.filetype.is_image or entry.filetype.is_movie:
+#         # add in file size comparison
+#         if entry.file_tnail is not None:  # == None:
+#             # send the existing thumbnail
+#             return entry.send_thumbnail(size=size)
+#
+#         entry.file_tnail = Thumbnails_Files()
+#         entry.file_tnail.uuid = entry.uuid
+#         entry.file_tnail.FilePath = fs_item
+#         entry.file_tnail.FileName = fname
+#         try:
+#             new_process_img(entry, request, size=size)
+#         except IntegrityError:
+#             print("IntegrityError")
+#             time.sleep(0.5)
+#             new_process_img(entry, request)
+#         return entry.send_thumbnail(size=size)
+#
+#     if entry.filetype.icon_filename not in ["", None] and not entry.filetype.is_dir:
+#         entry.is_generic_icon = True
+#         entry.fqpndirectory = os.path.join(
+#             settings.RESOURCES_PATH, "images", entry.filetype.icon_filename
+#         )
+#         return respond_as_attachment(
+#             request,
+#             os.path.join(settings.RESOURCES_PATH, "Images"),
+#             entry.filetype.icon_filename,
+#         )
+#
+#     return HttpResponseBadRequest(content="Bad UUID or Unidentifable file.")
 
 
 def search_viewresults(request: WSGIRequest):
@@ -652,6 +661,11 @@ def new_view_archive(request: WSGIRequest, i_uuid: str):
 
 
 def test(request: WSGIRequest):
+    """
+    Test function for mockup tests
+    :param request:
+    :return:
+    """
     response = render(request, "frontend/test.html", {}, using="Django")
     return response
 

@@ -216,6 +216,7 @@ class IndexDirs(models.Model):
         :param fqpn_directory: text string of fully qualified pathname of the directory
         :return:
         """
+        # pylint: disable-next=import-outside-toplevel
         from cache.models import Cache_Storage
 
         combined_md5 = convert_text_to_md5_hdigest(
@@ -291,8 +292,7 @@ class IndexDirs(models.Model):
         if query.exists():
             record = query[0]
             return (True, record)
-        else:
-            return (False, query)  # return an empty query set
+        return (False, query)  # return an empty query set
 
     def files_in_dir(self, sort=0):
         """
@@ -360,9 +360,11 @@ class IndexDirs(models.Model):
         """
         return self.filetype.color
 
+    # pylint: disable-next=unused-argument
     def get_thumbnail_url(self, size=None):
         """
         Generate the URL for the thumbnail of the current item
+        The argument is unused, included for API compt. between IndexData & IndexDirs
 
         Returns
         -------
