@@ -7,15 +7,19 @@ from typing import Iterator  # , Optional, Union, TypeVar, Generic
 
 from django.conf import settings
 from django.db.utils import IntegrityError
-from filetypes.models import FILETYPE_DATA
-from quickbbs.models import IndexData, Thumbnails_Archives
 
 import frontend.archives3 as archives
+from filetypes.models import FILETYPE_DATA
 from frontend.database import get_xth_image
-from frontend.utilities import (cr_tnail_img, read_from_disk, return_image_obj,
-                                sync_database_disk)
+from frontend.utilities import (
+    cr_tnail_img,
+    read_from_disk,
+    return_image_obj,
+    sync_database_disk,
+)
 from frontend.web import g_option  # , respond_as_attachment
 from frontend.web import return_img_attach  # , return_inline_attach
+from quickbbs.models import IndexData, Thumbnails_Archives
 
 
 def ensures_endswith(string_to_check, value) -> str:

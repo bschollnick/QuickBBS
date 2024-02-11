@@ -9,7 +9,6 @@ from struct import unpack
 
 # from xattr import xattr
 import xattr
-
 from cached_exists import *
 
 app_dir = os.path.split(sys.argv[0])[0]

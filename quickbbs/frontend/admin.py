@@ -1,4 +1,5 @@
 from django.contrib import admin
+
 from quickbbs.models import *
 
 # @admin.register(filetypes)
