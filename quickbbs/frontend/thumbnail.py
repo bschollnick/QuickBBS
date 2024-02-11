@@ -8,16 +8,12 @@ from typing import Iterator  # , Optional, Union, TypeVar, Generic
 from django.conf import settings
 from django.db.utils import IntegrityError
 from filetypes.models import FILETYPE_DATA
-from quickbbs.models import Thumbnails_Archives, IndexData
+from quickbbs.models import IndexData, Thumbnails_Archives
 
 import frontend.archives3 as archives
 from frontend.database import get_xth_image
-from frontend.utilities import (
-    cr_tnail_img,
-    read_from_disk,
-    return_image_obj,
-    sync_database_disk,
-)
+from frontend.utilities import (cr_tnail_img, read_from_disk, return_image_obj,
+                                sync_database_disk)
 from frontend.web import g_option  # , respond_as_attachment
 from frontend.web import return_img_attach  # , return_inline_attach
 
@@ -137,77 +133,78 @@ def new_process_dir2(db_entry):
         pass
 
 
-def new_process_dir(db_index):
-    """
-    input:
-        entry - The IndexData entry
-
-    Read directory, and identify the first thumbnailable file.
-    Make thumbnail of that file
-    Return thumbnail results
-
-    Since we are just looking for a thumbnailable image, it doesn't have
-    to be the most up to date, nor the most current.  Cached is fine.
-    """
-    #
-    # webpath contains the URL equivalent to the file system path (fs_path)
-    #
-    # imagedata = None
-    if db_index.directory.small_thumb not in [b"", None]:
-        # Does the thumbnail exist?
-        # if db_index.size == db_index.directory.FileSize:
-        # print(f"size mismatch, {db_index.name} - {db_index.directory.FileSize}")
-        #    return db_index.send_thumbnail(filename=db_index.name, size="small")
-        #   The cached data is invalidated since the filesize is
-        #   inaccurate or the image does not pass verify.
-        #   Reset the existing thumbnails to ensure that they will be
-        #   regenerated
-        db_index.directory.FileSize = -1
-        db_index.directory.small_thumb = b""
-
-    files = images_in_dir(
-        IndexData,
-        ensures_endswith(
-            os.path.join(db_index.fqpndirectory, db_index.name).lower(), os.sep
-        ),
-    )
-    #    print("\n\n !!! = ",os.path.join(db_index.fqpndirectory,
-    #                                       db_index.name).lower(), files)
-    if files:  # found an file in the directory to use for thumbnail purposes
-        # print ("Files found in directory")
-        fs_d_fname = os.path.join(
-            db_index.fqpndirectory.lower(), db_index.name, files.name
-        )
-        # file system location of directory
-        fext = os.path.splitext(files.name)[1].lower()
-
-        temp = cr_tnail_img(
-            return_image_obj(fs_d_fname), settings.IMAGE_SIZE["small"], fext=fext
-        )
-        # imagedata = temp
-        db_index.directory.small_thumb = temp
-        db_index.directory.FileSize = db_index.size
-    else:
-        #
-        #   There are no files in the directory
-        #
-        temp = return_image_obj(
-            os.path.join(settings.IMAGES_PATH, FILETYPE_DATA[".dir"]["icon_filename"])
-        )
-        img_icon = cr_tnail_img(
-            temp, settings.IMAGE_SIZE["small"], FILETYPE_DATA[".dir"]["icon_filename"]
-        )
-        # configdata["filetypes"]["dir"][2])
-        db_index.is_generic_icon = True
-        db_index.directory.small_thumb = img_icon
-        db_index.directory.FileSize = db_index.size
-    #            print("Set size to %s for %s" % (db_index.directory.FileSize,
-    #                                             fs_d_fname))
-    try:
-        db_index.directory.save()
-        db_index.save()
-    except IntegrityError:
-        pass
+#
+# def new_process_dir(db_index):
+#     """
+#     input:
+#         entry - The IndexData entry
+#
+#     Read directory, and identify the first thumbnailable file.
+#     Make thumbnail of that file
+#     Return thumbnail results
+#
+#     Since we are just looking for a thumbnailable image, it doesn't have
+#     to be the most up to date, nor the most current.  Cached is fine.
+#     """
+#     #
+#     # webpath contains the URL equivalent to the file system path (fs_path)
+#     #
+#     # imagedata = None
+#     if db_index.directory.small_thumb not in [b"", None]:
+#         # Does the thumbnail exist?
+#         # if db_index.size == db_index.directory.FileSize:
+#         # print(f"size mismatch, {db_index.name} - {db_index.directory.FileSize}")
+#         #    return db_index.send_thumbnail(filename=db_index.name, size="small")
+#         #   The cached data is invalidated since the filesize is
+#         #   inaccurate or the image does not pass verify.
+#         #   Reset the existing thumbnails to ensure that they will be
+#         #   regenerated
+#         db_index.directory.FileSize = -1
+#         db_index.directory.small_thumb = b""
+#
+#     files = images_in_dir(
+#         IndexData,
+#         ensures_endswith(
+#             os.path.join(db_index.fqpndirectory, db_index.name).lower(), os.sep
+#         ),
+#     )
+#     #    print("\n\n !!! = ",os.path.join(db_index.fqpndirectory,
+#     #                                       db_index.name).lower(), files)
+#     if files:  # found an file in the directory to use for thumbnail purposes
+#         # print ("Files found in directory")
+#         fs_d_fname = os.path.join(
+#             db_index.fqpndirectory.lower(), db_index.name, files.name
+#         )
+#         # file system location of directory
+#         fext = os.path.splitext(files.name)[1].lower()
+#
+#         temp = cr_tnail_img(
+#             return_image_obj(fs_d_fname), settings.IMAGE_SIZE["small"], fext=fext
+#         )
+#         # imagedata = temp
+#         db_index.directory.small_thumb = temp
+#         db_index.directory.FileSize = db_index.size
+#     else:
+#         #
+#         #   There are no files in the directory
+#         #
+#         temp = return_image_obj(
+#             os.path.join(settings.IMAGES_PATH, FILETYPE_DATA[".dir"]["icon_filename"])
+#         )
+#         img_icon = cr_tnail_img(
+#             temp, settings.IMAGE_SIZE["small"], FILETYPE_DATA[".dir"]["icon_filename"]
+#         )
+#         # configdata["filetypes"]["dir"][2])
+#         db_index.is_generic_icon = True
+#         db_index.directory.small_thumb = img_icon
+#         db_index.directory.FileSize = db_index.size
+#     #            print("Set size to %s for %s" % (db_index.directory.FileSize,
+#     #                                             fs_d_fname))
+#     try:
+#         db_index.directory.save()
+#         db_index.save()
+#     except IntegrityError:
+#         pass
 
 
 def invalidate_thumb(thumbnail):
