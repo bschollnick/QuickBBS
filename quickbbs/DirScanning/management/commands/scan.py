@@ -9,7 +9,9 @@ from quickbbs.models import *
 
 
 class Command(BaseCommand):
-    help = "Perform a Directory or File(s) scan to add/update/remove files from database"
+    help = (
+        "Perform a Directory or File(s) scan to add/update/remove files from database"
+    )
 
     def scan_directory(self, directory_paths=None):
         pass
@@ -18,20 +20,23 @@ class Command(BaseCommand):
         pass
 
     def add_arguments(self, parser):
-        parser.add_argument('scan',
-                            action='store',
-                            type=str,
-                            default=None,
-                            help='Directory to scan',
-                           )
-        parser.add_argument('--dir',
-                            action='store_true',
-                            help='Scan directories for importation',
-                           )
-        parser.add_argument('--files',
-                            action='store_true',
-                            help='Scan Files for importation',
-                            )
+        parser.add_argument(
+            "scan",
+            action="store",
+            type=str,
+            default=None,
+            help="Directory to scan",
+        )
+        parser.add_argument(
+            "--dir",
+            action="store_true",
+            help="Scan directories for importation",
+        )
+        parser.add_argument(
+            "--files",
+            action="store_true",
+            help="Scan Files for importation",
+        )
 
     def handle(self, *args, **options):
         directories_to_scan = options["scan"].split(",")

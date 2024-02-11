@@ -41,8 +41,7 @@ import time
 from hashlib import sha224, sha256
 
 import dhash
-from pathvalidate import (is_valid_filename, sanitize_filename,
-                          sanitize_filepath)
+from pathvalidate import is_valid_filename, sanitize_filename, sanitize_filepath
 from PIL import Image, UnidentifiedImageError
 
 SCANNED_PATHS = {}

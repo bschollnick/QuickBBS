@@ -18,12 +18,12 @@ https://github.com/rk700/PyMuPDF/issues/160
 
 Need to upgrade to use fitz.TOOLS.mupdf_warnings() for bad file detection.
 """
+
 from io import BytesIO
 
 # import subprocess
 import fitz
 from pdfrw import PdfReader, PdfWriter
-
 
 # import img2pdf
 # import pdfkit
@@ -65,8 +65,7 @@ def repair_pdf(origname, newname, forced=False):
     # print ("Error reading")
     doc = fitz.open("pdf", idata)  # open and save a corrected
     try:
-        fixed = doc.write(garbage=3, deflate=1,
-                          clean=1)  # version in memory
+        fixed = doc.write(garbage=3, deflate=1, clean=1)  # version in memory
         doc.close()
         doc = idata = None  # free storage
         ibuffer = BytesIO(fixed)  # convert to stream
@@ -121,7 +120,7 @@ def check_pdf(filename):
     if raw_errmsg != "":  # There is an error
         errorcode = 1
         if "(" in raw_errmsg:  # Does it have an (?
-            errmsg = raw_errmsg[0:raw_errmsg.find("(")].strip()
+            errmsg = raw_errmsg[0 : raw_errmsg.find("(")].strip()
         else:
             errmsg = raw_errmsg
     return (errorcode == 0, errmsg, raw_errmsg)

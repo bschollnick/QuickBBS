@@ -19,35 +19,36 @@ from typing import Union  # , List  # , Iterator, Optional, TypeVar, Generic
 # inside moviepy.editor
 import av  # Video Previews
 import django.db.utils
-import filetypes.models as filetype_models
 import fitz  # PDF previews
-# from cache.models import fs_Cache_Tracking as Cache_Tracking
-from cache.models import Cache_Storage
 from django.conf import settings
 from PIL import Image
-from quickbbs.models import IndexData, IndexDirs, filetypes
 
+import filetypes.models as filetype_models
 import frontend.archives3 as archives
 import frontend.constants as constants
+
+# from cache.models import fs_Cache_Tracking as Cache_Tracking
+from cache.models import Cache_Storage
+from quickbbs.models import IndexData, IndexDirs, filetypes
 
 log = logging.getLogger(__name__)
 
 Image.MAX_IMAGE_PIXELS = None  # Disable PILLOW DecompressionBombError errors.
 
-
-def rename_file(old_filename, new_filename):
-    """
-    Wrapper function for renaming files.
-
-    Args
-        old_filename (str) : The original filename
-        new_filename (str) : The new filename to rename
-
-    """
-    try:
-        os.rename(old_filename, new_filename)
-    except OSError:
-        pass
+#
+# def rename_file(old_filename, new_filename):
+#     """
+#     Wrapper function for renaming files.
+#
+#     Args
+#         old_filename (str) : The original filename
+#         new_filename (str) : The new filename to rename
+#
+#     """
+#     try:
+#         os.rename(old_filename, new_filename)
+#     except OSError:
+#         pass
 
 
 def ensures_endswith(string_to_check, value) -> str:
@@ -81,11 +82,6 @@ def sort_order(request) -> int:
         int::
             The sort value from the request, or 0 if not supplied in the request.
 
-    Raises:
-        None
-
-    Examples
-    --------
     """
     return int(request.GET.get("sort", default=0))
 
@@ -120,31 +116,31 @@ def is_valid_uuid(uuid_to_test, version=4) -> bool:
     return str(uuid_obj) == uuid_to_test
 
 
-def test_extension(name, ext_list) -> bool:
-    """
-    Check if filename has an file extension that is in passed list.
-
-    Args:
-        name (str): The Filename to examine
-        ext_list (list): ['zip', 'rar', etc] # list of file extensions (w/o .),
-            lowercase.
-
-    Returns:
-        boolean::
-            `True` if name does match an extension passed, otherwise `False`.
-
-    Raises:
-        None
-
-    Examples
-    --------
-    >>> test_extension("test.zip", ['zip', 'cbz'])
-    True
-    >>> test_extension("test.rar", ['zip', 'cbz'])
-    False
-
-    """
-    return os.path.splitext(name)[1].lower() in ext_list
+# def test_extension(name, ext_list) -> bool:
+#     """
+#     Check if filename has an file extension that is in passed list.
+#
+#     Args:
+#         name (str): The Filename to examine
+#         ext_list (list): ['zip', 'rar', etc] # list of file extensions (w/o .),
+#             lowercase.
+#
+#     Returns:
+#         boolean::
+#             `True` if name does match an extension passed, otherwise `False`.
+#
+#     Raises:
+#         None
+#
+#     Examples
+#     --------
+#     >>> test_extension("test.zip", ['zip', 'cbz'])
+#     True
+#     >>> test_extension("test.rar", ['zip', 'cbz'])
+#     False
+#
+#     """
+#     return os.path.splitext(name)[1].lower() in ext_list
 
 
 def load_pdf(fspath):
@@ -191,15 +187,6 @@ def load_movie(fspath, offset_from=30):
         container.seek(container.duration // 2)
         frame = container.decode(stream)
         image = next(frame).to_image()
-    # endcount = None
-    # for count, frame in enumerate(container.decode(stream)):
-    #     image = frame.to_image()
-    #     extrema = image.convert("L").getextrema()
-    #     if extrema not in [(0, 0), (255, 255)]:
-    #         if endcount is None:
-    #             endcount = count + offset_from
-    #     if endcount is not None and count >= endcount:
-    #         break
     return image
 
 
@@ -327,24 +314,24 @@ def cr_tnail_img(source_image, size, fext) -> Image:
         return image_data.getvalue()
 
 
-def multiple_replace(repl_dict, text):
-    """
-    Regex to quickly replace multiple entries at the same time.
-
-    Parameters
-    ----------
-    repl_dict (dict): Dictionary containing the pairs of values to replace
-    text (str): The string to be modifying
-
-    Returns
-    -------
-        Str : The potentially modified string
-    """
-    # Create a regular expression  from the dictionary keys
-    # For each match, look-up corresponding value in dictionary
-    return constants.regex.sub(
-        lambda mo: repl_dict[mo.string[mo.start() : mo.end()]], text
-    )
+# def multiple_replace(repl_dict, text):
+#     """
+#     Regex to quickly replace multiple entries at the same time.
+#
+#     Parameters
+#     ----------
+#     repl_dict (dict): Dictionary containing the pairs of values to replace
+#     text (str): The string to be modifying
+#
+#     Returns
+#     -------
+#         Str : The potentially modified string
+#     """
+#     # Create a regular expression  from the dictionary keys
+#     # For each match, look-up corresponding value in dictionary
+#     return constants.regex.sub(
+#         lambda mo: repl_dict[mo.string[mo.start() : mo.end()]], text
+#     )
 
 
 def return_disk_listing(fqpn, enable_rename=False) -> (bool, dict):

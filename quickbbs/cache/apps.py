@@ -2,7 +2,7 @@ import os
 
 from django.apps import AppConfig
 from django.conf import settings
-from django.db.utils import ProgrammingError, OperationalError, IntegrityError
+from django.db.utils import IntegrityError, OperationalError, ProgrammingError
 
 cold_start = False
 

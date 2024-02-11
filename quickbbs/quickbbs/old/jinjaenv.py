@@ -7,10 +7,12 @@ See https://niwi.nz/django-jinja/latest/#_installation
 
 The majority of this can be handled in quickbbs/settings.py
 """
+
 from django.conf import settings
 from django.templatetags.static import static
 from django.urls import reverse
 from django_icons.templatetags.icons import icon_tag
+
 # from django_unicorn.templatetags.unicorn import unicorn_scripts, unicorn
 from jinja2 import Environment
 
@@ -26,14 +28,16 @@ def environment(**options):
     :doc-author: Trelent
     """
     env = Environment(**options)
-    env.globals.update({
-#        'static': static,
-#        'url': reverse,
-        # 'icon': icon_tag,
-        # 'unicorn': unicorn,
-        # 'unicorn_scripts': unicorn_scripts,
- #       'bulma_uri': settings.BULMA_URI,
-        'fontawesome_uri': settings.FONTAWESOME_URI,
-        'jquery_uri': settings.JQUERY_URI,
-    })
+    env.globals.update(
+        {
+            #        'static': static,
+            #        'url': reverse,
+            # 'icon': icon_tag,
+            # 'unicorn': unicorn,
+            # 'unicorn_scripts': unicorn_scripts,
+            #       'bulma_uri': settings.BULMA_URI,
+            "fontawesome_uri": settings.FONTAWESOME_URI,
+            "jquery_uri": settings.JQUERY_URI,
+        }
+    )
     return env

@@ -1,4 +1,6 @@
-import os, sys
+import os
+import sys
+
 import django
 
 # sys.path.append('/abs/path/to/my-project/)

@@ -302,9 +302,7 @@ class IndexDirs(models.Model):
         """
         # necessary to prevent circular references on startup
         # pylint: disable-next=import-outside-toplevel
-        from frontend.database import (
-            SORT_MATRIX,
-        )
+        from frontend.database import SORT_MATRIX
 
         files = (
             IndexData.objects.select_related("filetype")
@@ -321,9 +319,7 @@ class IndexDirs(models.Model):
         """
         # necessary to prevent circular references on startup
         # pylint: disable-next=import-outside-toplevel
-        from frontend.database import (
-            SORT_MATRIX,
-        )
+        from frontend.database import SORT_MATRIX
 
         dir_scan = str((pathlib.Path(self.fqpndirectory)).resolve())
         dir_scan = IndexDirs.normalize_fqpn(dir_scan)
@@ -551,14 +547,6 @@ class IndexData(models.Model):
         blank=True,
     )
 
-    # directory = models.OneToOneField(
-    #     Thumbnails_Dirs,
-    #     on_delete=models.CASCADE,
-    #     db_index=True,
-    #     default=None,
-    #     null=True,
-    #     blank=True,
-    # )
     # https://stackoverflow.com/questions/38388423
     archives = models.OneToOneField(
         Thumbnails_Archives,

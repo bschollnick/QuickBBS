@@ -26,7 +26,6 @@ from numpy import arange
 from PIL import Image, ImageFile
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from quickbbs.models import IndexData, IndexDirs, Thumbnails_Files
 
 import frontend.archives3 as archives
 from frontend.database import SORT_MATRIX, get_db_files  # check_dup_thumbs
@@ -39,6 +38,7 @@ from frontend.utilities import (
     sort_order,
 )
 from frontend.web import detect_mobile, g_option, respond_as_attachment
+from quickbbs.models import IndexData, IndexDirs, Thumbnails_Files
 
 log = logging.getLogger(__name__)
 warnings.simplefilter("ignore", Image.DecompressionBombWarning)
@@ -571,15 +571,8 @@ def download_file(request: WSGIRequest):  # , filename=None):
     if d_uuid in ["", None]:
         raise Http404
 
-    # download = IndexData.objects.select_related("filetype").exclude(ignore=True). \
-    #     exclude(delete_pending=True).filter(uuid=d_uuid)
-
     download = IndexData.objects.prefetch_related("filetype").filter(uuid=d_uuid)
 
-    # if not download.exists():
-    #     # database entries do not exist
-    #     raise Http404
-    #
     try:
         return download[0].inline_sendfile(
             request, ranged=download[0].filetype.is_movie

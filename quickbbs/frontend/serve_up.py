@@ -5,8 +5,7 @@ Serve Resources, and Static documents from Django
 import os.path
 
 from django.conf import settings
-from django.http import \
-    Http404  # , HttpResponseBadRequest, HttpResponseNotFound,
+from django.http import Http404  # , HttpResponseBadRequest, HttpResponseNotFound,
 from django.views.static import serve
 
 # JsonResponse)
