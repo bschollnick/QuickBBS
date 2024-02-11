@@ -526,12 +526,12 @@ def process_filedata(fs_entry, db_record, v3=False) -> IndexData:
 
     db_record.is_file = fs_entry.is_file  # ["is_file"]
     db_record.is_archive = db_record.filetype.is_archive
-    db_record.is_image = db_record.filetype.is_image
-    db_record.is_movie = db_record.filetype.is_movie
-    db_record.is_audio = db_record.filetype.is_audio
+    # db_record.is_image = db_record.filetype.is_image
+    # db_record.is_movie = db_record.filetype.is_movie
+    # db_record.is_audio = db_record.filetype.is_audio
     db_record.is_animated = False
 
-    if db_record.is_dir:  # or db_entry["unified_dirs"]:
+    if db_record.is_dir:
         SubDirFqpn = os.path.join(db_record.fqpndirectory, db_record.name)
         sync_database_disk(SubDirFqpn)
         return None
@@ -585,7 +585,7 @@ def sync_database_disk(directoryname):
         * If there are no database entries for the directory, the fs comparing to the database
     """
     bulk_size = 100
-    bootstrap = False
+    # bootstrap = False
     if directoryname in [os.sep, r"/"]:
         directoryname = settings.ALBUMS_PATH
     webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
@@ -638,9 +638,6 @@ def sync_database_disk(directoryname):
                 #     db_entry.parent_dir = dirpath_id
                 #     update = True
                 entry = fs_entries[db_entry.name.title()]
-                #                if db_entry.directory:  # or db_entry["unified_dirs"]:
-                #                    _, subdirectory = return_disk_listing(str(entry.absolute()))
-                #                    continue
                 if db_entry.lastmod != entry.stat()[stat.ST_MTIME]:
                     # print("LastMod mismatch")
                     db_entry.lastmod = entry.stat()[stat.ST_MTIME]
@@ -713,8 +710,9 @@ def sync_database_disk(directoryname):
         else:
             pass
             # print("No records to create")
-        if bootstrap:
-            IndexData.objects.filter(delete_pending=True).delete()
+
+        # if bootstrap:
+        #    IndexData.objects.filter(delete_pending=True).delete()
 
         #        if not Cache_Tracking.objects.filter(DirName=dirpath).exists():
         # The path has not been seen since the Cache Tracking has been enabled

@@ -5,25 +5,333 @@ Utilities for QuickBBS, the python edition.
 import logging
 import os
 import os.path
+import re
 import stat
 import time
 import urllib.parse
 import uuid
+from io import BytesIO
 from pathlib import Path
 from typing import Union  # , List  # , Iterator, Optional, TypeVar, Generic
 
+# from moviepy.video.io import VideoFileClip
+# from moviepy.editor import VideoFileClip #* # import everythings (variables, classes, methods...)
+# inside moviepy.editor
+import av  # Video Previews
 import django.db.utils
+import fitz  # PDF previews
 from django.conf import settings
 from PIL import Image
 
-#  import frontend.archives3 as archives
+import filetypes.models as filetype_models
+import frontend.archives3 as archives
 import frontend.constants as constants
-import quickbbs.filetypes.models as filetype_models
-from quickbbs.cache.models import Cache_Storage
-from quickbbs.quickbbs.models import *
-from quickbbs.quickbbs.models import filetypes, index_data
+
+# from cache.models import fs_Cache_Tracking as Cache_Tracking
+from cache.models import Cache_Storage
+from quickbbs.models import IndexData, IndexDirs, filetypes
 
 log = logging.getLogger(__name__)
+
+Image.MAX_IMAGE_PIXELS = None  # Disable PILLOW DecompressionBombError errors.
+
+#
+# def rename_file(old_filename, new_filename):
+#     """
+#     Wrapper function for renaming files.
+#
+#     Args
+#         old_filename (str) : The original filename
+#         new_filename (str) : The new filename to rename
+#
+#     """
+#     try:
+#         os.rename(old_filename, new_filename)
+#     except OSError:
+#         pass
+
+
+def ensures_endswith(string_to_check, value) -> str:
+    """
+    Check the string (string_to_check) to see if value is the last character in string_to_check.
+    If not, then add it to the end of the string.
+
+    Args:
+        string_to_check (str): The source string to process
+        value (str): The string to check against, and to add to the end of the string
+            if it doesn't already exist.
+
+    Returns
+    -------
+        str : the potentially changed string
+    """
+    if not string_to_check.endswith(value):
+        string_to_check = f"{string_to_check}{value}"
+    return string_to_check
+
+
+def sort_order(request) -> int:
+    """
+    Grab the sort order from the request (cookie)
+    and apply it to the session, and to the context for the web page.
+
+    Args:
+        request (obj) - The request object
+
+    Returns:
+        int::
+            The sort value from the request, or 0 if not supplied in the request.
+
+    """
+    return int(request.GET.get("sort", default=0))
+
+
+def is_valid_uuid(uuid_to_test, version=4) -> bool:
+    """
+    Check if uuid_to_test is a valid UUID.
+    https://stackoverflow.com/questions/19989481
+
+    Args:
+        uuid_to_test (str) - UUID code to validate
+        version (int) - UUID version to validate against (eg  1, 2, 3, 4)
+
+    Returns:
+        boolean::
+            `True` if uuid_to_test is a valid UUID, otherwise `False`.
+
+    Raises:
+        None
+
+    Examples
+    --------
+    >>> is_valid_uuid('c9bf9e57-1685-4c89-bafb-ff5af830be8a')
+    True
+    >>> is_valid_uuid('c9bf9e58')
+    False
+    """
+    try:
+        uuid_obj = str(uuid.UUID(uuid_to_test, version=version))
+    except ValueError:
+        return False
+    return str(uuid_obj) == uuid_to_test
+
+
+# def test_extension(name, ext_list) -> bool:
+#     """
+#     Check if filename has an file extension that is in passed list.
+#
+#     Args:
+#         name (str): The Filename to examine
+#         ext_list (list): ['zip', 'rar', etc] # list of file extensions (w/o .),
+#             lowercase.
+#
+#     Returns:
+#         boolean::
+#             `True` if name does match an extension passed, otherwise `False`.
+#
+#     Raises:
+#         None
+#
+#     Examples
+#     --------
+#     >>> test_extension("test.zip", ['zip', 'cbz'])
+#     True
+#     >>> test_extension("test.rar", ['zip', 'cbz'])
+#     False
+#
+#     """
+#     return os.path.splitext(name)[1].lower() in ext_list
+
+
+def load_pdf(fspath):
+    """
+    The load_pdf function loads a PDF file from the filesystem and returns an image.
+
+    :param fspath: Load the file
+    :return: A pil
+    :doc-author: Trelent
+    """
+    #    if filetype_models.FILETYPE_DATA[os.path.splitext(fspath).lower()]["is_pdf"]:
+    # Do not repair the PDF / validate the PDF.  If it's bad,
+    # it should be repaired, not band-aided by a patch from the web server.
+    # results = pdf_utilities.check_pdf(fs_path)
+    with fitz.open(fspath) as pdf_file:
+        pdf_page = pdf_file.load_page(0)
+        # matrix=fitz.Identity, alpha=True)
+        pix = pdf_page.get_pixmap(alpha=True)
+        try:
+            source_image = Image.open(BytesIO(pix.tobytes()))
+        except UserWarning:
+            print("UserWarning!")
+            source_image = None
+    return source_image
+
+
+def load_movie(fspath, offset_from=30):
+    """
+    The load_movie function loads a movie from the file system and returns an image.
+
+        Updated - 2022/12/21 - It will now search for the next
+    :param fspath: Specify the path to the video file
+    :param offset_from: The number of frames to advance *after* detecting a non-solid
+        black or white frame.
+    :return: A pillow image object
+
+    References:
+        * https://stackoverflow.com/questions/14041562/
+            python-pil-detect-if-an-image-is-completely-black-or-white
+    """
+    with av.open(fspath) as container:
+        stream = container.streams.video[0]
+        duration_sec = stream.frames / 30
+        container.seek(container.duration // 2)
+        frame = container.decode(stream)
+        image = next(frame).to_image()
+    return image
+
+
+# def load_movie_alt(fspath):
+#     """
+#     The load_movie_av function loads a movie from the filesystem and returns an image of the first frame.
+#
+#     :param fspath: Specify the path of the file
+#     :return: An Pillow image object
+#     """
+#     with av.open(fspath) as container:
+#         stream = container.streams.video[0]
+#         frame = next(container.decode(stream))
+#         return frame.to_image()
+
+
+def load_image(fspath, mem=False):
+    """
+    The load_image function loads an image from a file path or byte stream.
+    It returns the source_image object, which is a PIL Image object.
+
+    :param fspath: Pass the path of the image file
+    :param mem: Determine if the source file is a local file or a byte stream, if true, byte stream
+    :return: A pil / Image object
+    """
+    source_image = None
+    if not mem:
+        try:
+            source_image = Image.open(fspath)
+        except OSError:
+            print("Unable to load source file")
+    else:
+        try:  # fs_path is a byte stream
+            source_image = Image.open(BytesIO(fspath))
+        except OSError:
+            print("IOError")
+            log.debug("PIL was unable to identify as an image file")
+        except UserWarning:
+            print("UserWarning!")
+    return source_image
+
+
+def return_image_obj(fs_path, memory=False) -> Image:
+    """
+    Given a Fully Qualified FileName/Pathname, open the image
+    (or PDF) and return the PILLOW object for the image
+    Fitz == py
+
+
+    Args:
+        fs_path (str) - File system path
+        memory (bool) - Is this to be mapped in memory
+
+    Returns:
+        boolean::
+            `True` if uuid_to_test is a valid UUID, otherwise `False`.
+
+    Raises:
+        obj::
+            Pillow image object
+
+
+    Examples
+    --------
+    """
+    source_image = None
+    extension = os.path.splitext(fs_path)[1].lower()
+
+    if extension in ("", b"", None):
+        # There is currently no concept of a "None" in filetypes
+        extension = ".none"
+    if filetype_models.FILETYPE_DATA[extension]["is_pdf"]:
+        source_image = load_pdf(fs_path)
+
+    elif filetype_models.FILETYPE_DATA[extension]["is_movie"]:
+        source_image = load_movie(fs_path)
+
+    elif filetype_models.FILETYPE_DATA[extension]["is_image"]:
+        source_image = load_image(fs_path, mem=memory)
+
+    return source_image
+
+
+def cr_tnail_img(source_image, size, fext) -> Image:
+    """
+    Given the PILLOW object, resize the image to <SIZE>
+    and return the saved version of the file (using FEXT
+    as the format to save as [eg. PNG])
+
+    Return the binary representation of the file that
+    was saved to memory
+
+    Args:
+        source_image (PIL.Image): Pillow Image Object to modify
+        size (Str) : The size to resize the image to (e.g. 200 for 200x200)
+            This always is set as (size, size)
+        fext (str): The file extension of the file that is to be processed
+            e.g. .jpg, .mp4
+
+    returns:
+        blob: The binary blog of the thumbnail
+
+    """
+    if source_image is None:
+        return None
+    fext = fext.lower().strip()
+    if not fext.startswith("."):
+        fext = f".{fext}"
+
+    if fext in settings.MOVIE_FILE_TYPES:
+        fext = ".jpg"
+
+    with BytesIO() as image_data:  # = BytesIO()
+        source_image.thumbnail((size, size), Image.Resampling.LANCZOS)
+        try:
+            source_image.save(
+                fp=image_data,
+                format="PNG",  # Need alpha channel support for icons, etc.
+                optimize=False,
+            )
+        except OSError:
+            source_image = source_image.convert("RGB")
+            source_image.save(fp=image_data, format="JPEG", optimize=False)
+        image_data.seek(0)
+        return image_data.getvalue()
+
+
+# def multiple_replace(repl_dict, text):
+#     """
+#     Regex to quickly replace multiple entries at the same time.
+#
+#     Parameters
+#     ----------
+#     repl_dict (dict): Dictionary containing the pairs of values to replace
+#     text (str): The string to be modifying
+#
+#     Returns
+#     -------
+#         Str : The potentially modified string
+#     """
+#     # Create a regular expression  from the dictionary keys
+#     # For each match, look-up corresponding value in dictionary
+#     return constants.regex.sub(
+#         lambda mo: repl_dict[mo.string[mo.start() : mo.end()]], text
+#     )
 
 
 def return_disk_listing(fqpn, enable_rename=False) -> (bool, dict):
@@ -96,6 +404,48 @@ def return_disk_listing(fqpn, enable_rename=False) -> (bool, dict):
     return (True, fs_data)
 
 
+def break_down_urls(uri_path) -> Union[list[bytes], list[str]]:
+    """
+    Split URL into it's component parts
+
+    Parameters
+    ----------
+    uri_path (str): The URI to break down
+
+    Returns
+    -------
+        list : A list containing all of the parts of the URI
+
+    >>> break_down_urls("https://www.google.com")
+    """
+    path = urllib.parse.urlsplit(uri_path).path
+    return path.split("/")
+
+
+def return_breadcrumbs(uri_path=""):
+    """
+    Return the breadcrumps for uri_path
+
+    Parameters
+    ----------
+    uri_path (str): The URI to break down into breadcrumbs
+
+    Returns
+    -------
+        list of tuples - consisting of [name, url, html url link]
+
+    """
+    uris = break_down_urls(uri_path.lower().replace(settings.ALBUMS_PATH.lower(), ""))
+    data = []
+    for count in range(1, len(uris)):
+        name = uris[count].split("/")[-1]
+        url = "/".join(uris[0 : count + 1])
+        if name == "":
+            continue
+        data.append([name, url, f"<a href='{url}'>{name}</a>"])
+    return data
+
+
 def fs_counts(fs_entries) -> (int, int):
     """
     Quickly count the files vs directories in a list of scandir entries
@@ -110,11 +460,13 @@ def fs_counts(fs_entries) -> (int, int):
     tuple - (# of files, # of dirs)
 
     """
-    # files = sum(map(os.DirEntry.is_file, fs_entries.values()))
-    files = 0
-    for fs_item in fs_entries.values():
-        files += fs_item.is_file()
+
+    def isfile(entry):
+        return entry.is_file()
+
+    files = len(list(filter(isfile, fs_entries.values())))
     dirs = len(fs_entries) - files
+
     return (files, dirs)
 
 
@@ -136,10 +488,10 @@ def add_archive(fqpn, new_uuid):
             pass
 
 
-def process_filedata(fs_entry, db_record, v3=False) -> index_data:
+def process_filedata(fs_entry, db_record, v3=False) -> IndexData:
     """
-    The process_filedata function takes a file system entry and returns an index_data object.
-    The index_data object contains the following attributes:
+    The process_filedata function takes a file system entry and returns an IndexData object.
+    The IndexData object contains the following attributes:
         fqpndirectory - The fully qualified path to the directory containing the file or folder.
         name - The name of the file or folder (without any parent directories).
         sortname - A normalized version of 'name' with all capital letters replaced by lower case letters,
@@ -163,19 +515,16 @@ def process_filedata(fs_entry, db_record, v3=False) -> index_data:
         db_record.fileext = ".dir"
     if db_record.fileext in [".", ""]:
         db_record.fileext = ".none"
-    if db_record.fileext in filetype_models.FILETYPE_DATA:
-        db_record.filetype = filetypes(fileext=db_record.fileext)
-    else:
+    if db_record.fileext not in filetype_models.FILETYPE_DATA:
         return None
-    #    webpath = ensures_endswith(fs_entry.resolve().lower().replace("//", "/"), os.sep)
+
+    db_record.filetype = filetypes(fileext=db_record.fileext)
     db_record.uuid = uuid.uuid4()
-    # db_record.fqpndirectory = ensures_endswith(os.path.split(fs_entry["path"])[0].lower(), os.sep)
-    db_record.sortname = naturalize(db_record.name)
     db_record.size = fs_entry.stat()[stat.ST_SIZE]
     db_record.lastmod = fs_entry.stat()[stat.ST_MTIME]
     db_record.lastscan = time.time()
-    db_record.is_file = fs_entry.is_file  # ["is_file"]
 
+    db_record.is_file = fs_entry.is_file  # ["is_file"]
     db_record.is_archive = db_record.filetype.is_archive
     db_record.is_image = db_record.filetype.is_image
     db_record.is_movie = db_record.filetype.is_movie
@@ -183,11 +532,12 @@ def process_filedata(fs_entry, db_record, v3=False) -> index_data:
     db_record.is_animated = False
 
     if db_record.is_dir:  # or db_entry["unified_dirs"]:
-        _, subdirectory = return_disk_listing(
-            os.path.join(db_record.fqpndirectory, db_record.name)
-        )
-        fs_file_count, fs_dir_count = fs_counts(subdirectory)
-        db_record.numfiles, db_record.numdirs = fs_file_count, fs_dir_count
+        SubDirFqpn = os.path.join(db_record.fqpndirectory, db_record.name)
+        sync_database_disk(SubDirFqpn)
+        return None
+        # _, subdirectory = return_disk_listing(SubDirFqpn)
+        # fs_file_count, fs_dir_count = fs_counts(subdirectory)
+        # db_record.numfiles, db_record.numdirs = fs_file_count, fs_dir_count
 
     if filetype_models.FILETYPE_DATA[db_record.fileext][
         "is_image"
@@ -234,11 +584,18 @@ def sync_database_disk(directoryname):
     * Logic Update
         * If there are no database entries for the directory, the fs comparing to the database
     """
-    bootstrap = False
+    bulk_size = 100
+    # bootstrap = False
     if directoryname in [os.sep, r"/"]:
         directoryname = settings.ALBUMS_PATH
     webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
-    dirpath = os.path.abspath(directoryname.title().strip())
+    dirpath = IndexDirs.normalize_fqpn(os.path.abspath(directoryname.title().strip()))
+    found, dirpath_id = IndexDirs.search_for_directory(fqpn_directory=dirpath)
+    if found is False:
+        dirpath_id = IndexDirs.add_directory(dirpath)
+        print("\tAdding ", dirpath)
+
+    #    print(dirpath, dirpath_id)
 
     records_to_update = []
     cached = Cache_Storage.name_exists_in_cache(DirName=dirpath) is True
@@ -247,29 +604,43 @@ def sync_database_disk(directoryname):
         # If the directory is not found in the Cache_Tracking table, then it needs to be rescanned.
         # Remember, directory is placed in there, when it is scanned.
         # If changed, then watchdog should have removed it from the path.
-        print(f"{dirpath=} not in Cache_Tracking")
+        # print(f"{dirpath=} not in Cache_Tracking")
         _, fs_entries = return_disk_listing(dirpath)
 
-        db_data = index_data.objects.select_related("filetype", "directory").filter(
-            fqpndirectory=webpath, delete_pending=False, ignore=False
-        )
-        # db_data = index_data.search_for_directory(fqpn_directory=webpath)
+        success, IDirs = IndexDirs.search_for_directory(dirpath)
+        count, db_data = IDirs.files_in_dir()
+        if count in [0, None]:
+            db_data = IndexData.objects.select_related("filetype").filter(
+                fqpndirectory=webpath, delete_pending=False, ignore=False
+            )
+
+        #        print(count, db_data)
+        # db_data = IndexData.search_for_directory(fqpn_directory=webpath)
+        update = False
         for db_entry in db_data:
             if db_entry.name.strip() not in fs_entries:
                 print("Database contains a file not in the fs: ", db_entry.name)
                 # The entry just is not in the file system.  Delete it.
                 db_entry.ignore = True
                 db_entry.delete_pending = True
+                db_entry.parent_dir = dirpath_id
+                #                db_entry.fqpndirectory = db_entry.name.strip()
                 records_to_update.append(db_entry)
+
             #            db_entry.save()
             else:
                 # The db_entry does exist in the file system.
                 # Does the lastmod match?
                 # Does size match?
                 # If directory, does the numfiles, numdirs, count_subfiles match?
-
-                update = False
+                # update = False, unncessary, moved to above the for loop.
+                # if db_entry.parent_dir is None:
+                #     db_entry.parent_dir = dirpath_id
+                #     update = True
                 entry = fs_entries[db_entry.name.title()]
+                #                if db_entry.directory:  # or db_entry["unified_dirs"]:
+                #                    _, subdirectory = return_disk_listing(str(entry.absolute()))
+                #                    continue
                 if db_entry.lastmod != entry.stat()[stat.ST_MTIME]:
                     # print("LastMod mismatch")
                     db_entry.lastmod = entry.stat()[stat.ST_MTIME]
@@ -278,19 +649,13 @@ def sync_database_disk(directoryname):
                     # print("Size mismatch")
                     db_entry.size = entry.stat()[stat.ST_SIZE]
                     update = True
-                if db_entry.directory:  # or db_entry["unified_dirs"]:
-                    _, subdirectory = return_disk_listing(str(entry.absolute()))
+                    # print(" sync - ",str(entry.absolute))
+                    # sync_database_disk(str(entry.absolute()))
                     # fs_file_count, fs_dir_count = fs_counts(subdirectory)
-                    fs_file_count, fs_dir_count = fs_counts(subdirectory)
-                    if (
-                        db_entry.numfiles != fs_file_count
-                        or db_entry.numdirs != fs_dir_count
-                    ):
-                        db_entry.numfiles, db_entry.numdirs = (
-                            fs_file_count,
-                            fs_dir_count,
-                        )
-                        update = True
+                    # fs_file_count, fs_dir_count = fs_counts(subdirectory)
+                    # if db_entry.numfiles != fs_file_count or db_entry.numdirs != fs_dir_count:
+                    #     db_entry.numfiles, db_entry.numdirs = fs_file_count, fs_dir_count
+                    #     update = True
                 if update:
                     records_to_update.append(db_entry)
                     print("Database record being updated: ", db_entry.name)
@@ -299,7 +664,7 @@ def sync_database_disk(directoryname):
 
         # Check for entries that are not in the database, but do exist in the file system
         names = (
-            index_data.objects.filter(fqpndirectory=webpath)
+            IndexData.objects.filter(fqpndirectory=webpath)
             .only("name")
             .values_list("name", flat=True)
         )
@@ -310,16 +675,17 @@ def sync_database_disk(directoryname):
             if test_name not in names:
                 # The record has not been found
                 # add it.
-                record = index_data()
+                record = IndexData()
                 record = process_filedata(entry, record, v3=False)
                 if record is None:
                     continue
+                record.parent_dir = dirpath_id
                 if record.filetype.is_archive:
                     print("Archive detected ", record.name)
                 records_to_create.append(record)
         if records_to_update:
             try:
-                index_data.objects.bulk_update(
+                IndexData.objects.bulk_update(
                     records_to_update,
                     [
                         "ignore",
@@ -328,25 +694,28 @@ def sync_database_disk(directoryname):
                         "size",
                         "numfiles",
                         "numdirs",
+                        "parent_dir_id",
                     ],
-                    50,
+                    bulk_size,
                 )
             except django.db.utils.IntegrityError:
                 return None
         else:
-            print("No records to update")
+            pass
+            # print("No records to update")
         # The record is in the database, so it's already been vetted in the database comparison
         if records_to_create:
-            print("Creating records")
             try:
-                index_data.objects.bulk_create(records_to_create, 50)
+                IndexData.objects.bulk_create(records_to_create, bulk_size)
             except django.db.utils.IntegrityError:
                 return None
             # The record is in the database, so it's already been vetted in the database comparison
         else:
-            print("No records to create")
-        if bootstrap:
-            index_data.objects.filter(delete_pending=True).delete()
+            pass
+            # print("No records to create")
+
+        # if bootstrap:
+        #    IndexData.objects.filter(delete_pending=True).delete()
 
         #        if not Cache_Tracking.objects.filter(DirName=dirpath).exists():
         # The path has not been seen since the Cache Tracking has been enabled
@@ -358,7 +727,7 @@ def sync_database_disk(directoryname):
         # new_rec.save()
 
 
-#        index_data.objects.filter(delete_pending=True).delete()
+#        IndexData.objects.filter(delete_pending=True).delete()
 # scan_lock.release_scan(webpath)
 
 

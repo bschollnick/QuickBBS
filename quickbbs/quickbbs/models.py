@@ -520,24 +520,6 @@ class IndexData(models.Model):
         default=False, db_index=False
     )  # icon is a generic icon
 
-    unified_thumb = models.OneToOneField(
-        thumbnails.models.Thumbnails_Files,
-        on_delete=models.CASCADE,
-        db_index=True,
-        default=None,
-        null=True,
-        blank=True,
-    )
-
-    unified_dirs = models.OneToOneField(
-        thumbnails.models.Thumbnails_Dir,
-        on_delete=models.CASCADE,
-        db_index=True,
-        default=None,
-        null=True,
-        blank=True,
-    )
-
     file_tnail = models.OneToOneField(
         Thumbnails_Files,
         on_delete=models.CASCADE,
@@ -666,14 +648,6 @@ class IndexData(models.Model):
         options = {}
         options["i_uuid"] = str(self.uuid)
         parameters = []
-        # parameters.append("?small")
-        # if self.filetype.is_pdf:
-        #    parameters.append("&pdf")
-        # elif self.filetype.is_archive:
-        #    parameters.append("&arch")
-        # if self.filetype.is_dir:
-        #     return reverse("directories") + os.path.join(self.get_webpath(), self.name)
-        # else:
         return reverse("new_viewitem", kwargs=options) + "".join(parameters)
 
     def get_thumbnail_url(self, size=None):
