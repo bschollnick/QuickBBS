@@ -4,11 +4,7 @@ Database Specific Functions
 
 from typing import Iterator  # , Optional, Union, TypeVar, Generic
 
-from quickbbs.models import (
-    Thumbnails_Archives,
-    Thumbnails_Files,
-    IndexData,
-)
+from quickbbs.models import IndexData, Thumbnails_Archives, Thumbnails_Files
 
 DF_VDBASE = ["sortname", "lastscan", "lastmod", "size"]
 
