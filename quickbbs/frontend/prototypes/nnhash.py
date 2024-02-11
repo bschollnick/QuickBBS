@@ -22,12 +22,12 @@ from PIL import Image
 session = onnxruntime.InferenceSession(sys.argv[1])
 
 # Load output hash matrix
-seed1 = open(sys.argv[2], 'rb').read()[128:]
+seed1 = open(sys.argv[2], "rb").read()[128:]
 seed1 = np.frombuffer(seed1, dtype=np.float32)
 seed1 = seed1.reshape([96, 128])
 
 # Preprocess image
-image = Image.open(sys.argv[3]).convert('RGB')
+image = Image.open(sys.argv[3]).convert("RGB")
 image = image.resize([360, 360])
 arr = np.array(image).astype(np.float32) / 255.0
 arr = arr * 2.0 - 1.0
@@ -39,8 +39,7 @@ outs = session.run(None, inputs)
 
 # Convert model output to hex hash
 hash_output = seed1.dot(outs[0].flatten())
-hash_bits = ''.join(['1' if it >= 0 else '0' for it in hash_output])
-hash_hex = '{:0{}x}'.format(int(hash_bits, 2), len(hash_bits) // 4)
+hash_bits = "".join(["1" if it >= 0 else "0" for it in hash_output])
+hash_hex = "{:0{}x}".format(int(hash_bits, 2), len(hash_bits) // 4)
 
 print(hash_hex)
-
