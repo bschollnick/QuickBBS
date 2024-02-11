@@ -96,7 +96,8 @@ def return_image_obj(fs_path, memory=False):
         pdf_file = fitz.open(fs_path)
         print("Loading page 0")
         pdf_page = pdf_file.loadPage(0)
-        pix = pdf_page.getPixmap(alpha=True)  # matrix=fitz.Identity, alpha=True)
+        # matrix=fitz.Identity, alpha=True)
+        pix = pdf_page.getPixmap(alpha=True)
 
         try:
             source_image = Image.open(BytesIO(pix.getPNGData()))
