@@ -7,6 +7,7 @@ from struct import unpack
 
 import xattr
 from cached_exists import *
+import imagehash
 
 app_dir = os.path.split(sys.argv[0])[0]
 print(app_dir)
