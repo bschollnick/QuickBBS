@@ -103,7 +103,7 @@ def image_to_pil(fspath, mem=False):
     return source_image
 
 
-def cr_tnail_img(source_image, size, fext) -> Image:
+def resize_pil_image(source_image, size, fext) -> Image:
     """
     Given the PILLOW object, resize the image to <SIZE>
     and return the saved version of the file (using FEXT

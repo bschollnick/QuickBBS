@@ -31,14 +31,15 @@ import frontend.archives3 as archives
 from frontend.database import SORT_MATRIX, get_db_files  # check_dup_thumbs
 from frontend.thumbnail import new_process_dir2, new_process_img
 from frontend.utilities import (
+    sync_database_disk,
     ensures_endswith,
-    is_valid_uuid,
     read_from_disk,
     return_breadcrumbs,
     sort_order,
 )
 from frontend.web import detect_mobile, g_option, respond_as_attachment
 from quickbbs.models import IndexData, IndexDirs, Thumbnails_Files
+from cache.models import Cache_Storage
 
 log = logging.getLogger(__name__)
 warnings.simplefilter("ignore", Image.DecompressionBombWarning)
@@ -341,12 +342,20 @@ def new_viewgallery(request: WSGIRequest):
             request.path.replace(r"/albums/", r"/thumbnails/"), "/"
         ),
     }
+    found, directory = IndexDirs.search_for_directory(paths["album_viewing"])
     if not os.path.exists(paths["album_viewing"]):
+        if found:
+            parent_dir = directory.return_parent_directory()
+        else:
+            parent_dir = IndexDirs.objects.none()
+        if parent_dir.exists():
+            Cache_Storage.remove_from_cache_name(DirName=parent_dir[0].fqpndirectory)
+            Cache_Storage.remove_from_cache_name(DirName=paths["album_viewing"])
+            sync_database_disk(paths["album_viewing"])
         #   Albums doesn't exist
         return HttpResponseNotFound("<h1>gallery not found</h1>")
     read_from_disk(paths["album_viewing"], skippable=True)  # new_viewgallery
 
-    found, directory = IndexDirs.search_for_directory(paths["album_viewing"])
     directories = []
     files = []
     if found:
@@ -581,76 +590,77 @@ def download_file(request: WSGIRequest):  # , filename=None):
         raise Http404
 
 
-def new_view_archive(request: WSGIRequest, i_uuid: str):
-    """
-    Show the gallery from the archive contents
-
-    *need to rewrite*
-    """
-    context = {"next": "", "previous": ""}
-    i_uuid = str(i_uuid).strip().replace("/", "")
-    if not is_valid_uuid(i_uuid):
-        return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
-
-    entry = IndexData.objects.filter(uuid=i_uuid)[0]
-    context["basename"] = os.path.basename
-    context["splitext"] = os.path.splitext
-    context["small"] = g_option(request, "size", settings.IMAGE_SIZE["small"])
-    # configdata["configuration"]["small"])
-    context["medium"] = g_option(
-        request,
-        "size",
-        # configdata["configuration"]["medium"])
-        settings.IMAGE_SIZE["medium"],
-    )
-    context["large"] = g_option(
-        request,
-        "size",
-        # configdata["configuration"]["large"])
-        settings.IMAGE_SIZE["large"],
-    )
-    context["user"] = request.user
-    context["mobile"] = detect_mobile(request)
-    context["sort"] = sort_order(request)
-
-    context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
-    context["webpath"] = ensures_endswith(context["webpath"], "/")
-    context["fromtimestamp"] = datetime.datetime.fromtimestamp
-    # context["djicons"] = django_icons.templatetags.icons.icon
-    context["djicons"] = django_icons.templatetags.icons.icon_tag
-    arc_filename = (
-        settings.ALBUMS_PATH
-        + context["webpath"].replace("/", os.sep).replace("//", "/")
-        + entry.name
-    )
-    archive_file = archives.id_cfile_by_sig(arc_filename)
-    archive_file.get_listings()
-    context["db_entry"] = entry
-
-    context["current_page"] = request.GET.get("page", 1)
-    chk_list = Paginator(archive_file.listings, 30)
-    context["page_cnt"] = list(range(1, chk_list.num_pages + 1))
-
-    #    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
-    context["up_uri"] = entry.fqpndirectory.lower()
-
-    context["gallery_name"] = os.path.split(request.path_info)[-1]
-    try:
-        context["pagelist"] = chk_list.page(context["current_page"])
-    except PageNotAnInteger:
-        context["pagelist"] = chk_list.page(1)
-        context["current_page"] = 1
-    except EmptyPage:
-        context["pagelist"] = chk_list.page(chk_list.num_pages)
-
-    context["first"] = "1"
-
-    context["last"] = context["pagelist"].end_index
-
-    response = render(
-        request, "frontend/archive_newgallery.jinja", context, using="Jinja2"
-    )
-    return response
+#
+# def new_view_archive(request: WSGIRequest, i_uuid: str):
+#     """
+#     Show the gallery from the archive contents
+#
+#     *need to rewrite*
+#     """
+#     context = {"next": "", "previous": ""}
+#     i_uuid = str(i_uuid).strip().replace("/", "")
+#     if not is_valid_uuid(i_uuid):
+#         return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
+#
+#     entry = IndexData.objects.filter(uuid=i_uuid)[0]
+#     context["basename"] = os.path.basename
+#     context["splitext"] = os.path.splitext
+#     context["small"] = g_option(request, "size", settings.IMAGE_SIZE["small"])
+#     # configdata["configuration"]["small"])
+#     context["medium"] = g_option(
+#         request,
+#         "size",
+#         # configdata["configuration"]["medium"])
+#         settings.IMAGE_SIZE["medium"],
+#     )
+#     context["large"] = g_option(
+#         request,
+#         "size",
+#         # configdata["configuration"]["large"])
+#         settings.IMAGE_SIZE["large"],
+#     )
+#     context["user"] = request.user
+#     context["mobile"] = detect_mobile(request)
+#     context["sort"] = sort_order(request)
+#
+#     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
+#     context["webpath"] = ensures_endswith(context["webpath"], "/")
+#     context["fromtimestamp"] = datetime.datetime.fromtimestamp
+#     # context["djicons"] = django_icons.templatetags.icons.icon
+#     context["djicons"] = django_icons.templatetags.icons.icon_tag
+#     arc_filename = (
+#         settings.ALBUMS_PATH
+#         + context["webpath"].replace("/", os.sep).replace("//", "/")
+#         + entry.name
+#     )
+#     archive_file = archives.id_cfile_by_sig(arc_filename)
+#     archive_file.get_listings()
+#     context["db_entry"] = entry
+#
+#     context["current_page"] = request.GET.get("page", 1)
+#     chk_list = Paginator(archive_file.listings, 30)
+#     context["page_cnt"] = list(range(1, chk_list.num_pages + 1))
+#
+#     #    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
+#     context["up_uri"] = entry.fqpndirectory.lower()
+#
+#     context["gallery_name"] = os.path.split(request.path_info)[-1]
+#     try:
+#         context["pagelist"] = chk_list.page(context["current_page"])
+#     except PageNotAnInteger:
+#         context["pagelist"] = chk_list.page(1)
+#         context["current_page"] = 1
+#     except EmptyPage:
+#         context["pagelist"] = chk_list.page(chk_list.num_pages)
+#
+#     context["first"] = "1"
+#
+#     context["last"] = context["pagelist"].end_index
+#
+#     response = render(
+#         request, "frontend/archive_newgallery.jinja", context, using="Jinja2"
+#     )
+#     return response
 
 
 def test(request: WSGIRequest):
@@ -663,59 +673,59 @@ def test(request: WSGIRequest):
     return response
 
 
-def new_archive_item(request, i_uuid):
-    """
-    Show item in an archive
-
-    *need to rewrite*
-
-    """
-    i_uuid = str(i_uuid).strip().replace("/", "")
-    context = {
-        "next": "",
-        "prev": "",
-    }
-    if not is_valid_uuid(i_uuid):
-        return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
-
-    context["sort"] = sort_order(request)
-    e_uuid = i_uuid
-    index_qs = IndexData.objects.filter(uuid=e_uuid)
-    entry = index_qs[0]
-    context.update({})
-    item_fs = os.path.join(settings.ALBUMS_PATH, entry.fqpndirectory[1:], entry.name)
-    context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
-    #    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
-    context["up_uri"] = entry.fqpndirectory.lower()
-    #        read_from_disk(context["webpath"].strip())
-
-    context["current_page"] = int(request.GET.get("page", 0))  # 1 based not zero based
-    context["page"] = context["current_page"] + 1  # 1 based not zero based
-    #    print (context["current_page"])
-    archive_file = archives.id_cfile_by_sig(item_fs)
-    archive_file.get_listings()
-    context["pagecount"] = len(archive_file.listings) - 1
-    #    context["pagecount"] = archive_file.listings.count()-1
-    context["item"] = entry
-    item_list = Paginator(archive_file.listings, 1)
-    context["page_contents"] = item_list.page(context["current_page"] + 1)
-
-    if context["page_contents"].has_next():
-        context["next"] = (
-            f"view_archive_item/{entry.uuid}?page={context['page_contents'].next_page_number() - 1}"
-        )
-
-    if context["page_contents"].has_previous():
-        context["previous"] = (
-            f"view_archive_item/{entry.uuid}?page={context['page_contents'].previous_page_number() - 1}"
-        )
-
-    context["first"] = f"view_archive_item/{entry.uuid}?page={0}"
-    context["last"] = f"view_archive_item/{entry.uuid}?page={context['pagecount']}"
-
-    response = render(request, "frontend/archive_item.html", context)  # ,
-    # using="Jinja2")
-    return response
+# def new_archive_item(request, i_uuid):
+#     """
+#     Show item in an archive
+#
+#     *need to rewrite*
+#
+#     """
+#     i_uuid = str(i_uuid).strip().replace("/", "")
+#     context = {
+#         "next": "",
+#         "prev": "",
+#     }
+#     if not is_valid_uuid(i_uuid):
+#         return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
+#
+#     context["sort"] = sort_order(request)
+#     e_uuid = i_uuid
+#     index_qs = IndexData.objects.filter(uuid=e_uuid)
+#     entry = index_qs[0]
+#     context.update({})
+#     item_fs = os.path.join(settings.ALBUMS_PATH, entry.fqpndirectory[1:], entry.name)
+#     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
+#     #    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
+#     context["up_uri"] = entry.fqpndirectory.lower()
+#     #        read_from_disk(context["webpath"].strip())
+#
+#     context["current_page"] = int(request.GET.get("page", 0))  # 1 based not zero based
+#     context["page"] = context["current_page"] + 1  # 1 based not zero based
+#     #    print (context["current_page"])
+#     archive_file = archives.id_cfile_by_sig(item_fs)
+#     archive_file.get_listings()
+#     context["pagecount"] = len(archive_file.listings) - 1
+#     #    context["pagecount"] = archive_file.listings.count()-1
+#     context["item"] = entry
+#     item_list = Paginator(archive_file.listings, 1)
+#     context["page_contents"] = item_list.page(context["current_page"] + 1)
+#
+#     if context["page_contents"].has_next():
+#         context["next"] = (
+#             f"view_archive_item/{entry.uuid}?page={context['page_contents'].next_page_number() - 1}"
+#         )
+#
+#     if context["page_contents"].has_previous():
+#         context["previous"] = (
+#             f"view_archive_item/{entry.uuid}?page={context['page_contents'].previous_page_number() - 1}"
+#         )
+#
+#     context["first"] = f"view_archive_item/{entry.uuid}?page={0}"
+#     context["last"] = f"view_archive_item/{entry.uuid}?page={context['pagecount']}"
+#
+#     response = render(request, "frontend/archive_item.html", context)  # ,
+#     # using="Jinja2")
+#     return response
 
 
 def view_setup():
