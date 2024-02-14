@@ -4,7 +4,7 @@ import os
 
 from django.conf import settings
 from django.db import models
-from .image_utils import cr_tnail_img, return_image_obj
+from .image_utils import resize_pil_image, return_image_obj
 
 # from frontend.thumbnail import cr_tnail_img
 
@@ -91,7 +91,7 @@ class ThumbnailFiles(models.Model):
         img_original = return_image_obj(self.fqpn_filename)
         #
         for size in ["large", "medium", "small"]:
-            image_thumbnail = cr_tnail_img(
+            image_thumbnail = resize_pil_image(
                 img_original, settings.IMAGE_SIZE[size], fext=fext
             )
             setattr(self, f"{size}_thumb", image_thumbnail)

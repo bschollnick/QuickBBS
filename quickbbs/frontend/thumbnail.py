@@ -12,10 +12,17 @@ import frontend.archives3 as archives
 from filetypes.models import FILETYPE_DATA
 from frontend.database import get_xth_image
 from frontend.utilities import (
-    cr_tnail_img,
+    # cr_tnail_img,
     read_from_disk,
-    return_image_obj,
+    # return_image_obj,
     sync_database_disk,
+)
+from thumbnails.image_utils import (
+    pdf_to_pil,
+    image_to_pil,
+    movie_to_pil,
+    resize_pil_image,
+    return_image_obj,
 )
 from frontend.web import g_option  # , respond_as_attachment
 from frontend.web import return_img_attach  # , return_inline_attach
@@ -113,7 +120,7 @@ def new_process_dir2(db_entry):
                 )
                 # file system location of directory
                 fext = os.path.splitext(file_to_thumb.name)[1].lower()
-                temp = cr_tnail_img(
+                temp = resize_pil_image(
                     return_image_obj(fs_d_fname),
                     settings.IMAGE_SIZE["small"],
                     fext=fext,
@@ -125,7 +132,7 @@ def new_process_dir2(db_entry):
         temp = return_image_obj(
             os.path.join(settings.IMAGES_PATH, FILETYPE_DATA[".dir"]["icon_filename"])
         )
-        img_icon = cr_tnail_img(
+        img_icon = resize_pil_image(
             temp, settings.IMAGE_SIZE["small"], FILETYPE_DATA[".dir"]["icon_filename"]
         )
         # configdata["filetypes"]["dir"][2])
@@ -263,7 +270,7 @@ def new_process_img(entry, request, imagesize="small"):
     temp = return_image_obj(fs_fname)
     #
     for size in ["large", "medium", "small"]:
-        imagedata = cr_tnail_img(temp, settings.IMAGE_SIZE[size], fext=fext)
+        imagedata = resize_pil_image(temp, settings.IMAGE_SIZE[size], fext=fext)
         setattr(entry.file_tnail, f"{size}_thumb", imagedata)
 
     entry.file_tnail.FileSize = entry.size
@@ -332,7 +339,7 @@ def new_process_archive(ind_entry, request, page=0):
     if thumbsize == "large":
         if specific_page.large_thumb == b"":
             try:
-                specific_page.large_thumb = cr_tnail_img(
+                specific_page.large_thumb = resize_pil_image(
                     im_data, settings.IMAGE_SIZE[thumbsize], fext=fext
                 )
                 specific_page.save()
@@ -360,7 +367,7 @@ def new_process_archive(ind_entry, request, page=0):
     if thumbsize == "medium":
         if specific_page.medium_thumb == b"":
             try:
-                specific_page.medium_thumb = cr_tnail_img(
+                specific_page.medium_thumb = resize_pil_image(
                     im_data, settings.IMAGE_SIZE[thumbsize], fext=fext
                 )
                 specific_page.save()
@@ -387,7 +394,7 @@ def new_process_archive(ind_entry, request, page=0):
     if thumbsize == "small":
         if specific_page.small_thumb == b"":
             try:
-                specific_page.small_thumb = cr_tnail_img(
+                specific_page.small_thumb = resize_pil_image(
                     im_data, settings.IMAGE_SIZE[thumbsize], fext=fext
                 )
                 specific_page.save()

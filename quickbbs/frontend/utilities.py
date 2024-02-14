@@ -314,26 +314,6 @@ def cr_tnail_img(source_image, size, fext) -> Image:
         return image_data.getvalue()
 
 
-# def multiple_replace(repl_dict, text):
-#     """
-#     Regex to quickly replace multiple entries at the same time.
-#
-#     Parameters
-#     ----------
-#     repl_dict (dict): Dictionary containing the pairs of values to replace
-#     text (str): The string to be modifying
-#
-#     Returns
-#     -------
-#         Str : The potentially modified string
-#     """
-#     # Create a regular expression  from the dictionary keys
-#     # For each match, look-up corresponding value in dictionary
-#     return constants.regex.sub(
-#         lambda mo: repl_dict[mo.string[mo.start() : mo.end()]], text
-#     )
-
-
 def return_disk_listing(fqpn, enable_rename=False) -> (bool, dict):
     """
     Return a dictionary that contains the scandir data (& some extra data) for the directory.
@@ -378,29 +358,32 @@ def return_disk_listing(fqpn, enable_rename=False) -> (bool, dict):
 
     """
     fs_data = {}
-    for item in Path(fqpn).iterdir():
-        fext = os.path.splitext(item.name.lower())[1]
-        if fext == "":
-            fext = ".none"
-        elif item.is_dir():
-            fext = ".dir"
+    try:
+        for item in Path(fqpn).iterdir():
+            fext = os.path.splitext(item.name.lower())[1]
+            if fext == "":
+                fext = ".none"
+            elif item.is_dir():
+                fext = ".dir"
 
-        if fext not in filetype_models.FILETYPE_DATA:
-            # The file extension is not in FILETYPE_DATA, so ignore it.
-            continue
+            if fext not in filetype_models.FILETYPE_DATA:
+                # The file extension is not in FILETYPE_DATA, so ignore it.
+                continue
 
-        if (fext in settings.EXTENSIONS_TO_IGNORE) or (
-            item.name.lower() in settings.FILES_TO_IGNORE
-        ):
-            # file extension is in EXTENSIONS_TO_IGNORE, so skip it.
-            # or the filename is in FILES_TO_IGNORE, so skip it.
-            continue
+            if (fext in settings.EXTENSIONS_TO_IGNORE) or (
+                item.name.lower() in settings.FILES_TO_IGNORE
+            ):
+                # file extension is in EXTENSIONS_TO_IGNORE, so skip it.
+                # or the filename is in FILES_TO_IGNORE, so skip it.
+                continue
 
-        if settings.IGNORE_DOT_FILES and item.name.lower().startswith("."):
-            # IGNORE_DOT_FLES is enabled, *and* the filename startswith an ., skip it.
-            continue
+            if settings.IGNORE_DOT_FILES and item.name.lower().startswith("."):
+                # IGNORE_DOT_FLES is enabled, *and* the filename startswith an ., skip it.
+                continue
 
-        fs_data[item.name.title().strip()] = item
+            fs_data[item.name.title().strip()] = item
+    except FileNotFoundError:
+        return False, {}
     return (True, fs_data)
 
 
@@ -605,9 +588,19 @@ def sync_database_disk(directoryname):
         # Remember, directory is placed in there, when it is scanned.
         # If changed, then watchdog should have removed it from the path.
         # print(f"{dirpath=} not in Cache_Tracking")
-        _, fs_entries = return_disk_listing(dirpath)
+        success, fs_entries = return_disk_listing(dirpath)
+        if not success:
+            Cache_Storage.remove_from_cache_name(dirpath)
+            success, IDirs = IndexDirs.search_for_directory(dirpath)
+            parent_dir = IDirs.return_parent_directory()
+            if parent_dir.exists():
+                parent_dir = parent_dir[0]
+                Cache_Storage.remove_from_cache_name(DirName=parent_dir.fqpndirectory)
+            IndexDirs.delete_directory(fqpn_directory=dirpath)
 
         success, IDirs = IndexDirs.search_for_directory(dirpath)
+        if not success:
+            return None
         count, db_data = IDirs.files_in_dir()
         if count in [0, None]:
             db_data = IndexData.objects.select_related("filetype").filter(
