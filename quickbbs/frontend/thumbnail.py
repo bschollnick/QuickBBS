@@ -7,26 +7,24 @@ from typing import Iterator  # , Optional, Union, TypeVar, Generic
 
 from django.conf import settings
 from django.db.utils import IntegrityError
-
-import frontend.archives3 as archives
 from filetypes.models import FILETYPE_DATA
-from frontend.database import get_xth_image
-from frontend.utilities import (
-    # cr_tnail_img,
-    read_from_disk,
-    # return_image_obj,
-    sync_database_disk,
-)
+from quickbbs.models import IndexData, Thumbnails_Archives
 from thumbnails.image_utils import (
-    pdf_to_pil,
-    image_to_pil,
-    movie_to_pil,
+    #    image_to_pil,
+    #    movie_to_pil,
+    #    pdf_to_pil,
     resize_pil_image,
     return_image_obj,
 )
+
+import frontend.archives3 as archives
+from frontend.database import get_xth_image
+from frontend.utilities import (  # cr_tnail_img,; return_image_obj,
+    read_from_disk,
+    sync_database_disk,
+)
 from frontend.web import g_option  # , respond_as_attachment
 from frontend.web import return_img_attach  # , return_inline_attach
-from quickbbs.models import IndexData, Thumbnails_Archives
 
 
 def ensures_endswith(string_to_check, value) -> str:
@@ -107,7 +105,7 @@ def new_process_dir2(db_entry):
             "I shouldn't be here! - new_process_dir2 w/entry that has thumbnail"
         )
 
-    files_found, files = db_entry.files_in_dir()
+    _, files = db_entry.files_in_dir()
     if not files:
         sync_database_disk(db_entry.fqpndirectory)
         _, files = db_entry.files_in_dir()
@@ -236,7 +234,9 @@ def invalidate_thumb(thumbnail):
     return thumbnail
 
 
-def new_process_img(entry, request, imagesize="small"):
+def new_process_img(
+    entry,
+):  # , imagesize="small"):
     """
     input:
         entry - The IndexData entry

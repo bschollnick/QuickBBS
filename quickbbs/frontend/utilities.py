@@ -5,7 +5,8 @@ Utilities for QuickBBS, the python edition.
 import logging
 import os
 import os.path
-import re
+
+# import re
 import stat
 import time
 import urllib.parse
@@ -17,19 +18,21 @@ from typing import Union  # , List  # , Iterator, Optional, TypeVar, Generic
 # from moviepy.video.io import VideoFileClip
 # from moviepy.editor import VideoFileClip #* # import everythings (variables, classes, methods...)
 # inside moviepy.editor
-import av  # Video Previews
+# import av  # Video Previews
 import django.db.utils
-import fitz  # PDF previews
-from django.conf import settings
-from PIL import Image
-
 import filetypes.models as filetype_models
-import frontend.archives3 as archives
-import frontend.constants as constants
+
+# import fitz  # PDF previews
 
 # from cache.models import fs_Cache_Tracking as Cache_Tracking
 from cache.models import Cache_Storage
+from django.conf import settings
+from PIL import Image
 from quickbbs.models import IndexData, IndexDirs, filetypes
+
+# from frontend import archives3 as archives
+
+# from frontend import constants
 
 log = logging.getLogger(__name__)
 
@@ -86,108 +89,109 @@ def sort_order(request) -> int:
     return int(request.GET.get("sort", default=0))
 
 
-def is_valid_uuid(uuid_to_test, version=4) -> bool:
-    """
-    Check if uuid_to_test is a valid UUID.
-    https://stackoverflow.com/questions/19989481
-
-    Args:
-        uuid_to_test (str) - UUID code to validate
-        version (int) - UUID version to validate against (eg  1, 2, 3, 4)
-
-    Returns:
-        boolean::
-            `True` if uuid_to_test is a valid UUID, otherwise `False`.
-
-    Raises:
-        None
-
-    Examples
-    --------
-    >>> is_valid_uuid('c9bf9e57-1685-4c89-bafb-ff5af830be8a')
-    True
-    >>> is_valid_uuid('c9bf9e58')
-    False
-    """
-    try:
-        uuid_obj = str(uuid.UUID(uuid_to_test, version=version))
-    except ValueError:
-        return False
-    return str(uuid_obj) == uuid_to_test
-
-
-# def test_extension(name, ext_list) -> bool:
+#
+# def is_valid_uuid(uuid_to_test, version=4) -> bool:
 #     """
-#     Check if filename has an file extension that is in passed list.
+#     Check if uuid_to_test is a valid UUID.
+#     https://stackoverflow.com/questions/19989481
 #
 #     Args:
-#         name (str): The Filename to examine
-#         ext_list (list): ['zip', 'rar', etc] # list of file extensions (w/o .),
-#             lowercase.
+#         uuid_to_test (str) - UUID code to validate
+#         version (int) - UUID version to validate against (eg  1, 2, 3, 4)
 #
 #     Returns:
 #         boolean::
-#             `True` if name does match an extension passed, otherwise `False`.
+#             `True` if uuid_to_test is a valid UUID, otherwise `False`.
 #
 #     Raises:
 #         None
 #
 #     Examples
 #     --------
-#     >>> test_extension("test.zip", ['zip', 'cbz'])
+#     >>> is_valid_uuid('c9bf9e57-1685-4c89-bafb-ff5af830be8a')
 #     True
-#     >>> test_extension("test.rar", ['zip', 'cbz'])
+#     >>> is_valid_uuid('c9bf9e58')
 #     False
-#
 #     """
-#     return os.path.splitext(name)[1].lower() in ext_list
+#     try:
+#         uuid_obj = str(uuid.UUID(uuid_to_test, version=version))
+#     except ValueError:
+#         return False
+#     return str(uuid_obj) == uuid_to_test
 
 
-def load_pdf(fspath):
-    """
-    The load_pdf function loads a PDF file from the filesystem and returns an image.
-
-    :param fspath: Load the file
-    :return: A pil
-    :doc-author: Trelent
-    """
-    #    if filetype_models.FILETYPE_DATA[os.path.splitext(fspath).lower()]["is_pdf"]:
-    # Do not repair the PDF / validate the PDF.  If it's bad,
-    # it should be repaired, not band-aided by a patch from the web server.
-    # results = pdf_utilities.check_pdf(fs_path)
-    with fitz.open(fspath) as pdf_file:
-        pdf_page = pdf_file.load_page(0)
-        # matrix=fitz.Identity, alpha=True)
-        pix = pdf_page.get_pixmap(alpha=True)
-        try:
-            source_image = Image.open(BytesIO(pix.tobytes()))
-        except UserWarning:
-            print("UserWarning!")
-            source_image = None
-    return source_image
-
-
-def load_movie(fspath, offset_from=30):
-    """
-    The load_movie function loads a movie from the file system and returns an image.
-
-        Updated - 2022/12/21 - It will now search for the next
-    :param fspath: Specify the path to the video file
-    :param offset_from: The number of frames to advance *after* detecting a non-solid
-        black or white frame.
-    :return: A pillow image object
-
-    References:
-        * https://stackoverflow.com/questions/14041562/
-            python-pil-detect-if-an-image-is-completely-black-or-white
-    """
-    with av.open(fspath) as container:
-        stream = container.streams.video[0]
-        duration_sec = stream.frames / 30
-        container.seek(container.duration // 2)
-        frame = container.decode(stream)
-        image = next(frame).to_image()
-    return image
+# # def test_extension(name, ext_list) -> bool:
+# #     """
+# #     Check if filename has an file extension that is in passed list.
+# #
+# #     Args:
+# #         name (str): The Filename to examine
+# #         ext_list (list): ['zip', 'rar', etc] # list of file extensions (w/o .),
+# #             lowercase.
+# #
+# #     Returns:
+# #         boolean::
+# #             `True` if name does match an extension passed, otherwise `False`.
+# #
+# #     Raises:
+# #         None
+# #
+# #     Examples
+# #     --------
+# #     >>> test_extension("test.zip", ['zip', 'cbz'])
+# #     True
+# #     >>> test_extension("test.rar", ['zip', 'cbz'])
+# #     False
+# #
+# #     """
+# #     return os.path.splitext(name)[1].lower() in ext_list
+#
+#
+# def load_pdf(fspath):
+#     """
+#     The load_pdf function loads a PDF file from the filesystem and returns an image.
+#
+#     :param fspath: Load the file
+#     :return: A pil
+#     :doc-author: Trelent
+#     """
+#     #    if filetype_models.FILETYPE_DATA[os.path.splitext(fspath).lower()]["is_pdf"]:
+#     # Do not repair the PDF / validate the PDF.  If it's bad,
+#     # it should be repaired, not band-aided by a patch from the web server.
+#     # results = pdf_utilities.check_pdf(fs_path)
+#     with fitz.open(fspath) as pdf_file:
+#         pdf_page = pdf_file.load_page(0)
+#         # matrix=fitz.Identity, alpha=True)
+#         pix = pdf_page.get_pixmap(alpha=True)
+#         try:
+#             source_image = Image.open(BytesIO(pix.tobytes()))
+#         except UserWarning:
+#             print("UserWarning!")
+#             source_image = None
+#     return source_image
+#
+#
+# def load_movie(fspath):
+#     """
+#     The load_movie function loads a movie from the file system and returns an image.
+#
+#         Updated - 2022/12/21 - It will now search for the next
+#     :param fspath: Specify the path to the video file
+#     :param offset_from: The number of frames to advance *after* detecting a non-solid
+#         black or white frame.
+#     :return: A pillow image object
+#
+#     References:
+#         * https://stackoverflow.com/questions/14041562/
+#             python-pil-detect-if-an-image-is-completely-black-or-white
+#     """
+#     with av.open(fspath) as container:
+#         stream = container.streams.video[0]
+#         # duration_sec = stream.frames / 30
+#         container.seek(container.duration // 2)
+#         frame = container.decode(stream)
+#         image = next(frame).to_image()
+#     return image
 
 
 # def load_movie_alt(fspath):
@@ -203,118 +207,118 @@ def load_movie(fspath, offset_from=30):
 #         return frame.to_image()
 
 
-def load_image(fspath, mem=False):
-    """
-    The load_image function loads an image from a file path or byte stream.
-    It returns the source_image object, which is a PIL Image object.
-
-    :param fspath: Pass the path of the image file
-    :param mem: Determine if the source file is a local file or a byte stream, if true, byte stream
-    :return: A pil / Image object
-    """
-    source_image = None
-    if not mem:
-        try:
-            source_image = Image.open(fspath)
-        except OSError:
-            print("Unable to load source file")
-    else:
-        try:  # fs_path is a byte stream
-            source_image = Image.open(BytesIO(fspath))
-        except OSError:
-            print("IOError")
-            log.debug("PIL was unable to identify as an image file")
-        except UserWarning:
-            print("UserWarning!")
-    return source_image
-
-
-def return_image_obj(fs_path, memory=False) -> Image:
-    """
-    Given a Fully Qualified FileName/Pathname, open the image
-    (or PDF) and return the PILLOW object for the image
-    Fitz == py
+# def load_image(fspath, mem=False):
+#     """
+#     The load_image function loads an image from a file path or byte stream.
+#     It returns the source_image object, which is a PIL Image object.
+#
+#     :param fspath: Pass the path of the image file
+#     :param mem: Determine if the source file is a local file or a byte stream, if true, byte stream
+#     :return: A pil / Image object
+#     """
+#     source_image = None
+#     if not mem:
+#         try:
+#             source_image = Image.open(fspath)
+#         except OSError:
+#             print("Unable to load source file")
+#     else:
+#         try:  # fs_path is a byte stream
+#             source_image = Image.open(BytesIO(fspath))
+#         except OSError:
+#             print("IOError")
+#             log.debug("PIL was unable to identify as an image file")
+#         except UserWarning:
+#             print("UserWarning!")
+#     return source_image
 
 
-    Args:
-        fs_path (str) - File system path
-        memory (bool) - Is this to be mapped in memory
-
-    Returns:
-        boolean::
-            `True` if uuid_to_test is a valid UUID, otherwise `False`.
-
-    Raises:
-        obj::
-            Pillow image object
-
-
-    Examples
-    --------
-    """
-    source_image = None
-    extension = os.path.splitext(fs_path)[1].lower()
-
-    if extension in ("", b"", None):
-        # There is currently no concept of a "None" in filetypes
-        extension = ".none"
-    if filetype_models.FILETYPE_DATA[extension]["is_pdf"]:
-        source_image = load_pdf(fs_path)
-
-    elif filetype_models.FILETYPE_DATA[extension]["is_movie"]:
-        source_image = load_movie(fs_path)
-
-    elif filetype_models.FILETYPE_DATA[extension]["is_image"]:
-        source_image = load_image(fs_path, mem=memory)
-
-    return source_image
-
-
-def cr_tnail_img(source_image, size, fext) -> Image:
-    """
-    Given the PILLOW object, resize the image to <SIZE>
-    and return the saved version of the file (using FEXT
-    as the format to save as [eg. PNG])
-
-    Return the binary representation of the file that
-    was saved to memory
-
-    Args:
-        source_image (PIL.Image): Pillow Image Object to modify
-        size (Str) : The size to resize the image to (e.g. 200 for 200x200)
-            This always is set as (size, size)
-        fext (str): The file extension of the file that is to be processed
-            e.g. .jpg, .mp4
-
-    returns:
-        blob: The binary blog of the thumbnail
-
-    """
-    if source_image is None:
-        return None
-    fext = fext.lower().strip()
-    if not fext.startswith("."):
-        fext = f".{fext}"
-
-    if fext in settings.MOVIE_FILE_TYPES:
-        fext = ".jpg"
-
-    with BytesIO() as image_data:  # = BytesIO()
-        source_image.thumbnail((size, size), Image.Resampling.LANCZOS)
-        try:
-            source_image.save(
-                fp=image_data,
-                format="PNG",  # Need alpha channel support for icons, etc.
-                optimize=False,
-            )
-        except OSError:
-            source_image = source_image.convert("RGB")
-            source_image.save(fp=image_data, format="JPEG", optimize=False)
-        image_data.seek(0)
-        return image_data.getvalue()
+# def return_image_obj(fs_path, memory=False) -> Image:
+#     """
+#     Given a Fully Qualified FileName/Pathname, open the image
+#     (or PDF) and return the PILLOW object for the image
+#     Fitz == py
+#
+#
+#     Args:
+#         fs_path (str) - File system path
+#         memory (bool) - Is this to be mapped in memory
+#
+#     Returns:
+#         boolean::
+#             `True` if uuid_to_test is a valid UUID, otherwise `False`.
+#
+#     Raises:
+#         obj::
+#             Pillow image object
+#
+#
+#     Examples
+#     --------
+#     """
+#     source_image = None
+#     extension = os.path.splitext(fs_path)[1].lower()
+#
+#     if extension in ("", b"", None):
+#         # There is currently no concept of a "None" in filetypes
+#         extension = ".none"
+#     if filetype_models.FILETYPE_DATA[extension]["is_pdf"]:
+#         source_image = load_pdf(fs_path)
+#
+#     elif filetype_models.FILETYPE_DATA[extension]["is_movie"]:
+#         source_image = load_movie(fs_path)
+#
+#     elif filetype_models.FILETYPE_DATA[extension]["is_image"]:
+#         source_image = load_image(fs_path, mem=memory)
+#
+#     return source_image
 
 
-def return_disk_listing(fqpn, enable_rename=False) -> (bool, dict):
+# def cr_tnail_img(source_image, size, fext) -> Image:
+#     """
+#     Given the PILLOW object, resize the image to <SIZE>
+#     and return the saved version of the file (using FEXT
+#     as the format to save as [eg. PNG])
+#
+#     Return the binary representation of the file that
+#     was saved to memory
+#
+#     Args:
+#         source_image (PIL.Image): Pillow Image Object to modify
+#         size (Str) : The size to resize the image to (e.g. 200 for 200x200)
+#             This always is set as (size, size)
+#         fext (str): The file extension of the file that is to be processed
+#             e.g. .jpg, .mp4
+#
+#     returns:
+#         blob: The binary blog of the thumbnail
+#
+#     """
+#     if source_image is None:
+#         return None
+#     fext = fext.lower().strip()
+#     if not fext.startswith("."):
+#         fext = f".{fext}"
+#
+#     if fext in settings.MOVIE_FILE_TYPES:
+#         fext = ".jpg"
+#
+#     with BytesIO() as image_data:  # = BytesIO()
+#         source_image.thumbnail((size, size), Image.Resampling.LANCZOS)
+#         try:
+#             source_image.save(
+#                 fp=image_data,
+#                 format="PNG",  # Need alpha channel support for icons, etc.
+#                 optimize=False,
+#             )
+#         except OSError:
+#             source_image = source_image.convert("RGB")
+#             source_image.save(fp=image_data, format="JPEG", optimize=False)
+#         image_data.seek(0)
+#         return image_data.getvalue()
+
+
+def return_disk_listing(fqpn) -> (bool, dict):
     """
     Return a dictionary that contains the scandir data (& some extra data) for the directory.
 
@@ -348,9 +352,6 @@ def return_disk_listing(fqpn, enable_rename=False) -> (bool, dict):
     Parameters
     ----------
     fqpn (str): The fully qualified pathname of the directory to scan
-    enable_rename (bool): Do we rename files that could cause issues
-        (e.g. filesname that have special characters (!?::, etc)).  True for rename,
-        false to skip renaming.
 
     Returns
     -------
@@ -453,25 +454,25 @@ def fs_counts(fs_entries) -> (int, int):
     return (files, dirs)
 
 
-def add_archive(fqpn, new_uuid):
-    """
-    The add_archive function adds a new archive to the database.
+# def add_archive(fqpn, new_uuid):
+#     """
+#     The add_archive function adds a new archive to the database.
+#
+#     :param fqpn: Specify the fully qualified path name of the file to be added
+#     :param new_uuid: Create a new uuid for the archive
+#     :return: A list of the files that were added to the archive
+#     :doc-author: Trelent
+#     """
+#     print("Add Archive triggered", fqpn)
+#     compressed = archives.id_cfile_by_sig(fqpn)
+#     compressed.get_listings()
+#     for name, offset, filecount in compressed.listings:
+#         fileext = os.path.splitext(name).lower()
+#         if fileext in settings.IMAGE_SAFE_FILES:
+#             pass
 
-    :param fqpn: Specify the fully qualified path name of the file to be added
-    :param new_uuid: Create a new uuid for the archive
-    :return: A list of the files that were added to the archive
-    :doc-author: Trelent
-    """
-    print("Add Archive triggered", fqpn)
-    compressed = archives.id_cfile_by_sig(fqpn)
-    compressed.get_listings()
-    for name, offset, filecount in compressed.listings:
-        fileext = os.path.splitext(name).lower()
-        if fileext in settings.IMAGE_SAFE_FILES:
-            pass
 
-
-def process_filedata(fs_entry, db_record, v3=False) -> IndexData:
+def process_filedata(fs_entry, db_record) -> IndexData:
     """
     The process_filedata function takes a file system entry and returns an IndexData object.
     The IndexData object contains the following attributes:
@@ -515,10 +516,10 @@ def process_filedata(fs_entry, db_record, v3=False) -> IndexData:
     db_record.is_animated = False
 
     if db_record.is_dir:
-        SubDirFqpn = os.path.join(db_record.fqpndirectory, db_record.name)
-        sync_database_disk(SubDirFqpn)
+        sub_dir_fqpn = os.path.join(db_record.fqpndirectory, db_record.name)
+        sync_database_disk(sub_dir_fqpn)
         return None
-        # _, subdirectory = return_disk_listing(SubDirFqpn)
+        # _, subdirectory = return_disk_listing(sub_dir_fqpn)
         # fs_file_count, fs_dir_count = fs_counts(subdirectory)
         # db_record.numfiles, db_record.numdirs = fs_file_count, fs_dir_count
 
@@ -660,13 +661,13 @@ def sync_database_disk(directoryname):
         )
         # fetch an updated set of records, since we may have changed it from above.
         records_to_create = []
-        for name, entry in fs_entries.items():
+        for _, entry in fs_entries.items():
             test_name = entry.name.title().replace("//", "/").strip()
             if test_name not in names:
                 # The record has not been found
                 # add it.
                 record = IndexData()
-                record = process_filedata(entry, record, v3=False)
+                record = process_filedata(entry, record)
                 if record is None:
                     continue
                 record.parent_dir = dirpath_id
@@ -688,6 +689,7 @@ def sync_database_disk(directoryname):
                     ],
                     bulk_size,
                 )
+                records_to_update = []
             except django.db.utils.IntegrityError:
                 return None
         else:
@@ -697,6 +699,7 @@ def sync_database_disk(directoryname):
         if records_to_create:
             try:
                 IndexData.objects.bulk_create(records_to_create, bulk_size)
+                records_to_create = []
             except django.db.utils.IntegrityError:
                 return None
             # The record is in the database, so it's already been vetted in the database comparison
@@ -715,6 +718,7 @@ def sync_database_disk(directoryname):
         Cache_Storage.add_to_cache(DirName=dirpath)
         # new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
         # new_rec.save()
+        return None
 
 
 #        IndexData.objects.filter(delete_pending=True).delete()

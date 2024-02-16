@@ -12,8 +12,9 @@ import warnings
 from pathlib import Path
 
 # import bleach
-import django_icons.templatetags.icons
+# import django_icons.templatetags.icons
 import markdown2
+from cache.models import Cache_Storage
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
@@ -24,22 +25,21 @@ from django.shortcuts import render
 # from django.db.models import Q
 from numpy import arange
 from PIL import Image, ImageFile
+from quickbbs.models import IndexData, IndexDirs, Thumbnails_Files
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-import frontend.archives3 as archives
+# import frontend.archives3 as archives
 from frontend.database import SORT_MATRIX, get_db_files  # check_dup_thumbs
 from frontend.thumbnail import new_process_dir2, new_process_img
 from frontend.utilities import (
-    sync_database_disk,
     ensures_endswith,
     read_from_disk,
     return_breadcrumbs,
     sort_order,
+    sync_database_disk,
 )
 from frontend.web import detect_mobile, g_option, respond_as_attachment
-from quickbbs.models import IndexData, IndexDirs, Thumbnails_Files
-from cache.models import Cache_Storage
 
 log = logging.getLogger(__name__)
 warnings.simplefilter("ignore", Image.DecompressionBombWarning)
@@ -161,10 +161,10 @@ def thumbnail_file(request: WSGIRequest, tnail_id: str = None):
         entry.file_tnail.FilePath = fs_item
         entry.file_tnail.FileName = fname
         try:
-            entry = new_process_img(entry, request, imagesize=thumbsize)
+            entry = new_process_img(entry)  # , request)
         except IntegrityError:
             time.sleep(0.5)
-            entry = new_process_img(entry, request)
+            entry = new_process_img(entry)  # , request)
         entry.file_tnail.save()
         entry.save()
         return entry.send_thumbnail(size=thumbsize)
@@ -381,6 +381,8 @@ def new_viewgallery(request: WSGIRequest):
 
     context["all_listings"] = list(directories)
     context["all_listings"].extend(list(files))
+
+    context["no_thumbs"] = files.filter(file_tnail__isnull=True)
     # The only thing left is a directory.
     # fs_path = ensures_endswith(
     #     os.path.abspath(os.path.join(settings.ALBUMS_PATH, paths["webpath"][1:])),

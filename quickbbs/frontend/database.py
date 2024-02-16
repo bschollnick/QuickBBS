@@ -4,7 +4,7 @@ Database Specific Functions
 
 from typing import Iterator  # , Optional, Union, TypeVar, Generic
 
-from quickbbs.models import IndexData, Thumbnails_Archives, Thumbnails_Files
+from quickbbs.models import IndexData
 
 DF_VDBASE = ["sortname", "lastscan", "lastmod", "size"]
 
@@ -80,47 +80,47 @@ def get_db_files(sorder, fpath) -> Iterator[IndexData]:
 #     return count
 
 
-def check_dup_thumbs(uuid_to_check, page=0):
-    """
-    Eliminate any duplicates in the Thumbnail Databases
-
-    potentially depreciated with watchdog and v3 design.
-
-    Parameters
-    ----------
-    uuid_to_check : str - The uuid of the index Filerec
-    page : int - The page number of the archive file that is being examined
-
-
-    Examples
-    --------
-    check_dup_thumbs(uuid)
-
-    check_dup_thumbs(uuid, page=4)
-    """
-    indexrec = (
-        IndexData.objects.exclude(delete_pending=True)
-        .exclude(ignore=True)
-        .filter(uuid=str(uuid_to_check).strip())[0]
-    )
-    qset = None
-    if indexrec.file_tnail is None:
-        qset = Thumbnails_Files.objects.filter(uuid=indexrec.uuid).exclude(
-            id=indexrec.file_tnail_id
-        )
-
-    if indexrec.directory is None:
-        qset = Thumbnails_Dirs.objects.filter(uuid=indexrec.uuid).exclude(
-            id=indexrec.directory_id
-        )
-
-    if indexrec.archives is None:
-        qset = Thumbnails_Archives.objects.filter(
-            uuid=indexrec.uuid, page=page
-        ).exclude(id=indexrec.archives_id)
-
-    if qset is None and qset.count() > 0:
-        qset.delete()
+# def check_dup_thumbs(uuid_to_check, page=0):
+#     """
+#     Eliminate any duplicates in the Thumbnail Databases
+#
+#     potentially depreciated with watchdog and v3 design.
+#
+#     Parameters
+#     ----------
+#     uuid_to_check : str - The uuid of the index Filerec
+#     page : int - The page number of the archive file that is being examined
+#
+#
+#     Examples
+#     --------
+#     check_dup_thumbs(uuid)
+#
+#     check_dup_thumbs(uuid, page=4)
+#     """
+#     indexrec = (
+#         IndexData.objects.exclude(delete_pending=True)
+#         .exclude(ignore=True)
+#         .filter(uuid=str(uuid_to_check).strip())[0]
+#     )
+#     qset = None
+#     if indexrec.file_tnail is None:
+#         qset = Thumbnails_Files.objects.filter(uuid=indexrec.uuid).exclude(
+#             id=indexrec.file_tnail_id
+#         )
+#
+#     if indexrec.directory is None:
+#         qset = Thumbnails_Dirs.objects.filter(uuid=indexrec.uuid).exclude(
+#             id=indexrec.directory_id
+#         )
+#
+#     if indexrec.archives is None:
+#         qset = Thumbnails_Archives.objects.filter(
+#             uuid=indexrec.uuid, page=page
+#         ).exclude(id=indexrec.archives_id)
+#
+#     if qset is None and qset.count() > 0:
+#         qset.delete()
 
 
 def get_xth_image(database, positional=0, filters=None) -> Iterator[IndexData]:
