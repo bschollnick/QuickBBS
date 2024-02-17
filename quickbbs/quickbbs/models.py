@@ -14,6 +14,7 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import models
 from django.http import FileResponse, Http404, HttpResponse
+from django.db.models.query import QuerySet
 from django.urls import reverse
 from ranged_fileresponse import RangedFileResponse
 
@@ -22,7 +23,7 @@ from filetypes.models import FILETYPE_DATA, filetypes
 from quickbbs.natsort_model import NaturalSortField
 
 
-def convert_text_to_md5_hdigest(text):
+def convert_text_to_md5_hdigest(text) -> str:
     """
     convert a text string to a md5 hash.  Text string is title cased, whitespace stripped, and
     encoded as an utf-16 string.  The hash is exported as the hex digest.
@@ -35,35 +36,35 @@ def convert_text_to_md5_hdigest(text):
     return hashlib.md5(text.title().strip().encode("utf-16")).hexdigest()
 
 
-def is_valid_uuid(uuid_to_test, version=4):
-    """
-    Check if uuid_to_test is a valid UUID.
-    https://stackoverflow.com/questions/19989481
-
-    Args:
-        uuid_to_test (str) - UUID code to validate
-        version (int) - UUID version to validate against (eg  1, 2, 3, 4)
-
-    Returns:
-        boolean:
-            `True` if uuid_to_test is a valid UUID, otherwise `False`.
-
-    Raises:
-        None
-
-    Examples
-    --------
-    >>> is_valid_uuid('c9bf9e57-1685-4c89-bafb-ff5af830be8a')
-    True
-    >>> is_valid_uuid('c9bf9e58')
-    False
-    """
-    try:
-        uuid_obj = uuid.UUID(uuid_to_test, version=version)
-    except:
-        return False
-
-    return str(uuid_obj) == uuid_to_test
+# def is_valid_uuid(uuid_to_test, version=4):
+#     """
+#     Check if uuid_to_test is a valid UUID.
+#     https://stackoverflow.com/questions/19989481
+#
+#     Args:
+#         uuid_to_test (str) - UUID code to validate
+#         version (int) - UUID version to validate against (eg  1, 2, 3, 4)
+#
+#     Returns:
+#         boolean:
+#             `True` if uuid_to_test is a valid UUID, otherwise `False`.
+#
+#     Raises:
+#         None
+#
+#     Examples
+#     --------
+#     >>> is_valid_uuid('c9bf9e57-1685-4c89-bafb-ff5af830be8a')
+#     True
+#     >>> is_valid_uuid('c9bf9e58')
+#     False
+#     """
+#     try:
+#         uuid_obj = uuid.UUID(uuid_to_test, version=version)
+#     except:
+#         return False
+#
+#     return str(uuid_obj) == uuid_to_test
 
 
 class Owners(models.Model):
@@ -137,7 +138,7 @@ class IndexDirs(models.Model):
     small_thumb = models.BinaryField(default=b"")
 
     @staticmethod
-    def normalize_fqpn(fqpn_directory):
+    def normalize_fqpn(fqpn_directory) -> str:
         """
         Normalize the directory structure fully qualified pathname for conversion to a md5
         hexdigest string.
@@ -150,7 +151,7 @@ class IndexDirs(models.Model):
         return fqpn_directory
 
     @staticmethod
-    def add_directory(fqpn_directory, thumbnail=b""):
+    def add_directory(fqpn_directory, thumbnail=b"") -> "IndexDirs":
         """
         Create a new directory entry
         :param fqpn_directory: The fully qualified pathname for the directory
@@ -183,7 +184,7 @@ class IndexDirs(models.Model):
         return new_rec
 
     @property
-    def numdirs(self):
+    def numdirs(self) -> None:
         """
         Place holder for backward compatibility reasons (matching the numdirs attribute
         of IndexData)
@@ -192,7 +193,7 @@ class IndexDirs(models.Model):
         return None
 
     @property
-    def numfiles(self):
+    def numfiles(self) -> None:
         """
         Place holder for backward compatibility reasons (matching the numdirs attribute
         of IndexData)
@@ -201,7 +202,7 @@ class IndexDirs(models.Model):
         return None
 
     @property
-    def name(self):
+    def name(self) -> str:
         """
         Return the directory name of the directory.
         :return: String
@@ -209,7 +210,7 @@ class IndexDirs(models.Model):
         return str(pathlib.Path(self.fqpndirectory).name)
 
     @staticmethod
-    def delete_directory(fqpn_directory):
+    def delete_directory(fqpn_directory) -> None:
         """
         Delete the Index_Dirs data for the fqpn_directory, and ensure that all
         IndexData records are wiped as well.
@@ -227,7 +228,7 @@ class IndexDirs(models.Model):
         # IndexData.objects.filter(parent_dir_id=combined_md5).delete()
         # This should be redundant, but need to test to verify.
 
-    def get_file_counts(self):
+    def get_file_counts(self) -> int:
         """
         Return the number of files that are in the database for the current directory
         :return: Integer - Number of files in the database for the directory
@@ -236,7 +237,7 @@ class IndexDirs(models.Model):
             parent_dir=self.pk, delete_pending=False
         ).count()
 
-    def get_dir_counts(self):
+    def get_dir_counts(self) -> int:
         """
         Return the number of directories that are in the database for the current directory
         :return: Integer - Number of directories
@@ -245,7 +246,7 @@ class IndexDirs(models.Model):
             parent_dir_md5=self.combined_md5, delete_pending=False
         ).count()
 
-    def get_count_breakdown(self):
+    def get_count_breakdown(self) -> dict:
         """
         Return the count of items in the directory, broken down by filetype.
         :return: dictionary, where the key is the filetype (e.g. "dir", "jpg", "mp4"),
@@ -267,7 +268,7 @@ class IndexDirs(models.Model):
         totals["all_files"] = self.get_file_counts()
         return totals
 
-    def return_parent_directory(self):
+    def return_parent_directory(self) -> "QuerySet[IndexDirs]":
         """
         Return the database object of the parent directory to the current directory
         :return: database record of parent directory
@@ -276,7 +277,7 @@ class IndexDirs(models.Model):
         return parent_dir
 
     @staticmethod
-    def search_for_directory(fqpn_directory):
+    def search_for_directory(fqpn_directory) -> tuple[bool, "IndexDirs"]:
         """
         Return the database object matching the fqpn_directory
         :param fqpn_directory: The fully qualified pathname of the directory
@@ -292,9 +293,9 @@ class IndexDirs(models.Model):
         if query.exists():
             record = query[0]
             return (True, record)
-        return (False, query)  # return an empty query set
+        return (False, IndexDirs.objects.none())  # return an empty query set
 
-    def files_in_dir(self, sort=0):
+    def files_in_dir(self, sort=0) -> tuple[int, "QuerySet[IndexData]"]:
         """
         Return the files in the current directory
         :param sort: The sort order of the files (0-2)
@@ -309,9 +310,9 @@ class IndexDirs(models.Model):
             .filter(parent_dir=self.pk, delete_pending=False)
             .order_by(*SORT_MATRIX[sort])
         )
-        return files.count(), files
+        return (files.count(), files)
 
-    def dirs_in_dir(self, sort=0):
+    def dirs_in_dir(self, sort=0) -> tuple[int, "QuerySet[IndexDirs]"]:
         """
         Return the directories in the current directory
         :param sort: The sort order of the directories (0-2)
@@ -330,7 +331,7 @@ class IndexDirs(models.Model):
         ).order_by(*SORT_MATRIX[sort])
         return dirs.count(), dirs
 
-    def get_view_url(self):
+    def get_view_url(self) -> str:
         """
         Generate the URL for the viewing of the current database item
 
@@ -346,7 +347,7 @@ class IndexDirs(models.Model):
         )
         return reverse("directories") + webpath
 
-    def get_bg_color(self):
+    def get_bg_color(self) -> str:
         """
         Get the html / Cell background color of the file.
 
@@ -357,7 +358,7 @@ class IndexDirs(models.Model):
         return self.filetype.color
 
     # pylint: disable-next=unused-argument
-    def get_thumbnail_url(self, size=None):
+    def get_thumbnail_url(self, size=None) -> str:
         """
         Generate the URL for the thumbnail of the current item
         The argument is unused, included for API compt. between IndexData & IndexDirs
@@ -369,7 +370,7 @@ class IndexDirs(models.Model):
         """
         return reverse(r"thumbnail_dir", args=(self.uuid,))
 
-    def send_thumbnail(self):
+    def send_thumbnail(self) -> FileResponse:
         """
          Output a http response header, for an image attachment.
 

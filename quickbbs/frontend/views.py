@@ -7,6 +7,7 @@ import logging
 import os
 import os.path
 import pathlib
+from typing import Optional
 import time
 import warnings
 from pathlib import Path
@@ -97,7 +98,7 @@ def return_prev_next2(directory, sorder) -> tuple:
     return (prevdir, nextdir)
 
 
-def thumbnail_dir(request: WSGIRequest, tnail_id: str = None):
+def thumbnail_dir(request: WSGIRequest, tnail_id: Optional[str] = None):
     """
     The thumbnails function is used to serve the thumbnail memory image.
     It takes a request and an optional uuid as arguments.
@@ -128,7 +129,7 @@ def thumbnail_dir(request: WSGIRequest, tnail_id: str = None):
     return entry.send_thumbnail()  # Send existing thumbnail
 
 
-def thumbnail_file(request: WSGIRequest, tnail_id: str = None):
+def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
     """
     Check for a thumbnail / create a thumbnail for a particular file
     :param request: Django Request object
@@ -381,8 +382,10 @@ def new_viewgallery(request: WSGIRequest):
 
     context["all_listings"] = list(directories)
     context["all_listings"].extend(list(files))
+    context["no_thumbs"] = []
 
-    context["no_thumbs"] = files.filter(file_tnail__isnull=True)
+    if files:
+        context["no_thumbs"] = files.filter(file_tnail__isnull=True)[0:99]
     # The only thing left is a directory.
     # fs_path = ensures_endswith(
     #     os.path.abspath(os.path.join(settings.ALBUMS_PATH, paths["webpath"][1:])),

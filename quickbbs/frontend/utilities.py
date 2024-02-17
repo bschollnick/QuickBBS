@@ -11,7 +11,8 @@ import stat
 import time
 import urllib.parse
 import uuid
-from io import BytesIO
+
+# from io import BytesIO
 from pathlib import Path
 from typing import Union  # , List  # , Iterator, Optional, TypeVar, Generic
 
@@ -20,15 +21,17 @@ from typing import Union  # , List  # , Iterator, Optional, TypeVar, Generic
 # inside moviepy.editor
 # import av  # Video Previews
 import django.db.utils
-import filetypes.models as filetype_models
+from django.conf import settings
+from PIL import Image
 
-# import fitz  # PDF previews
+import filetypes.models as filetype_models
 
 # from cache.models import fs_Cache_Tracking as Cache_Tracking
 from cache.models import Cache_Storage
-from django.conf import settings
-from PIL import Image
 from quickbbs.models import IndexData, IndexDirs, filetypes
+
+# import fitz  # PDF previews
+
 
 # from frontend import archives3 as archives
 
@@ -318,7 +321,7 @@ def sort_order(request) -> int:
 #         return image_data.getvalue()
 
 
-def return_disk_listing(fqpn) -> (bool, dict):
+def return_disk_listing(fqpn) -> tuple[bool, dict]:
     """
     Return a dictionary that contains the scandir data (& some extra data) for the directory.
 
@@ -388,7 +391,7 @@ def return_disk_listing(fqpn) -> (bool, dict):
     return (True, fs_data)
 
 
-def break_down_urls(uri_path) -> Union[list[bytes], list[str]]:
+def break_down_urls(uri_path) -> list[str]:
     """
     Split URL into it's component parts
 
@@ -406,7 +409,7 @@ def break_down_urls(uri_path) -> Union[list[bytes], list[str]]:
     return path.split("/")
 
 
-def return_breadcrumbs(uri_path=""):
+def return_breadcrumbs(uri_path="") -> list[str]:
     """
     Return the breadcrumps for uri_path
 
@@ -430,7 +433,7 @@ def return_breadcrumbs(uri_path=""):
     return data
 
 
-def fs_counts(fs_entries) -> (int, int):
+def fs_counts(fs_entries) -> tuple[int, int]:
     """
     Quickly count the files vs directories in a list of scandir entries
     Used primary by sync_database_disk to count a path's files & directories
@@ -450,7 +453,6 @@ def fs_counts(fs_entries) -> (int, int):
 
     files = len(list(filter(isfile, fs_entries.values())))
     dirs = len(fs_entries) - files
-
     return (files, dirs)
 
 
@@ -592,17 +594,17 @@ def sync_database_disk(directoryname):
         success, fs_entries = return_disk_listing(dirpath)
         if not success:
             Cache_Storage.remove_from_cache_name(dirpath)
-            success, IDirs = IndexDirs.search_for_directory(dirpath)
-            parent_dir = IDirs.return_parent_directory()
+            success, i_dirs = IndexDirs.search_for_directory(dirpath)
+            parent_dir = i_dirs.return_parent_directory()
             if parent_dir.exists():
                 parent_dir = parent_dir[0]
                 Cache_Storage.remove_from_cache_name(DirName=parent_dir.fqpndirectory)
             IndexDirs.delete_directory(fqpn_directory=dirpath)
 
-        success, IDirs = IndexDirs.search_for_directory(dirpath)
+        success, i_dirs = IndexDirs.search_for_directory(dirpath)
         if not success:
             return None
-        count, db_data = IDirs.files_in_dir()
+        count, db_data = i_dirs.files_in_dir()
         if count in [0, None]:
             db_data = IndexData.objects.select_related("filetype").filter(
                 fqpndirectory=webpath, delete_pending=False, ignore=False
