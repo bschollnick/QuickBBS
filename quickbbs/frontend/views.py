@@ -157,6 +157,7 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
         if entry.file_tnail is None:
             if Thumbnails_Files.objects.filter(uuid=entry.uuid).exists():
                 Thumbnails_Files.objects.filter(uuid=entry.uuid).delete()
+                entry.file_tnail.invalidate()
             entry.file_tnail = Thumbnails_Files()
         entry.file_tnail.uuid = entry.uuid
         entry.file_tnail.FilePath = fs_item
@@ -166,8 +167,12 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
         except IntegrityError:
             time.sleep(0.5)
             entry = new_process_img(entry)  # , request)
-        entry.file_tnail.save()
-        entry.save()
+
+        try:
+            entry.file_tnail.save()
+            entry.save()
+        except (IntegrityError, AttributeError):
+            index_qs.delete()
         return entry.send_thumbnail(size=thumbsize)
 
     if entry.filetype.icon_filename not in ["", None]:
@@ -175,7 +180,10 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
         entry.fqpndirectory = os.path.join(
             settings.RESOURCES_PATH, "images", entry.filetype.icon_filename
         )
-        entry.save()
+        try:
+            entry.save()
+        except IntegrityError:
+            pass
         return respond_as_attachment(
             request,
             os.path.join(settings.RESOURCES_PATH, "Images"),

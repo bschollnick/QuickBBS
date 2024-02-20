@@ -18,14 +18,14 @@ class AdminThumbnail_Files(admin.ModelAdmin):
     fields = ("id", "uuid", "FileName", "FilePath", "FileSize")
 
 
-@admin.register(Thumbnails_Archives)
-class AdminThumbnail_Archives(admin.ModelAdmin):
-    readonly_fields = (
-        "id",
-        "uuid",
-    )
-    list_display = ("zipfilepath", "FilePath", "FileName", "page", "FileSize")
-    fields = ("uuid", "zipfilepath", "FilePath", "FileName", "page", "FileSize")
+# @admin.register(Thumbnails_Archives)
+# class AdminThumbnail_Archives(admin.ModelAdmin):
+#     readonly_fields = (
+#         "id",
+#         "uuid",
+#     )
+#     list_display = ("zipfilepath", "FilePath", "FileName", "page", "FileSize")
+#     fields = ("uuid", "zipfilepath", "FilePath", "FileName", "page", "FileSize")
 
 
 @admin.register(IndexData)
@@ -43,7 +43,7 @@ class AdminMaster_Index(admin.ModelAdmin):
         "delete_pending",
         "file_tnail",
         #        "directory",
-        "archives",
+        #        "archives",
         "ownership",
         "filetype",
     )
@@ -59,7 +59,7 @@ class AdminMaster_Index(admin.ModelAdmin):
         "delete_pending",
         "file_tnail",
         # "directory",
-        "archives",
+        #        "archives",
         "ownership",
         "filetype",
     )
