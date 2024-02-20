@@ -444,36 +444,36 @@ class Thumbnails_Files(models.Model):
         #   Flag_For_Regeneration, and if True, then Regenerate the Thumbnails.
 
 
-class Thumbnails_Archives(models.Model):
-    id = models.AutoField(primary_key=True, db_index=True)
-    uuid = models.UUIDField(
-        default=None, null=True, editable=False, db_index=True, blank=True
-    )
-    zipfilepath = models.CharField(
-        db_index=True, max_length=384, default="", blank=True
-    )  # FQFN of the file itself
-
-    FilePath = models.CharField(
-        db_index=True, max_length=384, default=None
-    )  # FQFN of the file itself
-    FileName = models.CharField(
-        db_index=True, max_length=384, default=None
-    )  # FQFN of the file itself
-    page = models.IntegerField(default=0)  # The
-    FileSize = models.BigIntegerField(default=-1)
-    small_thumb = models.BinaryField(default=b"")
-    medium_thumb = models.BinaryField(default=b"")
-    large_thumb = models.BinaryField(default=b"")
-
-    class Meta:
-        verbose_name = "Archive Thumbnails Cache"
-        verbose_name_plural = "Archive Thumbnails Cache"
-
-        constraints = [
-            models.UniqueConstraint(
-                fields=["FileName", "FilePath", "zipfilepath"], name="unique_archives"
-            )
-        ]
+# class Thumbnails_Archives(models.Model):
+#     id = models.AutoField(primary_key=True, db_index=True)
+#     uuid = models.UUIDField(
+#         default=None, null=True, editable=False, db_index=True, blank=True
+#     )
+#     zipfilepath = models.CharField(
+#         db_index=True, max_length=384, default="", blank=True
+#     )  # FQFN of the file itself
+#
+#     FilePath = models.CharField(
+#         db_index=True, max_length=384, default=None
+#     )  # FQFN of the file itself
+#     FileName = models.CharField(
+#         db_index=True, max_length=384, default=None
+#     )  # FQFN of the file itself
+#     page = models.IntegerField(default=0)  # The
+#     FileSize = models.BigIntegerField(default=-1)
+#     small_thumb = models.BinaryField(default=b"")
+#     medium_thumb = models.BinaryField(default=b"")
+#     large_thumb = models.BinaryField(default=b"")
+#
+#     class Meta:
+#         verbose_name = "Archive Thumbnails Cache"
+#         verbose_name_plural = "Archive Thumbnails Cache"
+#
+#         constraints = [
+#             models.UniqueConstraint(
+#                 fields=["FileName", "FilePath", "zipfilepath"], name="unique_archives"
+#             )
+#         ]
 
 
 class IndexData(models.Model):
@@ -530,15 +530,15 @@ class IndexData(models.Model):
         blank=True,
     )
 
-    # https://stackoverflow.com/questions/38388423
-    archives = models.OneToOneField(
-        Thumbnails_Archives,
-        on_delete=models.CASCADE,
-        db_index=True,
-        default=None,
-        null=True,
-        blank=True,
-    )
+    # # https://stackoverflow.com/questions/38388423
+    # archives = models.OneToOneField(
+    #     Thumbnails_Archives,
+    #     on_delete=models.CASCADE,
+    #     db_index=True,
+    #     default=None,
+    #     null=True,
+    #     blank=True,
+    # )
 
     ownership = models.OneToOneField(
         Owners,

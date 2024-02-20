@@ -43,9 +43,6 @@ create_file_entry(filename, filesize, is_default)
 
 class ThumbnailFiles(models.Model):
     id = models.AutoField(primary_key=True, db_index=True)
-    uuid = models.UUIDField(
-        default=None, null=True, editable=False, db_index=True, blank=True
-    )
     fqpn_filename = models.CharField(
         db_index=True,
         max_length=384,
