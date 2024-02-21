@@ -19,3 +19,15 @@ Issues = "https://github.com/bschollnick/quickBBS/issues"
 
 [black]
 max-line-length = 120
+
+[tool.mypy]
+python_version = "3.11"
+cache_dir = "/volumes/C-8tb/gallery/quickbbs/.mypy_cache"
+explicit_package_bases = true
+pretty = true
+color_output = true
+ignore_missing_imports = true
+plugins = ["mypy_django_plugin.main"]
+
+[tool.django-stubs]
+django_settings_module = "quickbbs.settings"

@@ -37,7 +37,8 @@ class fs_Cache_Tracking(models.Model):
     # dirpath = os.path.normpath(event.src_path.title().strip())
     lastscan = models.FloatField()  # Stored as Unix TimeStamp (ms)
 
-    def clear_all_records(self):
+    @staticmethod
+    def clear_all_records():
         fs_Cache_Tracking.objects.all().delete()
 
     def add_to_cache(self, DirName):
@@ -71,6 +72,7 @@ class fs_Cache_Tracking(models.Model):
     def ready(self):
         global Cache_Storage
         print("Starting Cache Storage")
+        Cache_Storage = fs_Cache_Tracking()
 
 
 if "runserver" in sys.argv or "--host" in sys.argv:
