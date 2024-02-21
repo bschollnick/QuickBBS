@@ -1,6 +1,7 @@
 from django.core.management.base import BaseCommand
 
-from cache.models import Cache_Storage
+# from cache.models import Cache_Storage
+from cache.models import fs_Cache_Tracking
 
 
 class Command(BaseCommand):
@@ -14,4 +15,4 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         # ...
-        Cache_Storage.clear_all_records()
+        fs_Cache_Tracking.clear_all_records()
