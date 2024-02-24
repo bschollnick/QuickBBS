@@ -210,11 +210,12 @@ class IndexDirs(models.Model):
         return str(pathlib.Path(self.fqpndirectory).name)
 
     @staticmethod
-    def delete_directory(fqpn_directory) -> None:
+    def delete_directory(fqpn_directory, cache_only=False) -> None:
         """
         Delete the Index_Dirs data for the fqpn_directory, and ensure that all
         IndexData records are wiped as well.
         :param fqpn_directory: text string of fully qualified pathname of the directory
+        :param cache_only: Do not perform a delete on the Index_Dirs data
         :return:
         """
         # pylint: disable-next=import-outside-toplevel
@@ -224,7 +225,8 @@ class IndexDirs(models.Model):
             IndexDirs.normalize_fqpn(fqpn_directory)
         )
         Cache_Storage.remove_from_cache_name(fqpn_directory)
-        IndexDirs.objects.filter(combined_md5=combined_md5).delete()
+        if not cache_only:
+            IndexDirs.objects.filter(combined_md5=combined_md5).delete()
         # IndexData.objects.filter(parent_dir_id=combined_md5).delete()
         # This should be redundant, but need to test to verify.
 

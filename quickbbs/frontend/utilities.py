@@ -374,9 +374,7 @@ def return_disk_listing(fqpn) -> tuple[bool, dict]:
                 # The file extension is not in FILETYPE_DATA, so ignore it.
                 continue
 
-            if (fext in settings.EXTENSIONS_TO_IGNORE) or (
-                item.name.lower() in settings.FILES_TO_IGNORE
-            ):
+            if (fext in settings.EXTENSIONS_TO_IGNORE) or (item.name.lower() in settings.FILES_TO_IGNORE):
                 # file extension is in EXTENSIONS_TO_IGNORE, so skip it.
                 # or the filename is in FILES_TO_IGNORE, so skip it.
                 continue
@@ -491,9 +489,7 @@ def process_filedata(fs_entry, db_record) -> IndexData:
     :doc-author: Trelent
     """
     db_record.fqpndirectory, db_record.name = os.path.split(fs_entry.absolute())
-    db_record.fqpndirectory = ensures_endswith(
-        db_record.fqpndirectory.lower().replace("//", "/"), os.sep
-    )
+    db_record.fqpndirectory = ensures_endswith(db_record.fqpndirectory.lower().replace("//", "/"), os.sep)
     db_record.name = db_record.name.title().replace("//", "/").strip()
     db_record.fileext = fs_entry.suffix.lower()
     db_record.is_dir = fs_entry.is_dir()
@@ -525,13 +521,9 @@ def process_filedata(fs_entry, db_record) -> IndexData:
         # fs_file_count, fs_dir_count = fs_counts(subdirectory)
         # db_record.numfiles, db_record.numdirs = fs_file_count, fs_dir_count
 
-    if filetype_models.FILETYPE_DATA[db_record.fileext][
-        "is_image"
-    ] and db_record.fileext in [".gif"]:
+    if filetype_models.FILETYPE_DATA[db_record.fileext]["is_image"] and db_record.fileext in [".gif"]:
         try:
-            db_record.is_animated = Image.open(
-                os.path.join(db_record.fqpndirectory, db_record.name)
-            ).is_animated
+            db_record.is_animated = Image.open(os.path.join(db_record.fqpndirectory, db_record.name)).is_animated
         except AttributeError:
             db_record.is_animated = False
 
@@ -548,16 +540,7 @@ def sync_database_disk(directoryname):
 
     Returns
     -------
-    dictionary : That contains *only* the updated entries (e.g. deleted entries will be flagged
-        with ignore and deleted.)  Otherwise, the dictionary will contain the updated records that
-        need to be pushed to the database.
-
-    Example
-    -------
-    success, diskstore = return_disk_listing("/albums")
-    updated_recs = compare_db_to_fs("/albums", diskstore)
-    for updated in updated_recs:
-        ... push updated to database ...
+    None
 
     Note:
            * This does not currently contend with Archives.
@@ -571,7 +554,6 @@ def sync_database_disk(directoryname):
         * If there are no database entries for the directory, the fs comparing to the database
     """
     bulk_size = 100
-    # bootstrap = False
     if directoryname in [os.sep, r"/"]:
         directoryname = settings.ALBUMS_PATH
     webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
@@ -581,38 +563,48 @@ def sync_database_disk(directoryname):
         dirpath_id = IndexDirs.add_directory(dirpath)
         print("\tAdding ", dirpath)
 
-    #    print(dirpath, dirpath_id)
-
     records_to_update = []
     cached = Cache_Storage.name_exists_in_cache(DirName=dirpath) is True
+    if cached:
+        return None
 
     if not cached:
         # If the directory is not found in the Cache_Tracking table, then it needs to be rescanned.
         # Remember, directory is placed in there, when it is scanned.
         # If changed, then watchdog should have removed it from the path.
-        # print(f"{dirpath=} not in Cache_Tracking")
         success, fs_entries = return_disk_listing(dirpath)
         if not success:
-            Cache_Storage.remove_from_cache_name(dirpath)
-            success, i_dirs = IndexDirs.search_for_directory(dirpath)
-            parent_dir = i_dirs.return_parent_directory()
+            # File path doesn't exist
+            # remove file path from cache
+            # remove parent from cache
+            # remove file path from Database
+            success, dirpath_id = IndexDirs.search_for_directory(dirpath)
+            parent_dir = dirpath_id.return_parent_directory()
+            dirpath_id.remove_directory(dirpath)
             if parent_dir.exists():
                 parent_dir = parent_dir[0]
-                Cache_Storage.remove_from_cache_name(DirName=parent_dir.fqpndirectory)
-            IndexDirs.delete_directory(fqpn_directory=dirpath)
+                dirpath_id.remove_directory(parent_dir, cache_only=True)
 
-        success, i_dirs = IndexDirs.search_for_directory(dirpath)
+        # retrieve IndexDirs entry for dirpath
+        success, dirpath_id = IndexDirs.search_for_directory(dirpath)
         if not success:
             return None
-        count, db_data = i_dirs.files_in_dir()
-        if count in [0, None]:
-            db_data = IndexData.objects.select_related("filetype").filter(
-                fqpndirectory=webpath, delete_pending=False, ignore=False
-            )
 
-        #        print(count, db_data)
-        # db_data = IndexData.search_for_directory(fqpn_directory=webpath)
+        # Compare the database entries to see if they exist in the file system
+        # If they don't, remove from cache, and delete the directory
+        _, directories = dirpath_id.dirs_in_dir()
+        for fqpn in directories.values_list("fqpndirectory", flat=True):
+            if str(Path(fqpn).name).strip().title() not in fs_entries:
+                print("Database contains a **directory** not in the fs: ", fqpn)
+                IndexDirs.delete_directory(fqpn_directory=fqpn)
+
         update = False
+        count, db_data = dirpath_id.files_in_dir()
+        # if count in [0, None]:
+        #     db_data = IndexData.objects.select_related("filetype").filter(
+        #         fqpndirectory=webpath, delete_pending=False, ignore=False
+        #     )
+
         for db_entry in db_data:
             if db_entry.name.strip() not in fs_entries:
                 print("Database contains a file not in the fs: ", db_entry.name)
@@ -620,19 +612,13 @@ def sync_database_disk(directoryname):
                 db_entry.ignore = True
                 db_entry.delete_pending = True
                 db_entry.parent_dir = dirpath_id
-                #                db_entry.fqpndirectory = db_entry.name.strip()
                 records_to_update.append(db_entry)
-
-            #            db_entry.save()
             else:
                 # The db_entry does exist in the file system.
                 # Does the lastmod match?
                 # Does size match?
                 # If directory, does the numfiles, numdirs, count_subfiles match?
                 # update = False, unncessary, moved to above the for loop.
-                # if db_entry.parent_dir is None:
-                #     db_entry.parent_dir = dirpath_id
-                #     update = True
                 entry = fs_entries[db_entry.name.title()]
                 if db_entry.lastmod != entry.stat()[stat.ST_MTIME]:
                     # print("LastMod mismatch")
@@ -642,13 +628,6 @@ def sync_database_disk(directoryname):
                     # print("Size mismatch")
                     db_entry.size = entry.stat()[stat.ST_SIZE]
                     update = True
-                    # print(" sync - ",str(entry.absolute))
-                    # sync_database_disk(str(entry.absolute()))
-                    # fs_file_count, fs_dir_count = fs_counts(subdirectory)
-                    # fs_file_count, fs_dir_count = fs_counts(subdirectory)
-                    # if db_entry.numfiles != fs_file_count or db_entry.numdirs != fs_dir_count:
-                    #     db_entry.numfiles, db_entry.numdirs = fs_file_count, fs_dir_count
-                    #     update = True
                 if update:
                     records_to_update.append(db_entry)
                     print("Database record being updated: ", db_entry.name)
@@ -656,11 +635,7 @@ def sync_database_disk(directoryname):
                     update = False
 
         # Check for entries that are not in the database, but do exist in the file system
-        names = (
-            IndexData.objects.filter(fqpndirectory=webpath)
-            .only("name")
-            .values_list("name", flat=True)
-        )
+        names = IndexData.objects.filter(fqpndirectory=webpath).only("name").values_list("name", flat=True)
         # fetch an updated set of records, since we may have changed it from above.
         records_to_create = []
         for _, entry in fs_entries.items():
@@ -709,10 +684,6 @@ def sync_database_disk(directoryname):
             pass
             # print("No records to create")
 
-        # if bootstrap:
-        #    IndexData.objects.filter(delete_pending=True).delete()
-
-        #        if not Cache_Tracking.objects.filter(DirName=dirpath).exists():
         # The path has not been seen since the Cache Tracking has been enabled
         # (eg Startup, or the entry has been nullified)
         # Add to table, and allow a rescan to occur.
