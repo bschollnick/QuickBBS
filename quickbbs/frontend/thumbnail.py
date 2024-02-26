@@ -3,12 +3,14 @@ Thumbnail routines for QuickBBS
 """
 
 import os
-from typing import Iterator  # , Optional, Union, TypeVar, Generic
+
+# from typing import Iterator  # , Optional, Union, TypeVar, Generic
 
 from django.conf import settings
 from django.db.utils import IntegrityError
 from filetypes.models import FILETYPE_DATA
-from quickbbs.models import IndexData  # , Thumbnails_Archives
+
+# from quickbbs.models import IndexData  # , Thumbnails_Archives
 from thumbnails.image_utils import (
     #    image_to_pil,
     #    movie_to_pil,
@@ -18,71 +20,45 @@ from thumbnails.image_utils import (
 )
 from cache.models import Cache_Storage
 
-import frontend.archives3 as archives
-from frontend.database import get_xth_image
 from frontend.utilities import (  # cr_tnail_img,; return_image_obj,
-    read_from_disk,
+    #    read_from_disk,
     sync_database_disk,
 )
-from frontend.web import g_option  # , respond_as_attachment
-from frontend.web import return_img_attach  # , return_inline_attach
 
 
-def ensures_endswith(string_to_check, value) -> str:
-    """
-    The ensures_endswith function ensures that the string_to_check ends with value.
-    If it does not, then value is appended to the end of string_to_check.
-
-    :param string_to_check: Store the string that is being checked
-    :param value: Add a value to the end of the string_to_check if it doesn't
-        already have that value at its end
-    :return: A string with the value appended to it
-
-    Examples
-    --------
-    >>> ensures_endswith("test", os.sep)
-    test/
-    >>> ensures_endswith("balony", os.sep)
-    balony/
-    """
-    if not string_to_check.endswith(value):
-        string_to_check = f"{string_to_check}{value}"
-    return string_to_check
-
-
-def images_in_dir(database, webpath) -> Iterator[IndexData]:
-    """
-    Check for images in the directory.
-    If they do not exist, try to load the directory, and test again.
-    If they do exist, grab the 1st image from the file list.
-
-    Args:
-        database (obj) - Django Database
-        webpath (str) - The directory to examine
-
-    Returns:
-        object::
-            The thumbnail (in memory) of the first image
-
-    Raises:
-        None
-
-    Examples
-    --------
-    """
-
-    #   What files exist in this directory?
-    filters = {"fqpndirectory": ensures_endswith(webpath.lower(), os.sep)}
-    # ,'ignore': False, 'delete_pending': False, "filetype__is_image": True}
-    files = get_xth_image(database, 0, filters)
-
-    if files is None or not os.path.exists(os.path.join(webpath, files.name)):
-        # No files exist in the database for this directory
-        print(f"* scanning due to No files exist, {webpath}")
-        read_from_disk(webpath, skippable=True)
-        # process_dir
-        files = get_xth_image(database, 0, filters)
-    return files
+# def images_in_dir(database, webpath) -> Iterator[IndexData]:
+#     """
+#     Check for images in the directory.
+#     If they do not exist, try to load the directory, and test again.
+#     If they do exist, grab the 1st image from the file list.
+#
+#     Args:
+#         database (obj) - Django Database
+#         webpath (str) - The directory to examine
+#
+#     Returns:
+#         object::
+#             The thumbnail (in memory) of the first image
+#
+#     Raises:
+#         None
+#
+#     Examples
+#     --------
+#     """
+#
+#     #   What files exist in this directory?
+#     filters = {"fqpndirectory": ensures_endswith(webpath.lower(), os.sep)}
+#     # ,'ignore': False, 'delete_pending': False, "filetype__is_image": True}
+#     files = get_xth_image(database, 0, filters)
+#
+#     if files is None or not os.path.exists(os.path.join(webpath, files.name)):
+#         # No files exist in the database for this directory
+#         print(f"* scanning due to No files exist, {webpath}")
+#         read_from_disk(webpath, skippable=True)
+#         # process_dir
+#         files = get_xth_image(database, 0, filters)
+#     return files
 
 
 def new_process_dir2(db_entry):
@@ -102,9 +78,7 @@ def new_process_dir2(db_entry):
     #
     if db_entry.small_thumb not in [b"", None]:
         # Does the thumbnail exist?
-        raise ValueError(
-            "I shouldn't be here! - new_process_dir2 w/entry that has thumbnail"
-        )
+        raise ValueError("I shouldn't be here! - new_process_dir2 w/entry that has thumbnail")
 
     _, files = db_entry.files_in_dir()
     if not files:
@@ -114,9 +88,7 @@ def new_process_dir2(db_entry):
     if files:  # found an file in the directory to use for thumbnail purposes
         for file_to_thumb in files:
             if file_to_thumb.filetype.is_image:
-                fs_d_fname = os.path.join(
-                    file_to_thumb.fqpndirectory, file_to_thumb.name
-                )
+                fs_d_fname = os.path.join(file_to_thumb.fqpndirectory, file_to_thumb.name)
                 # file system location of directory
                 fext = os.path.splitext(file_to_thumb.name)[1].lower()
                 temp = resize_pil_image(
@@ -128,12 +100,8 @@ def new_process_dir2(db_entry):
                 db_entry.small_thumb = temp
                 break
     if not db_entry.small_thumb:
-        temp = return_image_obj(
-            os.path.join(settings.IMAGES_PATH, FILETYPE_DATA[".dir"]["icon_filename"])
-        )
-        img_icon = resize_pil_image(
-            temp, settings.IMAGE_SIZE["small"], FILETYPE_DATA[".dir"]["icon_filename"]
-        )
+        temp = return_image_obj(os.path.join(settings.IMAGES_PATH, FILETYPE_DATA[".dir"]["icon_filename"]))
+        img_icon = resize_pil_image(temp, settings.IMAGE_SIZE["small"], FILETYPE_DATA[".dir"]["icon_filename"])
         # configdata["filetypes"]["dir"][2])
         db_entry.is_generic_icon = True
         db_entry.small_thumb = img_icon
