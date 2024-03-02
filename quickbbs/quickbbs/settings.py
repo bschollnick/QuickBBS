@@ -62,15 +62,11 @@ print(f"* Debug-toolbar is {DEBUG_TOOLBAR}")
 # See https://releases.jquery.com/jquery/
 JQUERY_VERSION = "3.7.0"
 # JQUERY_VERSION = '3.6.1'
-JQUERY_URI = (
-    f"https://cdnjs.cloudflare.com/ajax/libs/jquery/{JQUERY_VERSION}/jquery.slim.min.js"
-)
+JQUERY_URI = f"https://cdnjs.cloudflare.com/ajax/libs/jquery/{JQUERY_VERSION}/jquery.slim.min.js"
 
 # see https://cdnjs.com/libraries/bulma
 BULMA_VERSION = "0.9.4"
-BULMA_URI = (
-    f"https://cdnjs.cloudflare.com/ajax/libs/bulma/{BULMA_VERSION}/css/bulma.min.css"
-)
+BULMA_URI = f"https://cdnjs.cloudflare.com/ajax/libs/bulma/{BULMA_VERSION}/css/bulma.min.css"
 
 # see https://cdnjs.com/libraries/font-awesome
 # FONTAWESOME_VERSION = '6.2.1'

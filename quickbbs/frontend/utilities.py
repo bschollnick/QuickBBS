@@ -421,7 +421,6 @@ def sync_database_disk(directoryname):
             # The record is in the database, so it's already been vetted in the database comparison
         else:
             pass
-            # print("No records to create")
 
         # The path has not been seen since the Cache Tracking has been enabled
         # (eg Startup, or the entry has been nullified)

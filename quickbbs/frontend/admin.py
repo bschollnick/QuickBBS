@@ -8,15 +8,15 @@ from quickbbs.models import *
 #     list_display = ('fileext', 'icon_filename', 'color', 'generic', 'filetype')
 
 
-@admin.register(Thumbnails_Files)
-class AdminThumbnail_Files(admin.ModelAdmin):
-    readonly_fields = (
-        "id",
-        "uuid",
-    )
-    list_display = ("id", "uuid", "FileName", "FilePath", "FileSize")
-    fields = ("id", "uuid", "FileName", "FilePath", "FileSize")
-
+# @admin.register(Thumbnails_Files)
+# class AdminThumbnail_Files(admin.ModelAdmin):
+#     readonly_fields = (
+#         "id",
+#         "uuid",
+#     )
+#     list_display = ("id", "uuid", "FileName", "FilePath", "FileSize")
+#     fields = ("id", "uuid", "FileName", "FilePath", "FileSize")
+#
 
 # @admin.register(Thumbnails_Archives)
 # class AdminThumbnail_Archives(admin.ModelAdmin):
@@ -41,7 +41,7 @@ class AdminMaster_Index(admin.ModelAdmin):
         "fqpndirectory",
         "ignore",
         "delete_pending",
-        "file_tnail",
+        # "file_tnail",
         #        "directory",
         #        "archives",
         "ownership",
@@ -57,7 +57,7 @@ class AdminMaster_Index(admin.ModelAdmin):
         "fqpndirectory",
         "ignore",
         "delete_pending",
-        "file_tnail",
+        # "file_tnail",
         # "directory",
         #        "archives",
         "ownership",

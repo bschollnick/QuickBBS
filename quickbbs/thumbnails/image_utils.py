@@ -91,7 +91,7 @@ def image_to_pil(fspath, mem=False):
         try:
             source_image = Image.open(fspath)
         except OSError:
-            print("Unable to load source file")
+            print(f"Unable to load source file - {fspath}")
     else:
         try:  # fs_path is a byte stream
             source_image = Image.open(BytesIO(fspath))
@@ -176,6 +176,7 @@ def return_image_obj(fs_path, memory=False) -> Image:
     if extension in ("", b"", None):
         # There is currently no concept of a "None" in filetypes
         extension = ".none"
+
     if filetype_models.FILETYPE_DATA[extension]["is_pdf"]:
         source_image = pdf_to_pil(fs_path)
 
