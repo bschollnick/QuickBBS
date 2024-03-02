@@ -18,9 +18,11 @@ from django.db.models.query import QuerySet
 from django.urls import reverse
 from ranged_fileresponse import RangedFileResponse
 
-import thumbnails.models
+from thumbnails.models import ThumbnailFiles
 from filetypes.models import FILETYPE_DATA, filetypes
 from quickbbs.natsort_model import NaturalSortField
+
+# from quickbbs.thumbnails.models import ThumbnailFiles
 
 
 def convert_text_to_md5_hdigest(text) -> str:
@@ -73,12 +75,8 @@ class Owners(models.Model):
     """
 
     id = models.AutoField(primary_key=True)
-    uuid = models.UUIDField(
-        default=None, null=True, editable=False, blank=True, db_index=True
-    )
-    ownerdetails = models.OneToOneField(
-        User, on_delete=models.CASCADE, db_index=True, default=None
-    )
+    uuid = models.UUIDField(default=None, null=True, editable=False, blank=True, db_index=True)
+    ownerdetails = models.OneToOneField(User, on_delete=models.CASCADE, db_index=True, default=None)
 
     class Meta:
         verbose_name = "Ownership"
@@ -91,9 +89,7 @@ class Favorites(models.Model):
     """
 
     id = models.AutoField(primary_key=True)
-    uuid = models.UUIDField(
-        default=None, null=True, editable=False, blank=True, db_index=True
-    )
+    uuid = models.UUIDField(default=None, null=True, editable=False, blank=True, db_index=True)
 
 
 class IndexDirs(models.Model):
@@ -101,9 +97,7 @@ class IndexDirs(models.Model):
     The master index for Directory / Folders in the Filesystem for the gallery.
     """
 
-    uuid = models.UUIDField(
-        default=None, null=True, editable=False, db_index=True, blank=True
-    )
+    uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True, blank=True)
     fqpndirectory = models.CharField(
         db_index=False, max_length=384, default="", unique=True, blank=True
     )  # FQFN of the file itself
@@ -114,20 +108,12 @@ class IndexDirs(models.Model):
     # Combined is the FQPN md5  (eg /var/albums/test/test1)
     parent_dir_md5 = models.CharField(db_index=True, max_length=32, unique=False)
     # Is the FQPN of the parent directory (eg /var/albums/test)
-    lastscan = models.FloatField(
-        db_index=True, default=None
-    )  # Stored as Unix TimeStamp (ms)
-    lastmod = models.FloatField(
-        db_index=True, default=None
-    )  # Stored as Unix TimeStamp (ms)
+    lastscan = models.FloatField(db_index=True, default=None)  # Stored as Unix TimeStamp (ms)
+    lastmod = models.FloatField(db_index=True, default=None)  # Stored as Unix TimeStamp (ms)
     name_sort = NaturalSortField(for_field="fqpndirectory", max_length=384, default="")
-    is_generic_icon = models.BooleanField(
-        default=False, db_index=True
-    )  # File is to be ignored
+    is_generic_icon = models.BooleanField(default=False, db_index=True)  # File is to be ignored
     ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
-    delete_pending = models.BooleanField(
-        default=False, db_index=True
-    )  # File is to be deleted,
+    delete_pending = models.BooleanField(default=False, db_index=True)  # File is to be deleted,
     filetype = models.ForeignKey(
         filetypes,
         to_field="fileext",
@@ -166,12 +152,8 @@ class IndexDirs(models.Model):
         # dir_seg, filename_seg = os.path.split(fqpn_directory)
         new_rec = IndexDirs()
         new_rec.fqpndirectory = fqpn_directory
-        new_rec.dir_name_md5 = convert_text_to_md5_hdigest(
-            IndexDirs.normalize_fqpn(filename_seg)
-        )
-        new_rec.combined_md5 = convert_text_to_md5_hdigest(
-            IndexDirs.normalize_fqpn(fqpn_directory)
-        )
+        new_rec.dir_name_md5 = convert_text_to_md5_hdigest(IndexDirs.normalize_fqpn(filename_seg))
+        new_rec.combined_md5 = convert_text_to_md5_hdigest(IndexDirs.normalize_fqpn(fqpn_directory))
         new_rec.parent_dir_md5 = convert_text_to_md5_hdigest(parent_dir)
         new_rec.uuid = uuid.uuid4()
         #        new_rec.FileCount = FileCount
@@ -221,9 +203,7 @@ class IndexDirs(models.Model):
         # pylint: disable-next=import-outside-toplevel
         from cache.models import Cache_Storage
 
-        combined_md5 = convert_text_to_md5_hdigest(
-            IndexDirs.normalize_fqpn(fqpn_directory)
-        )
+        combined_md5 = convert_text_to_md5_hdigest(IndexDirs.normalize_fqpn(fqpn_directory))
         Cache_Storage.remove_from_cache_name(fqpn_directory)
         if not cache_only:
             IndexDirs.objects.filter(combined_md5=combined_md5).delete()
@@ -235,18 +215,14 @@ class IndexDirs(models.Model):
         Return the number of files that are in the database for the current directory
         :return: Integer - Number of files in the database for the directory
         """
-        return IndexData.objects.filter(
-            parent_dir=self.pk, delete_pending=False
-        ).count()
+        return IndexData.objects.filter(parent_dir=self.pk, delete_pending=False).count()
 
     def get_dir_counts(self) -> int:
         """
         Return the number of directories that are in the database for the current directory
         :return: Integer - Number of directories
         """
-        return IndexDirs.objects.filter(
-            parent_dir_md5=self.combined_md5, delete_pending=False
-        ).count()
+        return IndexDirs.objects.filter(parent_dir_md5=self.combined_md5, delete_pending=False).count()
 
     def get_count_breakdown(self) -> dict:
         """
@@ -256,9 +232,7 @@ class IndexDirs(models.Model):
         A special "all_files" key is used to store the # of all items in the directory (except
         for directories).  (all_files is the sum of all file types, except "dir")
         """
-        d_files = IndexData.objects.filter(
-            parent_dir_md5__combined_md5=self.combined_md5
-        )
+        d_files = IndexData.objects.filter(parent_dir_md5__combined_md5=self.combined_md5)
         totals = {}
         for key in FILETYPE_DATA.keys():
             totals[key[1:]] = d_files.filter(filetype__fileext=key).count()
@@ -328,9 +302,7 @@ class IndexDirs(models.Model):
         dir_scan = IndexDirs.normalize_fqpn(dir_scan)
         dir_scan_md5 = convert_text_to_md5_hdigest(dir_scan)
         # dirs = IndexDirs.objects.filter(combined_md5=self.combined_md5, delete_pending=False)
-        dirs = IndexDirs.objects.filter(
-            parent_dir_md5=dir_scan_md5, delete_pending=False
-        ).order_by(*SORT_MATRIX[sort])
+        dirs = IndexDirs.objects.filter(parent_dir_md5=dir_scan_md5, delete_pending=False).order_by(*SORT_MATRIX[sort])
         return dirs.count(), dirs
 
     def get_view_url(self) -> str:
@@ -344,9 +316,7 @@ class IndexDirs(models.Model):
         """
         options = {}
         options["i_uuid"] = str(self.uuid)
-        webpath = self.fqpndirectory.replace(
-            settings.ALBUMS_PATH.lower() + r"/albums/", r""
-        )
+        webpath = self.fqpndirectory.replace(settings.ALBUMS_PATH.lower() + r"/albums/", r"")
         return reverse("directories") + webpath
 
     def get_bg_color(self) -> str:
@@ -409,41 +379,31 @@ class IndexDirs(models.Model):
         return response
 
 
-class Thumbnails_Files(models.Model):
-    id = models.AutoField(primary_key=True, db_index=True)
-    uuid = models.UUIDField(
-        default=None, null=True, editable=False, db_index=True, blank=True
-    )
-    FilePath = models.CharField(
-        db_index=True, max_length=384, default=None
-    )  # FQFN of the file itself
-    FileName = models.CharField(
-        db_index=True, max_length=384, default=None
-    )  # FQFN of the file itself
-    FileSize = models.BigIntegerField(default=-1)
-
-    small_thumb = models.BinaryField(default=b"")
-    medium_thumb = models.BinaryField(default=b"")
-    large_thumb = models.BinaryField(default=b"")
-
-    class Meta:
-        verbose_name = "Image File Thumbnails Cache"
-        verbose_name_plural = "Image File Thumbnails Cache"
-        constraints = [
-            models.UniqueConstraint(
-                fields=["FileName", "FilePath"], name="unique_thumb_files"
-            )
-        ]
-        # File Workflow:
-        #
-        #   When checking for a thumbnail, if Thumbnail_ID == 0, then generate the new thumbnails,
-        #   and set the Thumbnail_ID for the file.
-        #
-        #   If the file has been flagged as changed, then:
-        #       Grab the Thumbnail_ID record and set Flag_For_Regeneration to True
-        #
-        #   If the Thumbnail_ID record is set, check the Thumbnail_ID record for
-        #   Flag_For_Regeneration, and if True, then Regenerate the Thumbnails.
+# class Thumbnails_Files(models.Model):
+#     id = models.AutoField(primary_key=True, db_index=True)
+#     uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True, blank=True)
+#     FilePath = models.CharField(db_index=True, max_length=384, default=None)  # FQFN of the file itself
+#     FileName = models.CharField(db_index=True, max_length=384, default=None)  # FQFN of the file itself
+#     FileSize = models.BigIntegerField(default=-1)
+#
+#     small_thumb = models.BinaryField(default=b"")
+#     medium_thumb = models.BinaryField(default=b"")
+#     large_thumb = models.BinaryField(default=b"")
+#
+#     class Meta:
+#         verbose_name = "Image File Thumbnails Cache"
+#         verbose_name_plural = "Image File Thumbnails Cache"
+#         constraints = [models.UniqueConstraint(fields=["FileName", "FilePath"], name="unique_thumb_files")]
+#         # File Workflow:
+#         #
+#         #   When checking for a thumbnail, if Thumbnail_ID == 0, then generate the new thumbnails,
+#         #   and set the Thumbnail_ID for the file.
+#         #
+#         #   If the file has been flagged as changed, then:
+#         #       Grab the Thumbnail_ID record and set Flag_For_Regeneration to True
+#         #
+#         #   If the Thumbnail_ID record is set, check the Thumbnail_ID record for
+#         #   Flag_For_Regeneration, and if True, then Regenerate the Thumbnails.
 
 
 # class Thumbnails_Archives(models.Model):
@@ -485,9 +445,7 @@ class IndexData(models.Model):
     """
 
     id = models.AutoField(primary_key=True)
-    uuid = models.UUIDField(
-        default=None, null=True, editable=False, db_index=True, blank=True
-    )
+    uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True, blank=True)
     # Stored as Unix TimeStamp (ms)
     lastscan = models.FloatField(db_index=True)
     lastmod = models.FloatField(db_index=True)  # Stored as Unix TimeStamp (ms)
@@ -504,14 +462,10 @@ class IndexData(models.Model):
     #    count_subfiles = models.BigIntegerField(default=0)  # the # of subfiles in archive
     fqpndirectory = models.CharField(default=0, db_index=True, max_length=384)
     # Directory of the file, lower().replace("//", "/"), ensure it is path, and not path + filename
-    parent_dir = models.ForeignKey(
-        IndexDirs, on_delete=models.CASCADE, null=True, default=None
-    )
+    parent_dir = models.ForeignKey(IndexDirs, on_delete=models.CASCADE, null=True, default=None)
     is_animated = models.BooleanField(default=False, db_index=True)
     ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
-    delete_pending = models.BooleanField(
-        default=False, db_index=True
-    )  # File is to be deleted,
+    delete_pending = models.BooleanField(default=False, db_index=True)  # File is to be deleted,
     filetype = models.ForeignKey(
         filetypes,
         to_field="fileext",
@@ -519,18 +473,18 @@ class IndexData(models.Model):
         db_index=True,
         default=".none",
     )
-    is_generic_icon = models.BooleanField(
-        default=False, db_index=False
-    )  # icon is a generic icon
+    is_generic_icon = models.BooleanField(default=False, db_index=False)  # icon is a generic icon
 
-    file_tnail = models.OneToOneField(
-        Thumbnails_Files,
-        on_delete=models.CASCADE,
-        db_index=True,
-        default=None,
-        null=True,
-        blank=True,
-    )
+    new_ftnail = models.OneToOneField(ThumbnailFiles, on_delete=models.CASCADE, null=True, default=None, blank=True)
+
+    # file_tnail = models.OneToOneField(
+    #     Thumbnails_Files,
+    #     on_delete=models.CASCADE,
+    #     db_index=True,
+    #     default=None,
+    #     null=True,
+    #     blank=True,
+    # )
 
     # # https://stackoverflow.com/questions/38388423
     # archives = models.OneToOneField(
@@ -556,9 +510,7 @@ class IndexData(models.Model):
         Convert the fqpndirectory to an web path
         :return:
         """
-        return self.fqpndirectory.replace(
-            settings.ALBUMS_PATH.lower() + r"/albums/", r""
-        )
+        return self.fqpndirectory.replace(settings.ALBUMS_PATH.lower() + r"/albums/", r"")
 
     # def write_to_db_entry(self, fileentry, fqpn, version=4):
     #     """
@@ -806,8 +758,4 @@ class IndexData(models.Model):
         verbose_name = "Master Index"
         verbose_name_plural = "Master Index"
 
-        constraints = [
-            models.UniqueConstraint(
-                fields=["name", "fqpndirectory"], name="unique name directory"
-            )
-        ]
+        constraints = [models.UniqueConstraint(fields=["name", "fqpndirectory"], name="unique name directory")]
