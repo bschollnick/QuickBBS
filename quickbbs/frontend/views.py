@@ -351,14 +351,11 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
         "breadcrumbs": "",
         "breadcrumbs_list": [],
     }
-
     entry = IndexData.objects.select_related("filetype").filter(uuid=context["uuid"])[0]
-    if not entry:
-        # sync_database_disk(entry.fqpndirectory)
-        entry = IndexData.objects.select_related("filetype").filter(uuid=context["uuid"])[0]
-        if not entry:
-            return HttpResponseBadRequest(content="No entry found.")
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
+    found, directory_entry = IndexDirs.search_for_directory(fqpn_directory=context["webpath"])
+    if not found:
+        return HttpResponseBadRequest(content="No entry found.")
 
     breadcrumbs = return_breadcrumbs(context["webpath"])
     for bcrumb in breadcrumbs:
@@ -372,7 +369,6 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
             context["html"] = markdown2.Markdown().convert("\n".join(textfile.readlines()))
     if entry.filetype.is_html:
         with open(filename, "r", encoding="utf-8") as htmlfile:
-            # context["html"] = bleach.clean("<br>".join(htmlfile.readlines()))
             context["html"] = "<br>".join(htmlfile.readlines())
 
     pathmaster = Path(os.path.join(entry.fqpndirectory, entry.name))
@@ -380,19 +376,25 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
     while context["up_uri"].endswith("/"):
         context["up_uri"] = context["up_uri"][:-1]
 
-    catalog_qs = get_db_files(context["sort"], context["webpath"])
+    _, catalog_qs = directory_entry.files_in_dir(sort=context["sort"])
+    # catalog_qs = get_db_files(context["sort"], context["webpath"])
 
     page_uuids = [str(record.uuid) for record in catalog_qs]
-
+    # page_uuids = list(catalog_qs.values_list("uuid", flat=True))
     context["mobile"] = detect_mobile(request)
     context["size"] = "large"
     if context["mobile"]:
         context["size"] = "medium"
     item_list = Paginator(catalog_qs, 1)
 
+    try:
+        current_page = page_uuids.index(context["uuid"]) + 1
+    except ValueError:
+        current_page = 1
+
     context.update(
         {
-            "page": page_uuids.index(context["uuid"]) + 1,
+            "page": current_page,
             "first_uuid": page_uuids[0],
             "last_uuid": page_uuids[len(page_uuids) - 1],
             "pagecount": item_list.count,  # Switch this to math only, no paginator?

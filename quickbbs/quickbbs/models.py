@@ -379,65 +379,6 @@ class IndexDirs(models.Model):
         return response
 
 
-# class Thumbnails_Files(models.Model):
-#     id = models.AutoField(primary_key=True, db_index=True)
-#     uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True, blank=True)
-#     FilePath = models.CharField(db_index=True, max_length=384, default=None)  # FQFN of the file itself
-#     FileName = models.CharField(db_index=True, max_length=384, default=None)  # FQFN of the file itself
-#     FileSize = models.BigIntegerField(default=-1)
-#
-#     small_thumb = models.BinaryField(default=b"")
-#     medium_thumb = models.BinaryField(default=b"")
-#     large_thumb = models.BinaryField(default=b"")
-#
-#     class Meta:
-#         verbose_name = "Image File Thumbnails Cache"
-#         verbose_name_plural = "Image File Thumbnails Cache"
-#         constraints = [models.UniqueConstraint(fields=["FileName", "FilePath"], name="unique_thumb_files")]
-#         # File Workflow:
-#         #
-#         #   When checking for a thumbnail, if Thumbnail_ID == 0, then generate the new thumbnails,
-#         #   and set the Thumbnail_ID for the file.
-#         #
-#         #   If the file has been flagged as changed, then:
-#         #       Grab the Thumbnail_ID record and set Flag_For_Regeneration to True
-#         #
-#         #   If the Thumbnail_ID record is set, check the Thumbnail_ID record for
-#         #   Flag_For_Regeneration, and if True, then Regenerate the Thumbnails.
-
-
-# class Thumbnails_Archives(models.Model):
-#     id = models.AutoField(primary_key=True, db_index=True)
-#     uuid = models.UUIDField(
-#         default=None, null=True, editable=False, db_index=True, blank=True
-#     )
-#     zipfilepath = models.CharField(
-#         db_index=True, max_length=384, default="", blank=True
-#     )  # FQFN of the file itself
-#
-#     FilePath = models.CharField(
-#         db_index=True, max_length=384, default=None
-#     )  # FQFN of the file itself
-#     FileName = models.CharField(
-#         db_index=True, max_length=384, default=None
-#     )  # FQFN of the file itself
-#     page = models.IntegerField(default=0)  # The
-#     FileSize = models.BigIntegerField(default=-1)
-#     small_thumb = models.BinaryField(default=b"")
-#     medium_thumb = models.BinaryField(default=b"")
-#     large_thumb = models.BinaryField(default=b"")
-#
-#     class Meta:
-#         verbose_name = "Archive Thumbnails Cache"
-#         verbose_name_plural = "Archive Thumbnails Cache"
-#
-#         constraints = [
-#             models.UniqueConstraint(
-#                 fields=["FileName", "FilePath", "zipfilepath"], name="unique_archives"
-#             )
-#         ]
-
-
 class IndexData(models.Model):
     """
     The Master Index for All files in the Gallery.  (See IndexDirs for the counterpart
