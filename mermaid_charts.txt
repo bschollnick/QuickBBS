@@ -24,3 +24,17 @@ graph TD
     DIR_C --> |Thumbnail Does not Exist|DIR_D(Create Thumbnail)
     DIR_C --> |Thumbnail Exists|DIR_E(Send Thumbnail to client)
     DIR_D --> DIR_E
+
+-----------
+graph TD
+
+subgraph File Index
+    Index_Data[Index Data] --> Thumbnail_Index[Thumbnail Index]
+    Thumbnail_Index --> Small_Thumbnail[Small Thumbnail Blob]
+    Thumbnail_Index --> Medium_Thumbnail[Medium Thumbnail Blob]
+    Thumbnail_Index --> Large_Thumbnail[Large Thumbnail Blob]
+end
+
+subgraph Directory Index
+    Dir_Index_Data[Index Data] --> Small_DirThumbnail[Small Thumbnail Blob]
+end
