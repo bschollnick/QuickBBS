@@ -1,8 +1,7 @@
 graph TD
-    Index_Data --> aa(Thumbnail Index)
-    aa --> bb(SmallThumb Table)
-    aa --> cc(MediumThumb Table)
-    aa --> dd(Large)
+    File_Index --> aa(Thumbnail Index\nContains Small, Medium,\nLarge thumbnail blobs)
+
+    Directory_Index[Directory Index\nContains Small\nThumbnail Blob]
 
     WebRequest --> |Directory or Files| B(Check fs_Cache_Tracking)
     B --> |Directory not in \n fs_Cache_Tracking|M(Scan Directory)
@@ -11,10 +10,17 @@ graph TD
     N --> O(Create or Update File Records in \n Database Index_data)
     O --> P(Create Thumbnail Record in \n Thumbnails_Files or Thumbnails_Dirs)
     P --> D(Send content to client)
-    WebRequest --> |Thumbnails|AA(Check Index_Data for \n UUID of thumbnail target)
+
+    WebRequest --> |Thumbnails Files|AA(Check Index_Data for \n UUID of thumbnail target)
     AA --> |Not Found| BB(Display Error)
     AA --> CC(Record Found)
     CC --> |Thumbnail Does not Exist|DD(Create Thumbnail)
     CC --> |Thumbnail Exists|EE(Send Thumbnail to client)
     DD --> EE
 
+    WebRequest --> |Thumbnails Directories|DIR_A(Lookup Directory Entry)
+    DIR_A --> |Not Found| DIR_BB(Display Error)
+    DIR_A --> DIR_C(Record Found)
+    DIR_C --> |Thumbnail Does not Exist|DIR_D(Create Thumbnail)
+    DIR_C --> |Thumbnail Exists|DIR_E(Send Thumbnail to client)
+    DIR_D --> DIR_E

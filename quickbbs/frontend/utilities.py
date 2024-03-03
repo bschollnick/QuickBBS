@@ -28,7 +28,7 @@ from PIL import Image
 import filetypes.models as filetype_models
 
 # from cache.models import fs_Cache_Tracking as Cache_Tracking
-from cache.models import Cache_Storage
+from cache_watcher.models import Cache_Storage
 from quickbbs.models import IndexData, IndexDirs, filetypes
 
 # import fitz  # PDF previews

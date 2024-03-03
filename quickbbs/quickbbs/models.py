@@ -201,7 +201,7 @@ class IndexDirs(models.Model):
         :return:
         """
         # pylint: disable-next=import-outside-toplevel
-        from cache.models import Cache_Storage
+        from cache_watcher.models import Cache_Storage
 
         combined_md5 = convert_text_to_md5_hdigest(IndexDirs.normalize_fqpn(fqpn_directory))
         Cache_Storage.remove_from_cache_name(fqpn_directory)

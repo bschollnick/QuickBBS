@@ -15,13 +15,15 @@ from pathlib import Path
 # import bleach
 # import django_icons.templatetags.icons
 import markdown2
-from cache.models import Cache_Storage
+from cache_watcher.models import Cache_Storage
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
 from django.db.utils import IntegrityError
 from django.http import Http404, HttpResponseBadRequest, HttpResponseNotFound
 from django.shortcuts import render
+
+import psycopg
 
 # from django.db.models import Q
 from numpy import arange
@@ -144,9 +146,9 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
 
     thumbsize = request.GET.get("size", "small").lower()
     entry = index_qs[0]
-    fs_item = os.path.join(entry.fqpndirectory, entry.name)
+    fs_item = os.path.join(entry.fqpndirectory, entry.name).title().strip()
     fs_item_hash = ThumbnailFiles.convert_text_to_md5_hdigest(fs_item)
-    fname = os.path.basename(entry.name).title()
+    fname = os.path.basename(entry.name).title().strip()
     if entry.new_ftnail:
         if entry.new_ftnail.thumbnail_exists(size=thumbsize):
             return entry.new_ftnail.send_thumbnail(filename_override=None, fext_override=None, size=thumbsize)
@@ -157,10 +159,20 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
             tnail_record, created = ThumbnailFiles.objects.get_or_create(
                 fqpn_hash=fs_item_hash, defaults={"fqpn_hash": fs_item_hash, "fqpn_filename": fs_item}
             )
+            ThumbnailFiles.objects.filter(fqpn_hash=fs_item_hash).delete()
+            tnail_record, created = ThumbnailFiles.objects.get_or_create(
+                fqpn_hash=fs_item_hash, defaults={"fqpn_hash": fs_item_hash, "fqpn_filename": fs_item}
+            )
+
             entry.new_ftnail = tnail_record
             raw_pil = image_utils.return_image_obj(fs_item, memory=False)
             entry.new_ftnail.pil_to_thumbnail(pil_data=raw_pil)
-            entry.new_ftnail.save()
+            try:
+                entry.new_ftnail.save()
+            except (django.db.utils.IntegrityError, psycopg.errors.UniqueViolation):
+                # should not occur, but some mp4's appear to have been duplicated?
+                ThumbnailsFiles.objects.filter(fqpn_hash=fs_item_hash).delete()
+                entry.new_ftnail.save()
             entry.save()
             return entry.new_ftnail.send_thumbnail(filename_override=None, fext_override=None, size=thumbsize)
 
@@ -579,20 +591,6 @@ def view_setup():
 
     """
     pass
-    # if 'runserver' in sys.argv or "--host" in sys.argv:
-    #     print("Starting cleanup")
-    #     #    check_for_deletes()
-    #     print("Cleanup is done.")
-    #     if settings.DEMO:
-    #         read_from_disk(os.path.join(settings.ALBUMS_PATH, "albums"))
-    #     else:
-    #         try:
-    #             for prepath in settings.PRELOAD:
-    #                 print("Pre-Caching: ", prepath)
-    #                 read_from_disk(prepath.strip())  # startup
-    #             read_from_disk(os.path.join(settings.ALBUMS_PATH, "albums"))
-    #         except:
-    #             pass
 
 
 #    IndexData.objects.filter(delete_pending=True).delete()
