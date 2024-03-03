@@ -12,15 +12,14 @@ Ideally, it will offer:
 
 * Forums
 * File Areas / Image Galleries - These are combined, and are mostly complete.
-* Wiki Support - Limited support at this time, you can view HTML, Markdown, and ASCII Text Files directly in the File Areas.  There currently is no 
-support for *editing* files at this time.
+* Wiki Support - Limited support at this time, you can view HTML, Markdown, and ASCII Text Files directly in the File Areas.  There currently is no support for *editing* files at this time.
 * TBD?
 
 
 What's the design
 =================
 
-V3 & v2
+V3 Design
 
 The gallery application is intended to be a high performance, low resource, design.  It is a hybrid design using the 
 file system, and a user configurable database.  The database is used to store details about the files, *along with their
@@ -31,20 +30,23 @@ you'll be limited to the speed of disk IO for the creation, searching for, and s
 means that the bottle neck is the database, not necessarily your disk.  And these aren't big thumbnails, by default, 200x200, 
 740x740, 1024x1024.  
 
-How's it work?  A request comes in for a directory to be displayed, and the database looks up the directory in the database.  If
-the directory has been previously scanned the cached data in the database is used, if it has not been previously
-cached in the database (or the cache has been invalidated) the code scans the directory, checking for files. 
+How's it work?  
 
-* If the file(s) are not in the database they will be added
-* If the database has file(s) that are not in the directory, they will be removed
-* If the file has been changed (Filesize, Last Modified Date) the database will be updated.
+A web request comes in, and is identified as one of the following:
+
+* File Download
+* Thumbnail (for a file)
+* Thumbnail (for a directory)
+* Thumbnail (for an archive) -- Please note, archive functionality needs to be rebuilt
+* Display a gallery / folder 
+* Display a File
 
 The cache is maintained by the [Watchdog File System Monitor](https://github.com/gorakhargosh/watchdog/).  Watchdog monitors the
 entirety of the ALBUMS path, and if any file system changes are detected, the directory's is marked as being eligible to
 be rescanned.  The data is not removed from the database, the next time that directory is viewed, it will be 
 re-validated against the file system.
 
-[![](https://mermaid.ink/img/pako:eNqFVF1v6jAM_StWnzqJ_QEergRNJyENhvjQfbi9qkJraESbcJNUGhr779dJW8pgDB5QsH2O7WPjjyBTOQbDYKf5oYAVSyTQ50WUmE5kju_w_PwLOA9XRV1tJBcleHOSyEhJy4U0sKx4WQ5girmoqwF5XrneIdgzYlOqjXlqmJtvJjRmVuljk-TP-fcddjL0BYyJ7i9c0v3GzQL_1WisL_fU0yntezEnGIdRgdketiaNeFZgutI82wu5awsbX0OlsiAkUOpbzGkaLjMu-z6-kryoWuYO7FF3KKDVeuoxs3CuVYbGQFRwuUPj4Nf0Mx_6FkYauUXX3PqQu5frERaYKZ2brmjGLd9wg42kKcXxlubN08w7ml7ZhqEjONtN6jV0-S5sVFw31LknZOESqe2MJofSglWQlYJeTz-NqidsBzUatYNqynZdwJYyu4rW6wkDtb1YLetWrcswGjWcM5qcHwFNfRwyYQ4lP0KstdJfI6MobFv24a0ziq5KA6aoe7cP8bsw9sTYjXR3oR5hTnHciNM7ruVhzEPjOJEPler2QpBebLJIR-GrUvv60C8MxNKe18aH3EjjrHfk6QHu9a1I3vFIJ4q5K9W3BK1azvdYMMd-LpJkCwZBhbriIqd79uGCksAWWGESDOmZ45bXpU2CRH5SKK-tWh5lFgytrnEQ1P6fxASnS1gFwy0vDVnpppGc0-ZG-lP5-R8qXrTM?type=png)](https://mermaid.live/edit#pako:eNp1U9Fq4zAQ_JVFTyq0P5CHg8RyoXBJQ5NwcBjCWt7EoraUk2RoqPvvJ8lO2qSNn9a7M6PdHemdSVMRm7C9xUMNa1FoCN-TruhtK9AjPDz8AkS-rru21KiaoXY34HColyVftdg0CQRrLBu6BEjJ51Sprr2JqCr-G-0-Zof8Hypf6F9Hzqd6L5Ql6Y09grHwqBpyPcx4VpN8hZ3bZihr2q4tylel96P27JqqjQeloQjlb5x-zlcSNZzRlyKPptNVJCfWDQkY9zdPnAVfWiPJOchq1HtykX4tv0jQZ55ZQk9xuM2hilGcEV5IGlu5U9PRkRIdjQYFHI4yz0lmeZL5tGtQOAmc826bdhjP-5ILzblRcJkEBV9RGFsa7Ul78AZko0J097NJn1L9dDqa8-Uu7cJpsYvN5kmA2YE_d-mj9yfV6XRQWwS30tqD0zMulDs0eITcWmMvkVnGxzETfCxm2VVTIEyYON6B_E053wvxbV03qYnh-jwfFvJZuF6JEIma5-yetWRbVFV4Xu-xWDBfU0sFm4Swoh12jS9YoT8CFDtvVkct2cTbju5Zly6BUBgeZssmO2xcyB5Q_zXm9P_xH0P-Nos)
+[![](https://mermaid.ink/img/pako:eNqFVF1v6jAM_StWnzqJ_QEergRNJyENhvjQfbi9qkJraESbcJNUGhr779dJW8pgDB5QsH2O7WPjjyBTOQbDYKf5oYAVSyTQ50WUmE5kju_w_PwLOA9XRV1tJBcleHOSyEhJy4U0sKx4WQ5girmoqwF5XrneIdgzYlOqjXlqmJtvJjRmVuljk-TP-fcddjL0BYyJ7i9c0v3GzQL_1WisL_fU0yntezEnGIdRgdketiaNeFZgutI82wu5awsbX0OlsiAkUOpbzGkaLjMu-z6-kryoWuYO7FF3KKDVeuoxs3CuVYbGQFRwuUPj4Nf0Mx_6FkYauUXX3PqQu5frERaYKZ2brmjGLd9wg42kKcXxlubN08w7ml7ZhqEjONtN6jV0-S5sVFw31LknZOESqe2MJofSglWQlYJeTz-NqidsBzUatYNqynZdwJYyu4rW6wkDtb1YLetWrcswGjWcM5qcHwFNfRwyYQ4lP0KstdJfI6MobFv24a0ziq5KA6aoe7cP8bsw9sTYjXR3oR5hTnHciNM7ruVhzEPjOJEPler2QpBebLJIR-GrUvv60C8MxNKe18aH3EjjrHfk6QHu9a1I3vFIJ4q5K9W3BK1azvdYMMd-LpJkCwZBhbriIqd79uGCksAWWGESDOmZ45bXpU2CRH5SKK-tWh5lFgytrnEQ1P6fxASnS1gFwy0vDVnpppGc0-ZG-lP5-R8qXrTM?type=png)](https://mermaid.live/edit#pako:eNp1U9Fq4zAQ_JVFTyq0P5CHg8RyoXBJQ5NwcBjCWt7EoraUk2RoqPvvJ8lO2qSNn9a7M6PdHemdSVMRm7C9xUMNa1FoCN-TruhtK9AjPDz8AkS-rru21KiaoXY34HColyVftdg0CQRrLBu6BEjJ51Sprr2JqCr-G-0-Zof8Hypf6F9Hzqd6L5Ql6Y09grHwqBpyPcx4VpN8hZ3bZihr2q4tylel96P27JqqjQeloQjlb5x-zlcSNZzRlyKPptNVJCfWDQkY9zdPnAVfWiPJOchq1HtykX4tv0jQZ55ZQk9xuM2hilGcEV5IGlu5U9PRkRIdjQYFHI4yz0lmeZL5tGtQOAmc826bdhjP-5ILzblRcJkEBV9RGFsa7Ul78AZko0J097NJn1L9dDqa8-Uu7cJpsYvN5kmA2YE_d-mj9yfV6XRQWwS30tqD0zMulDs0eITcWmMvkVnGxzETfCxm2VVTIEyYON6B_E053wvxbV03qYnh-jwfFvJZuF6JEIma5-yetWRbVFV4Xu-xWDBfU0sFm4Swoh12jS9YoT8CFDtvVkct2cTbju5Zly6BUBgeZssmO2xcyB5Q_zXm9P_xH0P-Nos?bgColor=!white)
 
 The gallery uses 3 different sizes of thumbnails, Large (Desktop web browser), Medium (Intended for Mobile), and 
 Small (eg. Gallery thumbnails).  Each of the sizes is configurable.  
@@ -76,50 +78,17 @@ For these types of files, currently a generic icon will be used, thumbnail suppo
 thumbnail (e.g. is entirely black, white, or just non-euclidean in nature) then it may not be useful.
 
 
-
-Version 2 vs Version 1
-==========
-
-Version two is a significant rewrite of the gallery.  Version 1 was hampered by disk speed issues, since there was no disk cache in v1.
-
-Version 1 was written utilizing only a file system, so it would attempt to cache the directory in memory, and the thumbnails 
-were created on disk, and stored as seperate files.  It worked decently, but had issues with folders that had a significant 
-(eg 3-4K) number of files in them.  In addition:
-
-There were significant issues that impacted the speed of the software.
-
-1) Creating the thumbnails in the webpage view was significantly impacting the speed, and delaying the rendering of the page
-  * v2 resolves this by having the thumbnail view contain the code for the thumbnail creation.
-  
-v2 and v3 use UUIDs (Universal Unique IDentifier) for all objects?  Why?  Because it simplifies the code significantly.  
-Previously I would have to lookup a file by searching the database by it's FileName, and Pathname.  Now when the Index Data is 
-created, a UUID is created and assigned to it.  All content related to that file is mapped using that UUID, both internally 
-and via the web request.  
-
-Any reference to that file, is handled by sending the UUID.  
-
-http://www.example.com/albums/catpixs   - Would give gallery listing of the catpixs directory
-
-http://www.example.com/thumbnail/7109b28a-80f6-4a8f-8b48-ae86e052cdaa?small would produce a small thumbnail for the UUID specified (?medium would produce a medium size, ?large - etc).
-
-http://www.example.com/viewitem/7109b28a-80f6-4a8f-8b48-ae86e052cdaa would display a gallery item view (A single standalone page for that item).
-
-http://www.example.com/view_archive/7109b28a-80f6-4a8f-8b48-ae86e052cdaa would display a gallery listing of the contents of the archive.
-
-http://www.example.com/view_arc_item/7109b28a-80f6-4a8f-8b48-ae86e052cdaa?page=4 would display a gallery item view of File #4 assuming it was a viewable file (eg. PDF, TXT, JPG, PNG, etc).  
-
+[Older Version History](Past_Versions.md)
 
 Version 3
 ============
 
 Version 3 is still being worked on, but significant portions of the upgrade have already been added to the MASTER repository.  
-The design is similar to Version 2, but many features and functions in the core of v2 are being split into separate Django Apps.  
 
 What is being split into a separate application?
 
 * Cache and Cache Management - Now dramatically simplified in comparison to v2.  A Watchdog monitor is now being used to 
-monitor for disk changes in the ALBUMS_PATH.  Any changes will invalidate that directory, and force a rescan.
-Cached_Exists, exists no longer!!
+monitor for disk changes in the ALBUMS_PATH.  Any changes will invalidate that directory, and force a rescan.  This greatly simplifies the cache management issue.
 * FileTypes
 * Frontend - Still contains the program logic, but now calls for the functions in the other apps.
 * quickbbs - Configuration is now in quickbbs_settings.py, there is no longer a standalone CFG directory.
@@ -127,7 +96,6 @@ Cached_Exists, exists no longer!!
    * Please note, do not confuse this for the thumbnails file in the frontend.  That currently contains the 
 logic for using the thumbnails apps models, etc.  (I need to rename it to prevent confusion, eventually.)
 
-v3 is roughly 60-70% done, but significant improvements in speed, performance, have been made.
 
 * Index Data - Contains the overall index (e.g. File1, File2, Image1, Image2, Directory1, Directory2, etc)
 * Thumbnails_Files - Contains the Index meta container for all Files (But not directories)
@@ -138,21 +106,10 @@ What are Thumbnail Index "Meta Containers"?
 Unlike before, The thumbnail indexes do not contain the binary data for the Thumbnail, they contain a foreign key to a
 Small, Medium, and Large Thumbnail table which does contain the binary data.
 
-[![](https://mermaid.ink/img/pako:eNp9z8EKwjAMBuBXKTlV2F6gB0-7CHrajgVJm2wrtJ3UFpSxd7eyg4hgToH_-yFZwS7EoGBKeJvF0Oko6pwi8ePaYUbRtkeBKIe5BBPR-T077A733BjZB_T-gwY0nr-RtfLC5Er4q4jkGdPEvwgaCJwCOqrnru-ShjxzYA2qrsQjFp816LhViiUv_TNaUDkVbqDcCDN3DuujAdSI_s7bCwJMUnY?type=png)](https://mermaid.live/edit#pako:eNp9z8EKwjAMBuBXKTlV2F6gB0-7CHrajgVJm2wrtJ3UFpSxd7eyg4hgToH_-yFZwS7EoGBKeJvF0Oko6pwi8ePaYUbRtkeBKIe5BBPR-T077A733BjZB_T-gwY0nr-RtfLC5Er4q4jkGdPEvwgaCJwCOqrnru-ShjxzYA2qrsQjFp816LhViiUv_TNaUDkVbqDcCDN3DuujAdSI_s7bCwJMUnY)
+[![](https://mermaid.ink/img/pako:eNqNUcsKwjAQ_JWwZ_2BHjxIEQQ96a2Rsm1WG0jSEhNQxH93TUCrgprT7GZmH7MXaHtFUMDB49CJbSmddMfY5HChDYmlU3SSTvBLsC4xYJWguMOdmE5nYttF2zjUpk4_1SPOol0u8MZKyo1FY-rHT5XiJ1PMTd98ka9J6WhH-pz4v8AK_YFG-hR_ysmpF29K7akNvT-PDeJk_cWkvCqTfm6busEELHmLWvGBLvcOEkJHliQUDBXtMZogQborUzGGfnN2LRTBR5pAHBQGKjXyvBaKPZojZ9kcHnqdj55uf70BLMa1Zw?type=png)](https://mermaid.live/edit#pako:eNqNUcsKwjAQ_JWwZ_2BHjxIEQQ96a2Rsm1WG0jSEhNQxH93TUCrgprT7GZmH7MXaHtFUMDB49CJbSmddMfY5HChDYmlU3SSTvBLsC4xYJWguMOdmE5nYttF2zjUpk4_1SPOol0u8MZKyo1FY-rHT5XiJ1PMTd98ka9J6WhH-pz4v8AK_YFG-hR_ysmpF29K7akNvT-PDeJk_cWkvCqTfm6busEELHmLWvGBLvcOEkJHliQUDBXtMZogQborUzGGfnN2LRTBR5pAHBQGKjXyvBaKPZojZ9kcHnqdj55uf70BLMa1Zw)
 
-Real World Testing needs to be done to see what impact the SmallThumbnail, MediumThumbnail, and LargeThumbnail foreign tables
-will have, but I suspect that the speed to the Thumbnail Index would be extremely beneficial. Since at the same time we would
-be reducing the size of the record for the index meta container.
+In v3, the Directories are in a separate table, and the small Thumbnail blob contained within the record.  The File Index still has the foreign table for the Thumbnails to help speed up the searching for specific files.
 
-There are a few experimental changes being made.
-
-* Eliminating Cached_Exists.  The concept of the Cached_Exist engine was simply to cache the reads to the file system.  The Watchdog system basically eliminates the need for that, and removing the cached_exists engine could dramatically simplify the code.
-  * Finished.
-* Completely embracing the watchdog system for detecting the changes happening in the gallery directories.  It was used in v2 to invalidate the cached_exist cache, but it would be easier to use that watchdog table to detect if we need to read from the file system instead.
-  * Finished.  A tremendous improvement in speed.  The first time an *large* directory of files is seen, there is a noticeable delay,
-but after that, the speed is faster than the previous implementation with cached_exists.   
-
-I am still performing code cleanup and removal of old redundant code.  
 
 To Dos:
 
@@ -160,10 +117,7 @@ To Dos:
 * Investigate django-unicorn
   * Appears to be incompatible with using jinja templates
 * Continue code cleanup
-* Switch over to the v3 structures for templating
 * Finish Title Search - Done for Gallery listing, need to update individual item page.
-* Repair Archive Gallery & Individual item page(s)
-  * It's been broken for a while under v2, I just rewritten it yet.
 
 
 Version History
@@ -173,4 +127,5 @@ Version History
 * v1 - Before April of 2014
 * v2 - October 30, 2017
 * v3 (WIP) - Release date - TBD, started ~ 12/01/2022
-
+    * (This has taken longer than expected, since I haven't been working on this extensively.)
+    * Major changes, finished ~ 03/03/2024 - Mostly testing and minor tweaks at this point.  
