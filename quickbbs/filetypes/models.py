@@ -17,16 +17,12 @@ class filetypes(models.Model):
     )  # File Extension (eg. .html, is lowercase, and includes the DOT)
     generic = models.BooleanField(default=False, db_index=True)
 
-    icon_filename = models.CharField(
-        db_index=True, max_length=384, default="", blank=True
-    )  # FQFN of the file itself
+    icon_filename = models.CharField(db_index=True, max_length=384, default="", blank=True)  # FQFN of the file itself
     color = models.CharField(max_length=7, default="000000")
 
     # ftypes dictionary in constants / ftypes
     filetype = models.IntegerField(db_index=True, default=0, blank=True, null=True)
-    mimetype = models.CharField(
-        max_length=128, default="application/octet-stream", null=True
-    )
+    mimetype = models.CharField(max_length=128, default="application/octet-stream", null=True)
     # quick testers.
     # Originally going to be filetype only, but the SQL got too large
     # (eg retrieve all graphics, became is JPEG, GIF, TIF, BMP, etc)
@@ -153,5 +149,5 @@ def load_filetypes():
 
 # FILETYPE_DATA = load_filetypes()
 # reload_filetypes()
-FILETYPE_DATA = load_filetypes()
+# FILETYPE_DATA = load_filetypes()
 # reload_filetypes()

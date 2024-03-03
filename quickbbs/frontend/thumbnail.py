@@ -18,7 +18,7 @@ from thumbnails.image_utils import (
     resize_pil_image,
     return_image_obj,
 )
-from cache.models import Cache_Storage
+from cache_watcher.models import Cache_Storage
 
 from frontend.utilities import (  # cr_tnail_img,; return_image_obj,
     #    read_from_disk,
