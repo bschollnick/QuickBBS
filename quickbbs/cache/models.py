@@ -1,5 +1,6 @@
 import hashlib
 import os
+import pathlib
 import sys
 import time
 
@@ -19,9 +20,11 @@ Cache_Storage = None
 def delete_from_cache_tracking(event):
     if event.is_directory:
         dirpath = os.path.normpath(event.src_path)
-        dhash = create_hash(dirpath)
-        if Cache_Storage.remove_from_cache_hdigest(dhash):
-            print(f"{time.ctime()} Deleted {dirpath}\n")
+    else:
+        dirpath = str(pathlib.Path(os.path.normpath(event.src_path)).parent)
+    dhash = create_hash(dirpath)
+    if Cache_Storage.remove_from_cache_hdigest(dhash):
+        print(f"{time.ctime()} Deleted {dirpath}\n")
 
 
 def create_hash(text):
@@ -29,9 +32,7 @@ def create_hash(text):
 
 
 class fs_Cache_Tracking(models.Model):
-    Dir_md5_hdigest = models.CharField(
-        db_index=True, max_length=32, default="", blank=True, unique=True
-    )
+    Dir_md5_hdigest = models.CharField(db_index=True, max_length=32, default="", blank=True, unique=True)
     DirName = models.CharField(db_index=False, max_length=384, default="", blank=True)
     # the path from watchdog, titlecased, stripped, and normpathed
     # dirpath = os.path.normpath(event.src_path.title().strip())
@@ -56,9 +57,7 @@ class fs_Cache_Tracking(models.Model):
         return self.hdigest_exists_in_cache(hdigest=Dir_md5_hdigest)
 
     def remove_from_cache_hdigest(self, hdigest):
-        items_removed, _ = fs_Cache_Tracking.objects.filter(
-            Dir_md5_hdigest=hdigest
-        ).delete()
+        items_removed, _ = fs_Cache_Tracking.objects.filter(Dir_md5_hdigest=hdigest).delete()
         return items_removed != 0
 
     def remove_from_cache_name(self, DirName):
