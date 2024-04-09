@@ -38,7 +38,8 @@ from quickbbs.models import IndexData, IndexDirs, filetypes
 
 # from frontend import constants
 
-log = logging.getLogger(__name__)
+# log = logging.getLogger(__name__)
+from quickbbs.logger import log
 
 Image.MAX_IMAGE_PIXELS = None  # Disable PILLOW DecompressionBombError errors.
 
@@ -176,6 +177,11 @@ def return_breadcrumbs(uri_path="") -> list[str]:
     -------
         list of tuples - consisting of [name, url, html url link]
 
+
+    breadcrumbs = return_breadcrumbs(context["webpath"])
+    for bcrumb in breadcrumbs:
+        context["breadcrumbs"] += f"<li>{bcrumb[2]}</li>"
+        context["breadcrumbs_list"].append(bcrumb[2])
     """
     uris = break_down_urls(uri_path.lower().replace(settings.ALBUMS_PATH.lower(), ""))
     data = []
