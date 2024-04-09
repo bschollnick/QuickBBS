@@ -169,16 +169,16 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
             entry.new_ftnail.pil_to_thumbnail(pil_data=raw_pil)
             try:
                 entry.new_ftnail.save()
-            except (django.db.utils.IntegrityError, psycopg.errors.UniqueViolation):
+            except (IntegrityError, psycopg.errors.UniqueViolation):
                 # should not occur, but some mp4's appear to have been duplicated?
-                ThumbnailsFiles.objects.filter(fqpn_hash=fs_item_hash).delete()
+                ThumbnailFiles.objects.filter(fqpn_hash=fs_item_hash).delete()
                 entry.new_ftnail.save()
             entry.save()
             return entry.new_ftnail.send_thumbnail(filename_override=None, fext_override=None, size=thumbsize)
 
     if entry.filetype.icon_filename not in ["", None]:
         entry.is_generic_icon = True
-        entry.fqpndirectory = os.path.join(settings.RESOURCES_PATH, "images", entry.filetype.icon_filename)
+        # entry.fqpndirectory = os.path.join(settings.RESOURCES_PATH, "images", entry.filetype.icon_filename)
         try:
             entry.save()
         except IntegrityError:
@@ -222,7 +222,7 @@ def search_viewresults(request: WSGIRequest):
 
     index = IndexData.objects.filter(name__icontains=context["searchtext"]).order_by(*SORT_MATRIX[context["sort"]])
 
-    chk_list = Paginator(index, 30)
+    chk_list = Paginator(index, per_page=30, orphans=3)
     context["page_cnt"] = list(arange(1, chk_list.num_pages + 1))
 
     if "/search/" in context["originator"] or context["originator"] is None:
@@ -285,7 +285,6 @@ def new_viewgallery(request: WSGIRequest):
     directories = []
     files = []
     if found:
-        #        if counts["all_files"] == 0:
         _, directories = directory.dirs_in_dir(sort=sort_order(request))
         _, files = directory.files_in_dir(sort=sort_order(request))
     context = {
@@ -305,8 +304,8 @@ def new_viewgallery(request: WSGIRequest):
         "search": False,
     }
 
-    context["all_listings"] = list(directories)
-    context["all_listings"].extend(list(files))
+    all_listings = list(directories)
+    all_listings.extend(list(files))
     context["no_thumbs"] = []
 
     if files:
@@ -317,7 +316,7 @@ def new_viewgallery(request: WSGIRequest):
     #     os.sep,
     # )
 
-    chk_list = Paginator(context["all_listings"], 30)
+    chk_list = Paginator(all_listings, per_page=30, orphans=3)
     context["page_cnt"] = list(arange(1, chk_list.num_pages + 1))
 
     try:
@@ -366,7 +365,7 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
     entry = IndexData.objects.select_related("filetype").filter(uuid=context["uuid"])[0]
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
     found, directory_entry = IndexDirs.search_for_directory(fqpn_directory=context["webpath"])
-    if not found:
+    if not entry and not found:
         return HttpResponseBadRequest(content="No entry found.")
 
     breadcrumbs = return_breadcrumbs(context["webpath"])
