@@ -75,10 +75,10 @@ LOGGING = {
         },
     },
 }
-import logging.config
 
 logging.config.dictConfig(LOGGING)
 logger = logging.getLogger()
 logging.getLogger("PIL.PngImagePlugin").setLevel(logging.CRITICAL + 1)
+logging.getLogger("PIL.TiffImagePlugin").setLevel(logging.CRITICAL + 1)
 logging.getLogger("fsevents").setLevel(logging.CRITICAL + 1)
 logger.info(msg="Logging installed")
