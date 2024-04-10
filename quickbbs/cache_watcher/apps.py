@@ -3,8 +3,9 @@ import os
 from django.apps import AppConfig
 from django.conf import settings
 from django.db.utils import IntegrityError, OperationalError, ProgrammingError
+import logging
 
-# cold_start = False
+logger = logging.getLogger()
 
 
 class cache_startup(AppConfig):
@@ -14,6 +15,6 @@ class cache_startup(AppConfig):
     def ready(self):
         import cache_watcher.models
 
-        print("!! Starting Cache Storage")
+        logger.info("!! Starting Cache Storage")
         cache_watcher.models.Cache_Storage = cache_watcher.models.fs_Cache_Tracking()
-        print("Cache Storage Established")
+        logger.info("Cache Storage Established")
