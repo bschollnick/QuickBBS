@@ -89,7 +89,7 @@ pathvalidate==3.2.0
 pdfrw==0.4
 pep517==0.13.1
 pep8-naming==0.13.3
-pillow==10.2.0
+pillow==10.3.0
 pip-api==0.0.30
 pipreqs==0.4.13
 platformdirs==4.2.0
