@@ -55,12 +55,19 @@ def movie_to_pil(fspath):
         * https://stackoverflow.com/questions/14041562/
             python-pil-detect-if-an-image-is-completely-black-or-white
     """
-    with av.open(fspath) as container:
-        stream = container.streams.video[0]
-        # duration_sec = stream.frames / 30
-        container.seek(container.duration // 2)
-        frame = container.decode(stream)
-        image = next(frame).to_image()
+    image = None
+    try:
+        with av.open(fspath) as container:
+            stream = container.streams.video[0]
+            # duration_sec = stream.frames / 30
+            container.seek(container.duration // 2)
+            frame = container.decode(stream)
+            image = next(frame).to_image()
+    except av.error.InvalidDataError:
+        image = Image.open(
+            #            return_image_obj(
+            os.path.join(settings.RESOURCES_PATH, "images", "3559224-200_broken_video.png")
+        )
     return image
 
 
