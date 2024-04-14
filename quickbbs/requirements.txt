@@ -63,7 +63,7 @@ greenlet==3.0.3
 gunicorn==21.2.0
 h11==0.14.0
 httptools==0.6.1
-idna==3.6
+idna==3.7
 ifaddr==0.2.0
 ImageHash==4.3.1
 imageio==2.34.0
