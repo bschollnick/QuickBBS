@@ -8,13 +8,12 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "quickbbs.settings")
 django.setup()
 
 from quickbbs.models import (
-    Index_Dirs,
-    Thumbnails_Dirs,
+    IndexDirs,
     convert_text_to_md5_hdigest,
-    index_data,
+    IndexData,
 )
 
-new_dir_index = Index_Dirs
+# new_dir_index = Index_Dirs
 
 # class Index_Dirs(models.Model):
 #     uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True, blank=True)
@@ -27,16 +26,17 @@ new_dir_index = Index_Dirs
 #     delete_pending = models.BooleanField(default=False, db_index=True)  # File is to be deleted,
 #     SmallThumb = models.BinaryField(default=b"")
 
-for directory in index_data.objects.all().values("fqpndirectory").distinct():
-    found, dir_entry = Index_Dirs.search_for_directory(directory["fqpndirectory"])
-    # print(found, directory["fqpndirectory"], dir_entry)
-    files = index_data.objects.filter(fqpndirectory=directory["fqpndirectory"])
-    if dir_entry != files[0].parent_dir:
-        print(f"updated {dir_entry.DirName}")
-        files.update(parent_dir=dir_entry)
-        sys.exit()
+# good
+# for directory in index_data.objects.all().values("fqpndirectory").distinct():
+#     found, dir_entry = Index_Dirs.search_for_directory(directory["fqpndirectory"])
+#     # print(found, directory["fqpndirectory"], dir_entry)
+#     files = index_data.objects.filter(fqpndirectory=directory["fqpndirectory"])
+#     if dir_entry != files[0].parent_dir:
+#         print(f"updated {dir_entry.DirName}")
+#         files.update(parent_dir=dir_entry)
+#         sys.exit()
 
-
+# old
 # for entry in Thumbnails_Dirs.objects.all():
 #     Combined_md5 = convert_text_to_md5_hdigest(entry.FilePath)
 #     found, record = Index_Dirs.search_for_directory(entry.FilePath)

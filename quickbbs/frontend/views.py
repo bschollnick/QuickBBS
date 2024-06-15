@@ -46,7 +46,10 @@ from thumbnails.models import ThumbnailFiles
 import thumbnails.image_utils as image_utils
 from frontend.web import detect_mobile, g_option, respond_as_attachment
 
-log = logging.getLogger(__name__)
+# log = logging.getLogger(__name__)
+
+logger = logging.getLogger()
+
 warnings.simplefilter("ignore", Image.DecompressionBombWarning)
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -269,6 +272,8 @@ def new_viewgallery(request: WSGIRequest):
         "thumbpath": ensures_endswith(request.path.replace(r"/albums/", r"/thumbnails/"), "/"),
     }
     found, directory = IndexDirs.search_for_directory(paths["album_viewing"])
+    logging.info(f"Viewing: {paths['album_viewing']}")
+
     if not os.path.exists(paths["album_viewing"]):
         if found:
             parent_dir = directory.return_parent_directory()

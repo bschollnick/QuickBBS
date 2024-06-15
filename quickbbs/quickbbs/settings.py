@@ -19,6 +19,8 @@ import django_icons
 # import quickbbs.jinjaenv
 from quickbbs.quickbbs_settings import *
 
+# from .logger import LOGGING
+
 #
 #   Debug, enables the debugging mode
 #
@@ -143,7 +145,7 @@ INSTALLED_APPS += [
     "allauth",
     "allauth.account",
     "allauth.socialaccount",
-    "cache",
+    "cache_watcher",
     "django_icons",
     #    'django_unicorn',
     "django_jinja.contrib._humanize",
@@ -337,7 +339,6 @@ ACCOUNT_AUTHENTICATED_LOGIN_REDIRECTS = True
 ACCOUNT_LOGOUT_REDIRECT_URL = "/albums"
 LOGIN_REDIRECT_URL = "/albums"
 
-# from .logger import LOGGING
 
 DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
 
