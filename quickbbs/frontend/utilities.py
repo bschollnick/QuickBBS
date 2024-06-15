@@ -325,10 +325,10 @@ def sync_database_disk(directoryname):
             # remove file path from Database
             success, dirpath_id = IndexDirs.search_for_directory(dirpath)
             parent_dir = dirpath_id.return_parent_directory()
-            dirpath_id.remove_directory(dirpath)
+            dirpath_id.delete_directory(dirpath)
             if parent_dir.exists():
                 parent_dir = parent_dir[0]
-                dirpath_id.remove_directory(parent_dir, cache_only=True)
+                dirpath_id.delete_directory(parent_dir, cache_only=True)
 
         # retrieve IndexDirs entry for dirpath
         success, dirpath_id = IndexDirs.search_for_directory(dirpath)

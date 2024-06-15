@@ -16,7 +16,6 @@ import logging
 
 logger = logging.getLogger()
 
-
 Cache_Storage = None
 
 
@@ -25,12 +24,8 @@ def delete_from_cache_tracking(event):
         dirpath = os.path.normpath(event.src_path)
     else:
         dirpath = str(pathlib.Path(os.path.normpath(event.src_path)).parent)
-    logger.info(f"Removed {dirpath} from Cache Tracking")
     dhash = create_hash(dirpath)
     test = Cache_Storage.remove_from_cache_hdigest(dhash)
-    print(dirpath, test)
-    # if Cache_Storage.remove_from_cache_name(dirpath):
-    # print(f"{time.ctime()} Deleted {dirpath}\n")
 
 
 def create_hash(text):

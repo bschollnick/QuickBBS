@@ -3,6 +3,9 @@ import sys
 
 from watchdog.events import PatternMatchingEventHandler
 from watchdog.observers import Observer
+import logging
+
+logger = logging.getLogger()
 
 # from watchdog.events import LoggingEventHandler
 
@@ -38,6 +41,7 @@ def on_moved(event):
 
 class watchdog_monitor:
     def __init__(self):
+        # logger.info(f"watchdog monitor init")
         self.my_observer = Observer()
         self.my_event_handler = None
 
@@ -45,7 +49,7 @@ class watchdog_monitor:
         pass
 
     def startup(self, monitor_path, created=None, deleted=None, modified=None, moved=None):
-        print("Monitoring :", monitor_path)
+        logger.info(f"Monitoring : {monitor_path}")
         patterns = ["*"]
         ignore_patterns = None
         ignore_directories = False
@@ -67,7 +71,7 @@ class watchdog_monitor:
 
     def shutdown(self, *args):
         if os.environ.get("RUN_MAIN") == "true":
-            print("Shutting down")
+            logger.info("Shutting down")
             self.my_observer.stop()
             self.my_observer.join()
         #    signal.send('system')
