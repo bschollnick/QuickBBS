@@ -242,3 +242,4 @@ yarg==0.1.9
 zipp==3.19.2
 zope.event==5.0
 zope.interface==6.3
+setuptools>=65.5.1 # not directly required, pinned by Snyk to avoid a vulnerability
