@@ -1,7 +1,7 @@
 aiofile==3.8.8
 aiopath==0.6.11
 annotated-types==0.7.0
-anyio==3.7.1
+anyio==4.4.0
 appnope==0.1.4
 asgiref==3.8.1
 astroid==3.2.2
