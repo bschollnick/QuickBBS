@@ -194,139 +194,143 @@
             </div>
 {% endautoescape %}
 <script>
-var setDATA = function(data) {
-    var command = "/view_item/"
-
-    //window.history.pushState(data.filename, data.filename, command + data.uuid + "?sort="+data.sort);
-    window.history.pushState(undefined, '', command + data.uuid + "?sort="+data.sort);
-    document.title = data.filename
-    document.getElementById("title").innerHTML = data.filename
-    document.getElementById("breadcrumbs").innerHTML = data.breadcrumbs
-    document.getElementById("up_uri").href = data.up_uri+'?page='+data.page_locale+'&sort=' + data.sort;
-
-    document.getElementById("first_uuid").onclick = function (){loadDATA(data.first_uuid, data.sort);return false;}
-    document.getElementById("last_uuid").onclick = function (){loadDATA(data.last_uuid, data.sort);return false;}
-    document.getElementById("previous_uuid").onclick = function (){loadDATA(data.previous_uuid, data.sort);return false;}
-    document.getElementById("next_uuid").onclick = function (){loadDATA(data.next_uuid, data.sort);return false;}
-
-    document.getElementById("next_tab_uuid").href = command + data.next_uuid + '?sort='+data.sort
-
-    if (data.pagecount == data.page){
-        document.getElementById("next_tab_uuid").style.visibility = "hidden"
-        document.getElementById("last_uuid").style.visibility = "hidden"
-        }
-    else {
-        document.getElementById("next_tab_uuid").style.visibility = "visible"
-        document.getElementById("last_uuid").style.visibility = "visible"
-    }
-
-
-    document.getElementById("download_uri").href = data.download_uri
-
-    document.getElementById("uuid").innerHTML = data.uuid
-    document.getElementById("file_size").innerHTML = data.filesize
-    document.getElementById("last_mod").innerHTML = data.lastmod_ds
-
-    if (data.previous_uuid == "") {
-        document.getElementById("previous_uuid").style.visibility = "hidden";
-        document.getElementById("first_uuid").style.visibility = "hidden";}
-    else {
-        document.getElementById("previous_uuid").style.visibility = "visible";
-        document.getElementById("first_uuid").style.visibility = "visible";
-    }
-
-    if (data.next_uuid == "") {
-        document.getElementById("next_uuid").style.visibility = "hidden";
-        document.getElementById("last_uuid").style.visibility = "hidden";}
-    else {
-        document.getElementById("next_uuid").style.visibility = "visible";
-        document.getElementById("last_uuid").style.visibility = "visible";
-    }
-
-    document.getElementById("pages").innerHTML = "Page<br>"+data.page+"<br>of<br>"+data.pagecount
-    document.getElementById("item_frame").style.backgroundColor = "#"+data.ft_color
-    document.getElementById("thumbnail_frame").style.backgroundColor = "#"+data.ft_color
-    var filetype = ""
-    if (data.ft_is_movie){
-        document.getElementById("movie_frame").style.display = "block"
-        document.getElementById("movie_frame").style.visibility = "visible";
-//        document.getElementById("movie_viewer").src = '/download/'+data.filename+'?UUID='+data.uuid
-        document.getElementById("movie_viewer").src = data.download_uri
-        document.getElementById("text_frame").style.display = "none"
-        document.getElementById("thumbnail_frame").style.display = "none"
-        }
-
-    if (data.ft_is_archive) {filetype += "&arch"}
-    if (data.ft_is_pdf) {filetype += "&pdf"}
-
-    if (data.html!=""){
-        document.getElementById("movie_frame").style.display = "none"
-        document.getElementById("thumbnail_frame").style.display = "none"
-        document.getElementById("text_frame").style.display = "block"
-        document.getElementById("text_frame").innerHTML = data.html
-    }
-    else {
-        document.getElementById("text_frame").innerHTML = ""
-        }
-
-    if (data.ft_is_dir){
-        document.getElementById("image_link").href = data.dir_link
-        }
-    else
-        {
-        document.getElementById("image_link").href = data.download_uri
-        }
-
-    if (data.ft_is_image || data.ft_is_pdf || data.ft_is_archive){
-        document.getElementById("thumbnail_frame").style.visibility = "visible"
-        document.getElementById("thumbnail_frame").style.display = "block"
-        document.getElementById("text_frame").style.display = "none"
-        if (data.is_animated) {
-                 $('#display_image').attr("src", data.download_uri);
-            } else {
-                $('#display_image').attr("src", data.thumbnail_uri);
+    document.addEventListener("DOMContentLoaded", function() {
+        const setDATA = function(data) {
+            const command = "/view_item/";
+    
+            window.history.pushState(undefined, '', `${command}${data.uuid}?sort=${data.sort}`);
+            document.title = data.filename;
+    
+            const elements = {
+                title: document.getElementById("title"),
+                breadcrumbs: document.getElementById("breadcrumbs"),
+                up_uri: document.getElementById("up_uri"),
+                first_uuid: document.getElementById("first_uuid"),
+                last_uuid: document.getElementById("last_uuid"),
+                previous_uuid: document.getElementById("previous_uuid"),
+                next_uuid: document.getElementById("next_uuid"),
+                next_tab_uuid: document.getElementById("next_tab_uuid"),
+                download_uri: document.getElementById("download_uri"),
+                uuid: document.getElementById("uuid"),
+                file_size: document.getElementById("file_size"),
+                last_mod: document.getElementById("last_mod"),
+                pages: document.getElementById("pages"),
+                item_frame: document.getElementById("item_frame"),
+                thumbnail_frame: document.getElementById("thumbnail_frame"),
+                movie_frame: document.getElementById("movie_frame"),
+                movie_viewer: document.getElementById("movie_viewer"),
+                text_frame: document.getElementById("text_frame"),
+                image_link: document.getElementById("image_link"),
+                display_image: document.getElementById("display_image")
+            };
+    
+            elements.title.innerHTML = data.filename;
+            elements.breadcrumbs.innerHTML = data.breadcrumbs;
+            elements.up_uri.href = `${data.up_uri}?page=${data.page_locale}&sort=${data.sort}`;
+            
+            elements.first_uuid.onclick = () => { loadDATA(data.first_uuid, data.sort); return false; };
+            elements.last_uuid.onclick = () => { loadDATA(data.last_uuid, data.sort); return false; };
+            elements.previous_uuid.onclick = () => { loadDATA(data.previous_uuid, data.sort); return false; };
+            elements.next_uuid.onclick = () => { loadDATA(data.next_uuid, data.sort); return false; };
+    
+            elements.next_tab_uuid.href = `${command}${data.next_uuid}?sort=${data.sort}`;
+    
+            const toggleVisibility = (element, condition) => {
+                element.style.visibility = condition ? "visible" : "hidden";
+            };
+    
+            toggleVisibility(elements.next_tab_uuid, data.pagecount !== data.page);
+            toggleVisibility(elements.last_uuid, data.pagecount !== data.page);
+            toggleVisibility(elements.previous_uuid, data.previous_uuid !== "");
+            toggleVisibility(elements.first_uuid, data.previous_uuid !== "");
+            toggleVisibility(elements.next_uuid, data.next_uuid !== "");
+            toggleVisibility(elements.last_uuid, data.next_uuid !== "");
+    
+            elements.download_uri.href = data.download_uri;
+            elements.uuid.innerHTML = data.uuid;
+            elements.file_size.innerHTML = data.filesize;
+            elements.last_mod.innerHTML = data.lastmod_ds;
+    
+            elements.pages.innerHTML = `Page<br>${data.page}<br>of<br>${data.pagecount}`;
+            elements.item_frame.style.backgroundColor = `#${data.ft_color}`;
+            elements.thumbnail_frame.style.backgroundColor = `#${data.ft_color}`;
+    
+            const setDisplay = (element, display) => {
+                element.style.display = display;
+            };
+    
+            const handleMovieFrame = () => {
+                setDisplay(elements.movie_frame, "block");
+                elements.movie_frame.style.visibility = "visible";
+                elements.movie_viewer.src = data.download_uri;
+                setDisplay(elements.text_frame, "none");
+                setDisplay(elements.thumbnail_frame, "none");
+            };
+    
+            const handleTextFrame = () => {
+                setDisplay(elements.movie_frame, "none");
+                setDisplay(elements.thumbnail_frame, "none");
+                setDisplay(elements.text_frame, "block");
+                elements.text_frame.innerHTML = data.html || "";
+            };
+    
+            if (data.ft_is_movie) {
+                handleMovieFrame();
+            } else if (data.html) {
+                handleTextFrame();
             }
-        document.getElementById("movie_frame").style.display = "none"
-        }
-
-    if (data.ft_is_movie==false){
-        document.getElementById("movie_frame").style.display = "none"
-        }
-
-};
-
-var getJSON = function(url, callback) {
-
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', url, true);
-    xhr.responseType = 'json';
-
-    xhr.onload = function() {
-        var status = xhr.status;
-        if (status == 200) {
-            callback(null, xhr.response);
-        } else {
-            callback(status);
-        }
-    };
-    xhr.send();
-};
-
-var loadDATA = function(uuid, sort){
-    // getJSON('/info/'+uuid + '?sort='+sort,  function(err, data) {
-    getJSON(`/info/${uuid}?sort=${sort}`,  function(err, data) {
-        if (err != null) {
-            console.error("error: ",err);
-        }
-        else
-        {
-            setDATA(data)
-        }
-    })
-    return false;
-};
-
-$(document).ready(loadDATA('{{uuid}}','{{sort}}'))
-</script>
+    
+            if (data.ft_is_dir) {
+                elements.image_link.href = data.dir_link;
+            } else {
+                elements.image_link.href = data.download_uri;
+            }
+    
+            if (data.ft_is_image || data.ft_is_pdf || data.ft_is_archive) {
+                elements.thumbnail_frame.style.visibility = "visible";
+                setDisplay(elements.thumbnail_frame, "block");
+                setDisplay(elements.text_frame, "none");
+                elements.display_image.src = data.is_animated ? data.download_uri : data.thumbnail_uri;
+                setDisplay(elements.movie_frame, "none");
+            }
+    
+            if (!data.ft_is_movie) {
+                setDisplay(elements.movie_frame, "none");
+            }
+        };
+    
+        const getJSON = function(url, callback) {
+            const xhr = new XMLHttpRequest();
+            xhr.open('GET', url, true);
+            xhr.responseType = 'json';
+    
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    callback(null, xhr.response);
+                } else {
+                    callback(xhr.status);
+                }
+            };
+    
+            xhr.send();
+        };
+    
+        const loadDATA = function(uuid, sort) {
+            getJSON(`/info/${uuid}?sort=${sort}`, function(err, data) {
+                if (err) {
+                    console.error("error: ", err);
+                } else {
+                    setDATA(data);
+                }
+            });
+            return false;
+        };
+    
+        loadDATA('{{uuid}}', '{{sort}}');
+    });
+    </script>
+    </body>
+    </html>
+    
 </body>
 </html>

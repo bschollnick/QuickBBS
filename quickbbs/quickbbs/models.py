@@ -22,8 +22,6 @@ from thumbnails.models import ThumbnailFiles
 from filetypes.models import FILETYPE_DATA, filetypes
 from quickbbs.natsort_model import NaturalSortField
 
-# from quickbbs.thumbnails.models import ThumbnailFiles
-
 
 def convert_text_to_md5_hdigest(text) -> str:
     """
@@ -36,37 +34,6 @@ def convert_text_to_md5_hdigest(text) -> str:
     :return: 32 character md5 hexadecimal string
     """
     return hashlib.md5(text.title().strip().encode("utf-16")).hexdigest()
-
-
-# def is_valid_uuid(uuid_to_test, version=4):
-#     """
-#     Check if uuid_to_test is a valid UUID.
-#     https://stackoverflow.com/questions/19989481
-#
-#     Args:
-#         uuid_to_test (str) - UUID code to validate
-#         version (int) - UUID version to validate against (eg  1, 2, 3, 4)
-#
-#     Returns:
-#         boolean:
-#             `True` if uuid_to_test is a valid UUID, otherwise `False`.
-#
-#     Raises:
-#         None
-#
-#     Examples
-#     --------
-#     >>> is_valid_uuid('c9bf9e57-1685-4c89-bafb-ff5af830be8a')
-#     True
-#     >>> is_valid_uuid('c9bf9e58')
-#     False
-#     """
-#     try:
-#         uuid_obj = uuid.UUID(uuid_to_test, version=version)
-#     except:
-#         return False
-#
-#     return str(uuid_obj) == uuid_to_test
 
 
 class Owners(models.Model):
@@ -407,6 +374,7 @@ class IndexData(models.Model):
     is_animated = models.BooleanField(default=False, db_index=True)
     ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
     delete_pending = models.BooleanField(default=False, db_index=True)  # File is to be deleted,
+    index_image = models.BooleanField(default=False, db_index=True)  # This image is the directory placard
     filetype = models.ForeignKey(
         filetypes,
         to_field="fileext",

@@ -2,6 +2,7 @@
 Django views for QuickBBS Gallery
 """
 
+from asgiref.sync import sync_to_async
 import datetime
 import logging
 import os
@@ -58,7 +59,6 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 # Sending File or zipfile - https://djangosnippets.org/snippets/365/
 
-
 def return_prev_next2(directory, sorder) -> tuple:
     """
     The return_prev_next function takes a fully qualified pathname,
@@ -90,7 +90,7 @@ def return_prev_next2(directory, sorder) -> tuple:
             if count >= 1:
                 prevdir = str(pathlib.Path(parent_dir_data[count - 1]["fqpndirectory"]))
                 prevdir = prevdir.replace(settings.ALBUMS_PATH, "")
-
+ 
             try:
                 nextdir = str(pathlib.Path(parent_dir_data[count + 1]["fqpndirectory"]))
 
@@ -102,7 +102,7 @@ def return_prev_next2(directory, sorder) -> tuple:
             break
     return (prevdir, nextdir)
 
-
+@sync_to_async
 def thumbnail_dir(request: WSGIRequest, tnail_id: Optional[str] = None):
     """
     The thumbnails function is used to serve the thumbnail memory image.
@@ -133,7 +133,10 @@ def thumbnail_dir(request: WSGIRequest, tnail_id: Optional[str] = None):
 
     return entry.send_thumbnail()  # Send existing thumbnail
 
+async def view_dir_thumbnail(request: WSGIRequest, tnail_id: Optional[str] = None):
+    return await thumbnail_dir(request, tnail_id)
 
+@sync_to_async
 def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
     """
     Check for a thumbnail / create a thumbnail for a particular file
@@ -194,6 +197,8 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
 
     return HttpResponseBadRequest(content="Bad UUID or Unidentifable file.")
 
+async def view_thumbnail(request: WSGIRequest, tnail_id: Optional[str]=None):
+    return await thumbnail_file(request, tnail_id)
 
 def search_viewresults(request: WSGIRequest):
     """
@@ -251,7 +256,7 @@ def search_viewresults(request: WSGIRequest):
     print("search View, processing time: ", time.perf_counter() - start_time)
     return response
 
-
+@sync_to_async
 def new_viewgallery(request: WSGIRequest):
     """
     View the requested Gallery page
@@ -342,7 +347,10 @@ def new_viewgallery(request: WSGIRequest):
     print("Gallery View, processing time: ", time.perf_counter() - start_time)  # time.time() - start_time)
     return response
 
+async def info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRequest:
+    return await item_info(request, i_uuid)
 
+@sync_to_async
 @api_view()
 def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRequest:
     """
@@ -449,7 +457,7 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
     # print("item info - Process time: ", time.perf_counter() - context["start_time"], "secs")
     return Response(context)
 
-
+@sync_to_async
 def new_json_viewitem(request: WSGIRequest, i_uuid: str):
     """
     This is the new view item.  It's a view stub, that calls item_info via json, to load the
@@ -471,7 +479,10 @@ def new_json_viewitem(request: WSGIRequest, i_uuid: str):
     response = render(request, "frontend/gallery_json_item.jinja", context, using="Jinja2")
     return response
 
+async def view_item(request: WSGIRequest, i_uuid: str):
+    return await new_json_viewitem(request, i_uuid)
 
+@sync_to_async
 def download_file(request: WSGIRequest):  # , filename=None):
     """
     Replaces new_download.
@@ -505,6 +516,8 @@ def download_file(request: WSGIRequest):  # , filename=None):
     except FileNotFoundError:
         raise Http404
 
+async def download(request: WSGIRequest):
+    return await download_file(request)
 
 #
 # def new_view_archive(request: WSGIRequest, i_uuid: str):
@@ -579,7 +592,7 @@ def download_file(request: WSGIRequest):  # , filename=None):
 #     return response
 
 
-def test(request: WSGIRequest):
+async def test(request: WSGIRequest):
     """
     Test function for mockup tests
     :param request:
@@ -589,16 +602,16 @@ def test(request: WSGIRequest):
     return response
 
 
-def view_setup():
-    """
-    Wrapper for view startup
+# def view_setup():
+#     """
+#     Wrapper for view startup
 
-    """
-    pass
+#     """
+#     pass
 
 
 #    IndexData.objects.filter(delete_pending=True).delete()
 
 
-if __name__ != "__main__":
-    view_setup()
+#if __name__ != "__main__":
+#    view_setup()

@@ -154,3 +154,5 @@ cython_debug/
 .idea/
 /quickbbs/static/
 /quickbbs/quickbbs/migrations/
+poetry.lock
+quickbbs/logfile
