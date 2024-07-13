@@ -21,8 +21,8 @@ Issues = "https://github.com/bschollnick/quickBBS/issues"
 max-line-length = 120
 
 [tool.mypy]
-python_version = "3.11"
-cache_dir = "/volumes/C-8tb/gallery/quickbbs/.mypy_cache"
+python_version = "3.12"
+cache_dir = "/volumes/C-8tb/gallery/virtualenv"
 explicit_package_bases = true
 pretty = true
 color_output = true
@@ -41,9 +41,9 @@ readme = "README.md"
 packages = []
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = "^3.12"
 aiofile = "^3.8.8"
-aiopath = "^0.6.11"
+aiopath = "^0.7.7"
 annotated-types = "^0.7.0"
 appnope = "^0.1.4"
 asgiref = "^3.8.1"
@@ -258,3 +258,6 @@ zipp = "^3.18.1"
 vet = "^0.1.1.post4"
 pip-audit = "^2.7.3"
 vulture = "^2.11"
+pip = "^24.1"
+virtualenv = "^20.26.3"
+werkzeug = "^3.0.3"
