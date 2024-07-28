@@ -35,7 +35,7 @@ deprecation==2.1.0
 dhash==1.4
 dill==0.3.8
 distlib==0.3.8
-Django==5.0.4
+Django==5.0.7
 django-allauth==0.61.1
 django-auth==0.1.9
 django-db-pooling==0.0.4
