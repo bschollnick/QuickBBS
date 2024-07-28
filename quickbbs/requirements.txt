@@ -116,7 +116,7 @@ nbformat==5.10.4
 numpy==2.0.1
 oauthlib==3.2.2
 orjson==3.10.6
-packageurl-python==0.15.5
+packageurl-python==0.15.6
 packaging==24.1
 pandocfilters==1.5.1
 parso==0.8.4
@@ -167,7 +167,7 @@ PyMuPDF==1.24.9
 PyMuPDFb==1.24.9
 pyparsing==3.1.2
 pyproject_hooks==1.1.0
-pytest==8.3.1
+pytest==8.3.2
 python-dateutil==2.9.0.post0
 python-dotenv==1.0.1
 python3-openid==3.2.0
@@ -176,7 +176,7 @@ pyupgrade==3.16.0
 PyWavelets==1.6.0
 PyYAML==6.0.1
 pyzmq==26.0.3
--e git+https://github.com/bschollnick/quickbbs@8e90d86eeed6e57492ba05d01f79b8699f980526#egg=Quickbbs
+-e git+https://github.com/bschollnick/quickbbs@fa27e8e037294111692d6a150432a37ddc293cc8#egg=Quickbbs
 rapidfuzz==3.9.4
 rarfile==4.2
 reference==0.0.3
