@@ -337,14 +337,14 @@ def sync_database_disk(directoryname):
 
         # Compare the database entries to see if they exist in the file system
         # If they don't, remove from cache, and delete the directory
-        _, directories = dirpath_id.dirs_in_dir()
+        directories = dirpath_id.dirs_in_dir()
         for fqpn in directories.values_list("fqpndirectory", flat=True):
             if str(Path(fqpn).name).strip().title() not in fs_entries:
                 print("Database contains a **directory** not in the fs: ", fqpn)
                 IndexDirs.delete_directory(fqpn_directory=fqpn)
 
         update = False
-        count, db_data = dirpath_id.files_in_dir()
+        db_data = dirpath_id.files_in_dir()
         # if count in [0, None]:
         #     db_data = IndexData.objects.select_related("filetype").filter(
         #         fqpndirectory=webpath, delete_pending=False, ignore=False
