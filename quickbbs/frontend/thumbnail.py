@@ -80,10 +80,10 @@ def new_process_dir2(db_entry):
         # Does the thumbnail exist?
         raise ValueError("I shouldn't be here! - new_process_dir2 w/entry that has thumbnail")
 
-    _, files = db_entry.files_in_dir()
+    files = db_entry.files_in_dir()
     if not files:
         sync_database_disk(db_entry.fqpndirectory)
-        _, files = db_entry.files_in_dir()
+        files = db_entry.files_in_dir()
 
     if files:  # found an file in the directory to use for thumbnail purposes
         for file_to_thumb in files:

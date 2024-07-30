@@ -83,7 +83,8 @@ def return_prev_next2(directory, sorder) -> tuple:
         parent_dir = parent_dir[0]
     else:
         return (None, None)
-    count, directories = parent_dir.dirs_in_dir(sort=sorder)
+    directories = parent_dir.dirs_in_dir(sort=sorder)
+    count = directories.count()
     parent_dir_data = directories.values("pk", "fqpndirectory", "parent_dir_md5", "combined_md5")
     for count, entry in enumerate(parent_dir_data):
         if entry["fqpndirectory"] == directory.fqpndirectory:
@@ -116,7 +117,7 @@ def thumbnail_dir(request: WSGIRequest, tnail_id: Optional[str] = None):
 
     :raises: HttpResponseBadRequest - If the uuid can not be found
     """
-    directory_to_tnail = IndexDirs.objects.filter(uuid=tnail_id)
+    directory_to_tnail = IndexDirs.objects.select_related("filetype").filter(uuid=tnail_id)
     if not directory_to_tnail.exists():
         # does not exist
         print(tnail_id, "The directory Does not exist, No records returned.")
@@ -125,8 +126,7 @@ def thumbnail_dir(request: WSGIRequest, tnail_id: Optional[str] = None):
     entry = directory_to_tnail[0]
     count = 0
     if entry.is_generic_icon:
-        count = entry.get_file_counts()
-        if count in [0, None]:
+        if entry.do_files_exist():
             entry.small_thumb = None
     if entry.small_thumb in [b"", None, ""]:
         new_process_dir2(entry)
@@ -144,7 +144,7 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
     :param tnail_id: The UUID of the file - IndexData object
     :return: The sent thumbnail
     """
-    index_qs = IndexData.objects.prefetch_related("filetype").filter(uuid=tnail_id)
+    index_qs = IndexData.objects.select_related("filetype").filter(uuid=tnail_id)
     if not index_qs.exists():
         # does not exist
         print(tnail_id, "File not found - No records returned.")
@@ -228,7 +228,7 @@ def search_viewresults(request: WSGIRequest):
         "next_uri": "",
     }
 
-    index = IndexData.objects.filter(name__icontains=context["searchtext"]).order_by(*SORT_MATRIX[context["sort"]])
+    index = IndexData.objects.select_related("filetype").filter(name__icontains=context["searchtext"]).order_by(*SORT_MATRIX[context["sort"]])
 
     chk_list = Paginator(index, per_page=30, orphans=3)
     context["page_cnt"] = list(arange(1, chk_list.num_pages + 1))
@@ -295,8 +295,8 @@ def new_viewgallery(request: WSGIRequest):
     directories = []
     files = []
     if found:
-        _, directories = directory.dirs_in_dir(sort=sort_order(request))
-        _, files = directory.files_in_dir(sort=sort_order(request))
+        directories = directory.dirs_in_dir(sort=sort_order(request))
+        files = directory.files_in_dir(sort=sort_order(request))
     context = {
         "debug": settings.DEBUG,
         "small": g_option(request, "size", settings.IMAGE_SIZE["small"]),
@@ -400,7 +400,7 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
     while context["up_uri"].endswith("/"):
         context["up_uri"] = context["up_uri"][:-1]
 
-    _, catalog_qs = directory_entry.files_in_dir(sort=context["sort"])
+    catalog_qs = directory_entry.files_in_dir(sort=context["sort"])
     # catalog_qs = get_db_files(context["sort"], context["webpath"])
 
     page_uuids = [str(record.uuid) for record in catalog_qs]
@@ -509,7 +509,7 @@ def download_file(request: WSGIRequest):  # , filename=None):
     if d_uuid in ["", None]:
         raise Http404
 
-    download = IndexData.objects.prefetch_related("filetype").filter(uuid=d_uuid)
+    download = IndexData.objects.select_related("filetype").filter(uuid=d_uuid)
 
     try:
         return download[0].inline_sendfile(request, ranged=download[0].filetype.is_movie)

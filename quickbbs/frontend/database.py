@@ -58,7 +58,7 @@ def get_db_files(sorder, fpath) -> Iterator[IndexData]:
     Fetch the data from the database, and then order by the current users sort
     """
     index = (
-        IndexData.objects.prefetch_related("filetype")
+        IndexData.objects.select_related("filetype")
         .exclude(ignore=True)
         .exclude(delete_pending=True)
         .filter(fqpndirectory=fpath.lower().strip())

@@ -177,12 +177,18 @@ class IndexDirs(models.Model):
         # IndexData.objects.filter(parent_dir_id=combined_md5).delete()
         # This should be redundant, but need to test to verify.
 
+    def do_files_exist(self) -> bool:
+        return IndexData.objects.filter(parent_dir=self.pk, delete_pending=False).exists()
+
     def get_file_counts(self) -> int:
         """
         Return the number of files that are in the database for the current directory
         :return: Integer - Number of files in the database for the directory
         """
         return IndexData.objects.filter(parent_dir=self.pk, delete_pending=False).count()
+
+    def do_dirs_exist(self) -> bool:
+        return IndexDirs.objects.filter(parent_dir_md5=self.combined_md5, delete_pending=False).exists()
 
     def get_dir_counts(self) -> int:
         """
@@ -199,10 +205,10 @@ class IndexDirs(models.Model):
         A special "all_files" key is used to store the # of all items in the directory (except
         for directories).  (all_files is the sum of all file types, except "dir")
         """
-        d_files = IndexData.objects.filter(parent_dir_md5__combined_md5=self.combined_md5)
+        d_files = IndexData.objects.select_related("filetype").filter(parent_dir_md5__combined_md5=self.combined_md5)
         totals = {}
         for key in FILETYPE_DATA.keys():
-            totals[key[1:]] = d_files.filter(filetype__fileext=key).count()
+            totals[key[1:]] = d_files.select_related("filetype").filter(filetype__fileext=key).count()
         totals["dir"] = self.get_dir_counts()
         # totals["dir"] = IndexDirs.objects.filter(
         #    parent_dir_md5=self.combined_md5, delete_pending=False
@@ -216,7 +222,7 @@ class IndexDirs(models.Model):
         Return the database object of the parent directory to the current directory
         :return: database record of parent directory
         """
-        parent_dir = IndexDirs.objects.filter(combined_md5=self.parent_dir_md5)
+        parent_dir = IndexDirs.objects.select_related("filetype").filter(combined_md5=self.parent_dir_md5)
         return parent_dir
 
     @staticmethod
@@ -228,7 +234,7 @@ class IndexDirs(models.Model):
         """
         Path = pathlib.Path(fqpn_directory)
         fqpn_directory = IndexDirs.normalize_fqpn(str(Path.resolve()))
-        query = IndexDirs.objects.filter(
+        query = IndexDirs.objects.select_related("filetype").filter(
             combined_md5=convert_text_to_md5_hdigest(fqpn_directory),
             delete_pending=False,
             ignore=False,
@@ -238,7 +244,7 @@ class IndexDirs(models.Model):
             return (True, record)
         return (False, IndexDirs.objects.none())  # return an empty query set
 
-    def files_in_dir(self, sort=0) -> tuple[int, "QuerySet[IndexData]"]:
+    def files_in_dir(self, sort=0) -> "QuerySet[IndexData]":
         """
         Return the files in the current directory
         :param sort: The sort order of the files (0-2)
@@ -249,13 +255,13 @@ class IndexDirs(models.Model):
         from frontend.database import SORT_MATRIX
 
         files = (
-            IndexData.objects.select_related("filetype")
+            IndexData.objects
             .filter(parent_dir=self.pk, delete_pending=False)
             .order_by(*SORT_MATRIX[sort])
         )
-        return (files.count(), files)
+        return files
 
-    def dirs_in_dir(self, sort=0) -> tuple[int, "QuerySet[IndexDirs]"]:
+    def dirs_in_dir(self, sort=0) -> "QuerySet[IndexDirs]":
         """
         Return the directories in the current directory
         :param sort: The sort order of the directories (0-2)
@@ -269,8 +275,8 @@ class IndexDirs(models.Model):
         dir_scan = IndexDirs.normalize_fqpn(dir_scan)
         dir_scan_md5 = convert_text_to_md5_hdigest(dir_scan)
         # dirs = IndexDirs.objects.filter(combined_md5=self.combined_md5, delete_pending=False)
-        dirs = IndexDirs.objects.filter(parent_dir_md5=dir_scan_md5, delete_pending=False).order_by(*SORT_MATRIX[sort])
-        return dirs.count(), dirs
+        dirs = IndexDirs.objects.select_related("filetype").filter(parent_dir_md5=dir_scan_md5, delete_pending=False).order_by(*SORT_MATRIX[sort])
+        return dirs
 
     def get_view_url(self) -> str:
         """
