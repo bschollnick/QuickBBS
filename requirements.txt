@@ -167,7 +167,7 @@ rarfile==4.2
 reference==0.0.3
 referencing==0.34.0
 regex==2024.4.16
-requests==2.31.0
+requests==2.32.0
 requests-oauthlib==2.0.0
 requirements-detector==1.2.2
 requirementslib==3.0.0
