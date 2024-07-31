@@ -215,4 +215,4 @@ websockets==12.0
 wrapt==1.16.0
 xattr==1.1.0
 yarg==0.1.9
-zipp==3.18.1
+zipp==3.19.1
