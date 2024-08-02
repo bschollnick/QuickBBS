@@ -36,7 +36,7 @@ dhash==1.4
 dill==0.3.8
 distlib==0.3.8
 Django==5.0.4
-django-allauth==0.61.1
+django-allauth==0.63.6
 django-auth==0.1.9
 django-db-pooling==0.0.4
 django-debug-toolbar==4.3.0
