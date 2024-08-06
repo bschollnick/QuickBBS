@@ -446,11 +446,11 @@ def read_from_disk(dir_to_scan, skippable=False):
     )
     dirpath = os.path.split(rawdir)[0:-1][0]
     dirname = rawdir.lower().replace(dirpath, "")[1:]
-    dirdata = index_data.objects.filter(
+    dirdata = index_data.objects.select_related("filetype").filter(
         fqpndirectory=dirpath.lower(), name=dirname.title(), ignore=False
     ).exclude(directory=None, file_tnail=None, archives=None)
 
-    existing_data = index_data.objects.filter(fqpndirectory=dir_to_scan.lower())
+    existing_data = index_data.objects.select_related("filetype").filter(fqpndirectory=dir_to_scan.lower())
 
     loaded = False
     while not loaded:
@@ -460,7 +460,7 @@ def read_from_disk(dir_to_scan, skippable=False):
         except StopIteration:
             pass
 
-    existing_data_size = index_data.objects.filter(
+    existing_data_size = index_data.objects.select_related("filetype").filter(
         fqpndirectory=dir_to_scan.lower()
     ).count()
     if existing_data_size > len(disk_data_scan):

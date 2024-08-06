@@ -116,8 +116,7 @@ class ThumbnailFiles(models.Model):
         # https://stackoverflow.com/questions/1167398/python-access-class-property-from-string
         img_original = pil_data
         for size in ["large", "medium", "small"]:
-            image_thumbnail = resize_pil_image(img_original, settings.IMAGE_SIZE[size], fext=fext)
-            setattr(self, f"{size}_thumb", image_thumbnail)
+            setattr(self, f"{size}_thumb",resize_pil_image(img_original, settings.IMAGE_SIZE[size], fext=fext))
 
     def image_to_thumbnail(self):
         """
@@ -131,8 +130,8 @@ class ThumbnailFiles(models.Model):
         # https://stackoverflow.com/questions/1167398/python-access-class-property-from-string
         img_original = return_image_obj(self.fqpn_filename)
         for size in ["large", "medium", "small"]:
-            image_thumbnail = resize_pil_image(img_original, settings.IMAGE_SIZE[size], fext=fext)
-            setattr(self, f"{size}_thumb", image_thumbnail)
+            setattr(self, f"{size}_thumb",resize_pil_image(img_original, settings.IMAGE_SIZE[size], fext=fext))
+        self.save()
 
     def retrieve_sized_tnail(self, size="small"):
         """
