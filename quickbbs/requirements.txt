@@ -13,7 +13,7 @@ av==12.3.0
 backcall==0.2.0
 bandit==1.7.9
 beautifulsoup4==4.12.3
-black==24.4.2
+black==24.8.0
 bleach==6.1.0
 boolean.py==4.0
 build==1.2.1
@@ -38,7 +38,7 @@ deprecation==2.1.0
 dhash==1.4
 dill==0.3.8
 distlib==0.3.8
-Django==5.0.7
+Django==5.0.8
 django-allauth==0.63.6
 django-auth==0.1.9
 django-db-pooling==0.0.4
@@ -50,8 +50,8 @@ django-jinja==2.11.0
 django-ranged-fileresponse @ git+https://github.com/devmonkey22/django-ranged-fileresponse@b8f8136149380b7f90e20d4fd103bfbb42c48d37
 django-rest-framework==0.1.0
 django-storages==1.14.4
-django-stubs==5.0.2
-django-stubs-ext==5.0.2
+django-stubs==5.0.4
+django-stubs-ext==5.0.4
 django-upgrade==1.20.0
 django-user-agents==0.4.0
 djangorestframework==3.15.2
@@ -65,7 +65,7 @@ executing==2.0.1
 fastjsonschema==2.20.0
 fastnumbers==5.1.0
 filelock==3.15.4
-flake8==7.1.0
+flake8==7.1.1
 flake8-polyfill==1.0.2
 gitdb==4.0.11
 greenlet==3.0.3
@@ -107,7 +107,7 @@ mistune==3.0.2
 more-itertools==10.3.0
 msgpack==1.0.8
 msgspec==0.18.6
-mypy==1.11.0
+mypy==1.11.1
 mypy-extensions==1.0.0
 natsort==8.4.0
 nbclient==0.10.0
@@ -148,7 +148,7 @@ psycopg2==2.9.9
 ptyprocess==0.7.0
 pure_eval==0.2.3
 py-serializable==1.1.0
-pycodestyle==2.12.0
+pycodestyle==2.12.1
 pycparser==2.22
 pydantic==2.8.2
 pydantic_core==2.20.1
@@ -157,7 +157,7 @@ pydot==2.0.0
 pyflakes==3.2.0
 Pygments==2.18.0
 pygraphviz==1.13
-PyJWT==2.8.0
+PyJWT==2.9.0
 pylint==3.2.6
 pylint-celery==0.3
 pylint-django==2.5.5
@@ -172,12 +172,12 @@ python-dateutil==2.9.0.post0
 python-dotenv==1.0.1
 python3-openid==3.2.0
 pytz==2024.1
-pyupgrade==3.16.0
+pyupgrade==3.17.0
 PyWavelets==1.6.0
 PyYAML==6.0.1
-pyzmq==26.0.3
--e git+https://github.com/bschollnick/quickbbs@fa27e8e037294111692d6a150432a37ddc293cc8#egg=Quickbbs
-rapidfuzz==3.9.4
+pyzmq==26.1.0
+-e git+https://github.com/bschollnick/quickbbs@35e28d2d175a3d8acfe1143df3ba37c993043e25#egg=Quickbbs
+rapidfuzz==3.9.5
 rarfile==4.2
 reference==0.0.3
 referencing==0.34.0
@@ -191,7 +191,7 @@ rpds-py==0.18.1
 scipy==1.14.0
 semver==3.0.2
 setoptconf-tmp==0.3.1
-setuptools==71.1.0
+setuptools==72.1.0
 shellingham==1.5.4
 shortuuid==1.0.13
 six==1.16.0
@@ -211,7 +211,7 @@ tomli==2.0.1
 tomli_w==1.0.0
 tomlkit==0.12.5
 tornado==6.4.1
-tqdm==4.66.4
+tqdm==4.66.5
 traitlets==5.14.3
 Tree==0.2.4
 trove-classifiers==2024.7.2
@@ -220,10 +220,11 @@ types-pytz==2024.1.0.20240417
 types-PyYAML==6.0.12.20240724
 types-requests==2.32.0.20240712
 typing_extensions==4.12.2
+tzdata==2024.1
 ua-parser==0.18.0
 urllib3==2.2.2
 user-agents==2.2.0
-uvicorn==0.30.3
+uvicorn==0.30.5
 uvloop==0.19.0
 uWSGI==2.0.26
 vet==0.1.1.post4
