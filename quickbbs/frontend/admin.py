@@ -65,6 +65,7 @@ class AdminMaster_Index(admin.ModelAdmin):
     )
 
 
+
 # @admin.register(Cache_Tracking)
 # class Cache_dir_tracking_Index(admin.ModelAdmin):
 #     list_display = ('DirName', 'lastscan')

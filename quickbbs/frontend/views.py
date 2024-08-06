@@ -33,6 +33,7 @@ from quickbbs.models import IndexData, IndexDirs  # , Thumbnails_Files
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+
 # import frontend.archives3 as archives
 from frontend.database import SORT_MATRIX, get_db_files  # check_dup_thumbs
 from frontend.thumbnail import new_process_dir2, new_process_img
@@ -159,28 +160,30 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
         if entry.new_ftnail.thumbnail_exists(size=thumbsize):
             return entry.new_ftnail.send_thumbnail(filename_override=None, fext_override=None, size=thumbsize)
 
+    return HttpResponseBadRequest(content="Do not create thumbnail.")
     if entry.filetype.is_pdf or entry.filetype.is_image or entry.filetype.is_movie:
         # add in file size comparison
-        if not entry.new_ftnail:
-            tnail_record, created = ThumbnailFiles.objects.get_or_create(
-                fqpn_hash=fs_item_hash, defaults={"fqpn_hash": fs_item_hash, "fqpn_filename": fs_item}
-            )
-            ThumbnailFiles.objects.filter(fqpn_hash=fs_item_hash).delete()
-            tnail_record, created = ThumbnailFiles.objects.get_or_create(
-                fqpn_hash=fs_item_hash, defaults={"fqpn_hash": fs_item_hash, "fqpn_filename": fs_item}
-            )
+        # if not entry.new_ftnail:
+        #     tnail_record, created = ThumbnailFiles.objects.get_or_create(
+        #         fqpn_hash=fs_item_hash, defaults={"fqpn_hash": fs_item_hash, "fqpn_filename": fs_item}
+        #     )
+        #     # ThumbnailFiles.objects.filter(fqpn_hash=fs_item_hash).delete()
+        tnail_record, created = ThumbnailFiles.objects.get_or_create(
+            fqpn_hash=fs_item_hash, defaults={"fqpn_hash": fs_item_hash, "fqpn_filename": fs_item}
+        )
 
-            entry.new_ftnail = tnail_record
-            raw_pil = image_utils.return_image_obj(fs_item, memory=False)
-            entry.new_ftnail.pil_to_thumbnail(pil_data=raw_pil)
-            try:
-                entry.new_ftnail.save()
-            except (IntegrityError, psycopg.errors.UniqueViolation):
-                # should not occur, but some mp4's appear to have been duplicated?
-                ThumbnailFiles.objects.filter(fqpn_hash=fs_item_hash).delete()
-                entry.new_ftnail.save()
-            entry.save()
-            return entry.new_ftnail.send_thumbnail(filename_override=None, fext_override=None, size=thumbsize)
+        entry.new_ftnail = tnail_record
+        raw_pil = image_utils.return_image_obj(fs_item, memory=False)
+        entry.new_ftnail.pil_to_thumbnail(pil_data=raw_pil)
+        try:
+            entry.new_ftnail.save()
+        except (IntegrityError, psycopg.errors.UniqueViolation):
+            print("IntegrityError, or UniqueViolation")
+            # should not occur, but some mp4's appear to have been duplicated?
+            ThumbnailFiles.objects.filter(fqpn_hash=fs_item_hash).delete()
+            entry.new_ftnail.save()
+        entry.save()
+        return entry.new_ftnail.send_thumbnail(filename_override=None, fext_override=None, size=thumbsize)
 
     if entry.filetype.icon_filename not in ["", None]:
         entry.is_generic_icon = True
@@ -320,6 +323,19 @@ def new_viewgallery(request: WSGIRequest):
 
     if files:
         context["no_thumbs"] = files.filter(new_ftnail__isnull=True)[0:99]
+        for db_entry in context["no_thumbs"]:
+            fs_item = os.path.join(db_entry.fqpndirectory, db_entry.name).title().strip()
+            fs_item_hash = ThumbnailFiles.convert_text_to_md5_hdigest(fs_item)
+            fname = os.path.basename(db_entry.name).title().strip()
+            thumbnail, created = ThumbnailFiles.objects.get_or_create(fqpn_filename = fs_item, fqpn_hash=fs_item_hash)
+            thumbnail.image_to_thumbnail()
+            db_entry.new_ftnail = thumbnail
+            # db_entry.new_ftnail.fqpn_filename = fname
+            # db_entry.new_ftnail.fqpn_hash = fs_item_hash
+            db_entry.save()
+        context["no_thumbs"] = []
+    
+
     # The only thing left is a directory.
     # fs_path = ensures_endswith(
     #     os.path.abspath(os.path.join(settings.ALBUMS_PATH, paths["webpath"][1:])),

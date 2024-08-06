@@ -1,32 +1,34 @@
 from django.contrib import admin
 
 # Register your models here.
-from thumbnails.models import *
+from thumbnails.models import ThumbnailFiles
 
 
-# @admin.register(Thumbnail_Files)
-# class AdminThumbnail_Files(admin.ModelAdmin):
-#     # readonly_fields = ("id", "uuid", "smallthumb", "mediumthumb", "largethumb")
-#     list_display = (
-#         "id",
-#         "uuid",
-#         "filename",
-#         "filesize",
-#         "is_generic",
-#         "smallthumb",
-#         "mediumthumb",
-#         "largethumb",
-#     )
-#     fields = (
-#         "id",
-#         "uuid",
-#         "filename",
-#         "filesize",
-#         "is_generic",
-#         "smallthumb",
-#         "mediumthumb",
-#         "largethumb",
-#     )  # , 'is_pdf', 'is_image')
+@admin.register(ThumbnailFiles)
+class AdminThumbnail_Files(admin.ModelAdmin):
+    readonly_fields = ("id", "sthumb", "mthumb", "lthumb")
+    list_display = (
+        "id",
+        "fqpn_filename",
+        "fqpn_hash",
+        "sthumb",
+        "mthumb",
+        "lthumb",
+    )
+    fields = (
+        "id",
+        "fqpn_filename",
+        "fqpn_hash",
+        "sthumb",
+        "mthumb",
+        "lthumb",
+    )  
 
+    def sthumb(self, obj):
+        return obj.small_thumb[0:25]
 
-# admin.site.register(Cache_Tracking)
+    def mthumb(self, obj):
+        return obj.medium_thumb[0:25]
+
+    def lthumb(self, obj):
+        return obj.large_thumb[0:25]

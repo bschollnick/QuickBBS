@@ -25,42 +25,6 @@ from frontend.utilities import (  # cr_tnail_img,; return_image_obj,
     sync_database_disk,
 )
 
-
-# def images_in_dir(database, webpath) -> Iterator[IndexData]:
-#     """
-#     Check for images in the directory.
-#     If they do not exist, try to load the directory, and test again.
-#     If they do exist, grab the 1st image from the file list.
-#
-#     Args:
-#         database (obj) - Django Database
-#         webpath (str) - The directory to examine
-#
-#     Returns:
-#         object::
-#             The thumbnail (in memory) of the first image
-#
-#     Raises:
-#         None
-#
-#     Examples
-#     --------
-#     """
-#
-#     #   What files exist in this directory?
-#     filters = {"fqpndirectory": ensures_endswith(webpath.lower(), os.sep)}
-#     # ,'ignore': False, 'delete_pending': False, "filetype__is_image": True}
-#     files = get_xth_image(database, 0, filters)
-#
-#     if files is None or not os.path.exists(os.path.join(webpath, files.name)):
-#         # No files exist in the database for this directory
-#         print(f"* scanning due to No files exist, {webpath}")
-#         read_from_disk(webpath, skippable=True)
-#         # process_dir
-#         files = get_xth_image(database, 0, filters)
-#     return files
-
-
 def new_process_dir2(db_entry):
     """
     input:
@@ -128,15 +92,12 @@ def invalidate_thumb(thumbnail):
     thumbnail.large_thumb = b""
     return thumbnail
 
-
 def new_process_img(
     entry,
-):  # , imagesize="small"):
+):
     """
     input:
         entry - The IndexData entry
-        request - The request data from Django
-        imagesize - (small, medium, large constant)
 
     Read directory, and identify the first thumbnailable file.
     Make thumbnail of that file
