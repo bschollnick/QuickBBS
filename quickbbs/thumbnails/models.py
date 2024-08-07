@@ -56,9 +56,9 @@ class ThumbnailFiles(models.Model):
         default=None,
         unique=True,
     )  # FQFN of the file itself
-    small_thumb = models.BinaryField(default=b"")
-    medium_thumb = models.BinaryField(default=b"")
-    large_thumb = models.BinaryField(default=b"")
+    small_thumb = models.BinaryField(default=b"", null=True)
+    medium_thumb = models.BinaryField(default=b"", null=True)
+    large_thumb = models.BinaryField(default=b"", null=True)
 
     class Meta:
         verbose_name = "Image File Thumbnails Cache"

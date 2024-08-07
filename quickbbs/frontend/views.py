@@ -118,7 +118,7 @@ def thumbnail_dir(request: WSGIRequest, tnail_id: Optional[str] = None):
 
     :raises: HttpResponseBadRequest - If the uuid can not be found
     """
-    directory_to_tnail = IndexDirs.objects.select_related("filetype").filter(uuid=tnail_id)
+    directory_to_tnail = IndexDirs.objects.filter(uuid=tnail_id)
     if not directory_to_tnail.exists():
         # does not exist
         print(tnail_id, "The directory Does not exist, No records returned.")
@@ -145,7 +145,7 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
     :param tnail_id: The UUID of the file - IndexData object
     :return: The sent thumbnail
     """
-    index_qs = IndexData.objects.select_related("filetype").filter(uuid=tnail_id)
+    index_qs = IndexData.objects.filter(uuid=tnail_id)
     if not index_qs.exists():
         # does not exist
         print(tnail_id, "File not found - No records returned.")
@@ -160,7 +160,7 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
         if entry.new_ftnail.thumbnail_exists(size=thumbsize):
             return entry.new_ftnail.send_thumbnail(filename_override=None, fext_override=None, size=thumbsize)
 
-    return HttpResponseBadRequest(content="Do not create thumbnail.")
+    # return HttpResponseBadRequest(content="Do not create thumbnail.")
     if entry.filetype.is_pdf or entry.filetype.is_image or entry.filetype.is_movie:
         # add in file size comparison
         # if not entry.new_ftnail:
@@ -231,7 +231,7 @@ def search_viewresults(request: WSGIRequest):
         "next_uri": "",
     }
 
-    index = IndexData.objects.select_related("filetype").filter(name__icontains=context["searchtext"]).order_by(*SORT_MATRIX[context["sort"]])
+    index = IndexData.objects.filter(name__icontains=context["searchtext"]).order_by(*SORT_MATRIX[context["sort"]])
 
     chk_list = Paginator(index, per_page=30, orphans=3)
     context["page_cnt"] = list(arange(1, chk_list.num_pages + 1))
@@ -259,7 +259,7 @@ def search_viewresults(request: WSGIRequest):
     print("search View, processing time: ", time.perf_counter() - start_time)
     return response
 
-@sync_to_async
+#@sync_to_async
 def new_viewgallery(request: WSGIRequest):
     """
     View the requested Gallery page
@@ -319,28 +319,6 @@ def new_viewgallery(request: WSGIRequest):
 
     all_listings = list(directories)
     all_listings.extend(list(files))
-    context["no_thumbs"] = []
-
-    if files:
-        context["no_thumbs"] = files.filter(new_ftnail__isnull=True)[0:99]
-        for db_entry in context["no_thumbs"]:
-            fs_item = os.path.join(db_entry.fqpndirectory, db_entry.name).title().strip()
-            fs_item_hash = ThumbnailFiles.convert_text_to_md5_hdigest(fs_item)
-            fname = os.path.basename(db_entry.name).title().strip()
-            thumbnail, created = ThumbnailFiles.objects.get_or_create(fqpn_filename = fs_item, fqpn_hash=fs_item_hash)
-            thumbnail.image_to_thumbnail()
-            db_entry.new_ftnail = thumbnail
-            # db_entry.new_ftnail.fqpn_filename = fname
-            # db_entry.new_ftnail.fqpn_hash = fs_item_hash
-            db_entry.save()
-        context["no_thumbs"] = []
-    
-
-    # The only thing left is a directory.
-    # fs_path = ensures_endswith(
-    #     os.path.abspath(os.path.join(settings.ALBUMS_PATH, paths["webpath"][1:])),
-    #     os.sep,
-    # )
 
     chk_list = Paginator(all_listings, per_page=30, orphans=3)
     context["page_cnt"] = list(arange(1, chk_list.num_pages + 1))
@@ -353,6 +331,32 @@ def new_viewgallery(request: WSGIRequest):
     except EmptyPage:
         context["pagelist"] = chk_list.page(chk_list.num_pages)
     context["prev_uri"], context["next_uri"] = return_prev_next2(directory, sorder=context["sort"])
+
+    no_thumbs = []
+    
+    if files:
+        print("files update")
+        no_thumbs = files.filter(new_ftnail__isnull=True)[:99]
+        bulk = []
+        for db_entry in no_thumbs:
+            fs_item = os.path.join(db_entry.fqpndirectory, db_entry.name).title().strip()
+            fs_item_hash = ThumbnailFiles.convert_text_to_md5_hdigest(fs_item)
+            thumbnail, created = ThumbnailFiles.objects.get_or_create(fqpn_filename = fs_item, fqpn_hash=fs_item_hash)
+            thumbnail.image_to_thumbnail()
+            db_entry.new_ftnail = thumbnail
+            bulk.append(db_entry)
+        
+        print("bulk update")
+        start = time.time()
+        IndexData.objects.bulk_update(bulk, fields=['new_ftnail'], batch_size=50)
+        print("bulk time - ", time.time()-start)
+    
+
+    # The only thing left is a directory.
+    # fs_path = ensures_endswith(
+    #     os.path.abspath(os.path.join(settings.ALBUMS_PATH, paths["webpath"][1:])),
+    #     os.sep,
+    # )
 
     response = render(
         request,
@@ -391,7 +395,7 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
         "breadcrumbs": "",
         "breadcrumbs_list": [],
     }
-    entry = IndexData.objects.select_related("filetype").filter(uuid=context["uuid"])[0]
+    entry = IndexData.objects.filter(uuid=context["uuid"])[0]
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
     found, directory_entry = IndexDirs.search_for_directory(fqpn_directory=context["webpath"])
     if not entry and not found:
@@ -525,7 +529,7 @@ def download_file(request: WSGIRequest):  # , filename=None):
     if d_uuid in ["", None]:
         raise Http404
 
-    download = IndexData.objects.select_related("filetype").filter(uuid=d_uuid)
+    download = IndexData.objects.filter(uuid=d_uuid)
 
     try:
         return download[0].inline_sendfile(request, ranged=download[0].filetype.is_movie)
