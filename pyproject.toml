@@ -20,6 +20,12 @@ Issues = "https://github.com/bschollnick/quickBBS/issues"
 [black]
 max-line-length = 120
 
+[tool.pyright]
+exclude = ["**/gallery/**", "**/albums/**"]
+
+[tool.pylance]
+exclude = ["**/gallery/**", "**/albums/**"]
+
 [tool.mypy]
 python_version = "3.12"
 cache_dir = "/volumes/C-8tb/gallery/virtualenv"
