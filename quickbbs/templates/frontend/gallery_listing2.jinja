@@ -233,9 +233,6 @@
         </div>
     </div>
 </div>
-    {% for missing_uri in no_thumbs %}
-        <link rel="preload" href={{ missing_uri.get_thumbnail_url(size="small")}} as="image">
-    {% endfor %}
 
 {% endautoescape %}
 
