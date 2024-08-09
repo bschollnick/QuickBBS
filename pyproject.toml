@@ -267,3 +267,4 @@ pip = "^24.1"
 virtualenv = "^20.26.3"
 werkzeug = "^3.0.3"
 uvicorn = {extras = ["standard"], version = "^0.30.5"}
+more-itertools = "^10.4.0"
