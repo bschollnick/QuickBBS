@@ -234,7 +234,7 @@ class IndexDirs(models.Model):
         """
         Path = pathlib.Path(fqpn_directory)
         fqpn_directory = IndexDirs.normalize_fqpn(str(Path.resolve()))
-        query = IndexDirs.objects.filter(
+        query = IndexDirs.objects.prefetch_related("filetype").filter(
             combined_md5=convert_text_to_md5_hdigest(fqpn_directory),
             delete_pending=False,
             ignore=False,
@@ -255,7 +255,7 @@ class IndexDirs(models.Model):
         from frontend.database import SORT_MATRIX
 
         files = (
-            IndexData.objects.select_related()
+            IndexData.objects.prefetch_related("new_ftnail")
             .filter(parent_dir=self.pk, delete_pending=False)
             .order_by(*SORT_MATRIX[sort])
         )

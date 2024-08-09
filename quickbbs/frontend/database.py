@@ -58,7 +58,7 @@ def get_db_files(sorder, fpath) -> Iterator[IndexData]:
     Fetch the data from the database, and then order by the current users sort
     """
     index = (
-        IndexData.objects.select_related("filetype")
+        IndexData.objects.prefetech_related("filetype")
         .exclude(ignore=True)
         .exclude(delete_pending=True)
         .filter(fqpndirectory=fpath.lower().strip())
@@ -151,7 +151,7 @@ def get_xth_image(database, positional=0, filters=None) -> Iterator[IndexData]:
         filters = []
 
     data = (
-        database.objects.select_related("filetype")
+        database.objects.prefetech_related("filetype")
         .filter(**filters)
         .exclude(filetype__is_image=False)
         .exclude(ignore=True)

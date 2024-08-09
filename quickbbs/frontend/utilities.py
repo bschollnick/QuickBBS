@@ -314,6 +314,7 @@ def sync_database_disk(directoryname):
         return None
 
     if not cached:
+        print("Not Cached! Rescanning directory")
         # If the directory is not found in the Cache_Tracking table, then it needs to be rescanned.
         # Remember, directory is placed in there, when it is scanned.
         # If changed, then watchdog should have removed it from the path.

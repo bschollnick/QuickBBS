@@ -446,11 +446,11 @@ def read_from_disk(dir_to_scan, skippable=False):
     )
     dirpath = os.path.split(rawdir)[0:-1][0]
     dirname = rawdir.lower().replace(dirpath, "")[1:]
-    dirdata = index_data.objects.select_related("filetype").filter(
+    dirdata = index_data.objects.prefetech_related("filetype").filter(
         fqpndirectory=dirpath.lower(), name=dirname.title(), ignore=False
     ).exclude(directory=None, file_tnail=None, archives=None)
 
-    existing_data = index_data.objects.select_related("filetype").filter(fqpndirectory=dir_to_scan.lower())
+    existing_data = index_data.objects.prefetech_related("filetype").filter(fqpndirectory=dir_to_scan.lower())
 
     loaded = False
     while not loaded:
@@ -459,10 +459,10 @@ def read_from_disk(dir_to_scan, skippable=False):
             loaded = True
         except StopIteration:
             pass
-
-    existing_data_size = index_data.objects.select_related("filetype").filter(
-        fqpndirectory=dir_to_scan.lower()
-    ).count()
+    existing_data_size = existing_data.count()
+    # existing_data_size = index_data.objects.filter(
+    #     fqpndirectory=dir_to_scan.lower()
+    # ).count()
     if existing_data_size > len(disk_data_scan):
         print(
             "existing size %s       on disk %s"
@@ -536,6 +536,7 @@ def read_from_disk(dir_to_scan, skippable=False):
         force_save = False
         new_uuid = uuid.uuid4()
         try:
+            stats = disk_data.stat()
             ind_data, created = index_data.objects.update_or_create(
                 name=filename,  # .replace("#", "").strip(),
                 fqpndirectory=webpath,
@@ -544,8 +545,8 @@ def read_from_disk(dir_to_scan, skippable=False):
                     "name": filename,  # .replace("#", "").strip(),
                     "fqpndirectory": webpath,
                     "sortname": naturalize(filename),
-                    "size": disk_data.stat()[stat.ST_SIZE],
-                    "lastmod": disk_data.stat()[stat.ST_MTIME],
+                    "size": stats[stat.ST_SIZE],
+                    "lastmod": stats[stat.ST_MTIME],
                     "numfiles": numfiles,
                     "numdirs": numdirs,
                     "lastscan": time.time(),  # disk_data.stat()[stat.ST_MTIME],
@@ -564,16 +565,16 @@ def read_from_disk(dir_to_scan, skippable=False):
                     "name": filename,  # .replace("#", ""),
                     "fqpndirectory": webpath,
                     "sortname": naturalize(filename),
-                    "size": disk_data.stat()[stat.ST_SIZE],
-                    "lastmod": disk_data.stat()[stat.ST_MTIME],
+                    "size": stats[stat.ST_SIZE],
+                    "lastmod": stats[stat.ST_MTIME],
                     "numfiles": numfiles,
                     "numdirs": numdirs,
                     "lastscan": time.time(),  # disk_data.stat()[stat.ST_MTIME],
                 },
             )
 
-        if ind_data.lastmod != disk_data.stat()[stat.ST_MTIME]:
-            ind_data.lastmod = disk_data.stat()[stat.ST_MTIME]
+        if ind_data.lastmod != stats[stat.ST_MTIME]:
+            ind_data.lastmod = stats[stat.ST_MTIME]
             force_save = True
 
         if ind_data.file_tnail is None:
