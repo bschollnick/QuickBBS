@@ -28,6 +28,12 @@ DEBUG = False
 DEBUG = not DEBUG
 print(f"* Debug Mode is {DEBUG}")
 
+#   Django Debug Toolbar, is controlled separately from the debug mode,
+#   so that timings can be w/o debug mode performance penalty.
+DEBUG_TOOLBAR = True
+# DEBUG_TOOLBAR = DEBUG
+#DEBUG_TOOLBAR = False
+print(f"* Debug-toolbar is {DEBUG_TOOLBAR}")
 # Demo mode, redirects the database to a different database container, and album path.
 # Useful for demonstrating the software without using your master database.
 #
@@ -52,14 +58,6 @@ INTERNAL_IPS = ["localhost", "127.0.0.1", "nerv.local", "192.168.1.67"]
 machine_name = socket.gethostname().lower()
 print(f"* Running on {machine_name}")
 
-#
-#   Django Debug Toolbar, is controlled separately from the debug mode,
-#   so that timings can be w/o debug mode performance penalty.
-#
-# DEBUG_TOOLBAR = True
-# DEBUG_TOOLBAR = DEBUG
-DEBUG_TOOLBAR = False
-print(f"* Debug-toolbar is {DEBUG_TOOLBAR}")
 
 # See https://releases.jquery.com/jquery/
 JQUERY_VERSION = "3.7.0"
@@ -361,21 +359,21 @@ if DEBUG_TOOLBAR:
         "SHOW_COLLAPSED": False,
         "SHOW_TOOLBAR_CALLBACK": show_toolbar,
         "SQL_WARNING_THRESHOLD": 100,  # milliseconds
+        "SHOW_TEMPLATE_CONTEXT":True,
     }
-# if DEBUG:
-#     DEBUG_TOOLBAR_PANELS = [
-#         'debug_toolbar.panels.history.HistoryPanel',
-#         'debug_toolbar.panels.versions.VersionsPanel',
-#         'debug_toolbar.panels.timer.TimerPanel',
-#         'debug_toolbar.panels.settings.SettingsPanel',
-#         'debug_toolbar.panels.headers.HeadersPanel',
-#         'debug_toolbar.panels.request.RequestPanel',
-#         'debug_toolbar.panels.sql.SQLPanel',
-#         'debug_toolbar.panels.staticfiles.StaticFilesPanel',
-#         'debug_toolbar.panels.templates.TemplatesPanel',
-#         'debug_toolbar.panels.cache.CachePanel',
-#         'debug_toolbar.panels.signals.SignalsPanel',
-#         'debug_toolbar.panels.logging.LoggingPanel',
-#         'debug_toolbar.panels.redirects.RedirectsPanel',
-#         'debug_toolbar.panels.profiling.ProfilingPanel',
-#     ]
+    
+    DEBUG_TOOLBAR_PANELS = [
+        'debug_toolbar.panels.history.HistoryPanel',  # Here it is 
+        'debug_toolbar.panels.versions.VersionsPanel',
+        'debug_toolbar.panels.timer.TimerPanel',
+        'debug_toolbar.panels.settings.SettingsPanel',
+        'debug_toolbar.panels.headers.HeadersPanel',
+        'debug_toolbar.panels.request.RequestPanel',
+        'debug_toolbar.panels.sql.SQLPanel',
+        'debug_toolbar.panels.templates.TemplatesPanel',
+        'debug_toolbar.panels.staticfiles.StaticFilesPanel',
+        'debug_toolbar.panels.cache.CachePanel',
+        'debug_toolbar.panels.signals.SignalsPanel',
+        'debug_toolbar.panels.logging.LoggingPanel',
+        'debug_toolbar.panels.redirects.RedirectsPanel',
+        ]

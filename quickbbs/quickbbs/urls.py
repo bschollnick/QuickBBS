@@ -76,8 +76,8 @@ urlpatterns += [
     # path("thumbnails/", frontend.views.thumbnails, name="thumbnailspath"),
     path("resources/<path:pathstr>", frontend.serve_up.resources),
     path("static/<path:pathstr>", frontend.serve_up.static),
-    path("test", frontend.views.test, name="test"),
-    path("accounts/", include("allauth.urls")),
+    re_path("^test/", frontend.views.test, name="test"),
+     path("accounts/", include("allauth.urls")),
     path("grappelli/", include("grappelli.urls")),  # grappelli URLS
     path(r"Admin/", admin.site.urls),
     path(r"", RedirectView.as_view(url="/albums"), name="home"),
