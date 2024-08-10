@@ -298,12 +298,10 @@ def new_viewgallery(request: WSGIRequest):
         #   Albums doesn't exist
         return HttpResponseNotFound("<h1>gallery not found</h1>")
     read_from_disk(paths["album_viewing"], skippable=True)  # new_viewgallery
-
-    directories = []
-    files = []
-    if found:
-        directories = directory.dirs_in_dir(sort=sort_order(request))
-        files = directory.files_in_dir(sort=sort_order(request))
+   
+    # if found:
+    #     directories = directory.dirs_in_dir(sort=sort_order(request))
+    #     files = directory.files_in_dir(sort=sort_order(request))
     context = {
         "debug": settings.DEBUG,
         "small": g_option(request, "size", settings.IMAGE_SIZE["small"]),
@@ -314,20 +312,19 @@ def new_viewgallery(request: WSGIRequest):
         "breadcrumbs": return_breadcrumbs(paths["webpath"])[:-1],
         "fromtimestamp": datetime.datetime.fromtimestamp,
         "thumbpath": paths["thumbpath"],
-        "current_page": request.GET.get("page", 1),
+        "current_page": int(request.GET.get("page", 1)),
         "gallery_name": pathlib.Path(paths["webpath"]).name,
         "up_uri": "/".join(request.build_absolute_uri().split("/")[0:-1]),
         "missing": [],
         "search": False,
     }
+    layout = layout_manager(page_number=context["current_page"], directory=directory, 
+                            sort_order=context["sort"])
 
-    all_listings = list(chain(directories, files))
-    # all_listings =  directories | files
+    all_listings = layout["all_uuids"]
+#    all_listings = list(chain(directories, files))
 
-#    all_listings = list(directories)
-#    all_listings.extend(list(files))
-
-    chk_list = Paginator(all_listings, per_page=30, orphans=3)
+    chk_list = Paginator(all_listings, per_page=30)
     context["page_cnt"] = list(arange(1, chk_list.num_pages + 1))
 
     try:
@@ -339,24 +336,30 @@ def new_viewgallery(request: WSGIRequest):
         context["pagelist"] = chk_list.page(chk_list.num_pages)
     context["prev_uri"], context["next_uri"] = return_prev_next2(directory, sorder=context["sort"])
 
-    no_thumbs = []
+    dirs_to_display = IndexDirs.return_by_uuid_list(uuid_list=layout["data"][context["current_page"]-1]["directories"])
+    files_to_display = IndexData.return_by_uuid_list(uuid_list=layout["data"][context["current_page"]-1]["files"])
+    context["items_to_display"] = list(chain(dirs_to_display, files_to_display))
     
-    if files:
+    print(layout["no_thumbnails"])
+    if layout["no_thumbnails"] not in ["", None, []]:
+        print(f"{len(layout["no_thumbnails"])} entries need thumbnails")
+    
+        batchsize = 60
+        no_thumbs = IndexData.return_by_uuid_list(uuid_list=layout["no_thumbnails"])[0:batchsize]
         print("files update")
-        no_thumbs = files.filter(new_ftnail__isnull=True)[:35]
         bulk = []
         for db_entry in no_thumbs:
             fs_item = os.path.join(db_entry.fqpndirectory, db_entry.name).title().strip()
             fs_item_hash = ThumbnailFiles.convert_text_to_md5_hdigest(fs_item)
-            thumbnail, created = ThumbnailFiles.objects.get_or_create(fqpn_filename = fs_item, fqpn_hash=fs_item_hash)
+            thumbnail = ThumbnailFiles.objects.create(fqpn_filename = fs_item, fqpn_hash=fs_item_hash)
             thumbnail.image_to_thumbnail()
             db_entry.new_ftnail = thumbnail
             bulk.append(db_entry)
         
         if bulk:
             start = time.time()
-            print("bulk update")
-            IndexData.objects.bulk_update(bulk, fields=['new_ftnail'], batch_size=40)
+            print("bulk update, wrote ",len(bulk))
+            IndexData.objects.bulk_update(bulk, fields=['new_ftnail'], batch_size=int(batchsize/4))
             print("bulk time - ", time.time()-start)
     
 
@@ -625,57 +628,49 @@ def test(request: WSGIRequest):
     :param request:
     :return:
     """
-    page_number = int(request.GET.get('page', 0))
-    paths = {
-        "webpath": request.path,
-        "album_viewing": settings.ALBUMS_PATH + request.path,
-        "thumbpath": ensures_endswith(request.path.replace(r"/albums/", r"/thumbnails/"), "/"),
-    }
-    found, directory = IndexDirs.search_for_directory(paths["album_viewing"])
-    logging.info(f"Viewing: {paths['album_viewing']}")
-
-    print("NEW VIEW GALLERY")
-    start_time = time.perf_counter()  # time.time()
-    request.path = request.path.lower().replace(os.sep, r"/").replace(r"/test/", r"/albums/", 1)
-    paths = {
-        "webpath": request.path,
-        "album_viewing": settings.ALBUMS_PATH + request.path,
-        "thumbpath": ensures_endswith(request.path.replace(r"/albums/", r"/thumbnails/"), "/"),
-    }
-    print(paths)
-    found, directory = IndexDirs.search_for_directory(paths["album_viewing"])
-    print(directory)
-    context = {}
-    context["data"] = {}
-    context["page_number"] = page_number
-    # context["paths"] = paths
-    context["dirs_count"] = directory.get_dir_counts()
-    context["chunk_size"] = settings.GALLERY_ITEMS_PER_PAGE
-    context["numb_of_files_on_dir_lastpage"] = 30 - (context["dirs_count"] % context["chunk_size"])
-    context["numb_of_dirs_on_dir_lastpage"] = context["dirs_count"] % context["chunk_size"]
+    response = render(request, "frontend/test.html", context, using="Django")
+    return response
     
-    context["files_count"] = directory.get_file_counts()
-    context["total_pages"] = int((context["dirs_count"] + context["files_count"]) / context["chunk_size"])+1
+def layout_manager(page_number=0, directory=None, sort_order=None, override_chunk_size=None):
+#    found, directory = IndexDirs.search_for_directory(paths["album_viewing"])
+    start_time = time.perf_counter()  # time.time()
+#    request.path = request.path.lower().replace(os.sep, r"/").replace(r"/test/", r"/albums/", 1)
+    # paths = {
+    #     "webpath": request.path,
+    #     "album_viewing": settings.ALBUMS_PATH + request.path,
+    #     "thumbpath": ensures_endswith(request.path.replace(r"/albums/", r"/thumbnails/"), "/"),
+    # }
+    output = {}
+    output["data"] = {}
+    output["page_number"] = page_number
+    # context["paths"] = paths
+    output["dirs_count"] = directory.get_dir_counts()
+    output["chunk_size"] = settings.GALLERY_ITEMS_PER_PAGE
+    output["numb_of_files_on_dir_lastpage"] = 30 - (output["dirs_count"] % output["chunk_size"])
+    output["numb_of_dirs_on_dir_lastpage"] = output["dirs_count"] % output["chunk_size"]
+    
+    output["files_count"] = directory.get_file_counts()
+    output["total_pages"] = int((output["dirs_count"] + output["files_count"]) / output["chunk_size"])+1
 
-    directories = list(directory.dirs_in_dir(sort=sort_order(request)).values_list("uuid", flat=True))
-    files = list(directory.files_in_dir(sort=sort_order(request)).values_list("uuid", flat=True))
-
+    directories = list(directory.dirs_in_dir(sort=sort_order).values_list("uuid", flat=True))
+    files = list(directory.files_in_dir(sort=sort_order).values_list("uuid", flat=True))
+    
     page_breakdown = {}
     file_offset = 0
-    for page_cnt in range(0, context["total_pages"]):
+    for page_cnt in range(0, output["total_pages"]):
         data = {}
         data["page"] = page_cnt
-        data["directories"] = directories[context["chunk_size"]*page_cnt:context["chunk_size"]*(page_cnt+1)]
+        data["directories"] = directories[output["chunk_size"]*page_cnt:output["chunk_size"]*(page_cnt+1)]
         data["cnt_dirs"] = len(data["directories"])
         data["files"] = files[file_offset:30-data["cnt_dirs"]+file_offset]
         data["cnt_files"] = len(data["files"])
         data["total_cnt"] = data["cnt_dirs"] + data["cnt_files"]
         file_offset += data["cnt_files"]
-        context["data"][page_cnt] = data
-        
-
-    response = render(request, "frontend/test.html", context, using="Django")
-    return response
+        output["data"][page_cnt] = data
+    output["all_uuids"] = list(chain(directories, files))
+    output["no_thumbnails"] = list(directory.files_in_dir().filter(new_ftnail__isnull=True).values_list("uuid", flat=True))
+    
+    return output
 
 
 # def view_setup():

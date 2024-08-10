@@ -25,14 +25,14 @@ from quickbbs.quickbbs_settings import *
 #   Debug, enables the debugging mode
 #
 DEBUG = False
-DEBUG = not DEBUG
+#DEBUG = not DEBUG
 print(f"* Debug Mode is {DEBUG}")
 
 #   Django Debug Toolbar, is controlled separately from the debug mode,
 #   so that timings can be w/o debug mode performance penalty.
-DEBUG_TOOLBAR = True
-# DEBUG_TOOLBAR = DEBUG
-#DEBUG_TOOLBAR = False
+#DEBUG_TOOLBAR = True
+DEBUG_TOOLBAR = DEBUG
+# DEBUG_TOOLBAR = False
 print(f"* Debug-toolbar is {DEBUG_TOOLBAR}")
 # Demo mode, redirects the database to a different database container, and album path.
 # Useful for demonstrating the software without using your master database.

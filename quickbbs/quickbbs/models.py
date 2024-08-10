@@ -244,6 +244,24 @@ class IndexDirs(models.Model):
             return (True, record)
         return (False, IndexDirs.objects.none())  # return an empty query set
 
+    @staticmethod
+    def return_by_uuid_list(uuid_list, sort=0) -> "QuerySet[IndexDirs]":
+        """
+        Return the files in the current directory
+        :param sort: The sort order of the files (0-2)
+        :return: The sorted query of files
+        """
+        # necessary to prevent circular references on startup
+        # pylint: disable-next=import-outside-toplevel
+        from frontend.database import SORT_MATRIX
+
+        dirs = (
+            IndexDirs.objects.filter(uuid__in=uuid_list)
+            .filter(delete_pending=False, ignore=False)
+            .order_by(*SORT_MATRIX[sort])
+        )
+        return dirs
+             
     def files_in_dir(self, sort=0) -> "QuerySet[IndexData]":
         """
         Return the files in the current directory
@@ -420,65 +438,30 @@ class IndexData(models.Model):
         blank=True,
     )
 
+    @staticmethod
+    def return_by_uuid_list(uuid_list, sort=0) -> "QuerySet[IndexData]":
+        """
+        Return the files in the current directory
+        :param sort: The sort order of the files (0-2)
+        :return: The sorted query of files
+        """
+        # necessary to prevent circular references on startup
+        # pylint: disable-next=import-outside-toplevel
+        from frontend.database import SORT_MATRIX
+
+        files = (
+            IndexData.objects.filter(uuid__in=uuid_list)
+            .filter(delete_pending=False, ignore=False)
+            .order_by(*SORT_MATRIX[sort])
+        )
+        return files
+        
     def get_webpath(self):
         """
         Convert the fqpndirectory to an web path
         :return:
         """
         return self.fqpndirectory.replace(settings.ALBUMS_PATH.lower() + r"/albums/", r"")
-
-    # def write_to_db_entry(self, fileentry, fqpn, version=4):
-    #     """
-    #     The write_to_db_entry function writes the fileentry to the IndexData database.
-    #     It takes a scandir entry and a fully qualified pathname as parameters.
-    #     The function then determines if it is dealing with a directory or not, and
-    #     then creates an appropriate FileType object for that file extension.
-    #     If it is not an image, video, audio or archive type of file (as defined in
-    #     the FILETYPE_DATA dictionary), then we will just create a generic FileType object
-    #     that has no other attributes than being there.
-    #
-    #     :param self: Reference the class instance
-    #     :param fileentry: scandir entry
-    #     :param fqpn: Pass the fully qualified pathname of the file to be scanned
-    #     :param version=4: Generate a uuid version 4
-    #     :return: None
-    #     """
-    #     """
-    #     Start of Unified code.  WIP
-    #     Intended to be the glue that writes the database entry.
-    #     Parameters
-    #     ----------
-    #     fileentry : The scandir entry
-    #     fqpn : The fully qualified pathname of the file
-    #     version : uuid version number
-    #
-    #     Returns
-    #     -------
-    #         None:
-    #
-    #     """
-    #     if self.uuid is None:
-    #         self.uuid = uuid.uuid(version=version)
-    #
-    #     fext = os.path.splitext(fileentry.name)[1].lower()
-    #     if fext == "":
-    #         fext = ".none"
-    #     self.filetypes(fileext=fext)
-    #
-    #     if fileentry.is_dir():
-    #         self.filetypes(fileext=".dir")
-    #         fext = ".dir"
-    #
-    #     if fext in [".gif"] and filetype_models.FILETYPE_DATA[fext]["is_image"]:
-    #         try:
-    #             animated = Image.open(os.path.join(fqpn, filename)).is_animated
-    #             force_save = True
-    #         except AttributeError:
-    #             print(f"{fext} is not an animated GIF")
-    #
-    #     numfiles = 0
-    #     numdirs = 0
-    #     lastscan = time.time()
 
     def get_file_counts(self):
         """
