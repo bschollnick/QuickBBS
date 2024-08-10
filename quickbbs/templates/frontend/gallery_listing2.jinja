@@ -159,7 +159,7 @@
                 </div>
                 <div class="column is-11 is-narrow is-gapless" style="border:1px solid black;margin-bottom:1px;margin-top:1px;"">
                     <div class="columns is-mobile  is-multiline is-gapless is-centered has-text-centered"  style="margin-bottom:1px;margin-top:1px;">
-                        {%- for item in pagelist -%}
+                        {%- for item in items_to_display -%}
                             <div class="column is-one-third" style="border:1px solid black;background-color:#{{item.filetype.color}};">
                                 <b>{{ loop.index }}</b> <br>
         <!--    Setup the color for the item box and hyperlink into the box -->
