@@ -103,6 +103,18 @@ class Command(BaseCommand):
             )
 
         filetypes.objects.update_or_create(
+            fileext=".link",
+            defaults={
+                "generic": True,
+                "icon_filename":"redirecting-link.png",
+                "color": "FDEDB1",
+                "filetype": settings.FTYPES["link"],
+                "is_link": True,
+                "mimetype": guess_type("test.url")[0],
+            },
+        )
+
+        filetypes.objects.update_or_create(
             fileext=".pdf",
             defaults={
                 "generic": False,

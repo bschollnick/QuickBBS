@@ -50,6 +50,7 @@ from frontend.utilities import (
 from thumbnails.models import ThumbnailFiles
 import thumbnails.image_utils as image_utils
 from frontend.web import detect_mobile, g_option, respond_as_attachment
+from frontend.utilities import executor
 
 # log = logging.getLogger(__name__)
 
@@ -163,7 +164,10 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
         if entry.new_ftnail.thumbnail_exists(size=thumbsize):
             return entry.new_ftnail.send_thumbnail(filename_override=None, fext_override=None, size=thumbsize)
 
-    return HttpResponseBadRequest(content="Do not create thumbnail.")
+#    return HttpResponseBadRequest(content="Do not create thumbnail.")
+    #
+    #   The only reason for this code, is for the generic icons, needs to be refactored.
+    #
     if entry.filetype.is_pdf or entry.filetype.is_image or entry.filetype.is_movie:
         # add in file size comparison
         # if not entry.new_ftnail:
@@ -322,7 +326,7 @@ def new_viewgallery(request: WSGIRequest):
                             sort_order=context["sort"])
 
     all_listings = layout["all_uuids"]
-#    all_listings = list(chain(directories, files))
+    # all_listings = list(chain(directories, files))
 
     chk_list = Paginator(all_listings, per_page=30)
     context["page_cnt"] = list(arange(1, chk_list.num_pages + 1))
@@ -340,34 +344,28 @@ def new_viewgallery(request: WSGIRequest):
     files_to_display = IndexData.return_by_uuid_list(uuid_list=layout["data"][context["current_page"]-1]["files"])
     context["items_to_display"] = list(chain(dirs_to_display, files_to_display))
     
-    print(layout["no_thumbnails"])
     if layout["no_thumbnails"] not in ["", None, []]:
+        start = time.time()
         print(f"{len(layout["no_thumbnails"])} entries need thumbnails")
     
-        batchsize = 60
+        batchsize = 100
         no_thumbs = IndexData.return_by_uuid_list(uuid_list=layout["no_thumbnails"])[0:batchsize]
-        print("files update")
         bulk = []
+        futures = []
         for db_entry in no_thumbs:
-            fs_item = os.path.join(db_entry.fqpndirectory, db_entry.name).title().strip()
-            fs_item_hash = ThumbnailFiles.convert_text_to_md5_hdigest(fs_item)
-            thumbnail = ThumbnailFiles.objects.create(fqpn_filename = fs_item, fqpn_hash=fs_item_hash)
-            thumbnail.image_to_thumbnail()
-            db_entry.new_ftnail = thumbnail
-            bulk.append(db_entry)
+            futures.append(executor.submit(update_thumbnail, db_entry))
+        ids = [f.result() for f in futures]
+        #     fs_item = os.path.join(db_entry.fqpndirectory, db_entry.name).title().strip()
+        #     fs_item_hash = ThumbnailFiles.convert_text_to_md5_hdigest(fs_item)
+        #     thumbnail = ThumbnailFiles.objects.create(fqpn_filename = fs_item, fqpn_hash=fs_item_hash)
+        #     thumbnail.image_to_thumbnail()
+        #     db_entry.new_ftnail = thumbnail
+        #     bulk.append(db_entry)
         
-        if bulk:
-            start = time.time()
-            print("bulk update, wrote ",len(bulk))
-            IndexData.objects.bulk_update(bulk, fields=['new_ftnail'], batch_size=int(batchsize/4))
-            print("bulk time - ", time.time()-start)
-    
-
-    # The only thing left is a directory.
-    # fs_path = ensures_endswith(
-    #     os.path.abspath(os.path.join(settings.ALBUMS_PATH, paths["webpath"][1:])),
-    #     os.sep,
-    # )
+        # if bulk:
+        #     print("bulk update, entries queued: ",len(bulk))
+        #     IndexData.objects.bulk_update(bulk, fields=['new_ftnail'], batch_size=10)
+        print("elapsed thumbnail time - ", time.time()-start)
 
     response = render(
         request,
@@ -377,6 +375,14 @@ def new_viewgallery(request: WSGIRequest):
     )
     print("Gallery View, processing time: ", time.perf_counter() - start_time)  # time.time() - start_time)
     return response
+
+def update_thumbnail(entry):
+    fs_item = os.path.join(entry.fqpndirectory, entry.name).title().strip()
+    fs_item_hash = ThumbnailFiles.convert_text_to_md5_hdigest(fs_item)
+    thumbnail = ThumbnailFiles.objects.create(fqpn_filename = fs_item, fqpn_hash=fs_item_hash)
+    thumbnail.image_to_thumbnail()
+    entry.new_ftnail = thumbnail
+    entry.save()
 
 async def info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRequest:
     return await item_info(request, i_uuid)
@@ -632,14 +638,7 @@ def test(request: WSGIRequest):
     return response
     
 def layout_manager(page_number=0, directory=None, sort_order=None, override_chunk_size=None):
-#    found, directory = IndexDirs.search_for_directory(paths["album_viewing"])
     start_time = time.perf_counter()  # time.time()
-#    request.path = request.path.lower().replace(os.sep, r"/").replace(r"/test/", r"/albums/", 1)
-    # paths = {
-    #     "webpath": request.path,
-    #     "album_viewing": settings.ALBUMS_PATH + request.path,
-    #     "thumbpath": ensures_endswith(request.path.replace(r"/albums/", r"/thumbnails/"), "/"),
-    # }
     output = {}
     output["data"] = {}
     output["page_number"] = page_number

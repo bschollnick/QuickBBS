@@ -2,47 +2,33 @@
 Utilities for QuickBBS, the python edition.
 """
 
-import logging
 import os
 import os.path
-
-# import re
 import stat
 import time
 import urllib.parse
 import uuid
-
-# from io import BytesIO
 from pathlib import Path
-
-# from typing import Union  # , List  # , Iterator, Optional, TypeVar, Generic
 
 # from moviepy.video.io import VideoFileClip
 # from moviepy.editor import VideoFileClip #* # import everythings (variables, classes, methods...)
 # inside moviepy.editor
 # import av  # Video Previews
 import django.db.utils
+import filetypes.models as filetype_models
+from cache_watcher.models import Cache_Storage
 from django.conf import settings
 from PIL import Image
-
-import filetypes.models as filetype_models
-
-# from cache.models import fs_Cache_Tracking as Cache_Tracking
-from cache_watcher.models import Cache_Storage
-from quickbbs.models import IndexData, IndexDirs, filetypes
-
-# import fitz  # PDF previews
-
-
-# from frontend import archives3 as archives
-
-# from frontend import constants
-
-# log = logging.getLogger(__name__)
 from quickbbs.logger import log
+from quickbbs.models import IndexData, IndexDirs
+
 
 Image.MAX_IMAGE_PIXELS = None  # Disable PILLOW DecompressionBombError errors.
+from django_thread import ThreadPoolExecutor
 
+MAX_THREADS = 8
+
+executor = ThreadPoolExecutor(max_workers=MAX_THREADS)
 
 def ensures_endswith(string_to_check, value) -> str:
     """
@@ -236,29 +222,26 @@ def process_filedata(fs_entry, db_record) -> IndexData:
     db_record.fqpndirectory, db_record.name = os.path.split(fs_entry.absolute())
     db_record.fqpndirectory = ensures_endswith(db_record.fqpndirectory.lower().replace("//", "/"), os.sep)
     db_record.name = db_record.name.title().replace("//", "/").strip()
-    db_record.fileext = fs_entry.suffix.lower()
-    db_record.is_dir = fs_entry.is_dir()
-    if db_record.is_dir:
-        db_record.fileext = ".dir"
-    if db_record.fileext in [".", ""]:
-        db_record.fileext = ".none"
-    if db_record.fileext not in filetype_models.FILETYPE_DATA:
+    fileext = fs_entry.suffix.lower()
+    is_dir = fs_entry.is_dir()
+    if is_dir:
+        fileext = ".dir"
+    if fileext in [".", ""]:
+        fileext = ".none"
+
+    if fileext not in filetype_models.FILETYPE_DATA:
+        print("Can't match fileext w/filetypes")
         return None
 
-    db_record.filetype = filetypes(fileext=db_record.fileext)
+    #db_record.filetype = filetypes(fileext=db_record.fileext)
+    db_record.filetype = filetype_models.filetypes(fileext=fileext)
     db_record.uuid = uuid.uuid4()
     db_record.size = fs_entry.stat()[stat.ST_SIZE]
     db_record.lastmod = fs_entry.stat()[stat.ST_MTIME]
     db_record.lastscan = time.time()
-
-    db_record.is_file = fs_entry.is_file  # ["is_file"]
-    db_record.is_archive = db_record.filetype.is_archive
-    # db_record.is_image = db_record.filetype.is_image
-    # db_record.is_movie = db_record.filetype.is_movie
-    # db_record.is_audio = db_record.filetype.is_audio
     db_record.is_animated = False
 
-    if db_record.is_dir:
+    if is_dir:
         sub_dir_fqpn = os.path.join(db_record.fqpndirectory, db_record.name)
         sync_database_disk(sub_dir_fqpn)
         return None
@@ -266,12 +249,15 @@ def process_filedata(fs_entry, db_record) -> IndexData:
         # fs_file_count, fs_dir_count = fs_counts(subdirectory)
         # db_record.numfiles, db_record.numdirs = fs_file_count, fs_dir_count
 
-    if filetype_models.FILETYPE_DATA[db_record.fileext]["is_image"] and db_record.fileext in [".gif"]:
+    if filetype_models.FILETYPE_DATA[fileext]["is_link"]:
+        desc, redirect = db_record.name.lower().split("*")
+        redirect = redirect.replace("'", "").replace("__", "/").replace(redirect.split(".")[-1],"")[:-1]
+        db_record.fqpndirectory = f"/{redirect}"
+    if filetype_models.FILETYPE_DATA[fileext]["is_image"] and fileext in [".gif"]:
         try:
             db_record.is_animated = Image.open(os.path.join(db_record.fqpndirectory, db_record.name)).is_animated
         except AttributeError:
             db_record.is_animated = False
-
     return db_record
 
 
@@ -313,130 +299,135 @@ def sync_database_disk(directoryname):
     if cached:
         return None
 
-    if not cached:
-        print("Not Cached! Rescanning directory")
-        # If the directory is not found in the Cache_Tracking table, then it needs to be rescanned.
-        # Remember, directory is placed in there, when it is scanned.
-        # If changed, then watchdog should have removed it from the path.
-        success, fs_entries = return_disk_listing(dirpath)
-        if not success:
-            # File path doesn't exist
-            # remove file path from cache
-            # remove parent from cache
-            # remove file path from Database
-            success, dirpath_id = IndexDirs.search_for_directory(dirpath)
-            parent_dir = dirpath_id.return_parent_directory()
-            dirpath_id.delete_directory(dirpath)
-            if parent_dir.exists():
-                parent_dir = parent_dir[0]
-                dirpath_id.delete_directory(parent_dir, cache_only=True)
-
-        # retrieve IndexDirs entry for dirpath
+    # It's not cached
+    #if not cached:
+    print("Not Cached! Rescanning directory")
+    # If the directory is not found in the Cache_Tracking table, then it needs to be rescanned.
+    # Remember, directory is placed in there, when it is scanned.
+    # If changed, then watchdog should have removed it from the path.
+    success, fs_entries = return_disk_listing(dirpath)
+    if not success:
+        # File path doesn't exist
+        # remove file path from cache
+        # remove parent from cache
+        # remove file path from Database
         success, dirpath_id = IndexDirs.search_for_directory(dirpath)
-        if not success:
-            return None
+        parent_dir = dirpath_id.return_parent_directory()
+        dirpath_id.delete_directory(dirpath)
+        if parent_dir.exists():
+            parent_dir = parent_dir[0]
+            dirpath_id.delete_directory(parent_dir, cache_only=True)
+    fs_filenames_in_directory = fs_entries.keys()
 
-        # Compare the database entries to see if they exist in the file system
-        # If they don't, remove from cache, and delete the directory
-        directories = dirpath_id.dirs_in_dir()
-        for fqpn in directories.values_list("fqpndirectory", flat=True):
-            if str(Path(fqpn).name).strip().title() not in fs_entries:
-                print("Database contains a **directory** not in the fs: ", fqpn)
-                IndexDirs.delete_directory(fqpn_directory=fqpn)
-
-        update = False
-        db_data = dirpath_id.files_in_dir()
-        # if count in [0, None]:
-        #     db_data = IndexData.objects.select_related("filetype").filter(
-        #         fqpndirectory=webpath, delete_pending=False, ignore=False
-        #     )
-
-        for db_entry in db_data:
-            if db_entry.name.strip() not in fs_entries:
-                print("Database contains a file not in the fs: ", db_entry.name)
-                # The entry just is not in the file system.  Delete it.
-                db_entry.ignore = True
-                db_entry.delete_pending = True
-                db_entry.parent_dir = dirpath_id
-                records_to_update.append(db_entry)
-            else:
-                # The db_entry does exist in the file system.
-                # Does the lastmod match?
-                # Does size match?
-                # If directory, does the numfiles, numdirs, count_subfiles match?
-                # update = False, unncessary, moved to above the for loop.
-                entry = fs_entries[db_entry.name.title()]
-                if db_entry.lastmod != entry.stat()[stat.ST_MTIME]:
-                    # print("LastMod mismatch")
-                    db_entry.lastmod = entry.stat()[stat.ST_MTIME]
-                    update = True
-                if db_entry.size != entry.stat()[stat.ST_SIZE]:
-                    # print("Size mismatch")
-                    db_entry.size = entry.stat()[stat.ST_SIZE]
-                    update = True
-                if update:
-                    records_to_update.append(db_entry)
-                    print("Database record being updated: ", db_entry.name)
-                    #                    db_entry.save()
-                    update = False
-
-        # Check for entries that are not in the database, but do exist in the file system
-        names = IndexData.objects.filter(fqpndirectory=webpath).only("name").values_list("name", flat=True)
-        # fetch an updated set of records, since we may have changed it from above.
-        records_to_create = []
-        for _, entry in fs_entries.items():
-            test_name = entry.name.title().replace("//", "/").strip()
-            if test_name not in names:
-                # The record has not been found
-                # add it.
-                record = IndexData()
-                record = process_filedata(entry, record)
-                if record is None:
-                    continue
-                record.parent_dir = dirpath_id
-                if record.filetype.is_archive:
-                    print("Archive detected ", record.name)
-                records_to_create.append(record)
-        if records_to_update:
-            try:
-                IndexData.objects.bulk_update(
-                    records_to_update,
-                    [
-                        "ignore",
-                        "lastmod",
-                        "delete_pending",
-                        "size",
-                        #                        "numfiles",
-                        #                        "numdirs",
-                        "parent_dir_id",
-                    ],
-                    bulk_size,
-                )
-                records_to_update = []
-            except django.db.utils.IntegrityError:
-                return None
-        else:
-            pass
-            # print("No records to update")
-        # The record is in the database, so it's already been vetted in the database comparison
-        if records_to_create:
-            try:
-                IndexData.objects.bulk_create(records_to_create, bulk_size)
-                records_to_create = []
-            except django.db.utils.IntegrityError:
-                return None
-            # The record is in the database, so it's already been vetted in the database comparison
-        else:
-            pass
-
-        # The path has not been seen since the Cache Tracking has been enabled
-        # (eg Startup, or the entry has been nullified)
-        # Add to table, and allow a rescan to occur.
-        print(f"\nSaving, {dirpath} to cache tracking\n")
-        Cache_Storage.add_to_cache(DirName=dirpath)
-        # new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
-        # new_rec.save()
+    # retrieve IndexDirs entry for dirpath
+    success, dirpath_id = IndexDirs.search_for_directory(dirpath)
+    if not success:
         return None
+
+    # Compare the database entries to see if they exist in the file system
+    # If they don't, remove from cache, and delete the directory
+    db_directories = dirpath_id.dirs_in_dir()
+    for fqpn in db_directories.values_list("fqpndirectory", flat=True):
+        if str(Path(fqpn).name).strip().title() not in fs_entries:
+            print("Database contains a **directory** not in the fs: ", fqpn)
+            IndexDirs.delete_directory(fqpn_directory=fqpn)
+
+    update = False
+    db_data = dirpath_id.files_in_dir()
+    # if count in [0, None]:
+    #     db_data = IndexData.objects.select_related("filetype").filter(
+    #         fqpndirectory=webpath, delete_pending=False, ignore=False
+    #     )
+
+    for db_entry in db_data:
+        if db_entry.name.strip() not in fs_entries:
+            print("Database contains a file not in the fs: ", db_entry.name)
+            # The entry just is not in the file system.  Delete it.
+            db_entry.ignore = True
+            db_entry.delete_pending = True
+            db_entry.parent_dir = dirpath_id
+            records_to_update.append(db_entry)
+        else:
+            # The db_entry does exist in the file system.
+            # Does the lastmod match?
+            # Does size match?
+            # If directory, does the numfiles, numdirs, count_subfiles match?
+            # update = False, unncessary, moved to above the for loop.
+            entry = fs_entries[db_entry.name.title()]
+            if db_entry.lastmod != entry.stat()[stat.ST_MTIME]:
+                # print("LastMod mismatch")
+                db_entry.lastmod = entry.stat()[stat.ST_MTIME]
+                update = True
+            if db_entry.size != entry.stat()[stat.ST_SIZE]:
+                # print("Size mismatch")
+                db_entry.size = entry.stat()[stat.ST_SIZE]
+                update = True
+            if update:
+                records_to_update.append(db_entry)
+                print("Database record being updated: ", db_entry.name)
+                #                    db_entry.save()
+                update = False
+
+    # Check for entries that are not in the database, but do exist in the file system
+    names = IndexData.objects.filter(fqpndirectory=webpath).only("name").values_list("name", flat=True)
+    # fetch an updated set of records, since we may have changed it from above.
+    records_to_create = []
+    print("names:",names)
+    for _, entry in fs_entries.items():
+        test_name = entry.name.title().replace("//", "/").strip()
+        print(test_name, test_name in names )
+        if test_name not in names:
+            # The record has not been found
+            # add it.
+            record = IndexData()
+            record = process_filedata(entry, record)
+            if record is None:
+                continue
+            record.parent_dir = dirpath_id
+            if record.filetype.is_archive:
+                print("Archive detected ", record.name)
+            record.save()
+    if records_to_update:
+        try:
+            IndexData.objects.bulk_update(
+                records_to_update,
+                [
+                    "ignore",
+                    "lastmod",
+                    "delete_pending",
+                    "size",
+                    #                        "numfiles",
+                    #                        "numdirs",
+                    "parent_dir_id",
+                ],
+                bulk_size,
+            )
+            records_to_update = []
+        except django.db.utils.IntegrityError:
+            return None
+    else:
+        pass
+        # print("No records to update")
+    # The record is in the database, so it's already been vetted in the database comparison
+    if records_to_create:
+        try:
+            IndexData.objects.bulk_create(records_to_create, bulk_size)
+            records_to_create = []
+        except django.db.utils.IntegrityError:
+            print("Integrity Error")
+            return None
+        # The record is in the database, so it's already been vetted in the database comparison
+    else:
+        pass
+
+    # The path has not been seen since the Cache Tracking has been enabled
+    # (eg Startup, or the entry has been nullified)
+    # Add to table, and allow a rescan to occur.
+    print(f"\nSaving, {dirpath} to cache tracking\n")
+    Cache_Storage.add_to_cache(DirName=dirpath)
+    # new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
+    # new_rec.save()
+    return None
 
 
 def read_from_disk(dir_to_scan, skippable=True):
@@ -461,3 +452,29 @@ def read_from_disk(dir_to_scan, skippable=True):
         dir_path = Path(ensures_endswith(dir_to_scan, os.sep))
 
     sync_database_disk(str(dir_path))
+
+
+
+# import os.path
+# from Foundation import *
+# from cocoa import NSURL
+
+# def target_of_alias(path):
+#     url = NSURL.fileURLWithPath_(path)
+#     bookmarkData, error = NSURL.bookmarkDataWithContentsOfURL_error_(url, None)
+#     if bookmarkData is None:
+#         return None
+#     opts = NSURLBookmarkResolutionWithoutUI | NSURLBookmarkResolutionWithoutMounting
+#     resolved, stale, error = NSURL.URLByResolvingBookmarkData_options_relativeToURL_bookmarkDataIsStale_error_(bookmarkData, opts, None, None, None)
+#     return resolved.path()
+
+# def resolve_links_and_aliases(path):
+#     while True:
+#         alias_target = target_of_alias(path)
+#         if alias_target:
+#             path = alias_target
+#             continue
+#         if os.path.islink(path):
+#             path = os.path.realpath(path)
+#             continue
+#         return path
