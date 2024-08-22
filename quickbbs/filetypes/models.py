@@ -36,7 +36,8 @@ class filetypes(models.Model):
     is_text = models.BooleanField(default=False, db_index=True)
     is_html = models.BooleanField(default=False, db_index=True)
     is_markdown = models.BooleanField(default=False, db_index=True)
-
+    is_link = models.BooleanField(default=False, db_index=True)
+    
     def __unicode__(self):
         return f"{self.fileext}"
 

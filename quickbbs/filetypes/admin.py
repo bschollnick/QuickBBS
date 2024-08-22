@@ -22,6 +22,7 @@ class AdminFiletypes(admin.ModelAdmin):
         "is_text",
         "is_html",
         "is_markdown",
+        "is_link"
     )
 
     list_display = (
@@ -40,4 +41,5 @@ class AdminFiletypes(admin.ModelAdmin):
         "is_text",
         "is_html",
         "is_markdown",
+        "is_link"
     )

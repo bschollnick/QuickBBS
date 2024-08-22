@@ -162,14 +162,19 @@
                         {%- for item in items_to_display -%}
                             <div class="column is-one-third" style="border:1px solid black;background-color:#{{item.filetype.color}};">
                                 <b>{{ loop.index }}</b> <br>
-        <!--    Setup the color for the item box and hyperlink into the box -->
-                                <a href="{{item.get_view_url()}}?sort={{sort}}" class="thumbnail" style="background-color:#{{item.get_bg_color()}};" defer>
-
         <!--    The Item title           -->
-                                {{ item.name|wordwrap(width=24, break_long_words=True)}} <br>
-
+                                {% if item.filetype.is_link %}
+                                    <a href="{{ item.fqpndirectory }}"  style="background-color:#{{item.get_bg_color()}};" defer>
+                                    {{ item.name.split("*")[0] }}<br>
+                                    <img loading='lazy' src="{{item.get_thumbnail_url()}}" class="img-responsive" style="width:auto;max-width:100%"/>
+                                    <!--    Setup the color for the item box and hyperlink into the box -->
+                                {% else %}
+                                <!--    Setup the color for the item box and hyperlink into the box -->
+                                    <a href="{{item.get_view_url()}}?sort={{sort}}" class="thumbnail" style="background-color:#{{item.get_bg_color()}};" defer>
+                                    {{ item.name|wordwrap(width=24, break_long_words=True)}} <br>
+                                    <img loading='lazy' src="{{item.get_thumbnail_url()}}" class="img-responsive" style="width:auto;max-width:100%"/>
+                                {% endif %}
         <!--    Display the thumbnail           -->
-                                <img loading='lazy' src="{{item.get_thumbnail_url()}}" class="img-responsive" style="width:auto;max-width:100%"/>
 
                                 </a>
                                 {% if debug %}
@@ -186,6 +191,8 @@
                                         {% elif item.filetype.is_image  or item.filetype.is_movie %}
                                             <a href="{{ item.get_thumbnail_url(size="small") }}" class="img-responsive" style="width:auto;max-width:100%"/>
                                             <sub>{{ item.get_thumbnail_url(size="small")}}</sub>
+                                        {% elif item.filetype.is_link %}
+                                            <a href="{{ item.fqpndirectory }}" class="img-responsive" style="width:auto;max-width:100%"/>
                                         {% else %}
                                             <a href="/resources/images/{{ item.filetype.icon_filename }}" class="img-responsive" style="width:auto;max-width:100%"/>
                                         {% endif -%}
@@ -219,9 +226,15 @@
                                             <font class="is-size-7">{{ fromtimestamp( item.lastmod).strftime("%m/%d/%y %H:%M") }}</font>
                                     </div>
                                     <div class="column is-6 is-vcentered" style="text-align:right;padding:10px;">
-                                        <a href="{{item.get_view_url()}}?sort={{sort}}" target="_blank">
-                                            {{ icon("external-link-alt fa-2x") }}
-                                        </a>
+                                        {% if item.filetype.is_link %}
+                                            <a href="{{ item.fqpndirectory }}" target="_blank">
+                                                {{ icon("external-link-alt fa-2x") }}
+                                            </a>
+                                        {% else %}
+                                            <a href="{{item.get_view_url()}}?sort={{sort}}" target="_blank">
+                                                {{ icon("external-link-alt fa-2x") }}
+                                            </a>
+                                        {% endif %}
                                     </div>
                                 </div>
                             </div>

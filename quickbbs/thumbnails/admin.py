@@ -25,10 +25,19 @@ class AdminThumbnail_Files(admin.ModelAdmin):
     )  
 
     def sthumb(self, obj):
-        return obj.small_thumb[0:25]
+        if obj.small_thumb is not None:
+            return obj.small_thumb[0:25]
+        else:
+            return "None"
 
     def mthumb(self, obj):
-        return obj.medium_thumb[0:25]
+        if obj.medium_thumb is not None:
+            return obj.medium_thumb[0:25]
+        else:
+            return "None"
 
     def lthumb(self, obj):
-        return obj.large_thumb[0:25]
+        if obj.large_thumb is not None:
+            return obj.large_thumb[0:25]
+        else:
+            return "None"
