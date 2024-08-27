@@ -288,7 +288,7 @@ def new_viewgallery(request: WSGIRequest):
         "thumbpath": ensures_endswith(request.path.replace(r"/albums/", r"/thumbnails/"), "/"),
     }
     found, directory = IndexDirs.search_for_directory(paths["album_viewing"])
-    logging.info(f"Viewing: {paths['album_viewing']}")
+    logger.info(f"Viewing: {paths['album_viewing']}")
 
     if not os.path.exists(paths["album_viewing"]):
         if found:
@@ -348,13 +348,14 @@ def new_viewgallery(request: WSGIRequest):
         start = time.time()
         print(f"{len(layout["no_thumbnails"])} entries need thumbnails")
     
-        batchsize = 100
+        batchsize = 75
         no_thumbs = IndexData.return_by_uuid_list(uuid_list=layout["no_thumbnails"])[0:batchsize]
         bulk = []
         futures = []
         for db_entry in no_thumbs:
             futures.append(executor.submit(update_thumbnail, db_entry))
         ids = [f.result() for f in futures]
+        print(ids)
         #     fs_item = os.path.join(db_entry.fqpndirectory, db_entry.name).title().strip()
         #     fs_item_hash = ThumbnailFiles.convert_text_to_md5_hdigest(fs_item)
         #     thumbnail = ThumbnailFiles.objects.create(fqpn_filename = fs_item, fqpn_hash=fs_item_hash)

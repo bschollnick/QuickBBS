@@ -55,13 +55,13 @@ def new_process_dir2(db_entry):
                 fs_d_fname = os.path.join(file_to_thumb.fqpndirectory, file_to_thumb.name)
                 # file system location of directory
                 fext = os.path.splitext(file_to_thumb.name)[1].lower()
-                temp = resize_pil_image(
+                img_icon = resize_pil_image(
                     return_image_obj(fs_d_fname),
                     settings.IMAGE_SIZE["small"],
                     fext=fext,
                 )
                 # imagedata = temp
-                db_entry.small_thumb = temp
+                db_entry.small_thumb = img_icon
                 break
     if not db_entry.small_thumb:
         temp = return_image_obj(os.path.join(settings.IMAGES_PATH, FILETYPE_DATA[".dir"]["icon_filename"]))
@@ -73,25 +73,7 @@ def new_process_dir2(db_entry):
         db_entry.save()
     except IntegrityError:
         pass
-
-
-def invalidate_thumb(thumbnail):
-    """
-    The invalidate_thumb function accepts a Thumbnail object and sets all of its attributes
-    to an empty byte string. It is used when the thumbnail file cannot be found on disk,
-    or when the thumbnail file has been corrupted.
-
-    :param thumbnail: Store the thumbnail data
-    :return: The thumbnail object
-    >>> test = quickbbs.models.IndexData()
-    >>> test = invalidate_thumb(test)
-    """
-    thumbnail.FileSize = -1
-    thumbnail.small_thumb = b""
-    thumbnail.medium_thumb = b""
-    thumbnail.large_thumb = b""
-    return thumbnail
-
+    
 def new_process_img(
     entry,
 ):
@@ -112,16 +94,10 @@ def new_process_img(
         Cache_Storage.remove_from_cache_name(DirName=entry.fqpndirectory)
         return None
     fext = os.path.splitext(fs_fname)[1][1:].lower()
-    entry.file_tnail = invalidate_thumb(entry.file_tnail)
-
-    # https://stackoverflow.com/questions/1167398/python-access-class-property-from-string
-    temp = return_image_obj(fs_fname)
-    for size in ["large", "medium", "small"]:
-        imagedata = resize_pil_image(temp, settings.IMAGE_SIZE[size], fext=fext)
-        setattr(entry.file_tnail, f"{size}_thumb", imagedata)
-
+    # entry.file_tnail = invalidate_thumb(entry.file_tnail)
+    entry.file_tnail.invalidate_thumb()
+    entry.file_tnail.image_to_thumbnail()
     entry.file_tnail.FileSize = entry.size
-    # entry.file_tnail.save()
     return entry
 
 
