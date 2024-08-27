@@ -84,10 +84,10 @@ if not DEBUG:
         "default": {
             "BACKEND": "django.core.cache.backends.db.DatabaseCache",
             "LOCATION": "cache_data_db_table",
-            "TIMEOUT": 1200,  # 20 minutes #300, # 5 minutes
+            "TIMEOUT": 180,  # 20 minutes #300, # 5 minutes
             "OPTIONS": {
-                "MAX_ENTRIES": 20000,
-                "CULL_FREQUENCY": 4,
+                "MAX_ENTRIES": 7500,
+                "CULL_FREQUENCY": 3,
             },
         }
     }

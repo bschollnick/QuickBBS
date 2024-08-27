@@ -162,20 +162,17 @@
                         {%- for item in items_to_display -%}
                             <div class="column is-one-third" style="border:1px solid black;background-color:#{{item.filetype.color}};">
                                 <b>{{ loop.index }}</b> <br>
-        <!--    The Item title           -->
+        <!-- title -->
                                 {% if item.filetype.is_link %}
                                     <a href="{{ item.fqpndirectory }}"  style="background-color:#{{item.get_bg_color()}};" defer>
                                     {{ item.name.split("*")[0] }}<br>
                                     <img loading='lazy' src="{{item.get_thumbnail_url()}}" class="img-responsive" style="width:auto;max-width:100%"/>
-                                    <!--    Setup the color for the item box and hyperlink into the box -->
                                 {% else %}
-                                <!--    Setup the color for the item box and hyperlink into the box -->
                                     <a href="{{item.get_view_url()}}?sort={{sort}}" class="thumbnail" style="background-color:#{{item.get_bg_color()}};" defer>
                                     {{ item.name|wordwrap(width=24, break_long_words=True)}} <br>
                                     <img loading='lazy' src="{{item.get_thumbnail_url()}}" class="img-responsive" style="width:auto;max-width:100%"/>
                                 {% endif %}
-        <!--    Display the thumbnail           -->
-
+        <!-- Display thumbnail  -->
                                 </a>
                                 {% if debug %}
                                     <br>

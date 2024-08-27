@@ -255,7 +255,9 @@ def process_filedata(fs_entry, db_record) -> IndexData:
         db_record.fqpndirectory = f"/{redirect}"
     if filetype_models.FILETYPE_DATA[fileext]["is_image"] and fileext in [".gif"]:
         try:
-            db_record.is_animated = Image.open(os.path.join(db_record.fqpndirectory, db_record.name)).is_animated
+            with Image.open(os.path.join(db_record.fqpndirectory, db_record.name)) as test_animation:
+                # db_record.is_animated = Image.open(os.path.join(db_record.fqpndirectory, db_record.name)).is_animated
+                db_record.is_animated = test_animation.is_animated
         except AttributeError:
             db_record.is_animated = False
     return db_record
@@ -284,7 +286,7 @@ def sync_database_disk(directoryname):
     * Logic Update
         * If there are no database entries for the directory, the fs comparing to the database
     """
-    bulk_size = 100
+    bulk_size = 5
     if directoryname in [os.sep, r"/"]:
         directoryname = settings.ALBUMS_PATH
     webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
@@ -372,10 +374,10 @@ def sync_database_disk(directoryname):
     names = IndexData.objects.filter(fqpndirectory=webpath).only("name").values_list("name", flat=True)
     # fetch an updated set of records, since we may have changed it from above.
     records_to_create = []
-    print("names:",names)
+    #print("names:",names)
     for _, entry in fs_entries.items():
         test_name = entry.name.title().replace("//", "/").strip()
-        print(test_name, test_name in names )
+        # print(test_name, test_name in names )
         if test_name not in names:
             # The record has not been found
             # add it.
@@ -427,6 +429,15 @@ def sync_database_disk(directoryname):
     Cache_Storage.add_to_cache(DirName=dirpath)
     # new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
     # new_rec.save()
+
+    #
+    #   Testing - TODO: Remove.  Only testing to see if the rescan memory leak is due to
+    #   old connections?  But Django doesn't appear to be running out of connections to
+    #   postgres?  So probably a red herring.
+    #
+    from django.db import connection, close_old_connections
+    close_old_connections()
+    connection.connect()
     return None
 
 

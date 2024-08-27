@@ -151,7 +151,8 @@ def resize_pil_image(source_image, size, fext) -> Image:
             source_image = source_image.convert("RGB")
             source_image.save(fp=image_data, format="JPEG", optimize=False)
         image_data.seek(0)
-        return image_data.getvalue()
+        data = image_data.getvalue()
+    return data
 
 
 def return_image_obj(fs_path, memory=False) -> Image:

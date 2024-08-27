@@ -17,11 +17,16 @@ def resources(request, pathstr=None) -> object:
     """
     if pathstr is not None:
         album_viewing = os.path.join(settings.RESOURCES_PATH, pathstr)
-        if not os.path.exists(album_viewing):
+        try:
+          return serve(
+             request, os.path.basename(album_viewing), os.path.dirname(album_viewing))
+        except IOError:
             print(f"File Not Found - {album_viewing}")
-        return serve(
-            request, os.path.basename(album_viewing), os.path.dirname(album_viewing)
-        )
+        # if not os.path.exists(album_viewing):
+        #     print(f"File Not Found - {album_viewing}")
+        # return serve(
+        #     request, os.path.basename(album_viewing), os.path.dirname(album_viewing)
+        # )
     return Http404
 
 
