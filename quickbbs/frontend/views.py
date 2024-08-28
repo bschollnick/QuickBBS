@@ -201,7 +201,6 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
 
     if entry.filetype.icon_filename not in ["", None]:
         entry.is_generic_icon = True
-        # entry.fqpndirectory = os.path.join(settings.RESOURCES_PATH, "images", entry.filetype.icon_filename)
         try:
             entry.save()
         except IntegrityError:
@@ -278,7 +277,7 @@ def search_viewresults(request: WSGIRequest):
     return response
 
 
-# @sync_to_async
+#@sync_to_async
 def new_viewgallery(request: WSGIRequest):
     """
     View the requested Gallery page
@@ -412,10 +411,6 @@ def update_thumbnail(entry):
     entry.save()
 
 
-async def info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRequest:
-    return await item_info(request, i_uuid)
-
-
 @sync_to_async
 @api_view()
 def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRequest:
@@ -536,9 +531,7 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
     # print("item info - Process time: ", time.perf_counter() - context["start_time"], "secs")
     return Response(context)
 
-
-@sync_to_async
-def new_json_viewitem(request: WSGIRequest, i_uuid: str):
+async def new_json_viewitem(request: WSGIRequest, i_uuid: str):
     """
     This is the new view item.  It's a view stub, that calls item_info via json, to load the
     data for the record.
@@ -560,10 +553,6 @@ def new_json_viewitem(request: WSGIRequest, i_uuid: str):
         request, "frontend/gallery_json_item.jinja", context, using="Jinja2"
     )
     return response
-
-
-async def view_item(request: WSGIRequest, i_uuid: str):
-    return await new_json_viewitem(request, i_uuid)
 
 
 @sync_to_async
