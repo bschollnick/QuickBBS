@@ -11,7 +11,6 @@ from wsgiref.util import FileWrapper
 from django.conf import settings
 from django.contrib.auth import authenticate, login
 from django.http import FileResponse, StreamingHttpResponse
-
 # from django.conf import settings
 from django.views.decorators.cache import never_cache
 
@@ -62,27 +61,27 @@ def g_option(request, option_name, def_value):
     return request.GET.get(option_name, def_value)
 
 
-def return_inline_attach(filename, binaryblob):
-    """
-     Output a http response header, for an image attachment.
+# def return_inline_attach(filename, binaryblob):
+#     """
+#      Output a http response header, for an image attachment.
 
-    Args:
-         filename (str): Filename of the file to be sent as the attachment name
-         binaryblob (bin): The blob of data that is the image file
+#     Args:
+#          filename (str): Filename of the file to be sent as the attachment name
+#          binaryblob (bin): The blob of data that is the image file
 
-     Returns:
-         object::
-             The Django response object that contains the attachment and header
+#      Returns:
+#          object::
+#              The Django response object that contains the attachment and header
 
-     Raises:
-         None
+#      Raises:
+#          None
 
-     Examples
-     --------
-     return_img_attach("test.png", img_data, "JPEG")
+#      Examples
+#      --------
+#      return_img_attach("test.png", img_data, "JPEG")
 
-    """
-    return return_img_attach(filename, binaryblob, fext_override="JPEG")
+#     """
+#     return return_img_attach(filename, binaryblob, fext_override="JPEG")
 
 
 def detect_mobile(request):
@@ -188,40 +187,40 @@ def file_iterator(file_path, chunk_size=8192, offset=0, length=None):
             yield data
 
 
-def stream_audio(request):
-    """
-    # https://www.djangotricks.com/tricks/4S7qbNhtUeAD/
+# def stream_audio(request):
+#     """
+#     # https://www.djangotricks.com/tricks/4S7qbNhtUeAD/
 
-    """
-    path = str(settings.BASE_DIR / "data" / "music.mp3")
-    content_type = "audio/mp3"
+#     """
+#     path = str(settings.BASE_DIR / "data" / "music.mp3")
+#     content_type = "audio/mp3"
 
-    range_header = request.META.get("HTTP_RANGE", "").strip()
-    range_match = RANGE_RE.match(range_header)
-    size = os.path.getsize(path)
+#     range_header = request.META.get("HTTP_RANGE", "").strip()
+#     range_match = RANGE_RE.match(range_header)
+#     size = os.path.getsize(path)
 
-    if range_match:
-        first_byte, last_byte = range_match.groups()
-        first_byte = int(first_byte) if first_byte else 0
-        last_byte = (
-            first_byte + 1024 * 1024 * 8
-        )  # The max volume of the response body is 8M per piece
-        if last_byte >= size:
-            last_byte = size - 1
-        length = last_byte - first_byte + 1
-        response = StreamingHttpResponse(
-            file_iterator(path, offset=first_byte, length=length),
-            status=206,
-            content_type=content_type,
-        )
-        response["Content-Range"] = f"bytes {first_byte}-{last_byte}/{size}"
+#     if range_match:
+#         first_byte, last_byte = range_match.groups()
+#         first_byte = int(first_byte) if first_byte else 0
+#         last_byte = (
+#             first_byte + 1024 * 1024 * 8
+#         )  # The max volume of the response body is 8M per piece
+#         if last_byte >= size:
+#             last_byte = size - 1
+#         length = last_byte - first_byte + 1
+#         response = StreamingHttpResponse(
+#             file_iterator(path, offset=first_byte, length=length),
+#             status=206,
+#             content_type=content_type,
+#         )
+#         response["Content-Range"] = f"bytes {first_byte}-{last_byte}/{size}"
 
-    else:
-        response = StreamingHttpResponse(
-            FileWrapper(open(path, "rb")), content_type=content_type
-        )
-    response["Accept-Ranges"] = "bytes"
-    return response
+#     else:
+#         response = StreamingHttpResponse(
+#             FileWrapper(open(path, "rb")), content_type=content_type
+#         )
+#     response["Accept-Ranges"] = "bytes"
+#     return response
 
 
 def stream_video(request, fqpn, content_type="video/mp4"):

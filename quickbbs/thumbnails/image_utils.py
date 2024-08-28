@@ -66,7 +66,9 @@ def movie_to_pil(fspath):
     except av.error.InvalidDataError:
         image = Image.open(
             #            return_image_obj(
-            os.path.join(settings.RESOURCES_PATH, "images", "3559224-200_broken_video.png")
+            os.path.join(
+                settings.RESOURCES_PATH, "images", "3559224-200_broken_video.png"
+            )
         )
     return image
 

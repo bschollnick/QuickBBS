@@ -1,8 +1,9 @@
 import logging
 import os
 
-from .settings import BASE_DIR, DEBUG
 import quickbbs.settings as settings
+
+from .settings import BASE_DIR, DEBUG
 
 # https://github.com/metakermit/fail-nicely-django
 #
@@ -38,7 +39,9 @@ LOGGING = {
     "formatters": {
         # see full list of attributes here:
         # https://docs.python.org/3/library/logging.html#logrecord-attributes
-        "verbose": {"format": "%(levelname)s %(asctime)s %(module)s %(process)d %(thread)d %(message)s"},
+        "verbose": {
+            "format": "%(levelname)s %(asctime)s %(module)s %(process)d %(thread)d %(message)s"
+        },
         "simple": {"format": "%(levelname)s %(message)s"},
         "timestampthread": {
             "format": "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s] [%(name)-20.20s]  %(message)s",

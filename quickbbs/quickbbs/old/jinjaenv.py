@@ -12,7 +12,6 @@ from django.conf import settings
 from django.templatetags.static import static
 from django.urls import reverse
 from django_icons.templatetags.icons import icon_tag
-
 # from django_unicorn.templatetags.unicorn import unicorn_scripts, unicorn
 from jinja2 import Environment
 
