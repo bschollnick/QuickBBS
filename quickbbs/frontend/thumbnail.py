@@ -4,26 +4,22 @@ Thumbnail routines for QuickBBS
 
 import os
 
-# from typing import Iterator  # , Optional, Union, TypeVar, Generic
-
 from django.conf import settings
 from django.db.utils import IntegrityError
-from filetypes.models import FILETYPE_DATA
 
-# from quickbbs.models import IndexData  # , Thumbnails_Archives
-from thumbnails.image_utils import (
-    #    image_to_pil,
-    #    movie_to_pil,
-    #    pdf_to_pil,
-    resize_pil_image,
-    return_image_obj,
-)
 from cache_watcher.models import Cache_Storage
+from filetypes.models import FILETYPE_DATA
+from frontend.utilities import \
+    sync_database_disk  # cr_tnail_img,; return_image_obj,; read_from_disk,
+# from quickbbs.models import IndexData  # , Thumbnails_Archives
+from thumbnails.image_utils import (  # image_to_pil,; movie_to_pil,; pdf_to_pil,
+    resize_pil_image, return_image_obj)
 
-from frontend.utilities import (  # cr_tnail_img,; return_image_obj,
-    #    read_from_disk,
-    sync_database_disk,
-)
+# from typing import Iterator  # , Optional, Union, TypeVar, Generic
+
+
+
+
 
 def new_process_dir2(db_entry):
     """
@@ -42,7 +38,9 @@ def new_process_dir2(db_entry):
     #
     if db_entry.small_thumb not in [b"", None]:
         # Does the thumbnail exist?
-        raise ValueError("I shouldn't be here! - new_process_dir2 w/entry that has thumbnail")
+        raise ValueError(
+            "I shouldn't be here! - new_process_dir2 w/entry that has thumbnail"
+        )
 
     files = db_entry.files_in_dir()
     if not files:
@@ -52,7 +50,9 @@ def new_process_dir2(db_entry):
     if files:  # found an file in the directory to use for thumbnail purposes
         for file_to_thumb in files:
             if file_to_thumb.filetype.is_image:
-                fs_d_fname = os.path.join(file_to_thumb.fqpndirectory, file_to_thumb.name)
+                fs_d_fname = os.path.join(
+                    file_to_thumb.fqpndirectory, file_to_thumb.name
+                )
                 # file system location of directory
                 fext = os.path.splitext(file_to_thumb.name)[1].lower()
                 img_icon = resize_pil_image(
@@ -64,8 +64,12 @@ def new_process_dir2(db_entry):
                 db_entry.small_thumb = img_icon
                 break
     if not db_entry.small_thumb:
-        temp = return_image_obj(os.path.join(settings.IMAGES_PATH, FILETYPE_DATA[".dir"]["icon_filename"]))
-        img_icon = resize_pil_image(temp, settings.IMAGE_SIZE["small"], FILETYPE_DATA[".dir"]["icon_filename"])
+        temp = return_image_obj(
+            os.path.join(settings.IMAGES_PATH, FILETYPE_DATA[".dir"]["icon_filename"])
+        )
+        img_icon = resize_pil_image(
+            temp, settings.IMAGE_SIZE["small"], FILETYPE_DATA[".dir"]["icon_filename"]
+        )
         # configdata["filetypes"]["dir"][2])
         db_entry.is_generic_icon = True
         db_entry.small_thumb = img_icon
@@ -73,7 +77,8 @@ def new_process_dir2(db_entry):
         db_entry.save()
     except IntegrityError:
         pass
-    
+
+
 def new_process_img(
     entry,
 ):
@@ -93,8 +98,7 @@ def new_process_img(
     if not os.path.exists(fs_fname):
         Cache_Storage.remove_from_cache_name(DirName=entry.fqpndirectory)
         return None
-    fext = os.path.splitext(fs_fname)[1][1:].lower()
-    # entry.file_tnail = invalidate_thumb(entry.file_tnail)
+    # fext = os.path.splitext(fs_fname)[1][1:].lower()
     entry.file_tnail.invalidate_thumb()
     entry.file_tnail.image_to_thumbnail()
     entry.file_tnail.FileSize = entry.size

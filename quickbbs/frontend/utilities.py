@@ -15,13 +15,13 @@ from pathlib import Path
 # inside moviepy.editor
 # import av  # Video Previews
 import django.db.utils
-import filetypes.models as filetype_models
-from cache_watcher.models import Cache_Storage
 from django.conf import settings
 from PIL import Image
-from quickbbs.logger import log
-from quickbbs.models import IndexData, IndexDirs
 
+import filetypes.models as filetype_models
+from cache_watcher.models import Cache_Storage
+# from quickbbs.logger import log
+from quickbbs.models import IndexData, IndexDirs
 
 Image.MAX_IMAGE_PIXELS = None  # Disable PILLOW DecompressionBombError errors.
 from django_thread import ThreadPoolExecutor
@@ -29,6 +29,7 @@ from django_thread import ThreadPoolExecutor
 MAX_THREADS = 8
 
 executor = ThreadPoolExecutor(max_workers=MAX_THREADS)
+
 
 def ensures_endswith(string_to_check, value) -> str:
     """
@@ -118,7 +119,9 @@ def return_disk_listing(fqpn) -> tuple[bool, dict]:
                 # The file extension is not in FILETYPE_DATA, so ignore it.
                 continue
 
-            if (fext in settings.EXTENSIONS_TO_IGNORE) or (item.name.lower() in settings.FILES_TO_IGNORE):
+            if (fext in settings.EXTENSIONS_TO_IGNORE) or (
+                item.name.lower() in settings.FILES_TO_IGNORE
+            ):
                 # file extension is in EXTENSIONS_TO_IGNORE, so skip it.
                 # or the filename is in FILES_TO_IGNORE, so skip it.
                 continue
@@ -220,7 +223,9 @@ def process_filedata(fs_entry, db_record) -> IndexData:
     :doc-author: Trelent
     """
     db_record.fqpndirectory, db_record.name = os.path.split(fs_entry.absolute())
-    db_record.fqpndirectory = ensures_endswith(db_record.fqpndirectory.lower().replace("//", "/"), os.sep)
+    db_record.fqpndirectory = ensures_endswith(
+        db_record.fqpndirectory.lower().replace("//", "/"), os.sep
+    )
     db_record.name = db_record.name.title().replace("//", "/").strip()
     fileext = fs_entry.suffix.lower()
     is_dir = fs_entry.is_dir()
@@ -233,11 +238,12 @@ def process_filedata(fs_entry, db_record) -> IndexData:
         print("Can't match fileext w/filetypes")
         return None
 
-    #db_record.filetype = filetypes(fileext=db_record.fileext)
+    # db_record.filetype = filetypes(fileext=db_record.fileext)
+    fs_stat = fs_entry.stat()
     db_record.filetype = filetype_models.filetypes(fileext=fileext)
     db_record.uuid = uuid.uuid4()
-    db_record.size = fs_entry.stat()[stat.ST_SIZE]
-    db_record.lastmod = fs_entry.stat()[stat.ST_MTIME]
+    db_record.size = fs_stat[stat.ST_SIZE]
+    db_record.lastmod = fs_stat[stat.ST_MTIME]
     db_record.lastscan = time.time()
     db_record.is_animated = False
 
@@ -250,12 +256,18 @@ def process_filedata(fs_entry, db_record) -> IndexData:
         # db_record.numfiles, db_record.numdirs = fs_file_count, fs_dir_count
 
     if filetype_models.FILETYPE_DATA[fileext]["is_link"]:
-        desc, redirect = db_record.name.lower().split("*")
-        redirect = redirect.replace("'", "").replace("__", "/").replace(redirect.split(".")[-1],"")[:-1]
+        _, redirect = db_record.name.lower().split("*")
+        redirect = (
+            redirect.replace("'", "")
+            .replace("__", "/")
+            .replace(redirect.split(".")[-1], "")[:-1]
+        )
         db_record.fqpndirectory = f"/{redirect}"
     if filetype_models.FILETYPE_DATA[fileext]["is_image"] and fileext in [".gif"]:
         try:
-            with Image.open(os.path.join(db_record.fqpndirectory, db_record.name)) as test_animation:
+            with Image.open(
+                os.path.join(db_record.fqpndirectory, db_record.name)
+            ) as test_animation:
                 # db_record.is_animated = Image.open(os.path.join(db_record.fqpndirectory, db_record.name)).is_animated
                 db_record.is_animated = test_animation.is_animated
         except AttributeError:
@@ -302,7 +314,7 @@ def sync_database_disk(directoryname):
         return None
 
     # It's not cached
-    #if not cached:
+    # if not cached:
     print("Not Cached! Rescanning directory")
     # If the directory is not found in the Cache_Tracking table, then it needs to be rescanned.
     # Remember, directory is placed in there, when it is scanned.
@@ -319,7 +331,7 @@ def sync_database_disk(directoryname):
         if parent_dir.exists():
             parent_dir = parent_dir[0]
             dirpath_id.delete_directory(parent_dir, cache_only=True)
-    fs_filenames_in_directory = fs_entries.keys()
+    # fs_filenames_in_directory = fs_entries.keys()
 
     # retrieve IndexDirs entry for dirpath
     success, dirpath_id = IndexDirs.search_for_directory(dirpath)
@@ -356,13 +368,14 @@ def sync_database_disk(directoryname):
             # If directory, does the numfiles, numdirs, count_subfiles match?
             # update = False, unncessary, moved to above the for loop.
             entry = fs_entries[db_entry.name.title()]
-            if db_entry.lastmod != entry.stat()[stat.ST_MTIME]:
+            fs_stat = entry.stat()
+            if db_entry.lastmod != fs_stat[stat.ST_MTIME]:
                 # print("LastMod mismatch")
-                db_entry.lastmod = entry.stat()[stat.ST_MTIME]
+                db_entry.lastmod = fs_stat[stat.ST_MTIME]
                 update = True
-            if db_entry.size != entry.stat()[stat.ST_SIZE]:
+            if db_entry.size != fs_stat[stat.ST_SIZE]:
                 # print("Size mismatch")
-                db_entry.size = entry.stat()[stat.ST_SIZE]
+                db_entry.size = fs_stat[stat.ST_SIZE]
                 update = True
             if update:
                 records_to_update.append(db_entry)
@@ -371,10 +384,14 @@ def sync_database_disk(directoryname):
                 update = False
 
     # Check for entries that are not in the database, but do exist in the file system
-    names = IndexData.objects.filter(fqpndirectory=webpath).only("name").values_list("name", flat=True)
+    names = (
+        IndexData.objects.filter(fqpndirectory=webpath)
+        .only("name")
+        .values_list("name", flat=True)
+    )
     # fetch an updated set of records, since we may have changed it from above.
     records_to_create = []
-    #print("names:",names)
+    # print("names:",names)
     for _, entry in fs_entries.items():
         test_name = entry.name.title().replace("//", "/").strip()
         # print(test_name, test_name in names )
@@ -435,9 +452,9 @@ def sync_database_disk(directoryname):
     #   old connections?  But Django doesn't appear to be running out of connections to
     #   postgres?  So probably a red herring.
     #
-    from django.db import connection, close_old_connections
-    close_old_connections()
-    connection.connect()
+    # from django.db import connection, close_old_connections
+    # close_old_connections()
+    # connection.connect()
     return None
 
 
@@ -455,6 +472,7 @@ def read_from_disk(dir_to_scan, skippable=True):
     skippable (bool): Is this allowed to skip, depreciated for v3.
 
     """
+    print(dir_to_scan)
     if not os.path.exists(dir_to_scan):
         if dir_to_scan.startswith("/"):
             dir_to_scan = dir_to_scan[1:]
@@ -463,7 +481,6 @@ def read_from_disk(dir_to_scan, skippable=True):
         dir_path = Path(ensures_endswith(dir_to_scan, os.sep))
 
     sync_database_disk(str(dir_path))
-
 
 
 # import os.path

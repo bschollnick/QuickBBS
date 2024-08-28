@@ -1,9 +1,9 @@
+import logging
 import os
 
 from django.apps import AppConfig
 from django.conf import settings
 from django.db.utils import IntegrityError, OperationalError, ProgrammingError
-import logging
 
 logger = logging.getLogger()
 # logger.info("in apps.py in cache_watcher")

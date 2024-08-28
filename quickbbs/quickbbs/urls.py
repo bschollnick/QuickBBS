@@ -15,7 +15,6 @@ Including another URLconf
 """
 
 from django.conf import settings
-
 # from django.conf.urls import url
 from django.contrib import admin
 from django.urls import include, path, re_path
@@ -34,9 +33,8 @@ if settings.DEBUG_TOOLBAR:
 
 urlpatterns += [
     path("search/", frontend.views.search_viewresults, name="search_viewresults"),
-#    re_path("^download/", frontend.views.download_file, name="download"),
-    re_path("^download/", frontend.views.download, name="download"),
-
+    #    re_path("^download/", frontend.views.download_file, name="download"),
+    re_path("^download/", frontend.views.download_item, name="download"),
     # the filename is not used, but is there for web browser to see the expected filename
     # when it was download/<str:uuid>, the web browser would believe the filename was the
     # uuid, and ignore the filename in the download header.
@@ -74,10 +72,10 @@ urlpatterns += [
         name="thumbnail_dir",
     ),
     # path("thumbnails/", frontend.views.thumbnails, name="thumbnailspath"),
-    path("resources/<path:pathstr>", frontend.serve_up.resources),
-    path("static/<path:pathstr>", frontend.serve_up.static),
+    path("resources/<path:pathstr>", frontend.serve_up.static_or_resources),
+    path("static/<path:pathstr>", frontend.serve_up.static_or_resources),
     re_path("^test/", frontend.views.test, name="test"),
-     path("accounts/", include("allauth.urls")),
+    path("accounts/", include("allauth.urls")),
     path("grappelli/", include("grappelli.urls")),  # grappelli URLS
     path(r"Admin/", admin.site.urls),
     path(r"", RedirectView.as_view(url="/albums"), name="home"),

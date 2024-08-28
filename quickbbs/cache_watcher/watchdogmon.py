@@ -1,9 +1,9 @@
+import logging
 import os
 import sys
 
 from watchdog.events import PatternMatchingEventHandler
 from watchdog.observers import Observer
-import logging
 
 logger = logging.getLogger()
 
@@ -48,7 +48,9 @@ class watchdog_monitor:
     def on_event(self, event):
         pass
 
-    def startup(self, monitor_path, created=None, deleted=None, modified=None, moved=None):
+    def startup(
+        self, monitor_path, created=None, deleted=None, modified=None, moved=None
+    ):
         logger.info(f"Monitoring : {monitor_path}")
         patterns = ["*"]
         ignore_patterns = None
@@ -65,7 +67,9 @@ class watchdog_monitor:
 
         go_recursively = True
         self.my_observer = Observer()
-        self.my_observer.schedule(self.my_event_handler, monitor_path, recursive=go_recursively)
+        self.my_observer.schedule(
+            self.my_event_handler, monitor_path, recursive=go_recursively
+        )
 
         self.my_observer.start()
 

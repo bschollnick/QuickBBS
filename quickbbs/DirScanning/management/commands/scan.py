@@ -2,9 +2,9 @@ import os
 import pathlib
 import sys
 
+from cache.models import create_hash
 from django.core.management.base import BaseCommand
 
-from cache.models import create_hash
 from quickbbs.models import *
 
 

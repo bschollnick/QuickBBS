@@ -22,7 +22,7 @@ class AdminThumbnail_Files(admin.ModelAdmin):
         "sthumb",
         "mthumb",
         "lthumb",
-    )  
+    )
 
     def sthumb(self, obj):
         if obj.small_thumb is not None:
