@@ -531,7 +531,8 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
     # print("item info - Process time: ", time.perf_counter() - context["start_time"], "secs")
     return Response(context)
 
-async def new_json_viewitem(request: WSGIRequest, i_uuid: str):
+@sync_to_async
+def new_json_viewitem(request: WSGIRequest, i_uuid: str):
     """
     This is the new view item.  It's a view stub, that calls item_info via json, to load the
     data for the record.
