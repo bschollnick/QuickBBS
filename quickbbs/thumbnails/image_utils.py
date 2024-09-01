@@ -63,7 +63,7 @@ def movie_to_pil(fspath):
             container.seek(container.duration // 2)
             frame = container.decode(stream)
             image = next(frame).to_image()
-    except av.error.InvalidDataError:
+    except (av.error.InvalidDataError, StopIteration):
         image = Image.open(
             #            return_image_obj(
             os.path.join(

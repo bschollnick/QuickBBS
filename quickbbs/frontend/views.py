@@ -403,7 +403,7 @@ def new_viewgallery(request: WSGIRequest):
 def update_thumbnail(entry):
     fs_item = os.path.join(entry.fqpndirectory, entry.name).title().strip()
     fs_item_hash = ThumbnailFiles.convert_text_to_md5_hdigest(fs_item)
-    thumbnail = ThumbnailFiles.objects.create(
+    thumbnail, _ = ThumbnailFiles.objects.get_or_create(
         fqpn_filename=fs_item, fqpn_hash=fs_item_hash
     )
     thumbnail.image_to_thumbnail()
