@@ -134,12 +134,12 @@ def resize_pil_image(source_image, size, fext) -> Image:
     """
     if source_image is None:
         return None
-    fext = fext.lower().strip()
-    if not fext.startswith("."):
-        fext = f".{fext}"
+    # fext = fext.lower().strip()
+    # if not fext.startswith("."):
+    #     fext = f".{fext}"
 
-    if fext in settings.MOVIE_FILE_TYPES:
-        fext = ".jpg"
+    # if fext in settings.MOVIE_FILE_TYPES:
+    #     fext = ".jpg"
 
     with BytesIO() as image_data:  # = BytesIO()
         source_image.thumbnail((size, size), Image.Resampling.LANCZOS)

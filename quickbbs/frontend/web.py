@@ -10,12 +10,13 @@ from wsgiref.util import FileWrapper
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login
-from django.http import FileResponse, StreamingHttpResponse
+from django.http import FileResponse, StreamingHttpResponse, Http404
 # from django.conf import settings
 from django.views.decorators.cache import never_cache
 
 # from ranged_fileresponse import RangedFileResponse
 
+from filetypes.models import FILETYPE_DATA
 
 # import RangedFileResponse
 # from ranged_fileresponse.local import RangedLocalFileResponse
@@ -100,71 +101,78 @@ def detect_mobile(request):
     return "Mobile" in request.headers["user-agent"]
 
 
-def return_img_attach(filename, binaryblob, fext_override=None, use_ranged=False):
-    """
-     Output a http response header, for an image attachment.
+# def return_img_attach(filename, binaryblob, fext_override=None, use_ranged=False):
+#     """
+#      Output a http response header, for an image attachment.
 
-    Args:
-         filename (str): Filename of the file to be sent as the attachment name
-         binaryblob (bin): The blob of data that is the image file
+#     Args:
+#          filename (str): Filename of the file to be sent as the attachment name
+#          binaryblob (bin): The blob of data that is the image file
 
-     Returns:
-         object::
-             The Django response object that contains the attachment and header
+#      Returns:
+#          object::
+#              The Django response object that contains the attachment and header
 
-     Raises:
-         None
+#      Raises:
+#          None
 
-     Examples
-     --------
-     return_img_attach("test.png", img_data)
+#      Examples
+#      --------
+#      return_img_attach("test.png", img_data)
 
 
-    """
-    # https://stackoverflow.com/questions/36392510/django-download-a-file
-    # https://stackoverflow.com/questions/27712778/
-    #               video-plays-in-other-browsers-but-not-safari
-    # https://stackoverflow.com/questions/720419/
-    #               how-can-i-find-out-whether-a-server-supports-the-range-header
-    basename = os.path.splitext(filename)[0]
-    if fext_override is not None:
-        mimetype_filename = os.path.join(basename, fext_override)
-    else:
-        mimetype_filename = filename
-    #    mtype, encoding = mimetypes.guess_type(filename)
-    mtype = mimetypes.guess_type(mimetype_filename)[0]
-    if mtype is None:
-        mtype = "application/octet-stream"
+#     """
+#     # https://stackoverflow.com/questions/36392510/django-download-a-file
+#     # https://stackoverflow.com/questions/27712778/
+#     #               video-plays-in-other-browsers-but-not-safari
+#     # https://stackoverflow.com/questions/720419/
+#     #               how-can-i-find-out-whether-a-server-supports-the-range-header
+#     basename = os.path.splitext(filename)[0]
+#     if fext_override is not None:
+#         mimetype_filename = os.path.join(basename, fext_override)
+#     else:
+#         mimetype_filename = filename
+    
+#     fext = os.path.splitext(filename)[1]
+#     #    mtype, encoding = mimetypes.guess_type(filename)
+#     #mtype = mimetypes.guess_type(mimetype_filename)[0]
+#     mtype = FILETYPE_DATA[fext]["mimetype"]
+#     if mtype is None:
+#         mtype = "application/octet-stream"
 
-    if use_ranged:
-        response = stream_video(request, filename, content_type=mtype)
+#     if use_ranged:
+#         response = stream_video(request, filename, content_type=mtype)
 
-    else:
-        response = FileResponse(
-            io.BytesIO(binaryblob),
-            content_type=mtype,
-            as_attachment=False,
-            filename=filename,
-        )
-        response["Content-Type"] = mtype
-        response["Content-Length"] = len(binaryblob)
-    return response
+#     else:
+#         response = FileResponse(
+#             io.BytesIO(binaryblob),
+#             content_type=mtype,
+#             as_attachment=False,
+#             filename=filename,
+#         )
+#         response["Content-Type"] = mtype
+#         response["Content-Length"] = len(binaryblob)
+#     return response
 
 
 @never_cache
 def respond_as_attachment(request, file_path, original_filename):
     filename = os.path.join(file_path, original_filename)
-    if os.path.exists(filename):
-        mtype = mimetypes.guess_type(filename)[0]
-        if mtype is None:
-            mtype = "application/octet-stream"
+    fext = os.path.splitext(filename)[1]
+    mtype = FILETYPE_DATA[fext]["mimetype"]
+    if mtype is None:
+        mtype = "application/octet-stream"
+    try:
+    #    mtype = mimetypes.guess_type(filename)[0]
         response = FileResponse(
             open(filename, "rb"),
             content_type=mtype,
             as_attachment=True,
             filename=filename,
         )
-    return response
+        return response
+    except FileNotFoundError:
+        return Http404
 
 
 def file_iterator(file_path, chunk_size=8192, offset=0, length=None):
