@@ -472,7 +472,6 @@ def read_from_disk(dir_to_scan, skippable=True):
     skippable (bool): Is this allowed to skip, depreciated for v3.
 
     """
-    print(dir_to_scan)
     if not os.path.exists(dir_to_scan):
         if dir_to_scan.startswith("/"):
             dir_to_scan = dir_to_scan[1:]

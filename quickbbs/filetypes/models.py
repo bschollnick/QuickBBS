@@ -10,7 +10,6 @@ from django.db import models
 
 FILETYPE_DATA = {}
 
-
 class filetypes(models.Model):
     fileext = models.CharField(
         primary_key=True, db_index=True, max_length=10, unique=True
@@ -118,7 +117,6 @@ def map_ext_to_id(ext):
 
 def load_filetypes():
     try:
-        # refresh_filetypes()
         return get_ftype_dict()
     except:
         print("Unable to validate or create FileType database table.")

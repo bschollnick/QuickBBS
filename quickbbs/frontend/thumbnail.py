@@ -8,7 +8,7 @@ from django.conf import settings
 from django.db.utils import IntegrityError
 
 from cache_watcher.models import Cache_Storage
-from filetypes.models import FILETYPE_DATA
+import filetypes
 from frontend.utilities import \
     sync_database_disk  # cr_tnail_img,; return_image_obj,; read_from_disk,
 # from quickbbs.models import IndexData  # , Thumbnails_Archives
@@ -36,6 +36,10 @@ def new_process_dir2(db_entry):
     #
     # webpath contains the URL equivalent to the file system path (fs_path)
     #
+    if not filetypes.models.FILETYPE_DATA:
+        print("Loading thumbnails filetypes")
+        filetypes.models.FILETYPE_DATA = filetypes.models.load_filetypes()
+
     if db_entry.small_thumb not in [b"", None]:
         # Does the thumbnail exist?
         raise ValueError(
@@ -65,10 +69,10 @@ def new_process_dir2(db_entry):
                 break
     if not db_entry.small_thumb:
         temp = return_image_obj(
-            os.path.join(settings.IMAGES_PATH, FILETYPE_DATA[".dir"]["icon_filename"])
+            os.path.join(settings.IMAGES_PATH, filetypes.models.FILETYPE_DATA[".dir"]["icon_filename"])
         )
         img_icon = resize_pil_image(
-            temp, settings.IMAGE_SIZE["small"], FILETYPE_DATA[".dir"]["icon_filename"]
+            temp, settings.IMAGE_SIZE["small"], filetypes.models.FILETYPE_DATA[".dir"]["icon_filename"]
         )
         # configdata["filetypes"]["dir"][2])
         db_entry.is_generic_icon = True
@@ -103,146 +107,3 @@ def new_process_img(
     entry.file_tnail.image_to_thumbnail()
     entry.file_tnail.FileSize = entry.size
     return entry
-
-
-#
-# def new_process_archive(ind_entry, request, page=0):
-#     """
-#     Process an archive, and return the thumbnail
-#
-#     TBD: Broken, needs rewrite, it's been broken for a *while*.
-#     """
-#     thumbsize = g_option(request, "size", "small").lower().strip()
-#     fs_archname = settings.ALBUMS_PATH + os.path.join(
-#         ind_entry.fqpndirectory.lower(), ind_entry.name
-#     )
-#     fs_archname = fs_archname.replace("//", "/").strip()
-#
-#     # file system location of directory
-#
-#     # existing_tnails = Thumbnails_Archives.objects.filter(uuid=ind_entry.uuid)
-#     # This contains all the Archive thumbnails that match the uuid, in otherwords
-#     # all existing cached pages.
-#
-#     # Check to see if the page in question is being cached.
-#     #    specific_page, created = Thumbnails_Archives.objects.get_or_create(
-#     specific_page, _ = Thumbnails_Archives.objects.get_or_create(
-#         uuid=ind_entry.uuid,
-#         page=page,
-#         defaults={
-#             "uuid": ind_entry.uuid,
-#             "page": page,
-#             "FilePath": ind_entry.fqpndirectory,
-#             "FileName": ind_entry.name,
-#         },
-#     )
-#
-#     #    print ("fs archname: ",fs_archname)
-#     archive_file = archives.id_cfile_by_sig(fs_archname)
-#     archive_file.get_listings()
-#     fn_to_extract = archive_file.listings[page][0]
-#     #    print (fn_to_extract, page)
-#     fext = os.path.splitext(fn_to_extract)[1][1:].lower()
-#     data = archive_file.extract_mem_file(fn_to_extract)
-#     im_data = return_image_obj(data, memory=True)
-#     if im_data is None:
-#         im_data = return_image_obj(
-#             os.path.join(
-#                 settings.RESOURCES_PATH, "images", FILETYPE_DATA[fext]["icon_filename"]
-#             ),
-#             memory=True,
-#         )
-#
-#         return return_img_attach(
-#             FILETYPE_DATA[fext]["icon_filename"], im_data, fext_override="JPEG"
-#         )
-#
-#     if specific_page.FileSize != os.path.getsize(fs_archname):
-#         #   The cached data is invalidated since the filesize is inaccurate.
-#         #   Reset the existing thumbnails to ensure that they will be regenerated
-#         specific_page = invalidate_thumb(specific_page)
-#         specific_page.save()
-#
-#     specific_page.FileSize = os.path.getsize(fs_archname)
-#     if thumbsize == "large":
-#         if specific_page.large_thumb == b"":
-#             try:
-#                 specific_page.large_thumb = resize_pil_image(
-#                     im_data, settings.IMAGE_SIZE[thumbsize], fext=fext
-#                 )
-#                 specific_page.save()
-#             except OSError:
-#                 im_data = return_image_obj(
-#                     os.path.join(
-#                         settings.RESOURCES_PATH,
-#                         "images",
-#                         FILETYPE_DATA["archive"]["icon_filename"],
-#                     ),
-#                     memory=True,
-#                 )
-#
-#             return return_img_attach(
-#                 os.path.basename(fs_archname),
-#                 specific_page.large_thumb,
-#                 fext_override="JPEG",
-#             )
-#         return return_img_attach(
-#             os.path.basename(fs_archname),
-#             specific_page.large_thumb.tobytes(),
-#             fext_override="JPEG",
-#         )
-#
-#     if thumbsize == "medium":
-#         if specific_page.medium_thumb == b"":
-#             try:
-#                 specific_page.medium_thumb = resize_pil_image(
-#                     im_data, settings.IMAGE_SIZE[thumbsize], fext=fext
-#                 )
-#                 specific_page.save()
-#             except OSError:
-#                 im_data = return_image_obj(
-#                     os.path.join(
-#                         settings.RESOURCES_PATH,
-#                         "images",
-#                         FILETYPE_DATA["archive"]["icon_filename"],
-#                     ),
-#                     memory=True,
-#                 )
-#             return_img_attach(
-#                 os.path.basename(fs_archname),
-#                 specific_page.medium_thumb,
-#                 fext_override="JPEG",
-#             )
-#         return return_img_attach(
-#             os.path.basename(fs_archname),
-#             specific_page.medium_thumb.tobytes(),
-#             fext_override="JPEG",
-#         )
-#
-#     if thumbsize == "small":
-#         if specific_page.small_thumb == b"":
-#             try:
-#                 specific_page.small_thumb = resize_pil_image(
-#                     im_data, settings.IMAGE_SIZE[thumbsize], fext=fext
-#                 )
-#                 specific_page.save()
-#             except OSError:
-#                 im_data = return_image_obj(
-#                     os.path.join(
-#                         settings.RESOURCES_PATH,
-#                         "images",
-#                         FILETYPE_DATA["archive"]["icon_filename"],
-#                     ),
-#                     memory=True,
-#                 )
-#             return return_img_attach(
-#                 os.path.basename(fs_archname),
-#                 specific_page.small_thumb,
-#                 fext_override="JPEG",
-#             )
-#         return return_img_attach(
-#             os.path.basename(fs_archname),
-#             specific_page.small_thumb.tobytes(),
-#             fext_override="JPEG",
-#         )
-#     return return_img_attach(os.path.basename(fs_archname), None, fext_override="JPEG")

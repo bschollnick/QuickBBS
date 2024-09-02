@@ -14,7 +14,8 @@ import fitz  # PDF previews
 from django.conf import settings
 from PIL import Image
 
-import filetypes.models as filetype_models
+#import filetypes.models as filetype_models
+import filetypes
 
 
 def pdf_to_pil(fspath):
@@ -180,6 +181,10 @@ def return_image_obj(fs_path, memory=False) -> Image:
     Examples
     --------
     """
+    if not filetypes.models.FILETYPE_DATA:
+        print("Loading filetypes")
+        filetypes.models.FILETYPE_DATA = filetypes.models.load_filetypes()
+
     source_image = None
     extension = os.path.splitext(fs_path)[1].lower()
 
@@ -187,12 +192,12 @@ def return_image_obj(fs_path, memory=False) -> Image:
         # There is currently no concept of a "None" in filetypes
         extension = ".none"
 
-    if filetype_models.FILETYPE_DATA[extension]["is_pdf"]:
+    if filetypes.models.FILETYPE_DATA[extension]["is_pdf"]:
         source_image = pdf_to_pil(fs_path)
 
-    elif filetype_models.FILETYPE_DATA[extension]["is_movie"]:
+    elif filetypes.models.FILETYPE_DATA[extension]["is_movie"]:
         source_image = movie_to_pil(fs_path)
 
-    elif filetype_models.FILETYPE_DATA[extension]["is_image"]:
+    elif filetypes.models.FILETYPE_DATA[extension]["is_image"]:
         source_image = image_to_pil(fs_path, mem=memory)
     return source_image

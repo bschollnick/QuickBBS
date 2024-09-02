@@ -16,7 +16,7 @@ from django.views.decorators.cache import never_cache
 
 # from ranged_fileresponse import RangedFileResponse
 
-from filetypes.models import FILETYPE_DATA
+import filetypes 
 
 # import RangedFileResponse
 # from ranged_fileresponse.local import RangedLocalFileResponse
@@ -157,9 +157,13 @@ def detect_mobile(request):
 
 @never_cache
 def respond_as_attachment(request, file_path, original_filename):
+    if not filetypes.models.FILETYPE_DATA:
+        print("Loading web filetypes")
+        filetypes.models.FILETYPE_DATA = filetypes.models.load_filetypes()
+
     filename = os.path.join(file_path, original_filename)
-    fext = os.path.splitext(filename)[1]
-    mtype = FILETYPE_DATA[fext]["mimetype"]
+    fext = os.path.splitext(filename)[1].lower()
+    mtype = filetypes.models.FILETYPE_DATA[fext]["mimetype"]
     if mtype is None:
         mtype = "application/octet-stream"
     try:

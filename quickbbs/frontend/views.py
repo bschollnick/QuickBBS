@@ -42,6 +42,7 @@ from frontend.web import detect_mobile, g_option, respond_as_attachment
 from quickbbs.models import IndexData, IndexDirs  # , Thumbnails_Files
 from thumbnails import image_utils
 from thumbnails.models import ThumbnailFiles
+import filetypes
 
 # log = logging.getLogger(__name__)
 
@@ -54,7 +55,6 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 # https://stackoverflow.com/questions/12984426/
 
 # Sending File or zipfile - https://djangosnippets.org/snippets/365/
-
 
 def return_prev_next2(directory, sorder) -> tuple:
     """
@@ -289,7 +289,12 @@ def new_viewgallery(request: WSGIRequest):
         response : Django response
 
     """
+    
     print("NEW VIEW GALLERY")
+    if not filetypes.models.FILETYPE_DATA:
+        print("Loading filetypes")
+        filetypes.models.FILETYPE_DATA = filetypes.models.load_filetypes()
+
     start_time = time.perf_counter()  # time.time()
     request.path = request.path.lower().replace(os.sep, r"/")
     paths = {
@@ -547,6 +552,10 @@ def new_json_viewitem(request: WSGIRequest, i_uuid: str):
     json : Json payload that contains the information regarding the item
 
     """
+    if not filetypes.models.FILETYPE_DATA:
+        print("Loading filetypes")
+        filetypes.models.FILETYPE_DATA = filetypes.models.load_filetypes()
+
     i_uuid = str(i_uuid).strip().replace("/", "")
 
     context = {"sort": sort_order(request), "uuid": i_uuid, "user": request.user}
@@ -575,6 +584,10 @@ def download_file(request: WSGIRequest):  # , filename=None):
         #     found during v2 development).
 
     """
+    if not filetypes.models.FILETYPE_DATA:
+        print("Loading filetypes")
+        filetypes.models.FILETYPE_DATA = filetypes.models.load_filetypes()
+
     # Is this from an archive?  If so, get the Page ID.
     d_uuid = request.GET.get("UUID", None)
     if d_uuid is None:  # == None:
