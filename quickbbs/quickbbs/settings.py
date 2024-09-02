@@ -25,12 +25,12 @@ from quickbbs.quickbbs_settings import *
 #   Debug, enables the debugging mode
 #
 DEBUG = False
-#DEBUG = not DEBUG
+# DEBUG = not DEBUG
 print(f"* Debug Mode is {DEBUG}")
 
 #   Django Debug Toolbar, is controlled separately from the debug mode,
 #   so that timings can be w/o debug mode performance penalty.
-#DEBUG_TOOLBAR = True
+# DEBUG_TOOLBAR = True
 DEBUG_TOOLBAR = DEBUG
 # DEBUG_TOOLBAR = False
 print(f"* Debug-toolbar is {DEBUG_TOOLBAR}")
@@ -62,15 +62,20 @@ print(f"* Running on {machine_name}")
 # See https://releases.jquery.com/jquery/
 JQUERY_VERSION = "3.7.0"
 # JQUERY_VERSION = '3.6.1'
-JQUERY_URI = f"https://cdnjs.cloudflare.com/ajax/libs/jquery/{JQUERY_VERSION}/jquery.slim.min.js"
+JQUERY_URI = (
+    f"https://cdnjs.cloudflare.com/ajax/libs/jquery/{JQUERY_VERSION}/jquery.slim.min.js"
+)
 
 # see https://cdnjs.com/libraries/bulma
-BULMA_VERSION = "0.9.4"
-BULMA_URI = f"https://cdnjs.cloudflare.com/ajax/libs/bulma/{BULMA_VERSION}/css/bulma.min.css"
+#BULMA_VERSION = "0.9.4"
+BULMA_VERSION = "1.0.2"
+BULMA_URI = (
+    f"https://cdnjs.cloudflare.com/ajax/libs/bulma/{BULMA_VERSION}/css/bulma.min.css"
+)
 
 # see https://cdnjs.com/libraries/font-awesome
-# FONTAWESOME_VERSION = '6.2.1'
-FONTAWESOME_VERSION = "6.4.0"
+FONTAWESOME_VERSION = '6.6.0'
+#FONTAWESOME_VERSION = "6.4.0"
 FONTAWESOME_URI = f"https://cdnjs.cloudflare.com/ajax/libs/font-awesome/{FONTAWESOME_VERSION}/css/all.min.css"
 FONTAWESOME_SCRIPT_URI = None  # f'https://kit.fontawesome.com/ad5033c5d1.js'
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
@@ -359,21 +364,21 @@ if DEBUG_TOOLBAR:
         "SHOW_COLLAPSED": False,
         "SHOW_TOOLBAR_CALLBACK": show_toolbar,
         "SQL_WARNING_THRESHOLD": 100,  # milliseconds
-        "SHOW_TEMPLATE_CONTEXT":True,
+        "SHOW_TEMPLATE_CONTEXT": True,
     }
-    
+
     DEBUG_TOOLBAR_PANELS = [
-        'debug_toolbar.panels.history.HistoryPanel',  # Here it is 
-        'debug_toolbar.panels.versions.VersionsPanel',
-        'debug_toolbar.panels.timer.TimerPanel',
-        'debug_toolbar.panels.settings.SettingsPanel',
-        'debug_toolbar.panels.headers.HeadersPanel',
-        'debug_toolbar.panels.request.RequestPanel',
-        'debug_toolbar.panels.sql.SQLPanel',
-        'debug_toolbar.panels.templates.TemplatesPanel',
-        'debug_toolbar.panels.staticfiles.StaticFilesPanel',
-        'debug_toolbar.panels.cache.CachePanel',
-        'debug_toolbar.panels.signals.SignalsPanel',
-        'debug_toolbar.panels.logging.LoggingPanel',
-        'debug_toolbar.panels.redirects.RedirectsPanel',
-        ]
+        "debug_toolbar.panels.history.HistoryPanel",  # Here it is
+        "debug_toolbar.panels.versions.VersionsPanel",
+        "debug_toolbar.panels.timer.TimerPanel",
+        "debug_toolbar.panels.settings.SettingsPanel",
+        "debug_toolbar.panels.headers.HeadersPanel",
+        "debug_toolbar.panels.request.RequestPanel",
+        "debug_toolbar.panels.sql.SQLPanel",
+        "debug_toolbar.panels.templates.TemplatesPanel",
+        "debug_toolbar.panels.staticfiles.StaticFilesPanel",
+        "debug_toolbar.panels.cache.CachePanel",
+        "debug_toolbar.panels.signals.SignalsPanel",
+        "debug_toolbar.panels.logging.LoggingPanel",
+        "debug_toolbar.panels.redirects.RedirectsPanel",
+    ]
