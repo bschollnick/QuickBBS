@@ -30,7 +30,7 @@ click==8.1.7
 colorama==0.4.6
 commonmark==0.9.1
 crashtest==0.4.1
-cryptography==43.0.0
+cryptography==43.0.1
 cyclonedx-python-lib==7.6.0
 decorator==5.1.1
 defusedxml==0.7.1
