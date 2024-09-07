@@ -98,12 +98,10 @@ def new_process_img(
     to be the most up to date, nor the most current.  Cached is fine.
     """
     fs_fname = os.path.join(entry.fqpndirectory, entry.name).replace("//", "/")
-    # file system location of directory
-    if not os.path.exists(fs_fname):
+    entry.file_tnail.invalidate_thumb()
+    if entry.file_tnail.image_to_thumbnail() is None:
         Cache_Storage.remove_from_cache_name(DirName=entry.fqpndirectory)
         return None
-    # fext = os.path.splitext(fs_fname)[1][1:].lower()
-    entry.file_tnail.invalidate_thumb()
-    entry.file_tnail.image_to_thumbnail()
+    
     entry.file_tnail.FileSize = entry.size
     return entry

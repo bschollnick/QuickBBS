@@ -148,7 +148,7 @@ def get_xth_image(database, positional=0, filters=None) -> Iterator[IndexData]:
     return_img_attach("test.png", img_data)
     """
     if filters is None:
-        filters = []
+        filters = {}
 
     data = (
         database.objects.prefetech_related("filetype")

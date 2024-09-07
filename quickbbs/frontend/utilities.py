@@ -26,7 +26,7 @@ from quickbbs.models import IndexData, IndexDirs
 Image.MAX_IMAGE_PIXELS = None  # Disable PILLOW DecompressionBombError errors.
 from django_thread import ThreadPoolExecutor
 
-MAX_THREADS = 8
+MAX_THREADS = 20
 
 executor = ThreadPoolExecutor(max_workers=MAX_THREADS)
 

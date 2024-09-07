@@ -44,6 +44,7 @@ from thumbnails import image_utils
 from thumbnails.models import ThumbnailFiles
 import filetypes
 
+
 # log = logging.getLogger(__name__)
 
 logger = logging.getLogger()
@@ -167,8 +168,8 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
             return entry.new_ftnail.send_thumbnail(
                 filename_override=None, fext_override=None, size=thumbsize
             )
-
-    #    return HttpResponseBadRequest(content="Do not create thumbnail.")
+    print("Miss hit")
+    # return HttpResponseBadRequest(content="Do not create thumbnail.")
     #
     #   The only reason for this code, is for the generic icons, needs to be refactored.
     #
@@ -366,14 +367,18 @@ def new_viewgallery(request: WSGIRequest):
     )
     files_to_display = IndexData.return_by_uuid_list(
         uuid_list=layout["data"][context["current_page"] - 1]["files"]
-    )
-    context["items_to_display"] = list(chain(dirs_to_display, files_to_display))
+    ).filter(filetype__is_link=False)
+    links_to_display = IndexData.return_by_uuid_list(
+        uuid_list=layout["data"][context["current_page"] - 1]["files"]
+    ).filter(filetype__is_link=True)
+
+    context["items_to_display"] = list(chain(dirs_to_display, links_to_display, files_to_display))
 
     if layout["no_thumbnails"] not in ["", None, []]:
         start = time.time()
         print(f"{len(layout["no_thumbnails"])} entries need thumbnails")
 
-        batchsize = 75
+        batchsize = 100
         no_thumbs = IndexData.return_by_uuid_list(uuid_list=layout["no_thumbnails"])[
             0:batchsize
         ]
@@ -381,16 +386,7 @@ def new_viewgallery(request: WSGIRequest):
         for db_entry in no_thumbs:
             futures.append(executor.submit(update_thumbnail, db_entry))
         _ = [f.result() for f in futures]
-        #     fs_item = os.path.join(db_entry.fqpndirectory, db_entry.name).title().strip()
-        #     fs_item_hash = ThumbnailFiles.convert_text_to_md5_hdigest(fs_item)
-        #     thumbnail = ThumbnailFiles.objects.create(fqpn_filename = fs_item, fqpn_hash=fs_item_hash)
-        #     thumbnail.image_to_thumbnail()
-        #     db_entry.new_ftnail = thumbnail
-        #     bulk.append(db_entry)
 
-        # if bulk:
-        #     print("bulk update, entries queued: ",len(bulk))
-        #     IndexData.objects.bulk_update(bulk, fields=['new_ftnail'], batch_size=10)
         print("elapsed thumbnail time - ", time.time() - start)
 
     response = render(
@@ -610,79 +606,6 @@ async def download_item(request: WSGIRequest):
     return await download_file(request)
 
 
-#
-# def new_view_archive(request: WSGIRequest, i_uuid: str):
-#     """
-#     Show the gallery from the archive contents
-#
-#     *need to rewrite*
-#     """
-#     context = {"next": "", "previous": ""}
-#     i_uuid = str(i_uuid).strip().replace("/", "")
-#     if not is_valid_uuid(i_uuid):
-#         return HttpResponseBadRequest(content="Non-UUID thumbnail request.")
-#
-#     entry = IndexData.objects.filter(uuid=i_uuid)[0]
-#     context["basename"] = os.path.basename
-#     context["splitext"] = os.path.splitext
-#     context["small"] = g_option(request, "size", settings.IMAGE_SIZE["small"])
-#     # configdata["configuration"]["small"])
-#     context["medium"] = g_option(
-#         request,
-#         "size",
-#         # configdata["configuration"]["medium"])
-#         settings.IMAGE_SIZE["medium"],
-#     )
-#     context["large"] = g_option(
-#         request,
-#         "size",
-#         # configdata["configuration"]["large"])
-#         settings.IMAGE_SIZE["large"],
-#     )
-#     context["user"] = request.user
-#     context["mobile"] = detect_mobile(request)
-#     context["sort"] = sort_order(request)
-#
-#     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
-#     context["webpath"] = ensures_endswith(context["webpath"], "/")
-#     context["fromtimestamp"] = datetime.datetime.fromtimestamp
-#     # context["djicons"] = django_icons.templatetags.icons.icon
-#     context["djicons"] = django_icons.templatetags.icons.icon_tag
-#     arc_filename = (
-#         settings.ALBUMS_PATH
-#         + context["webpath"].replace("/", os.sep).replace("//", "/")
-#         + entry.name
-#     )
-#     archive_file = archives.id_cfile_by_sig(arc_filename)
-#     archive_file.get_listings()
-#     context["db_entry"] = entry
-#
-#     context["current_page"] = request.GET.get("page", 1)
-#     chk_list = Paginator(archive_file.listings, 30)
-#     context["page_cnt"] = list(range(1, chk_list.num_pages + 1))
-#
-#     #    context["up_uri"] = "/".join(request.get_raw_uri().split("/")[0:-1])
-#     context["up_uri"] = entry.fqpndirectory.lower()
-#
-#     context["gallery_name"] = os.path.split(request.path_info)[-1]
-#     try:
-#         context["pagelist"] = chk_list.page(context["current_page"])
-#     except PageNotAnInteger:
-#         context["pagelist"] = chk_list.page(1)
-#         context["current_page"] = 1
-#     except EmptyPage:
-#         context["pagelist"] = chk_list.page(chk_list.num_pages)
-#
-#     context["first"] = "1"
-#
-#     context["last"] = context["pagelist"].end_index
-#
-#     response = render(
-#         request, "frontend/archive_newgallery.jinja", context, using="Jinja2"
-#     )
-#     return response
-
-
 def test(request: WSGIRequest):
     """
     Test function for mockup tests
@@ -716,7 +639,11 @@ def layout_manager(
         directory.dirs_in_dir(sort=sort_ordering).values_list("uuid", flat=True)
     )
     files = list(directory.files_in_dir(sort=sort_ordering).values_list("uuid", flat=True))
-
+    links = list(directory.files_in_dir(sort=sort_ordering, additional_filters={'filetype__is_link':True}).values_list("uuid", flat=True))
+    if links:
+        files = set(files)
+        files.difference_update(links)
+        files = links + list(files)
     file_offset = 0
     for page_cnt in range(0, output["total_pages"]):
         data = {}
@@ -730,10 +657,10 @@ def layout_manager(
         data["total_cnt"] = data["cnt_dirs"] + data["cnt_files"]
         file_offset += data["cnt_files"]
         output["data"][page_cnt] = data
+        output["links"] = links
     output["all_uuids"] = list(chain(directories, files))
     output["no_thumbnails"] = list(
-        directory.files_in_dir()
-        .filter(new_ftnail__isnull=True)
+        directory.files_in_dir(sort=sort_ordering, additional_filters={'new_ftnail__isnull':True})
         .values_list("uuid", flat=True)
     )
 

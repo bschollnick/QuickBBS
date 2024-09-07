@@ -294,7 +294,7 @@ class IndexDirs(models.Model):
         )
         return dirs
 
-    def files_in_dir(self, sort=0) -> "QuerySet[IndexData]":
+    def files_in_dir(self, sort=0, additional_filters=None) -> "QuerySet[IndexData]":
         """
         Return the files in the current directory
         :param sort: The sort order of the files (0-2)
@@ -303,10 +303,12 @@ class IndexDirs(models.Model):
         # necessary to prevent circular references on startup
         # pylint: disable-next=import-outside-toplevel
         from frontend.database import SORT_MATRIX
+        if additional_filters is None:
+            additional_filters = {}
 
         files = (
             IndexData.objects.prefetch_related("new_ftnail")
-            .filter(parent_dir=self.pk, delete_pending=False)
+            .filter(parent_dir=self.pk, delete_pending=False, **additional_filters)
             .order_by(*SORT_MATRIX[sort])
         )
         return files
