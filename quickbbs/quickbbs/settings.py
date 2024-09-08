@@ -15,6 +15,7 @@ import socket
 from pathlib import Path
 
 import django_icons
+from django_htmx.jinja import django_htmx_script
 
 # import quickbbs.jinjaenv
 from quickbbs.quickbbs_settings import *
@@ -25,7 +26,7 @@ from quickbbs.quickbbs_settings import *
 #   Debug, enables the debugging mode
 #
 DEBUG = False
-# DEBUG = not DEBUG
+DEBUG = not DEBUG
 print(f"* Debug Mode is {DEBUG}")
 
 #   Django Debug Toolbar, is controlled separately from the debug mode,
@@ -37,22 +38,14 @@ print(f"* Debug-toolbar is {DEBUG_TOOLBAR}")
 # Demo mode, redirects the database to a different database container, and album path.
 # Useful for demonstrating the software without using your master database.
 #
-DEMO = False
-# DEMO = True
-if DEMO:
-    ALBUMS_PATH = "/Volumes/C-8TB/gallery_demo".lower()
-else:
-    ALBUMS_PATH = "/Volumes/C-8TB/Gallery/quickbbs".lower()
+ALBUMS_PATH = "/Volumes/C-8TB/Gallery/quickbbs".lower()
 
-print(f"* Demo Mode is {DEMO}")
-
-TAILSCALE_HOSTS = ["100.117.227.36", "100.73.202.135"]
 ALLOWED_HOSTS = [
     "nerv.local",
     "localhost",
     "127.0.0.1",
     "192.168.1.67",
-] + TAILSCALE_HOSTS
+]
 
 INTERNAL_IPS = ["localhost", "127.0.0.1", "nerv.local", "192.168.1.67"]
 machine_name = socket.gethostname().lower()
@@ -72,6 +65,9 @@ BULMA_VERSION = "1.0.2"
 BULMA_URI = (
     f"https://cdnjs.cloudflare.com/ajax/libs/bulma/{BULMA_VERSION}/css/bulma.min.css"
 )
+
+DJANGO_HTMX_VERSION="2.0.2"
+DJANGO_HTMX_URI=f"https://cdnjs.cloudflare.com/ajax/libs/htmx/{DJANGO_HTMX_VERSION}/htmx.min.js"
 
 # see https://cdnjs.com/libraries/font-awesome
 FONTAWESOME_VERSION = '6.6.0'
@@ -157,7 +153,7 @@ INSTALLED_APPS += [
     "frontend",
     "quickbbs",
     "thumbnails",
-    "DirScanning",
+    "DirScanning", "django_htmx",
 ]
 
 SITE_ID = 1
@@ -177,6 +173,8 @@ MIDDLEWARE = [
     "django.middleware.cache.FetchFromCacheMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "django_user_agents.middleware.UserAgentMiddleware",
+    "django_htmx.middleware.HtmxMiddleware",
+
     "debug_toolbar.middleware.DebugToolbarMiddleware",
 ]
 
@@ -238,12 +236,14 @@ TEMPLATES = [
                 "icon": "django_icons.templatetags.icons.icon_tag",
                 "static": "django.templatetags.static.static",
                 "url": "django.urls.reverse",
+                "django_htmx_script": django_htmx_script,
             },
             "constants": {
                 "bulma_uri": BULMA_URI,
                 "fontawesome_uri": FONTAWESOME_URI,
                 "fontawesome_script_uri": FONTAWESOME_SCRIPT_URI,
                 "jquery_uri": JQUERY_URI,
+                "django_htmx_uri":DJANGO_HTMX_URI,
             },
             "bytecode_cache": {
                 "name": "default",
@@ -262,31 +262,17 @@ WSGI_APPLICATION = "quickbbs.wsgi.application"
 
 # Database
 # https://docs.djangoproject.com/en/1.9/ref/settings/#databases
-if not DEMO:
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": "postgres",
-            "USER": "postgres",
-            "PASSWORD": "hentai2020",
-            "HOST": "localhost",
-            "PORT": "5432",
-            "CONN_MAX_AGE": 300,
-        }
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": "postgres",
+        "USER": "postgres",
+        "PASSWORD": "hentai2020",
+        "HOST": "localhost",
+        "PORT": "5432",
+        "CONN_MAX_AGE": 300,
     }
-else:
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": "demo-gallery",
-            "USER": "postgres",
-            "PASSWORD": "hentai2020",
-            "HOST": "localhost",
-            "PORT": "5432",
-            "CONN_MAX_AGE": 300,
-            "CONN_HEALTH_CHECKS": True,
-        }
-    }
+}
 
 SOUTH_DATABASE_ADAPTERS = {
     "default": "south.db.postgresql_psycopg2",
