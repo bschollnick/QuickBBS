@@ -620,12 +620,9 @@ def test(request: WSGIRequest, i_uuid: str):
     :param request:
     :return:
     """
-    print(f"Test:{i_uuid}")
     if request.htmx.boosted:
-        print("partial")
         template_name = "frontend/gallery_htmx_partial.jinja"
     else:
-        print("Full / Complete")
         template_name = "frontend/gallery_htmx_complete.jinja"
     if not filetypes.models.FILETYPE_DATA:
         print("Loading filetypes")
