@@ -25,6 +25,7 @@ from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
 from django.db.utils import IntegrityError
 from django.http import Http404, HttpResponseBadRequest, HttpResponseNotFound
 from django.shortcuts import render
+from django.views.decorators.vary import vary_on_headers
 # from django.db.models import Q
 from numpy import arange
 from PIL import Image, ImageFile
@@ -412,9 +413,7 @@ def update_thumbnail(entry):
     entry.save()
 
 
-@sync_to_async
-@api_view()
-def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRequest:
+def build_context_info(request: WSGIRequest, i_uuid:str):
     """
     Create the JSON package for item view.  All Json item requests come here to
     get their data.
@@ -475,9 +474,11 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
     # page_uuids = [str(record.uuid) for record in catalog_qs]
     page_uuids = list(catalog_qs.values_list("uuid", flat=True))
     context["mobile"] = detect_mobile(request)
-    context["size"] = "large"
     if context["mobile"]:
         context["size"] = "medium"
+    else:
+        context["size"] = "large"
+    
     item_list = Paginator(catalog_qs, 1)
 
     try:
@@ -485,6 +486,14 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
     except ValueError:
         current_page = 1
 
+    filetype_data = entry.filetype.__dict__.items()
+    context["filetype"] = {}
+    for ftkey, ftvalue in filetype_data:
+        context[f"ft_{ftkey}"] = ftvalue
+        context["filetype"][f"{ftkey}"] = ftvalue
+
+    del(context["ft__state"])
+    del(context["filetype"]["_state"])
     context.update(
         {
             "page": current_page,
@@ -494,21 +503,12 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
             "uuid": entry.uuid,
             "filename": entry.name,
             "filesize": entry.size,
-            #   "filecount": entry.numfiles,
-            #   "dircount": entry.numdirs,
-            #   "subdircount": entry.count_subfiles,
             "is_animated": entry.is_animated,
             "lastmod": entry.lastmod,
             "lastmod_ds": datetime.datetime.fromtimestamp(entry.lastmod).strftime(
                 "%m/%d/%y %H:%M:%S"
             ),
             "ft_filename": entry.filetype.icon_filename,
-            "ft_color": entry.filetype.color,
-            "ft_is_image": entry.filetype.is_image,
-            "ft_is_archive": entry.filetype.is_archive,
-            "ft_is_pdf": entry.filetype.is_pdf,
-            "ft_is_movie": entry.filetype.is_movie,
-            "ft_is_dir": entry.filetype.is_dir,
             "download_uri": entry.get_download_url(),
             "next_uuid": "",
             "previous_uuid": "",
@@ -529,7 +529,14 @@ def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRe
         context["previous_uuid"] = catalog_qs[
             page_contents.previous_page_number() - 1
         ].uuid
+    #print(context)
     # print("item info - Process time: ", time.perf_counter() - context["start_time"], "secs")
+    return context
+
+
+@api_view()
+def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRequest:
+    context = build_context_info(request, i_uuid)
     return Response(context)
 
 @sync_to_async
@@ -605,15 +612,31 @@ def download_file(request: WSGIRequest):  # , filename=None):
 async def download_item(request: WSGIRequest):
     return await download_file(request)
 
-
-def test(request: WSGIRequest):
+@vary_on_headers("HX-Request")
+def test(request: WSGIRequest, i_uuid: str):
+#def test(request: WSGIRequest):
     """
     Test function for mockup tests
     :param request:
     :return:
     """
-    context = {}
-    response = render(request, "frontend/test.html", context, using="Django")
+    print(f"Test:{i_uuid}")
+    if request.htmx.boosted:
+        print("partial")
+        template_name = "frontend/gallery_htmx_partial.jinja"
+    else:
+        print("Full / Complete")
+        template_name = "frontend/gallery_htmx_complete.jinja"
+    if not filetypes.models.FILETYPE_DATA:
+        print("Loading filetypes")
+        filetypes.models.FILETYPE_DATA = filetypes.models.load_filetypes()
+
+    i_uuid = str(i_uuid).strip().replace("/", "")
+
+    context = build_context_info(request, i_uuid) | {"user": request.user} # | {"sort": sort_order(request), "uuid": i_uuid, }
+    response = render(
+        request, template_name, context, using="Jinja2"
+    )
     return response
 
 

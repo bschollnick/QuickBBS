@@ -1,0 +1,196 @@
+
+{% autoescape off %}
+<nav class="navbar is-light" role="navigation" aria-label="main navigation">
+    <div class="navbar-brand">
+        <a class="navbar-item" href="{{ url('home') }}">
+            <img src="https://bulma.io/images/bulma-logo.png" width="112" height="28">
+        </a>
+    </div>
+
+    <div class="navbar-menu">
+        <div class="navbar-start">
+            <a class="navbar-item">
+                Name
+            </a>
+            <a class="navbar-item">
+                File
+            </a>
+            <a class="navbar-item" href="javascript:window.print()">
+                Print
+            </a>
+        </div>
+
+        <div class="navbar-end">
+            <div class="navbar-item">
+                <form>
+                    <div class="field has-addons">
+                        <div class="control">
+                            <input class="input" type="text" placeholder="Title">
+                        </div>
+                        <div class="control">
+                            <button type="submit" class="button is-link">Search</button>
+                        </div>
+                    </div>
+                </form>
+            </div>  <!-- Navbar Item -->
+        </div>  <!-- Navbar End -->
+        <div class="navbar-item has-dropdown is-hoverable">
+            <a class="navbar-link">
+              {% if user.username == '' %}
+                    {{ icon("users fa-2x")}}
+              {% else %}
+                    {{ user.username }}
+              {% endif %}
+            </a>
+            <div class="navbar-dropdown is-boxed is-right">
+                <a class="navbar-item" href="/Admin">Administrator Access</a>
+                <hr class="navbar-divider">
+                <a class="navbar-item" href="/Admin/password_change">Password Change</a>
+                <hr class="navbar-divider">
+                <a class="navbar-item" href="/Admin/logout">Logout</a>
+            </div>
+        </div>
+
+    </div> <!-- Navbar Menu -->
+</nav>
+{% if request.htmx %}
+<script>
+document.title = '{{ filename }}'
+</script>
+{% endif %}
+
+<div class="container is-fluid" style="margin-left:0px;padding-left:2px;padding-right:2px;">
+    <div class="columns is-mobile">
+
+        <!--         Sidebar -->
+        <div hx-boost="true" class="column is-1 is-narrow" style="border:2px solid black;position: fixed;">
+           <p align=center>
+
+                <a href="{{ up_uri }}" id="up_uri" style="opacity:1;">{{ icon("arrow-up fa-2x")}}</a><p>
+
+                <hr style="padding:2px;margin:2px">
+
+                {% if previous_uuid %}
+                    <p align=center>
+                    <a href="/viewer2/{{ first_uuid }}" id="first_uuid">
+                    {{ icon("angle-double-left fa-3x")}}</a></p>
+                    <hr style="padding:2px;margin:2px">
+                    <p align=center id="previous_icon">
+                    <a href="/viewer2/{{ previous_uuid }}" id="previous_uuid">
+                    {{ icon("angle-left fa-3x")}}</a></p>
+                {% else %}
+                    <p align=center>
+                    {{ icon("angle-double-left fa-3x")}}</p>
+                    <hr style="padding:2px;margin:2px">
+                    <p align=center id="previous_icon">
+                    {{ icon("angle-left fa-3x")}}</p>
+                {% endif %}
+                <hr style="padding:2px;margin:2px">
+                <center>
+                    <p id="pages">Page <br>
+                    {{ page }}
+                    <br> of
+                    <br> {{ pagecount }}
+                    </center>
+                <hr style="padding:2px;margin:2px">
+
+                {% if next_uuid %}
+                    <p align=center>
+                    <a href="/viewer2/{{ next_uuid }}" id="next_uuid">
+                    {{ icon("angle-right fa-3x")}}</a></p>
+                    <hr style="padding:2px;margin:2px">
+                    <p align=center>
+                    <a  href="/viewer2/{{ next_uuid }}" id="next_tab_uuid" target="_blank">
+                    {{ icon('fas fa-external-link-alt fa-3x') }}</a></p>
+                {% else %}
+                    <p align=center>
+                    {{ icon("angle-right fa-3x")}}</a></p>
+                    <hr style="padding:2px;margin:2px">
+                    <p align=center>
+                    {{ icon('fas fa-external-link-alt fa-3x') }}</p>
+                {% endif %}
+
+                <hr style="padding:2px;margin:2px">
+
+                <p align=center>
+                <a href="{{ last_uuid }}" id="last_uuid">
+                        {{ icon("angle-double-right fa-3x")}}</a></p>
+                <hr style="padding:2px;margin:2px">
+
+                <p align=center>
+                <a href="{{ download_uri }}" id="download_uri">
+                {{ icon('arrow-down fa-3x') }}</a></p>
+
+                <hr style="padding:2px;margin:2px">
+                <center>
+                    <form action="" method="GET">
+                        <input type="hidden" id="page" name="page" value="{{current_page}}">
+                        <select name="sort" onchange='this.form.submit()'>
+                            <option value="0" {% if sort == 0 %}selected{% endif %}>A..Z</option>
+                            <option value="1" {% if sort == 1 %}selected{% endif %}>LastM</option>
+                            <option value="2" {% if sort == 2 %}selected{% endif %}>CTime</option>
+                        </select>
+                    </form></center>
+        </div>    <!--         Sidebar -->
+
+
+        <div class="column is-12">  <!-- Folder Navigation & Breadcrumbs -->
+            <div class="columns is-mobile is-centered is-gapless is-narrow"  style="padding:0px;margin-bottom:1px;margin-top:1px;">
+                <div class="column is-1"></div>
+                <div class="column-fluid has-text-centered">
+                   <nav hx-boost="true" class="breadcrumb is-small" aria-label="breadcrumbs">
+                        <ul>
+                        <li id="breadcrumbs">{{ breadcrumbs}}</li> {{filename}}
+                        <li class="is-active"><b id="title"></b></li>
+                        </ul>
+                   </nav>
+                </div>
+            </div><!-- Folder Navigation & Breadcrumbs -->
+
+
+            <div class="columns is-mobile is-gapless is-centered is-narrow"  style="padding:1px;margin-bottom:1px;margin-top:1px;">
+                    <div class="column is-1 is-narrow"  style="padding:1px;margin-bottom:1px;margin-top:1px;">
+                    </div>
+                    <div class="column is-11 is-narrow is-gapless" style="border:1px solid black;margin-bottom:1px;margin-top:1px;">
+                        <div id ="item_frame" class="columns is-mobile  is-multiline is-gapless is-centered"  style="margin-bottom:0px;margin-top:0px;">
+                             <div class="container-fluid" width="99%" style="margin-left: 1px;margin-right:1px;border: 1px solid;width=100%;left-pad:2px;right-pad:2px;">
+                                    <div hx-boost="true" class="row">
+                                            {% if filetype.is_html or filetype.is_markdown %}
+                                            <div class="has-text-left" id="text_frame" style=" text-align:left !important;background-color:#{{filetype.color}}">
+                                                </center>
+                                                <p class="has-text-left" style=" text-align:left !important;" id="text_frame" defer></p>
+                                                <center>
+                                            {% endif %}
+                                            {% if filetype.is_image or filetype.is_pdf or filetype.is_dir or filetype.is_link or filetype.is_archive %}
+                                            <div class="thumbnail" id="thumbnail_frame" style="background-color:#{{filetype.color}};">
+                                                <center><a href id="image_link">
+                                                    <img id="display_image" class="lazy" src="{{thumbnail_uri}}" style="height:auto;max-width:auto;" defer/></a></center>
+                                            {% endif %}
+                                            {% if filetype.is_movie %}
+                                            <div class="thumbnail" id="movie_frame" style="background-color:#{{filetype.color}};">
+                                                <center>
+                                                     <video id="movie_viewer" class="video-js" data-setup='{}'  style="height:auto;max-width:100%;" controls>
+                                                          <source type="video/mp4">
+                                                     </video>
+                                                    </center>
+                                            {% endif %}
+                                                <div class="columns is-multiline" style="padding:0px;margin-left:2px;margin-top:0px;margin-bottom:0px;">
+                                                    <div class="column is-one-half" style="padding:1px">
+                                                        <b id="last_mod_head">Last Modified: </b>
+                                                        <p id="last_mod">{{lastmod_ds}}</p>
+                                                    </div>
+                                                    <div class="column is-one-half"  style="padding:1px">
+                                                        <b id="file_size_head">File Size: </b>
+                                                        <p id="file_size">{{ filesize }}</p>
+                                                    </div>
+                                                    <div class="column is-12 is-narrow" style="padding:1px" id="uuid_head">
+                                                        <font class="is-size-7"> <center><b>UUID:</b><font id="uuid">{{uuid}}</font></center>
+                                                    </div>
+                                            </div> <!--- Thumbnail --->
+                                            </center>
+                                    </div>
+                            </div>
+                        </div>
+                </div>
+            </div>
+{% endautoescape %}
