@@ -58,6 +58,16 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 # Sending File or zipfile - https://djangosnippets.org/snippets/365/
 
+# def favicon(request:HttpRequest) -> HttpResponse:
+#     return HttpResponse(
+#         (
+#             '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+#             + '<text y=".9em" font-size="90">🦊</text>'
+#             + "</svg>"
+#         ),
+#         content_type="image/svg+xml",
+#     )
+
 def return_prev_next2(directory, sorder) -> tuple:
     """
     The return_prev_next function takes a fully qualified pathname,
@@ -167,7 +177,7 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
     if entry.new_ftnail:
         if entry.new_ftnail.thumbnail_exists(size=thumbsize):
             return entry.new_ftnail.send_thumbnail(
-                filename_override=None, fext_override=None, size=thumbsize
+                filename_override=None, fext_override=".jpg", size=thumbsize
             )
     print("Miss hit")
     # return HttpResponseBadRequest(content="Do not create thumbnail.")
@@ -243,7 +253,7 @@ def search_viewresults(request: WSGIRequest):
         "fromtimestamp": datetime.datetime.fromtimestamp,
         "searchtext": request.GET.get("searchtext", default=None),
         "current_page": request.GET.get("page", 1),
-        "originator": request.META.get("HTTP_REFERER"),
+        "originator": request.headers.get("referer"),
         "prev_uri": "",
         "next_uri": "",
     }
@@ -436,7 +446,7 @@ def build_context_info(request: WSGIRequest, i_uuid:str):
         "breadcrumbs": "",
         "breadcrumbs_list": [],
     }
-    entry = IndexData.objects.prefetch_related("new_ftnail", "filetype").filter(
+    entry = IndexData.objects.prefetch_related("filetype").filter(
         uuid=context["uuid"]
     )[0]
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
@@ -450,6 +460,8 @@ def build_context_info(request: WSGIRequest, i_uuid:str):
     for bcrumb in breadcrumbs:
         context["breadcrumbs"] += f"<li>{bcrumb[2]}</li>"
         context["breadcrumbs_list"].append(bcrumb[2])
+
+    print(context["breadcrumbs"])
 
     filename = context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
 
@@ -621,8 +633,10 @@ def test(request: WSGIRequest, i_uuid: str):
     :return:
     """
     if request.htmx.boosted:
+        print("partial")
         template_name = "frontend/gallery_htmx_partial.jinja"
     else:
+        print("full")
         template_name = "frontend/gallery_htmx_complete.jinja"
     if not filetypes.models.FILETYPE_DATA:
         print("Loading filetypes")
@@ -635,6 +649,14 @@ def test(request: WSGIRequest, i_uuid: str):
         request, template_name, context, using="Jinja2"
     )
     return response
+    # return render(
+    #     request,
+    #     "partial-rendering.html",
+    #     context={
+    #         "base_template": base_template,
+    #         "page": page,
+    #     },
+    # )
 
 
 def layout_manager(

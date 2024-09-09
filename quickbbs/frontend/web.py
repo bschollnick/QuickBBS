@@ -244,7 +244,7 @@ def stream_video(request, fqpn, content_type="video/mp4"):
     # path = str(settings.BASE_DIR / "data" / "earth.mp4")
     path = fqpn
     # content_type = "video/mp4"
-    range_header = request.META.get("HTTP_RANGE", "").strip()
+    range_header = request.headers.get("range", "").strip()
     range_match = RANGE_RE.match(range_header)
     size = os.path.getsize(path)
 
