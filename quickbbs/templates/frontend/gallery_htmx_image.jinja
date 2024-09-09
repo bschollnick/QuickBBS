@@ -1,0 +1,55 @@
+{% autoescape off %}
+<image_block id="image_block">
+    <div class="column is-mobile is-11 is-gapless is-centered" style="margin-bottom:1px;margin-top:1px;margin-left:90px;margin-right:0px;padding-right:0px;padding-left:0px;">
+            <nav hx-boost="true" class="breadcrumb is-small" aria-label="breadcrumbs" style="margin:0px;">
+                <ul>
+                {{ breadcrumbs }} 
+                <li class="is-active"><b id="title">{{filename}}</b></li>
+                </ul>
+            </nav>
+            <div class="container-fluid" width="99%" style="margin-left: 1px;margin-right:1px;border: 1px solid;width=100%;left-pad:2px;right-pad:2px;">
+            <div hx-boost="true">
+                {% if filetype.is_html or filetype.is_markdown %}
+                <div class="has-text-left" id="text_frame" style="text-align:left !important;background-color:#{{filetype.color}}">
+                    </center>
+                    <p class="has-text-left" style="text-align:left !important;" id="text_frame" defer></p>
+                    <center>
+                {% endif %}
+                {% if filetype.is_image or filetype.is_pdf or filetype.is_dir or filetype.is_link or filetype.is_archive %}
+                <div class="thumbnail" id="thumbnail_frame" style="background-color:#{{filetype.color}};">
+                    <center>
+                        <a href id="image_link">
+                            <img id="display_image" class="lazy" src="{{thumbnail_uri}}" style="height:auto;max-width:auto;"/>
+                        </a>
+                    </center>
+                {% endif %}
+                {% if filetype.is_movie %}
+                <div class="thumbnail" id="movie_frame" style="background-color:#{{filetype.color}};">
+                    <center>
+                        <video id="movie_viewer" class="video-js" data-setup='{}'  style="height:auto;max-width:100%;" controls>
+                            <source type="video/mp4">
+                        </video>
+                    </center>
+                {% endif %}
+                    <div class="columns is-multiline" style="padding:0px;margin-left:2px;margin-top:0px;margin-bottom:0px;">
+                        <div class="column is-one-half" style="padding:1px">
+                            <font class="is-size-7"><b id="last_mod_head">Last Modified: </b></font>
+                            <font class="is-size-7">{{lastmod_ds}}</font>
+                        </div>
+                        <div class="column is-one-half"  style="padding:1px">
+                            <font class="is-size-7"><b id="file_size_head">File Size: </b></font>
+                            <font class="is-size-7">{{ filesize }}</font>
+                        </div>
+                        <div class="column is-12 is-narrow" style="padding:1px" id="uuid_head">
+                            <font class="is-size-7"> <center><b>UUID:</b><font id="uuid">{{uuid}}</font></center>
+                        </div>
+                </div> <!--- Thumbnail --->
+            </div>
+            </center>
+        </div>
+
+    </div>
+</image_block>
+
+</div>
+{% endautoescape %}
