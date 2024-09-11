@@ -38,7 +38,7 @@ urlpatterns += [
     # the filename is not used, but is there for web browser to see the expected filename
     # when it was download/<str:uuid>, the web browser would believe the filename was the
     # uuid, and ignore the filename in the download header.
-    path("info/<uuid:i_uuid>/", frontend.views.item_info, name="item_info"),
+    # path("info/<uuid:i_uuid>/", frontend.views.item_info, name="item_info"),
     path(
         "view_item/<uuid:i_uuid>/",
         frontend.views.test,

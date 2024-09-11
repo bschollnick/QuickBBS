@@ -373,13 +373,13 @@ def new_viewgallery(request: WSGIRequest):
         directory, sorder=context["sort"]
     )
 
-    dirs_to_display = IndexDirs.return_by_uuid_list(
+    dirs_to_display = IndexDirs.return_by_uuid_list(sort=context["sort"],
         uuid_list=layout["data"][context["current_page"] - 1]["directories"]
     )
-    files_to_display = IndexData.return_by_uuid_list(
+    files_to_display = IndexData.return_by_uuid_list(sort=context["sort"],
         uuid_list=layout["data"][context["current_page"] - 1]["files"]
     ).filter(filetype__is_link=False)
-    links_to_display = IndexData.return_by_uuid_list(
+    links_to_display = IndexData.return_by_uuid_list(sort=context["sort"],
         uuid_list=layout["data"][context["current_page"] - 1]["files"]
     ).filter(filetype__is_link=True)
 
@@ -437,7 +437,6 @@ def build_context_info(request: WSGIRequest, i_uuid:str):
     -------
     JsonResponse : The Json response from the web query.
     """
-    # start_time = time.perf_counter()  # time.time()
     context = {
         "start_time": time.perf_counter(),
         "uuid": str(i_uuid).strip().replace("/", ""),
@@ -480,8 +479,6 @@ def build_context_info(request: WSGIRequest, i_uuid:str):
         context["up_uri"] = context["up_uri"][:-1]
 
     catalog_qs = directory_entry.files_in_dir(sort=context["sort"])
-    # catalog_qs = get_db_files(context["sort"], context["webpath"])
-    # page_uuids = [str(record.uuid) for record in catalog_qs]
     page_uuids = list(catalog_qs.values_list("uuid", flat=True))
     context["mobile"] = detect_mobile(request)
     if context["mobile"]:
@@ -496,14 +493,8 @@ def build_context_info(request: WSGIRequest, i_uuid:str):
     except ValueError:
         current_page = 1
 
-    filetype_data = entry.filetype.__dict__.items()
-    context["filetype"] = {}
-    for ftkey, ftvalue in filetype_data:
-        context[f"ft_{ftkey}"] = ftvalue
-        context["filetype"][f"{ftkey}"] = ftvalue
-
-    del(context["ft__state"])
-    del(context["filetype"]["_state"])
+    filetype_data = entry.filetype.__dict__
+    context["filetype"] = filetype_data
     context.update(
         {
             "page": current_page,
@@ -533,49 +524,57 @@ def build_context_info(request: WSGIRequest, i_uuid:str):
 
     # generate next uuid pointers, switch this away from paginator?
     page_contents = item_list.page(context["page"])
+    # try:
+    #     context["previous_uuid"] = page_uuids[current_page-1]
+    # except ValueError:
+    #     pass
+    # try:
+    #     context["next_uuid"] = page_uuids[current_page+1]
+    # except ValueError:
+    #     pass
     if page_contents.has_next():
         context["next_uuid"] = catalog_qs[page_contents.next_page_number() - 1].uuid
     if page_contents.has_previous():
         context["previous_uuid"] = catalog_qs[
             page_contents.previous_page_number() - 1
         ].uuid
-    #print(context)
+#    print(context)
     # print("item info - Process time: ", time.perf_counter() - context["start_time"], "secs")
     return context
 
 
-@api_view()
-def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRequest:
-    context = build_context_info(request, i_uuid)
-    return Response(context)
+# @api_view()
+# def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRequest:
+#     context = build_context_info(request, i_uuid)
+#     return Response(context)
 
-@sync_to_async
-def new_json_viewitem(request: WSGIRequest, i_uuid: str):
-    """
-    This is the new view item.  It's a view stub, that calls item_info via json, to load the
-    data for the record.
+# @sync_to_async
+# def new_json_viewitem(request: WSGIRequest, i_uuid: str):
+#     """
+#     This is the new view item.  It's a view stub, that calls item_info via json, to load the
+#     data for the record.
 
-    Parameters
-    ----------
-    request : Django request object
-    i_uuid : the items uuid
+#     Parameters
+#     ----------
+#     request : Django request object
+#     i_uuid : the items uuid
 
-    Returns
-    -------
-    json : Json payload that contains the information regarding the item
+#     Returns
+#     -------
+#     json : Json payload that contains the information regarding the item
 
-    """
-    if not filetypes.models.FILETYPE_DATA:
-        print("Loading filetypes")
-        filetypes.models.FILETYPE_DATA = filetypes.models.load_filetypes()
+#     """
+#     if not filetypes.models.FILETYPE_DATA:
+#         print("Loading filetypes")
+#         filetypes.models.FILETYPE_DATA = filetypes.models.load_filetypes()
 
-    i_uuid = str(i_uuid).strip().replace("/", "")
+#     i_uuid = str(i_uuid).strip().replace("/", "")
 
-    context = {"sort": sort_order(request), "uuid": i_uuid, "user": request.user}
-    response = render(
-        request, "frontend/gallery_json_item.jinja", context, using="Jinja2"
-    )
-    return response
+#     context = {"sort": sort_order(request), "uuid": i_uuid, "user": request.user}
+#     response = render(
+#         request, "frontend/gallery_json_item.jinja", context, using="Jinja2"
+#     )
+#     return response
 
 
 @sync_to_async
@@ -643,7 +642,8 @@ def test(request: HtmxHttpRequest, i_uuid: str):
 
     i_uuid = str(i_uuid).strip().replace("/", "")
 
-    context = build_context_info(request, i_uuid) | {"user": request.user} # | {"sort": sort_order(request), "uuid": i_uuid, }
+    context = build_context_info(request, i_uuid) | {"user": request.user} # | {"sort": sort_order(request) }
+
     response = render(
         request, template_name, context, using="Jinja2"
     )
@@ -660,6 +660,7 @@ def test(request: HtmxHttpRequest, i_uuid: str):
 
 def layout_manager(
     page_number=0, directory=None, sort_ordering=None):
+    print("Sort Ordering", sort_ordering)
     output = {}
     output["data"] = {}
     output["page_number"] = page_number
@@ -680,11 +681,11 @@ def layout_manager(
         directory.dirs_in_dir(sort=sort_ordering).values_list("uuid", flat=True)
     )
     files = list(directory.files_in_dir(sort=sort_ordering).values_list("uuid", flat=True))
-    links = list(directory.files_in_dir(sort=sort_ordering, additional_filters={'filetype__is_link':True}).values_list("uuid", flat=True))
-    if links:
-        files = set(files)
-        files.difference_update(links)
-        files = links + list(files)
+#    links = list(directory.files_in_dir(sort=sort_ordering, additional_filters={'filetype__is_link':True}).values_list("uuid", flat=True))
+ #   if links:
+  #      files = set(files)
+   #     files.difference_update(links)
+    #    files = links + list(files)
     file_offset = 0
     for page_cnt in range(0, output["total_pages"]):
         data = {}
@@ -698,7 +699,7 @@ def layout_manager(
         data["total_cnt"] = data["cnt_dirs"] + data["cnt_files"]
         file_offset += data["cnt_files"]
         output["data"][page_cnt] = data
-        output["links"] = links
+        # output["links"] = links
     output["all_uuids"] = list(chain(directories, files))
     output["no_thumbnails"] = list(
         directory.files_in_dir(sort=sort_ordering, additional_filters={'new_ftnail__isnull':True})
