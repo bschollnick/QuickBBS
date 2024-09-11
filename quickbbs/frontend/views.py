@@ -23,7 +23,7 @@ from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
 from django.db.utils import IntegrityError
-from django.http import Http404, HttpResponseBadRequest, HttpResponseNotFound
+from django.http import Http404, HttpResponseBadRequest, HttpResponseNotFound,HttpRequest,HttpResponse
 from django.shortcuts import render
 from django.views.decorators.vary import vary_on_headers
 # from django.db.models import Q
@@ -44,8 +44,10 @@ from quickbbs.models import IndexData, IndexDirs  # , Thumbnails_Files
 from thumbnails import image_utils
 from thumbnails.models import ThumbnailFiles
 import filetypes
+from django_htmx.middleware import HtmxDetails
 
-
+class HtmxHttpRequest(HttpRequest):
+    htmx: HtmxDetails
 # log = logging.getLogger(__name__)
 
 logger = logging.getLogger()
@@ -83,8 +85,6 @@ def return_prev_next2(directory, sorder) -> tuple:
             get-the-index-of-an-element-in-a-queryset
                 Specifically Richard's answer.
     """
-    # Parent_path = Path(fqpn).parent
-    # unnecessary since going beyond the max offset will cause indexerror.
     nextdir = ""
     prevdir = ""
     parent_dir = directory.return_parent_directory()
@@ -461,8 +461,6 @@ def build_context_info(request: WSGIRequest, i_uuid:str):
         context["breadcrumbs"] += f"<li>{bcrumb[2]}</li>"
         context["breadcrumbs_list"].append(bcrumb[2])
 
-    print(context["breadcrumbs"])
-
     filename = context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
 
     if entry.filetype.is_text or entry.filetype.is_markdown:
@@ -625,14 +623,15 @@ async def download_item(request: WSGIRequest):
     return await download_file(request)
 
 @vary_on_headers("HX-Request")
-def test(request: WSGIRequest, i_uuid: str):
+#def test(request: WSGIRequest, i_uuid: str):
+def test(request: HtmxHttpRequest, i_uuid: str):
 #def test(request: WSGIRequest):
     """
     Test function for mockup tests
     :param request:
     :return:
     """
-    if request.htmx.boosted:
+    if request.htmx.boosted and request.htmx.current_url is not None: # and not request.GET.get("newwin", False):
         print("partial")
         template_name = "frontend/gallery_htmx_partial.jinja"
     else:
