@@ -41,7 +41,7 @@ urlpatterns += [
     path("info/<uuid:i_uuid>/", frontend.views.item_info, name="item_info"),
     path(
         "view_item/<uuid:i_uuid>/",
-        frontend.views.new_json_viewitem,
+        frontend.views.test,
         name="new_viewitem",
     ),
     # path(
