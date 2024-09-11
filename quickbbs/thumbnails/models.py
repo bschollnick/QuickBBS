@@ -179,6 +179,10 @@ class ThumbnailFiles(models.Model):
          --------
          send_thumbnail("test.png")
 
+        Note:
+            Thumbnails are stored as jpeg's, not as other types, so we'll always be sending a 
+            jpeg as the thumbnail, until/unless it is stored differently (e.g. JPEG XL, PNG, etc)
+
         References:
             https://stackoverflow.com/questions/36392510/django-download-a-file
             https://stackoverflow.com/questions/27712778/
@@ -187,18 +191,17 @@ class ThumbnailFiles(models.Model):
                     how-can-i-find-out-whether-a-server-supports-the-range-header
 
         """
-        if fext_override is not None:
-            mimetype_filename = os.path.join(self.fqpn_filename, fext_override)
-        elif filename_override:
-            mimetype_filename = filename_override
-        else:
-            mimetype_filename = None
-
-        if mimetype_filename:
-            mtype = mimetypes.guess_type(mimetype_filename)[0]
-        else:
-            mtype = "application/octet-stream"
-
+        # if fext_override is not None:
+        #     mimetype_filename = os.path.join(self.fqpn_filename, fext_override)
+        # elif filename_override:
+        #     mimetype_filename = filename_override
+        # else:
+        #     mimetype_filename = self.fqpn_filename
+        # if mimetype_filename:
+        #     mtype = mimetypes.guess_type(mimetype_filename)[0]
+        # else:
+        #     mtype = "application/octet-stream"
+        mtype = "image/jpeg"
         blob = self.retrieve_sized_tnail(size=size)
         response = FileResponse(
             io.BytesIO(blob),

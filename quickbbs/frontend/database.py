@@ -47,9 +47,9 @@ DF_VDBASE = ["sortname", "lastscan", "lastmod", "size"]
 
 
 SORT_MATRIX = {
-    0: ["-filetype__is_dir", "name_sort", "lastmod"],
-    1: ["-filetype__is_dir", "lastmod", "name_sort"],
-    2: ["-filetype__is_dir", "name_sort"],
+    0: ["-filetype__is_dir", "-filetype__is_link", "name_sort", "lastmod"],
+    1: ["-filetype__is_dir", "-filetype__is_link", "lastmod", "name_sort"],
+    2: ["-filetype__is_dir", "-filetype__is_link", "name_sort"],
 }
 
 
