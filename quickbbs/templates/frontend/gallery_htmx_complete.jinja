@@ -12,8 +12,9 @@
     <link rel="stylesheet" href="{{bulma_uri}}" defer>
     <link rel="stylesheet" href="{{fontawesome_uri}}" defer>
 
-    <script src="{{django_htmx_uri}}" defer> </script>
+    <script src="{{django_htmx_uri}}"> </script>
     {{ django_htmx_script() }}
+    
     <title hx-boost="true">{% block title %} {{ filename }} {% endblock %}</title>
 </head>
 <body>

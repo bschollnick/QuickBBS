@@ -165,6 +165,7 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.middleware.cache.UpdateCacheMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.gzip.GZipMiddleware",
     "django.middleware.http.ConditionalGetMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -174,7 +175,6 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "django_user_agents.middleware.UserAgentMiddleware",
     "django_htmx.middleware.HtmxMiddleware",
-
     "debug_toolbar.middleware.DebugToolbarMiddleware",
 ]
 
@@ -237,6 +237,8 @@ TEMPLATES = [
                 "static": "django.templatetags.static.static",
                 "url": "django.urls.reverse",
                 "django_htmx_script": django_htmx_script,
+                "any":any,
+                "all":all,
             },
             "constants": {
                 "bulma_uri": BULMA_URI,
