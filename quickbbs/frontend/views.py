@@ -630,7 +630,7 @@ def test(request: HtmxHttpRequest, i_uuid: str):
     :param request:
     :return:
     """
-    if request.htmx.boosted and request.htmx.current_url is not None: # and not request.GET.get("newwin", False):
+    if request.htmx.boosted and request.htmx.current_url is not None and not request.GET.get("newwin", False):
         print("partial")
         template_name = "frontend/gallery_htmx_partial.jinja"
     else:

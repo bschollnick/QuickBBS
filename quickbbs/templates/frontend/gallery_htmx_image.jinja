@@ -7,7 +7,7 @@
                 <li class="is-active"><b id="title">{{filename}}</b></li>
                 </ul>
             </nav>
-            <div class="container-fluid" width="99%" style="margin-left: 1px;margin-right:1px;border: 1px solid;width=100%;left-pad:2px;right-pad:2px;">
+            <div class="container-fluid" width="98%" style="margin-left: 1px;margin-right:1px;border: 1px solid;width=100%;left-pad:2px;right-pad:2px;">
             <div hx-boost="true">
                 {% if filetype.is_html or filetype.is_markdown %}
                 <div class="has-text-left" id="text_frame" style="text-align:left !important;background-color:#{{filetype.color}}">
@@ -27,7 +27,7 @@
                 <div class="thumbnail" id="movie_frame" style="background-color:#{{filetype.color}};">
                     <center>
                         <video hx-boost="false" id="movie_viewer" class="video-js" data-setup='{}'  style="height:auto;max-width:100%;" controls>
-                            <source type="video/mp4">
+                            <source type="video/mp4" src="{{ download_uri }}" hx-boost="false">
                         </video>
                     </center>
                 {% endif %}
