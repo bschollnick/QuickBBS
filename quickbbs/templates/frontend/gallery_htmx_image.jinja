@@ -9,16 +9,18 @@
             </nav>
             <div class="container-fluid" width="98%" style="margin-left: 1px;margin-right:1px;border: 1px solid;width=100%;left-pad:2px;right-pad:2px;">
             <div hx-boost="true">
-                {% if filetype.is_html or filetype.is_markdown %}
+                {% if any([filetype.is_html, filetype.is_text, filetype.is_markdown]) %}
                 <div class="has-text-left" id="text_frame" style="text-align:left !important;background-color:#{{filetype.color}}">
                     </center>
-                    <p class="has-text-left" style="text-align:left !important;" id="text_frame" defer></p>
+                    <p class="has-text-left" style="text-align:left !important;" id="text_frame" defer>
+                        {{html}}
+                    </p>
                     <center>
                 {% endif %}
-                {% if filetype.is_image or filetype.is_pdf or filetype.is_dir or filetype.is_link or filetype.is_archive %}
+                {% if any([filetype.is_image, filetype.is_pdf, filetype.is_dir, filetype.is_link, filetype.is_archive]) %}
                 <div class="thumbnail" id="thumbnail_frame" style="background-color:#{{filetype.color}};">
                     <center>
-                        <a href id="image_link">
+                        <a href="{{ download_uri }}"  hx-boost="false" id="image_link">
                             <img id="display_image" class="lazy" src="{{thumbnail_uri}}" style="height:auto;max-width:auto;"/>
                         </a>
                     </center>
