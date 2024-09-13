@@ -21,7 +21,7 @@
                         {{ icon("angle-double-left fa-3x")}}</p>
                         <hr style="padding:2px;margin:2px">
                         <p align=center id="previous_icon">
-                        {{ icon("angle-left fa-3x")}}?sort={{sort}}</p>
+                        {{ icon("angle-left fa-3x")}}</p>
                     {% endif %}
                     <hr style="padding:2px;margin:2px">
                     <center>
@@ -38,7 +38,7 @@
                         {{ icon("angle-right fa-3x")}}</a></p>
                         <hr style="padding:2px;margin:2px">
                         <p align=center hx-boost="false">
-                        <a href="/viewer2/{{ next_uuid }}?sort={{sort}}" hx-boost="false" id="next_tab_uuid" target="_blank">
+                        <a href="/viewer2/{{ next_uuid }}?sort={{sort}}&newwin=True" hx-boost="false" id="next_tab_uuid" target="_blank">
                         {{ icon('fas fa-external-link-alt fa-3x') }}</a></p>
                         <hr style="padding:2px;margin:2px">
                         <p align=center>
