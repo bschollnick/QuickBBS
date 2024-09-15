@@ -303,6 +303,12 @@ def new_viewgallery(request: WSGIRequest):
     """
     
     print("NEW VIEW GALLERY")
+    if request.htmx.boosted and request.htmx.current_url is not None and not request.GET.get("newwin", False):
+        print("partial")
+        template_name = "frontend/gallery_listing_partial.jinja"
+    else:
+        print("full")
+        template_name = "frontend/gallery_listing_complete.jinja"
     if not filetypes.models.FILETYPE_DATA:
         print("Loading filetypes")
         filetypes.models.FILETYPE_DATA = filetypes.models.load_filetypes()
@@ -402,7 +408,7 @@ def new_viewgallery(request: WSGIRequest):
 
     response = render(
         request,
-        "frontend/gallery_listing_complete.jinja",
+        f"{template_name}",
         context,
         using="Jinja2",
     )
@@ -584,9 +590,7 @@ async def download_item(request: WSGIRequest):
     return await download_file(request)
 
 @vary_on_headers("HX-Request")
-#def test(request: WSGIRequest, i_uuid: str):
 def test(request: HtmxHttpRequest, i_uuid: str):
-#def test(request: WSGIRequest):
     """
     Test function for mockup tests
     :param request:
