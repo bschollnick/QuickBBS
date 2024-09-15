@@ -402,7 +402,7 @@ def new_viewgallery(request: WSGIRequest):
 
     response = render(
         request,
-        "frontend/gallery_listing2.jinja",
+        "frontend/gallery_listing_complete.jinja",
         context,
         using="Jinja2",
     )
