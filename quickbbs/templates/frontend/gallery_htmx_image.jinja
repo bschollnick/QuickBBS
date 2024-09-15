@@ -4,10 +4,10 @@
             <nav hx-boost="true" class="breadcrumb is-small" aria-label="breadcrumbs" style="margin:0px;">
                 <ul>
                 {{ breadcrumbs }} 
-                <li class="is-active"><b id="title">{{filename}}</b></li>
+                <li class="is-active"><font size=+1><b id="title">{{filename}}</b></font></li>
                 </ul>
             </nav>
-            <div class="container-fluid" width="98%" style="margin-left: 1px;margin-right:1px;border: 1px solid;width=100%;left-pad:2px;right-pad:2px;">
+            <div class="container-fluid" width="98%" style="margin-left: 1px;margin-right:1px;border: 1px solid;left-pad:2px;right-pad:2px;">
             <div hx-boost="true">
                 {% if any([filetype.is_html, filetype.is_text, filetype.is_markdown]) %}
                 <div class="has-text-left" id="text_frame" style="text-align:left !important;background-color:#{{filetype.color}}">
@@ -21,14 +21,18 @@
                 <div class="thumbnail" id="thumbnail_frame" style="background-color:#{{filetype.color}};">
                     <center>
                         <a href="{{ download_uri }}"  hx-boost="false" id="image_link">
-                            <img id="display_image" class="lazy" src="{{thumbnail_uri}}" style="height:auto;max-width:auto;"/>
+                            {% if not is_animated %}
+                                <img id="display_image" class="lazy" src="{{thumbnail_uri}}" style="height:auto;max-width:auto;"/>
+                            {% else %}
+                                <img id="display_image" class="lazy" src="{{download_uri}}" hx-boost="false" style="height:auto;max-width:auto;"/>
+                            {% endif %}
                         </a>
                     </center>
                 {% endif %}
                 {% if filetype.is_movie %}
                 <div class="thumbnail" id="movie_frame" style="background-color:#{{filetype.color}};">
                     <center>
-                        <video hx-boost="false" id="movie_viewer" class="video-js" data-setup='{}'  style="height:auto;max-width:100%;" controls>
+                        <video hx-boost="false" id="movie_viewer" class="video-js" data-setup='{}' preload="auto" poster="{{ thumbnail_uri }}" style="height:auto;max-width:98%;" controls>
                             <source type="video/mp4" src="{{ download_uri }}" hx-boost="false">
                         </video>
                     </center>
@@ -42,7 +46,7 @@
                             <font class="is-size-7"><b id="file_size_head">File Size: </b></font>
                             <font class="is-size-7">{{ filesize }}</font>
                         </div>
-                        <div class="column is-12 is-narrow" style="padding:1px" id="uuid_head">
+                        <div class="column is-11 is-narrow" style="padding:1px" id="uuid_head">
                             <font class="is-size-7"> <center><b>UUID:</b><font id="uuid">{{uuid}}</font></center>
                         </div>
                 </div> <!--- Thumbnail --->

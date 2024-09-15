@@ -1,7 +1,7 @@
 """
 Utilities for QuickBBS, the python edition.
 """
-
+from datetime import timedelta
 import os
 import os.path
 import stat
@@ -22,7 +22,7 @@ import filetypes.models as filetype_models
 from cache_watcher.models import Cache_Storage
 # from quickbbs.logger import log
 from quickbbs.models import IndexData, IndexDirs
-
+from thumbnails.image_utils import movie_duration
 Image.MAX_IMAGE_PIXELS = None  # Disable PILLOW DecompressionBombError errors.
 from django_thread import ThreadPoolExecutor
 
@@ -263,6 +263,8 @@ def process_filedata(fs_entry, db_record) -> IndexData:
             .replace(redirect.split(".")[-1], "")[:-1]
         )
         db_record.fqpndirectory = f"/{redirect}"
+        if filetype_models.FILETYPE_DATA[fileext]["is_movie"]:
+            db_record.duration = movie_duration(os.path.join(db_record.fqpndirectory, db_record.name))
     if filetype_models.FILETYPE_DATA[fileext]["is_image"] and fileext in [".gif"]:
         try:
             with Image.open(
@@ -354,6 +356,7 @@ def sync_database_disk(directoryname):
     #     )
 
     for db_entry in db_data:
+        fext = os.path.splitext(db_entry.name.strip())[1].lower()
         if db_entry.name.strip() not in fs_entries:
             print("Database contains a file not in the fs: ", db_entry.name)
             # The entry just is not in the file system.  Delete it.
@@ -376,6 +379,9 @@ def sync_database_disk(directoryname):
             if db_entry.size != fs_stat[stat.ST_SIZE]:
                 # print("Size mismatch")
                 db_entry.size = fs_stat[stat.ST_SIZE]
+                update = True
+            if filetype_models.FILETYPE_DATA[fext]["is_movie"] and db_entry.duration is None:
+                db_entry.duration = timedelta(seconds=int(movie_duration(os.path.join(db_entry.fqpndirectory, db_entry.name))))
                 update = True
             if update:
                 records_to_update.append(db_entry)
@@ -415,6 +421,7 @@ def sync_database_disk(directoryname):
                     "lastmod",
                     "delete_pending",
                     "size",
+                    "duration",
                     #                        "numfiles",
                     #                        "numdirs",
                     "parent_dir_id",

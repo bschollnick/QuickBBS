@@ -504,6 +504,7 @@ def build_context_info(request: WSGIRequest, i_uuid:str):
             "uuid": entry.uuid,
             "filename": entry.name,
             "filesize": entry.size,
+            "duration": entry.duration,
             "is_animated": entry.is_animated,
             "lastmod": entry.lastmod,
             "lastmod_ds": datetime.datetime.fromtimestamp(entry.lastmod).strftime(
@@ -524,14 +525,6 @@ def build_context_info(request: WSGIRequest, i_uuid:str):
 
     # generate next uuid pointers, switch this away from paginator?
     page_contents = item_list.page(context["page"])
-    # try:
-    #     context["previous_uuid"] = page_uuids[current_page-1]
-    # except ValueError:
-    #     pass
-    # try:
-    #     context["next_uuid"] = page_uuids[current_page+1]
-    # except ValueError:
-    #     pass
     if page_contents.has_next():
         context["next_uuid"] = catalog_qs[page_contents.next_page_number() - 1].uuid
     if page_contents.has_previous():
@@ -541,40 +534,6 @@ def build_context_info(request: WSGIRequest, i_uuid:str):
 #    print(context)
     # print("item info - Process time: ", time.perf_counter() - context["start_time"], "secs")
     return context
-
-
-# @api_view()
-# def item_info(request: WSGIRequest, i_uuid: str) -> Response | HttpResponseBadRequest:
-#     context = build_context_info(request, i_uuid)
-#     return Response(context)
-
-# @sync_to_async
-# def new_json_viewitem(request: WSGIRequest, i_uuid: str):
-#     """
-#     This is the new view item.  It's a view stub, that calls item_info via json, to load the
-#     data for the record.
-
-#     Parameters
-#     ----------
-#     request : Django request object
-#     i_uuid : the items uuid
-
-#     Returns
-#     -------
-#     json : Json payload that contains the information regarding the item
-
-#     """
-#     if not filetypes.models.FILETYPE_DATA:
-#         print("Loading filetypes")
-#         filetypes.models.FILETYPE_DATA = filetypes.models.load_filetypes()
-
-#     i_uuid = str(i_uuid).strip().replace("/", "")
-
-#     context = {"sort": sort_order(request), "uuid": i_uuid, "user": request.user}
-#     response = render(
-#         request, "frontend/gallery_json_item.jinja", context, using="Jinja2"
-#     )
-#     return response
 
 
 @sync_to_async
@@ -608,11 +567,14 @@ def download_file(request: WSGIRequest):  # , filename=None):
     if d_uuid in ["", None]:
         raise Http404
 
-    download = IndexData.objects.filter(uuid=d_uuid)
-
     try:
-        return download[0].inline_sendfile(
-            request, ranged=download[0].filetype.is_movie
+        download = IndexData.objects.get(uuid=d_uuid)
+    except IndexData.DoesNotExist:
+        raise Http404
+    
+    try:
+        return download.inline_sendfile(
+            request, ranged=download.filetype.is_movie
         )
     except FileNotFoundError:
         raise Http404
