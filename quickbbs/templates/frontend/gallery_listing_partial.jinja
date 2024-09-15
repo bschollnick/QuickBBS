@@ -16,7 +16,7 @@
 
     <title>{% block title %} {{ gallery_name }} {% endblock %}</title>
 </head>
-<body>
+<body hx-boost="true">
 {% autoescape off %}
 {% include 'frontend/gallery_listing_menu.jinja' %}
 {% include 'frontend/gallery_listing_sidebar.jinja' %}
