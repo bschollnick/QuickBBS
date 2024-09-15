@@ -243,6 +243,7 @@ TEMPLATES = [
                 "all":all,
                 "naturaldelta":humanize.naturaldelta,
                 "precisedelta":humanize.precisedelta,
+                "naturalsize":humanize.naturalsize,
             },
             "constants": {
                 "bulma_uri": BULMA_URI,
