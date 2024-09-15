@@ -2,6 +2,7 @@
 Django Models for quickbbs
 """
 
+from asgiref.sync import sync_to_async
 import hashlib
 import io
 import mimetypes
@@ -10,6 +11,8 @@ import pathlib
 import time
 import uuid
 
+import asyncio
+from aiofile import AIOFile, Reader
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import models
@@ -105,6 +108,10 @@ class IndexDirs(models.Model):
         default=".dir",
     )
     small_thumb = models.BinaryField(default=b"")
+
+    class Meta:
+        verbose_name = "Master Directory Index"
+        verbose_name_plural = "Master Directory Index"
 
     @staticmethod
     def normalize_fqpn(fqpn_directory) -> str:
@@ -418,22 +425,18 @@ class IndexData(models.Model):
     uuid = models.UUIDField(
         default=None, null=True, editable=False, db_index=True, blank=True
     )
-    # Stored as Unix TimeStamp (ms)
     lastscan = models.FloatField(db_index=True)
+        # Stored as Unix TimeStamp (ms)
     lastmod = models.FloatField(db_index=True)  # Stored as Unix TimeStamp (ms)
+        # Stored as Unix TimeStamp (ms)
     name = models.CharField(db_index=True, max_length=384, default=None)
-    # FQFN of the file itself
-    # sortname = models.CharField(editable=False, max_length=384, default='')
+        # FQFN of the file itself
+        # sortname = models.CharField(editable=False, max_length=384, default='')
     name_sort = NaturalSortField(for_field="name", max_length=384, default="")
+    duration = models.DurationField(null=True)
     size = models.BigIntegerField(default=0)  # File size
-    # The # of files in this directory
-    #    numfiles = models.IntegerField(default=0)
-    #    numdirs = models.IntegerField(
-    #        default=0
-    #    )  # The # of Children Directories in this directory
-    #    count_subfiles = models.BigIntegerField(default=0)  # the # of subfiles in archive
     fqpndirectory = models.CharField(default=0, db_index=True, max_length=384)
-    # Directory of the file, lower().replace("//", "/"), ensure it is path, and not path + filename
+        # Directory of the file, lower().replace("//", "/"), ensure it is path, and not path + filename
     parent_dir = models.ForeignKey(
         IndexDirs, on_delete=models.CASCADE, null=True, default=None
     )
@@ -460,24 +463,8 @@ class IndexData(models.Model):
         ThumbnailFiles, on_delete=models.CASCADE, null=True, default=None, blank=True
     )
 
-    # file_tnail = models.OneToOneField(
-    #     Thumbnails_Files,
-    #     on_delete=models.CASCADE,
-    #     db_index=True,
-    #     default=None,
-    #     null=True,
-    #     blank=True,
-    # )
 
-    # # https://stackoverflow.com/questions/38388423
-    # archives = models.OneToOneField(
-    #     Thumbnails_Archives,
-    #     on_delete=models.CASCADE,
-    #     db_index=True,
-    #     default=None,
-    #     null=True,
-    #     blank=True,
-    # )
+    # https://stackoverflow.com/questions/38388423
 
     ownership = models.OneToOneField(
         Owners,
@@ -586,7 +573,6 @@ class IndexData(models.Model):
         return reverse("download") + f"?UUID={self.uuid}"
         # null = System Owned
 
-    # @method_decorator(cache_control(private=True))
     def inline_sendfile(self, request, ranged=False):
         """
          Send an file either using an RangedFileResponse, or HTTP Respsonse
@@ -612,28 +598,31 @@ class IndexData(models.Model):
             mtype = self.filetype.mimetype
             if mtype is None:
                 mtype = "application/octet-stream"
-            with open(fqpn_filename, "rb") as fh:
-                if ranged:
-                    # open must be in the RangedFielRequest, to allow seeking
-                    response = RangedFileResponse(
-                        request,
-                        file=open(fqpn_filename, "rb"),  # , buffering=1024*8),
-                        as_attachment=False,
-                        filename=self.name,
-                    )
-                    response["Content-Type"] = mtype
-                else:
+            if ranged:
+                # open must be in the RangedFielRequest, to allow seeking
+                response = RangedFileResponse(
+                    request,
+                    file=open(fqpn_filename, "rb"),  # , buffering=1024*8),
+                    as_attachment=False,
+                    filename=self.name,
+                )
+                response["Content-Type"] = mtype
+            else:
+                # with AIOFile(fqpn_filename, "rb") as afh:
+                #     reader = Reader(afh)
+                #     response = HttpResponse(reader, content_type=mtype)
+                #     response["Content-Disposition"] = f"inline; filename={self.name}"
+                with open(fqpn_filename, "rb") as fh:
                     response = HttpResponse(fh.read(), content_type=mtype)
                     response["Content-Disposition"] = f"inline; filename={self.name}"
             return response
         except FileNotFoundError:
-            pass
-
+            raise Http404
         raise Http404
-
+       
     class Meta:
-        verbose_name = "Master Index"
-        verbose_name_plural = "Master Index"
+        verbose_name = "Master Files Index"
+        verbose_name_plural = "Master Files Index"
 
         constraints = [
             models.UniqueConstraint(

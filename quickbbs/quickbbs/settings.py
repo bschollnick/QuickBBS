@@ -16,6 +16,7 @@ from pathlib import Path
 
 import django_icons
 from django_htmx.jinja import django_htmx_script
+import humanize
 
 # import quickbbs.jinjaenv
 from quickbbs.quickbbs_settings import *
@@ -225,6 +226,7 @@ TEMPLATES = [
                 "jinja2.ext.do",
                 "jinja2.ext.loopcontrols",
                 "jinja2.ext.i18n",
+#                "jinja2_humanize_extension.HumanizeExtension", # doesn't seem to work per docs?
                 "django_jinja.builtins.extensions.CsrfExtension",
                 "django_jinja.builtins.extensions.CacheExtension",
                 "django_jinja.builtins.extensions.TimezoneExtension",
@@ -239,6 +241,8 @@ TEMPLATES = [
                 "django_htmx_script": django_htmx_script,
                 "any":any,
                 "all":all,
+                "naturaldelta":humanize.naturaldelta,
+                "precisedelta":humanize.precisedelta,
             },
             "constants": {
                 "bulma_uri": BULMA_URI,

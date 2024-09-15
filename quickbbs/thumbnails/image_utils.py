@@ -41,6 +41,28 @@ def pdf_to_pil(fspath):
             source_image = None
     return source_image
 
+def movie_duration(fspath):
+    """
+    The load_movie function loads a movie from the file system and returns an image.
+
+    Updated - 2022/12/21 - It will now search for the next
+    :param fspath: Specify the path to the video file
+    :param offset_from: The number of frames to advance *after* detecting a non-solid
+        black or white frame.
+    :return: A pillow image object
+
+    References:
+        * https://stackoverflow.com/questions/14041562/
+            python-pil-detect-if-an-image-is-completely-black-or-white
+    """
+    image = None
+    try:
+        with av.open(fspath) as container:
+            stream = container.streams.video[0]
+            duration_sec = int(stream.duration * stream.time_base)
+    except (av.error.InvalidDataError, StopIteration):
+        duration_sec = None
+    return duration_sec
 
 def movie_to_pil(fspath):
     """
