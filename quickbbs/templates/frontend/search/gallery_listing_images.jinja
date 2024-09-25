@@ -1,9 +1,10 @@
+<image_block id="image_block">
 <div class="column is-12 g-0 p-0 m-0 mt-4"> 
      <!-- Folder Navigation & Breadcrumbs -->
     <div class="columns is-mobile is-centered is-gapless m-0 p-0">
         <div class="column is-2"></div>
-        <div class="column is-one-third has-text-centered">
-            <nav class="breadcrumb is-small" aria-label="breadcrumbs">
+        <div class="column is-one-third has-text-centered is-gapless m-0 p-0">
+            <nav class="breadcrumb is-small is-gapless m-0 p-0" aria-label="breadcrumbs">
                 <ul>
                 {% for name, url, link in breadcrumbs %}
                     <li><a href='{{url}}'>{{name}}</a></li>
@@ -12,18 +13,20 @@
                 </ul>
             </nav>
         </div>
-        <div class="column is-one-third has-text-centered">
+        <div class="column is-one-third has-text-left is-gapless m-0 p-0">
                 {% if prev_uri not in ["", None] %}
+                    <font class="is-size-7">
                     <a href="{{ prev_uri }}?sort={{sort}}">
                         {{ icon("angle-left fa-1x")}}
-                        {{ prev_uri.split("/")[-1][:30]|wordwrap(width=25,break_long_words=True) -}}</a>
+                        {{ prev_uri.split("/")[-1][:30]|wordwrap(width=25,break_long_words=True) -}}</a></font>
                 {% endif %}
         </div>
-        <div class="column is-one-third has-text-centered">
+        <div class="column is-one-third has-text-left is-gapless m-0 p-0">
                 {% if next_uri not in ["", None] %}
+                    <font class="is-size-7">
                     <a href="{{ next_uri }}?sort={{sort}}">
                     {{ icon("angle-right fa-1x")}}
-                    {{ next_uri.split("/")[-1][:30]|wordwrap(width=25,break_long_words=True) -}}</a>
+                    {{ next_uri.split("/")[-1][:30]|wordwrap(width=25,break_long_words=True) -}}</a></font>
                 {% endif %}
         </div>
     </div><!-- Folder Navigation & Breadcrumbs -->
@@ -108,3 +111,4 @@
     </div>
 
 </div>
+</image_block>
