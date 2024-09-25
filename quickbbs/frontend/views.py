@@ -14,37 +14,38 @@ from itertools import chain
 from pathlib import Path
 from typing import Optional
 
+import filetypes
 # import bleach
 # import django_icons.templatetags.icons
 import markdown2
 import psycopg
 from asgiref.sync import sync_to_async
+from cache_watcher.models import Cache_Storage
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
 from django.db.utils import IntegrityError
-from django.http import Http404, HttpResponseBadRequest, HttpResponseNotFound,HttpRequest,HttpResponse
+from django.http import (Http404, HttpRequest, HttpResponse,
+                         HttpResponseBadRequest, HttpResponseNotFound)
 from django.shortcuts import render
 from django.views.decorators.vary import vary_on_headers
+from django_htmx.middleware import HtmxDetails
 # from django.db.models import Q
 from numpy import arange
 from PIL import Image, ImageFile
+from quickbbs.models import IndexData, IndexDirs  # , Thumbnails_Files
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-
-from cache_watcher.models import Cache_Storage
-# import frontend.archives3 as archives
-from frontend.database import SORT_MATRIX
-from frontend.thumbnail import new_process_dir2
-from frontend.utilities import (ensures_endswith, executor, read_from_disk,
-                                return_breadcrumbs, sort_order,
-                                sync_database_disk)
-from frontend.web import detect_mobile, g_option, respond_as_attachment
-from quickbbs.models import IndexData, IndexDirs  # , Thumbnails_Files
 from thumbnails import image_utils
 from thumbnails.models import ThumbnailFiles
-import filetypes
-from django_htmx.middleware import HtmxDetails
+
+# import frontend.archives3 as archives
+from frontend.thumbnail import new_process_dir2
+from frontend.utilities import (ensures_endswith, executor, read_from_disk,
+                                return_breadcrumbs, SORT_MATRIX, sort_order,
+                                sync_database_disk)
+from frontend.web import detect_mobile, g_option, respond_as_attachment
+
 
 class HtmxHttpRequest(HttpRequest):
     htmx: HtmxDetails
@@ -281,7 +282,7 @@ def search_viewresults(request: WSGIRequest):
     response = render(
         request,
         # "frontend/search_listing.jinja",
-        "frontend/gallery_listing.jinja",
+        "frontend/search/gallery_listing.jinja",
         context,
         using="Jinja2",
     )
@@ -305,10 +306,10 @@ def new_viewgallery(request: WSGIRequest):
     print("NEW VIEW GALLERY")
     if request.htmx.boosted and request.htmx.current_url is not None and not request.GET.get("newwin", False):
         print("partial")
-        template_name = "frontend/gallery_listing_partial.jinja"
+        template_name = "frontend/gallery/gallery_listing_partial.jinja"
     else:
         print("full")
-        template_name = "frontend/gallery_listing_complete.jinja"
+        template_name = "frontend/gallery/gallery_listing_complete.jinja"
     if not filetypes.models.FILETYPE_DATA:
         print("Loading filetypes")
         filetypes.models.FILETYPE_DATA = filetypes.models.load_filetypes()
@@ -598,10 +599,10 @@ def test(request: HtmxHttpRequest, i_uuid: str):
     """
     if request.htmx.boosted and request.htmx.current_url is not None and not request.GET.get("newwin", False):
         print("partial")
-        template_name = "frontend/gallery_htmx_partial.jinja"
+        template_name = "frontend/item/gallery_htmx_partial.jinja"
     else:
         print("full")
-        template_name = "frontend/gallery_htmx_complete.jinja"
+        template_name = "frontend/item/gallery_htmx_complete.jinja"
     if not filetypes.models.FILETYPE_DATA:
         print("Loading filetypes")
         filetypes.models.FILETYPE_DATA = filetypes.models.load_filetypes()

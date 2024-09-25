@@ -1,13 +1,13 @@
 """
 Utilities for QuickBBS, the python edition.
 """
-from datetime import timedelta
 import os
 import os.path
 import stat
 import time
 import urllib.parse
 import uuid
+from datetime import timedelta
 from pathlib import Path
 
 # from moviepy.video.io import VideoFileClip
@@ -15,21 +15,26 @@ from pathlib import Path
 # inside moviepy.editor
 # import av  # Video Previews
 import django.db.utils
-from django.conf import settings
-from PIL import Image
-
+from django_thread import ThreadPoolExecutor
 import filetypes.models as filetype_models
 from cache_watcher.models import Cache_Storage
+from django.conf import settings
+from PIL import Image
 # from quickbbs.logger import log
 from quickbbs.models import IndexData, IndexDirs
 from thumbnails.image_utils import movie_duration
+
 Image.MAX_IMAGE_PIXELS = None  # Disable PILLOW DecompressionBombError errors.
-from django_thread import ThreadPoolExecutor
 
 MAX_THREADS = 20
 
 executor = ThreadPoolExecutor(max_workers=MAX_THREADS)
 
+SORT_MATRIX = {
+    0: ["-filetype__is_dir", "-filetype__is_link", "name_sort", "lastmod"],
+    1: ["-filetype__is_dir", "-filetype__is_link", "lastmod", "name_sort"],
+    2: ["-filetype__is_dir", "-filetype__is_link", "name_sort"],
+}
 
 def ensures_endswith(string_to_check, value) -> str:
     """

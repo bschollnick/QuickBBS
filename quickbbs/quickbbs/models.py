@@ -292,7 +292,7 @@ class IndexDirs(models.Model):
         """
         # necessary to prevent circular references on startup
         # pylint: disable-next=import-outside-toplevel
-        from frontend.database import SORT_MATRIX
+        from frontend.utilities import SORT_MATRIX
 
         dirs = (
             IndexDirs.objects.filter(uuid__in=uuid_list)
@@ -309,7 +309,7 @@ class IndexDirs(models.Model):
         """
         # necessary to prevent circular references on startup
         # pylint: disable-next=import-outside-toplevel
-        from frontend.database import SORT_MATRIX
+        from frontend.utilities import SORT_MATRIX
         if additional_filters is None:
             additional_filters = {}
 
@@ -328,7 +328,7 @@ class IndexDirs(models.Model):
         """
         # necessary to prevent circular references on startup
         # pylint: disable-next=import-outside-toplevel
-        from frontend.database import SORT_MATRIX
+        from frontend.utilities import SORT_MATRIX
 
         dir_scan = str((pathlib.Path(self.fqpndirectory)).resolve())
         dir_scan = IndexDirs.normalize_fqpn(dir_scan)
@@ -484,7 +484,7 @@ class IndexData(models.Model):
         """
         # necessary to prevent circular references on startup
         # pylint: disable-next=import-outside-toplevel
-        from frontend.database import SORT_MATRIX
+        from frontend.utilities import SORT_MATRIX
 
         files = (
             IndexData.objects.filter(uuid__in=uuid_list)
@@ -594,31 +594,33 @@ class IndexData(models.Model):
 
         """
         fqpn_filename = os.path.join(self.fqpndirectory, self.name)
-        try:
-            mtype = self.filetype.mimetype
-            if mtype is None:
-                mtype = "application/octet-stream"
-            if ranged:
-                # open must be in the RangedFielRequest, to allow seeking
+        mtype = self.filetype.mimetype
+        if mtype is None:
+            mtype = "application/octet-stream"
+        if not ranged:
+            # with AIOFile(fqpn_filename, "rb") as afh:
+            #     reader = Reader(afh)
+            #     response = HttpResponse(reader, content_type=mtype)
+            #     response["Content-Disposition"] = f"inline; filename={self.name}"
+            try:
+                with open(fqpn_filename, "rb") as fh:
+                    response = HttpResponse(fh.read(), content_type=mtype)
+                    response["Content-Disposition"] = f"inline; filename={self.name}"
+            except FileNotFoundError:
+                raise Http404
+        else:
+            # open must be in the RangedFielRequest, to allow seeking
+            try:
                 response = RangedFileResponse(
                     request,
                     file=open(fqpn_filename, "rb"),  # , buffering=1024*8),
                     as_attachment=False,
                     filename=self.name,
                 )
-                response["Content-Type"] = mtype
-            else:
-                # with AIOFile(fqpn_filename, "rb") as afh:
-                #     reader = Reader(afh)
-                #     response = HttpResponse(reader, content_type=mtype)
-                #     response["Content-Disposition"] = f"inline; filename={self.name}"
-                with open(fqpn_filename, "rb") as fh:
-                    response = HttpResponse(fh.read(), content_type=mtype)
-                    response["Content-Disposition"] = f"inline; filename={self.name}"
-            return response
-        except FileNotFoundError:
-            raise Http404
-        raise Http404
+            except FileNotFoundError:
+                raise Http404
+        response["Content-Type"] = mtype
+        return response
        
     class Meta:
         verbose_name = "Master Files Index"

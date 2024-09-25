@@ -8,15 +8,15 @@ import os
 import re
 from wsgiref.util import FileWrapper
 
+import filetypes
 from django.conf import settings
 from django.contrib.auth import authenticate, login
-from django.http import FileResponse, StreamingHttpResponse, Http404
+from django.http import FileResponse, Http404, StreamingHttpResponse
 # from django.conf import settings
 from django.views.decorators.cache import never_cache
 
 # from ranged_fileresponse import RangedFileResponse
 
-import filetypes 
 
 # import RangedFileResponse
 # from ranged_fileresponse.local import RangedLocalFileResponse

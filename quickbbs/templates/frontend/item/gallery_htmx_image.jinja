@@ -1,16 +1,15 @@
 {% autoescape off %}
-<image_block id="image_block">
-    <div class="column is-mobile is-11 is-gapless is-centered" style="margin-bottom:1px;margin-top:1px;margin-left:90px;margin-right:0px;padding-right:0px;padding-left:0px;">
+    <div class="column is-10 is-gapless is-centered" style="margin-bottom:1px;margin-top:1px;margin-left:90px;margin-right:0px;padding-right:0px;padding-left:0px;!important;background-color:#{{filetype.color}}">
             <nav hx-boost="true" class="breadcrumb is-small" aria-label="breadcrumbs" style="margin:0px;">
                 <ul>
                 {{ breadcrumbs }} 
                 <li class="is-active"><font size=+1><b id="title">{{filename}}</b></font></li>
                 </ul>
             </nav>
-            <div class="container-fluid" width="98%" style="margin-left: 1px;margin-right:1px;border: 1px solid;left-pad:2px;right-pad:2px;">
+            <div class="container" width="98%" style="margin-left: 1px;margin-right:1px;border: 1px solid;left-pad:2px;right-pad:2px;">
             <div hx-boost="true">
                 {% if any([filetype.is_html, filetype.is_text, filetype.is_markdown]) %}
-                <div class="has-text-left" id="text_frame" style="text-align:left !important;background-color:#{{filetype.color}}">
+                <div class="has-text-left" id="text_frame" style="text-align:left;!important;background-color:#{{filetype.color}}">
                     </center>
                     <p class="has-text-left" style="text-align:left !important;" id="text_frame" defer>
                         {{html}}
@@ -20,11 +19,11 @@
                 {% if any([filetype.is_image, filetype.is_pdf, filetype.is_dir, filetype.is_link, filetype.is_archive]) %}
                 <div class="thumbnail" id="thumbnail_frame" style="background-color:#{{filetype.color}};">
                     <center>
-                        <a href="{{ download_uri }}"  hx-boost="false" id="image_link">
+                        <a href="{{ download_uri }}" hx-boost="false" id="image_link">
                             {% if not is_animated %}
-                                <img id="display_image" class="lazy" src="{{thumbnail_uri}}" style="height:auto;max-width:auto;"/>
+                                <img id="display_image" class="lazy flex-grow" src="{{thumbnail_uri}}" style="object-fit:cover;"/>
                             {% else %}
-                                <img id="display_image" class="lazy" src="{{download_uri}}" hx-boost="false" style="height:auto;max-width:auto;"/>
+                                <img id="display_image" class="lazy flex-grow" src="{{download_uri}}" hx-boost="false" style="object-fit:cover;"/>
                             {% endif %}
                         </a>
                     </center>
@@ -55,7 +54,11 @@
         </div>
 
     </div>
-</image_block>
+{% if request.htmx %}
+    <script>
+    document.title = '{{ filename }}'
+    </script>
+{% endif %}
 
 </div>
 {% endautoescape %}

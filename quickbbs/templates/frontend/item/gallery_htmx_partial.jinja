@@ -6,11 +6,11 @@ document.title = '{{ filename }}'
 </script>
 {% endif %}
 
-{% include 'frontend/gallery_htmx_menu.jinja' %}
+{% include 'frontend/item/gallery_htmx_menu.jinja' %}
 <sidebar id="sidebar">
-{% include 'frontend/gallery_htmx_sidebar.jinja' %}    
+{% include 'frontend/item/gallery_htmx_sidebar.jinja' %}    
 <sidebar>
 <image_block id="image_block">
-{% include 'frontend/gallery_htmx_image.jinja' %}    
+{% include 'frontend/item/gallery_htmx_image.jinja' %}    
 </image_block>
 {% endautoescape %}
