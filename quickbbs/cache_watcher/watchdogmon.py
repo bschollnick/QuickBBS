@@ -2,7 +2,7 @@ import logging
 import os
 import sys
 
-from watchdog.events import PatternMatchingEventHandler
+from watchdog.events import FileSystemEventHandler#, PatternMatchingEventHandler
 from watchdog.observers import Observer
 
 logger = logging.getLogger()
@@ -17,26 +17,26 @@ __email__ = "Benjamin@schollnick.net"
 __url__ = "https://github.com/bschollnick/bschollnick"
 __license__ = ""
 
-
-def on_created(event):
-    if event.is_directory:
-        print(f"hey, {event.src_path} has been created!")
-
-
-def on_deleted(event):
-    if event.is_directory:
-        print(f"what the f**k! Someone deleted {event.src_path}!")
+class TestEventHandlers(FileSystemEventHandler):
+    def on_created(self, event):
+        if event.is_directory:
+            print(f"hey, {event.src_path} has been created!")
 
 
-def on_modified(event):
-    if event.is_directory:
-        print(f"hey buddy, {event.src_path} has been modified")
-        print(event)
+    def on_deleted(self, event):
+        if event.is_directory:
+            print(f"what the f**k! Someone deleted {event.src_path}!")
 
 
-def on_moved(event):
-    if event.is_directory:
-        print(f"ok ok ok, someone moved {event.src_path} to {event.dest_path}")
+    def on_modified(self, event):
+        if event.is_directory:
+            print(f"hey buddy, {event.src_path} has been modified")
+            print(event)
+
+
+    def on_moved(self, event):
+        if event.is_directory:
+            print(f"ok ok ok, someone moved {event.src_path} to {event.dest_path}")
 
 
 class watchdog_monitor:
@@ -49,28 +49,22 @@ class watchdog_monitor:
         pass
 
     def startup(
-        self, monitor_path, created=None, deleted=None, modified=None, moved=None
-    ):
+        self, monitor_path, event_handler=None):
         logger.info(f"Monitoring : {monitor_path}")
-        patterns = ["*"]
+#        patterns = ["*"]
         ignore_patterns = None
         ignore_directories = False
         case_sensitive = False
-        self.my_event_handler = PatternMatchingEventHandler(
-            patterns, ignore_patterns, ignore_directories, case_sensitive
-        )
-
-        self.my_event_handler.on_created = created
-        self.my_event_handler.on_deleted = deleted
-        self.my_event_handler.on_modified = modified
-        self.my_event_handler.on_moved = moved
+        self.my_event_handler = event_handler
+        # self.my_event_handler = PatternMatchingEventHandler(
+        #     patterns, ignore_patterns, ignore_directories, case_sensitive
+        # )
 
         go_recursively = True
         self.my_observer = Observer()
         self.my_observer.schedule(
             self.my_event_handler, monitor_path, recursive=go_recursively
         )
-
         self.my_observer.start()
 
     def shutdown(self, *args):
@@ -83,3 +77,19 @@ class watchdog_monitor:
 
 
 watchdog = watchdog_monitor()
+
+if __name__ == "__main__":
+    import time
+    path = "../../albums"  # Replace with the directory you want to monitor
+    event_handler = TestEventHandlers()
+    observer = Observer()
+    observer.schedule(event_handler, path, recursive=True)
+    observer.start()
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        observer.stop()
+    observer.join()
+

@@ -9,24 +9,20 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db import models
 
-# from cache.cached_exists import cached_exist
-# from frontend.config import configdata
+from watchdog.events import FileSystemEventHandler#, PatternMatchingEventHandler
 from cache_watcher.watchdogmon import watchdog
 
-# import logging
-
-# logger = logging.getLogger()
 
 Cache_Storage = None
 
-
-def delete_from_cache_tracking(event):
-    if event.is_directory:
-        dirpath = os.path.normpath(event.src_path)
-    else:
-        dirpath = str(pathlib.Path(os.path.normpath(event.src_path)).parent)
-    dhash = create_hash(dirpath)
-    test = Cache_Storage.remove_from_cache_hdigest(dhash)
+class CacheFileMonitorEventHandler(FileSystemEventHandler):
+    def on_any_event(self, event):
+        if event.is_directory:
+            dirpath = os.path.normpath(event.src_path)
+        else:
+            dirpath = str(pathlib.Path(os.path.normpath(event.src_path)).parent)
+        dhash = create_hash(dirpath)
+        test = Cache_Storage.remove_from_cache_hdigest(dhash)
 
 
 def create_hash(text):
@@ -82,8 +78,5 @@ class fs_Cache_Tracking(models.Model):
 # logger.info("Starting Watchdog - " + os.path.join(settings.ALBUMS_PATH, "albums"))
 watchdog.startup(
     monitor_path=os.path.join(settings.ALBUMS_PATH, "albums"),
-    created=delete_from_cache_tracking,
-    deleted=delete_from_cache_tracking,
-    modified=delete_from_cache_tracking,
-    moved=delete_from_cache_tracking,
+    event_handler=CacheFileMonitorEventHandler
 )
