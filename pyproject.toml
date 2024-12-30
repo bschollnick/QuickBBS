@@ -83,3 +83,6 @@ psycopg-pool = "^3.2.4"
 certifi = "^2024.8.30"
 gunicorn = "^23.0.0"
 pip = "^24.3.1"
+django-stubs = {extras = ["compatible-mypy"], version = "^5.1.1"}
+types-pyyaml = "^6.0.12.20240917"
+uvicorn = "^0.34.0"
