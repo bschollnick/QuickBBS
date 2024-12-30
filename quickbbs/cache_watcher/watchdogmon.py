@@ -2,7 +2,7 @@ import logging
 import os
 import sys
 
-from watchdog.events import FileSystemEventHandler#, PatternMatchingEventHandler
+from watchdog.events import FileSystemEventHandler  # , PatternMatchingEventHandler
 from watchdog.observers import Observer
 
 logger = logging.getLogger()
@@ -17,22 +17,20 @@ __email__ = "Benjamin@schollnick.net"
 __url__ = "https://github.com/bschollnick/bschollnick"
 __license__ = ""
 
+
 class TestEventHandlers(FileSystemEventHandler):
     def on_created(self, event):
         if event.is_directory:
             print(f"hey, {event.src_path} has been created!")
 
-
     def on_deleted(self, event):
         if event.is_directory:
             print(f"what the f**k! Someone deleted {event.src_path}!")
-
 
     def on_modified(self, event):
         if event.is_directory:
             print(f"hey buddy, {event.src_path} has been modified")
             print(event)
-
 
     def on_moved(self, event):
         if event.is_directory:
@@ -42,16 +40,17 @@ class TestEventHandlers(FileSystemEventHandler):
 class watchdog_monitor:
     def __init__(self):
         # logger.info(f"watchdog monitor init")
-        self.my_observer = Observer()
-        self.my_event_handler = None
+        pass
+
+    #        self.my_event_handler = None
+    #        self.my_observer = Observer()
 
     def on_event(self, event):
         pass
 
-    def startup(
-        self, monitor_path, event_handler=None):
+    def startup(self, monitor_path, event_handler=None):
         logger.info(f"Monitoring : {monitor_path}")
-#        patterns = ["*"]
+        #        patterns = ["*"]
         ignore_patterns = None
         ignore_directories = False
         case_sensitive = False
@@ -78,18 +77,17 @@ class watchdog_monitor:
 
 watchdog = watchdog_monitor()
 
-if __name__ == "__main__":
-    import time
-    path = "../../albums"  # Replace with the directory you want to monitor
-    event_handler = TestEventHandlers()
-    observer = Observer()
-    observer.schedule(event_handler, path, recursive=True)
-    observer.start()
+# if __name__ == "__main__":
+#     import time
+#     path = "../../albums"  # Replace with the directory you want to monitor
+#     event_handler = TestEventHandlers()
+#     observer = Observer()
+#     observer.schedule(event_handler, path, recursive=True)
+#     observer.start()
 
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        observer.stop()
-    observer.join()
-
+#     try:
+#         while True:
+#             time.sleep(1)
+#     except KeyboardInterrupt:
+#         observer.stop()
+#     observer.join()
