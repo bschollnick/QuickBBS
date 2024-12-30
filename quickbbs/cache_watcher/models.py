@@ -9,13 +9,26 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db import models
 
-from watchdog.events import FileSystemEventHandler#, PatternMatchingEventHandler
+from watchdog.events import FileSystemEventHandler  # , PatternMatchingEventHandler
 from cache_watcher.watchdogmon import watchdog
 
 
 Cache_Storage = None
 
+
 class CacheFileMonitorEventHandler(FileSystemEventHandler):
+    def on_created(self, event):
+        self.on_any_event(event)
+
+    def on_deleted(self, event):
+        self.on_any_event(event)
+
+    def on_modified(self, event):
+        self.on_any_event(event)
+
+    def on_moved(self, event):
+        self.on_any_event(event)
+
     def on_any_event(self, event):
         if event.is_directory:
             dirpath = os.path.normpath(event.src_path)
@@ -78,5 +91,5 @@ class fs_Cache_Tracking(models.Model):
 # logger.info("Starting Watchdog - " + os.path.join(settings.ALBUMS_PATH, "albums"))
 watchdog.startup(
     monitor_path=os.path.join(settings.ALBUMS_PATH, "albums"),
-    event_handler=CacheFileMonitorEventHandler
+    event_handler=CacheFileMonitorEventHandler(),
 )
