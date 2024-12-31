@@ -4,14 +4,12 @@ import pathlib
 import sys
 import time
 
+from cache_watcher.watchdogmon import watchdog
 from django.apps import AppConfig
 from django.conf import settings
 from django.core.cache import cache
 from django.db import models
-
 from watchdog.events import FileSystemEventHandler  # , PatternMatchingEventHandler
-from cache_watcher.watchdogmon import watchdog
-
 
 Cache_Storage = None
 
