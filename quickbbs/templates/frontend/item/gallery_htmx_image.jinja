@@ -29,7 +29,7 @@
                     </center>
                 {% endif %}
                 {% if filetype.is_movie %}
-                <div class="thumbnail" id="movie_frame" style="background-color:#{{filetype.color}};">
+                <div class="thumbnail" id="movie_frame" hx-boost="false" style="background-color:#{{filetype.color}};">
                     <center>
                         <video hx-boost="false" id="movie_viewer" class="video-js" data-setup='{}' preload="auto" poster="{{ thumbnail_uri }}" style="height:auto;max-width:98%;" controls>
                             <source type="video/mp4" src="{{ download_uri }}" hx-boost="false">

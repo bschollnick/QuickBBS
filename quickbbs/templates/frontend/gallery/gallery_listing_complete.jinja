@@ -13,10 +13,49 @@
     
     <script src="{{django_htmx_uri}}"> </script>
     {{ django_htmx_script() }}
-    
+   
     <title>{% block title %} {{ gallery_name }} {% endblock %}</title>
+
+    <style>
+        @keyframes fade-in {
+          from { opacity: 0; }
+        }
+     
+        @keyframes fade-out {
+          to { opacity: 0; }
+        }
+     
+        @keyframes slide-from-right {
+          from { transform: translateX(90px); }
+        }
+     
+        @keyframes slide-to-left {
+          to { transform: translateX(-90px); }
+        }
+     
+        /* define animations for the old and new content */
+        ::view-transition-old(slide-it) {
+          animation: 180ms cubic-bezier(0.4, 0, 1, 1) both fade-out,
+          600ms cubic-bezier(0.4, 0, 0.2, 1) both slide-to-left;
+        }
+        ::view-transition-new(slide-it) {
+          animation: 420ms cubic-bezier(0, 0, 0.2, 1) 90ms both fade-in,
+          600ms cubic-bezier(0.4, 0, 0.2, 1) both slide-from-right;
+        }
+     
+        /* tie the view transition to a given CSS class */
+        .sample-transition {
+            view-transition-name: slide-it;
+        }
+         
+     </style>
+    
 </head>
-<body>
+<body id="entire_document" class="sample-transition">
+<script>
+    document.title = '{{ gallery_name }}'
+</script>
+    
 {% autoescape off %}
 {% include 'frontend/gallery/gallery_listing_partial.jinja' %}
 
