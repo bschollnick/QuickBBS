@@ -1,20 +1,54 @@
+<style>
+    @keyframes fade-in {
+      from { opacity: 0; }
+    }
+ 
+    @keyframes fade-out {
+      to { opacity: 0; }
+    }
+ 
+    @keyframes slide-from-right {
+      from { transform: translateX(90px); }
+    }
+ 
+    @keyframes slide-to-left {
+      to { transform: translateX(-90px); }
+    }
+ 
+    /* define animations for the old and new content */
+    ::view-transition-old(slide-it) {
+      animation: 180ms cubic-bezier(0.4, 0, 1, 1) both fade-out,
+      600ms cubic-bezier(0.4, 0, 0.2, 1) both slide-to-left;
+    }
+    ::view-transition-new(slide-it) {
+      animation: 420ms cubic-bezier(0, 0, 0.2, 1) 90ms both fade-in,
+      600ms cubic-bezier(0.4, 0, 0.2, 1) both slide-from-right;
+    }
+ 
+    /* tie the view transition to a given CSS class */
+    .sample-transition {
+        view-transition-name: slide-it;
+    }
+     
+ </style>
+
 <!-- nav controls / left sidebar -->
 <sidebar id="sidebar">
 <div class="container is-11" style="margin-left:0px;padding-left:2px;padding-right:2px;">
         <div class="columns">
             <div hx-boost="true" class="column is-mobile is-1 is-narrow" style="border:2px solid black;position: fixed;width:85px;">
                 <p align=center>
-                    <a href="{{ up_uri }}?page={{page_locale}}&sort={{sort}}" id="up_uri" style="opacity:1;">{{ icon("arrow-up fa-2x")}}</a><p>
+                    <a href="{{ up_uri }}?page={{page_locale}}&sort={{sort}}" id="up_uri" style="opacity:1;" hx-swap="outerHTML transition:true">{{ icon("arrow-up fa-2x")}}</a><p>
 
                     <hr style="padding:2px;margin:2px">
 
                     {% if previous_uuid %}
                         <p align=center>
-                        <a href="/viewer2/{{ first_uuid }}?sort={{sort}}" id="first_uuid">
+                        <a href="/viewer2/{{ first_uuid }}?sort={{sort}}" id="first_uuid" hx-swap="outerHTML transition:true">
                         {{ icon("angle-double-left fa-3x")}}</a></p>
                         <hr style="padding:2px;margin:2px">
                         <p align=center id="previous_icon">
-                        <a href="/viewer2/{{ previous_uuid }}?sort={{sort}}" id="previous_uuid">
+                        <a href="/viewer2/{{ previous_uuid }}?sort={{sort}}" id="previous_uuid" hx-swap="outerHTML transition:true">
                         {{ icon("angle-left fa-3x")}}</a></p>
                     {% else %}
                         <p align=center>
@@ -34,15 +68,15 @@
 
                     {% if next_uuid %}
                         <p align=center>
-                        <a href="/viewer2/{{ next_uuid }}?sort={{sort}}" id="next_uuid">
+                        <a href="/viewer2/{{ next_uuid }}?sort={{sort}}" id="next_uuid" hx-swap="outerHTML transition:true">
                         {{ icon("angle-right fa-3x")}}</a></p>
                         <hr style="padding:2px;margin:2px">
                         <p align=center hx-boost="false">
-                        <a href="/viewer2/{{ next_uuid }}?sort={{sort}}&newwin=True" hx-boost="false" id="next_tab_uuid" target="_blank">
+                        <a href="/viewer2/{{ next_uuid }}?sort={{sort}}&newwin=True" hx-boost="false" id="next_tab_uuid" target="_blank" hx-swap="outerHTML transition:true">
                         {{ icon('fas fa-external-link-alt fa-3x') }}</a></p>
                         <hr style="padding:2px;margin:2px">
                         <p align=center>
-                        <a href="/viewer2/{{ last_uuid }}?sort={{sort}}" id="last_uuid">
+                        <a href="/viewer2/{{ last_uuid }}?sort={{sort}}" id="last_uuid" hx-swap="outerHTML transition:true">
                                 {{ icon("angle-double-right fa-3x")}}</a></p>
                     {% else %}
                         <p align=center>
