@@ -1,4 +1,5 @@
 from django.contrib import admin
+
 from quickbbs.models import *
 
 # @admin.register(filetypes)
@@ -29,6 +30,8 @@ from quickbbs.models import *
 
 @admin.register(IndexData)
 class AdminMaster_Index(admin.ModelAdmin):
+    search_fields = ["fqpndirectory"]
+    list_filter = ["filetype"]
     readonly_fields = ("id", "uuid", "name_sort")
     list_display = (
         "id",
@@ -40,9 +43,6 @@ class AdminMaster_Index(admin.ModelAdmin):
         "fqpndirectory",
         "ignore",
         "delete_pending",
-        # "file_tnail",
-        #        "directory",
-        #        "archives",
         "ownership",
         "filetype",
     )
@@ -56,9 +56,7 @@ class AdminMaster_Index(admin.ModelAdmin):
         "fqpndirectory",
         "ignore",
         "delete_pending",
-        # "file_tnail",
-        # "directory",
-        #        "archives",
+
         "ownership",
         "filetype",
     )
