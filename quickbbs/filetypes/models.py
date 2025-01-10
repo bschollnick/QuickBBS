@@ -10,6 +10,7 @@ from django.db import models
 
 FILETYPE_DATA = {}
 
+
 class filetypes(models.Model):
     fileext = models.CharField(
         primary_key=True, db_index=True, max_length=10, unique=True
@@ -42,6 +43,9 @@ class filetypes(models.Model):
     is_link = models.BooleanField(default=False, db_index=True)
 
     def __unicode__(self):
+        return f"{self.fileext}"
+    
+    def __str__(self):
         return f"{self.fileext}"
 
     def return_any_icon_filename(self, fileext):
