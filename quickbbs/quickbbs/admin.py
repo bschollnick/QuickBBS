@@ -30,12 +30,13 @@ from quickbbs.models import *
 
 @admin.register(IndexData)
 class AdminMaster_Index(admin.ModelAdmin):
-    search_fields = ["fqpndirectory"]
+    search_fields = ["fqpndirectory", "uuid", "file_sha256"]
     list_filter = ["filetype"]
-    readonly_fields = ("id", "uuid", "name_sort")
+    readonly_fields = ("id", "uuid", "file_sha256", "name_sort")
     list_display = (
         "id",
         "uuid",
+        "file_sha256",
         "name",
         "lastscan",
         "lastmod",
@@ -49,6 +50,7 @@ class AdminMaster_Index(admin.ModelAdmin):
     fields = (
         "id",
         "uuid",
+        "file_sha256",
         "name",
         "lastscan",
         "lastmod",
@@ -61,6 +63,9 @@ class AdminMaster_Index(admin.ModelAdmin):
         "filetype",
     )
 
+@admin.register(IndexDirs)
+class AdminMaster_Dirs(admin.ModelAdmin):
+    search_fields = ["fqpndirectory"]
 
 # @admin.register(Cache_Tracking)
 # class Cache_dir_tracking_Index(admin.ModelAdmin):
