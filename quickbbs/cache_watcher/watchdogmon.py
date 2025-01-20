@@ -2,12 +2,10 @@ import logging
 import os
 import sys
 
-from watchdog.events import FileSystemEventHandler  # , PatternMatchingEventHandler
+from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 logger = logging.getLogger()
-
-# from watchdog.events import LoggingEventHandler
 
 __version__ = "1.5"
 
@@ -19,6 +17,9 @@ __license__ = ""
 
 
 class TestEventHandlers(FileSystemEventHandler):
+    """
+    Test Event Handler to allow visible queues for testing the Watchdog code.
+    """
     def on_created(self, event):
         if event.is_directory:
             print(f"hey, {event.src_path} has been created!")
@@ -38,27 +39,23 @@ class TestEventHandlers(FileSystemEventHandler):
 
 
 class watchdog_monitor:
-    def __init__(self):
-        # logger.info(f"watchdog monitor init")
-        pass
+    """
+    Class to monitor a directory for changes, and to call the appropriate event handler.
+    In this case (QuickBBS's usage) is to monitor the albums directories and all children directories and
+    files for changes.
 
-    #        self.my_event_handler = None
-    #        self.my_observer = Observer()
+    If any change to a file or directory is detected, that directory is marked as "dirty" and when accessed
+    a rescan is performed.
+    """
+    def __init__(self):
+        pass
 
     def on_event(self, event):
         pass
 
     def startup(self, monitor_path, event_handler=None):
         logger.info(f"Monitoring : {monitor_path}")
-        #        patterns = ["*"]
-        ignore_patterns = None
-        ignore_directories = False
-        case_sensitive = False
         self.my_event_handler = event_handler
-        # self.my_event_handler = PatternMatchingEventHandler(
-        #     patterns, ignore_patterns, ignore_directories, case_sensitive
-        # )
-
         go_recursively = True
         self.my_observer = Observer()
         self.my_observer.schedule(
@@ -71,7 +68,6 @@ class watchdog_monitor:
             logger.info("Shutting down")
             self.my_observer.stop()
             self.my_observer.join()
-        #    signal.send('system')
         sys.exit(0)  # So runserver does try to exit
 
 
