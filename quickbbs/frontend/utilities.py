@@ -1,6 +1,7 @@
 """
 Utilities for QuickBBS, the python edition.
 """
+
 import os
 import os.path
 import stat
@@ -8,6 +9,7 @@ import time
 import urllib.parse
 import uuid
 from datetime import timedelta
+from functools import wraps
 from pathlib import Path
 
 # from moviepy.video.io import VideoFileClip
@@ -15,26 +17,84 @@ from pathlib import Path
 # inside moviepy.editor
 # import av  # Video Previews
 import django.db.utils
-from django_thread import ThreadPoolExecutor
 import filetypes.models as filetype_models
 from cache_watcher.models import Cache_Storage
 from django.conf import settings
+from django.db.utils import IntegrityError
+from django_thread import ThreadPoolExecutor
 from PIL import Image
+from thumbnails.image_utils import movie_duration
+
 # from quickbbs.logger import log
 from quickbbs.models import IndexData, IndexDirs
-from thumbnails.image_utils import movie_duration
 
 Image.MAX_IMAGE_PIXELS = None  # Disable PILLOW DecompressionBombError errors.
 
 MAX_THREADS = 20
 
-executor = ThreadPoolExecutor(max_workers=MAX_THREADS)
+# executor = ThreadPoolExecutor(max_workers=MAX_THREADS)
+from django.db import connection
+
+
+class DjangoConnectionThreadPoolExecutor(ThreadPoolExecutor):
+    """
+    When a function is passed into the ThreadPoolExecutor via either submit() or map(),
+    this will wrap the function, and make sure that close_django_db_connection() is called
+    inside the thread when it's finished so Django doesn't leak DB connections.
+
+    Since map() calls submit(), only submit() needs to be overwritten.
+
+    Attempting to fix what appears to be a starvation of connections?
+    https://stackoverflow.com/questions/57211476/django-orm-leaks-connections-when-using-threadpoolexecutor
+
+    Not positive that this is the issue, but worth the attempt to resolve it.
+    """
+
+    def close_django_db_connection(self):
+        connection.close()
+
+    def generate_thread_closing_wrapper(self, fn):
+        @wraps(fn)
+        def new_func(*args, **kwargs):
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                self.close_django_db_connection()
+
+        return new_func
+
+    def submit(*args, **kwargs):
+        """
+        I took the args filtering/unpacking logic from
+
+        https://github.com/python/cpython/blob/3.7/Lib/concurrent/futures/thread.py
+
+        so I can properly get the function object the same way it was done there.
+        """
+        if len(args) >= 2:
+            self, fn, *args = args
+            fn = self.generate_thread_closing_wrapper(fn=fn)
+        elif not args:
+            raise TypeError(
+                "descriptor 'submit' of 'ThreadPoolExecutor' object "
+                "needs an argument"
+            )
+        elif "fn" in kwargs:
+            fn = self.generate_thread_closing_wrapper(fn=kwargs.pop("fn"))
+            self, *args = args
+
+        return super(self.__class__, self).submit(fn, *args, **kwargs)
+
+
+# executor = DjangoConnectionThreadPoolExecutor(max_workers=MAX_THREADS)
+
 
 SORT_MATRIX = {
     0: ["-filetype__is_dir", "-filetype__is_link", "name_sort", "lastmod"],
     1: ["-filetype__is_dir", "-filetype__is_link", "lastmod", "name_sort"],
     2: ["-filetype__is_dir", "-filetype__is_link", "name_sort"],
 }
+
 
 def ensures_endswith(string_to_check, value) -> str:
     """
@@ -251,7 +311,6 @@ def process_filedata(fs_entry, db_record) -> IndexData:
     db_record.lastmod = fs_stat[stat.ST_MTIME]
     db_record.lastscan = time.time()
     db_record.is_animated = False
-
     if is_dir:
         sub_dir_fqpn = os.path.join(db_record.fqpndirectory, db_record.name)
         sync_database_disk(sub_dir_fqpn)
@@ -268,8 +327,13 @@ def process_filedata(fs_entry, db_record) -> IndexData:
             .replace(redirect.split(".")[-1], "")[:-1]
         )
         db_record.fqpndirectory = f"/{redirect}"
-        if filetype_models.FILETYPE_DATA[fileext]["is_movie"]:
-            db_record.duration = movie_duration(os.path.join(db_record.fqpndirectory, db_record.name))
+    else:
+        db_record.file_ssh256 = db_record.get_file_sha(fqfn=fs_entry.absolute())
+
+    if filetype_models.FILETYPE_DATA[fileext]["is_movie"]:
+            db_record.duration = movie_duration(
+                os.path.join(db_record.fqpndirectory, db_record.name)
+            )
     if filetype_models.FILETYPE_DATA[fileext]["is_image"] and fileext in [".gif"]:
         try:
             with Image.open(
@@ -377,6 +441,9 @@ def sync_database_disk(directoryname):
             # update = False, unncessary, moved to above the for loop.
             entry = fs_entries[db_entry.name.title()]
             fs_stat = entry.stat()
+            if db_entry.file_sha256 in ["", None] and fext != "" and not filetype_models.FILETYPE_DATA[fext]["is_link"]:
+                db_entry.file_sha256 = db_entry.get_file_sha(fqfn=os.path.join(db_entry.fqpndirectory, db_entry.name))
+                update = True
             if db_entry.lastmod != fs_stat[stat.ST_MTIME]:
                 # print("LastMod mismatch")
                 db_entry.lastmod = fs_stat[stat.ST_MTIME]
@@ -385,9 +452,17 @@ def sync_database_disk(directoryname):
                 # print("Size mismatch")
                 db_entry.size = fs_stat[stat.ST_SIZE]
                 update = True
-            if filetype_models.FILETYPE_DATA[fext]["is_movie"] and db_entry.duration is None:
-                db_entry.duration = timedelta(seconds=int(movie_duration(os.path.join(db_entry.fqpndirectory, db_entry.name))))
-                update = True
+            if fext not in [""]:
+                if (
+                    filetype_models.FILETYPE_DATA[fext]["is_movie"]
+                    and db_entry.duration is None
+                ):
+                    duration = movie_duration(
+                        os.path.join(db_entry.fqpndirectory, db_entry.name)
+                    )
+                    if duration is not None:
+                        db_entry.duration = timedelta(duration)
+                        update = True
             if update:
                 records_to_update.append(db_entry)
                 print("Database record being updated: ", db_entry.name)
@@ -416,7 +491,13 @@ def sync_database_disk(directoryname):
             record.parent_dir = dirpath_id
             if record.filetype.is_archive:
                 print("Archive detected ", record.name)
-            record.save()
+            try:
+                record.save()
+            except IntegrityError:
+                print("Integrity Error")
+                continue  # Need to rethink the link records, if a directory is deleted, and it
+                # contains a link record, that link record may not be deleted, thus causing
+                # an integrity error if it's attempted to be recreated
     if records_to_update:
         try:
             IndexData.objects.bulk_update(
@@ -427,6 +508,7 @@ def sync_database_disk(directoryname):
                     "delete_pending",
                     "size",
                     "duration",
+                    "file_sha256",
                     #                        "numfiles",
                     #                        "numdirs",
                     "parent_dir_id",

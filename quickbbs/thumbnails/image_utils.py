@@ -10,12 +10,12 @@ from io import BytesIO
 # from moviepy.editor import VideoFileClip #* # import everythings (variables, classes, methods...)
 # inside moviepy.editor
 import av  # Video Previews
+
+# import filetypes.models as filetype_models
+import filetypes
 import fitz  # PDF previews
 from django.conf import settings
 from PIL import Image
-
-#import filetypes.models as filetype_models
-import filetypes
 
 
 def pdf_to_pil(fspath):
@@ -41,6 +41,7 @@ def pdf_to_pil(fspath):
             source_image = None
     return source_image
 
+
 def movie_duration(fspath):
     """
     The load_movie function loads a movie from the file system and returns an image.
@@ -56,13 +57,18 @@ def movie_duration(fspath):
             python-pil-detect-if-an-image-is-completely-black-or-white
     """
     image = None
-    try:
-        with av.open(fspath) as container:
-            stream = container.streams.video[0]
+    # try:
+    with av.open(fspath) as container:
+        stream = container.streams.video[0]
+        # print(stream)
+        try:
             duration_sec = int(stream.duration * stream.time_base)
-    except (av.error.InvalidDataError, StopIteration):
-        duration_sec = None
+        except (av.error.InvalidDataError, StopIteration, TypeError):
+            duration_sec = None 
+    # except (av.error.InvalidDataError, StopIteration, TypeError):
+    #    duration_sec = None
     return duration_sec
+
 
 def movie_to_pil(fspath):
     """
@@ -170,11 +176,12 @@ def resize_pil_image(source_image, size, fext) -> Image:
             source_image.save(
                 fp=image_data,
                 format="PNG",  # Need alpha channel support for icons, etc.
+                compression=4,
                 optimize=False,
             )
         except OSError:
             source_image = source_image.convert("RGB")
-            source_image.save(fp=image_data, format="JPEG", optimize=False)
+            source_image.save(fp=image_data, format="JPEG", optimize=False, quality=60)
         image_data.seek(0)
         data = image_data.getvalue()
     return data

@@ -2,28 +2,28 @@
 Django Models for quickbbs
 """
 
-from asgiref.sync import sync_to_async
+# import asyncio
 import hashlib
 import io
-import mimetypes
+# import mimetypes
 import os
 import pathlib
 import time
 import uuid
 
-import asyncio
-from aiofile import AIOFile, Reader
+# from aiofile import AIOFile, Reader
+# from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import models
 from django.db.models.query import QuerySet
 from django.http import FileResponse, Http404, HttpResponse
 from django.urls import reverse
-from ranged_fileresponse import RangedFileResponse
-
 from filetypes.models import FILETYPE_DATA, filetypes
-from quickbbs.natsort_model import NaturalSortField
+from ranged_fileresponse import RangedFileResponse
 from thumbnails.models import ThumbnailFiles
+
+from quickbbs.natsort_model import NaturalSortField
 
 
 def convert_text_to_md5_hdigest(text) -> str:
@@ -310,6 +310,7 @@ class IndexDirs(models.Model):
         # necessary to prevent circular references on startup
         # pylint: disable-next=import-outside-toplevel
         from frontend.utilities import SORT_MATRIX
+
         if additional_filters is None:
             additional_filters = {}
 
@@ -425,18 +426,19 @@ class IndexData(models.Model):
     uuid = models.UUIDField(
         default=None, null=True, editable=False, db_index=True, blank=True
     )
+    file_sha256 = models.CharField(db_index=True, blank=True, null=True, default=None)
     lastscan = models.FloatField(db_index=True)
-        # Stored as Unix TimeStamp (ms)
+    # Stored as Unix TimeStamp (ms)
     lastmod = models.FloatField(db_index=True)  # Stored as Unix TimeStamp (ms)
-        # Stored as Unix TimeStamp (ms)
+    # Stored as Unix TimeStamp (ms)
     name = models.CharField(db_index=True, max_length=384, default=None)
-        # FQFN of the file itself
-        # sortname = models.CharField(editable=False, max_length=384, default='')
+    # FQFN of the file itself
+    # sortname = models.CharField(editable=False, max_length=384, default='')
     name_sort = NaturalSortField(for_field="name", max_length=384, default="")
     duration = models.DurationField(null=True)
     size = models.BigIntegerField(default=0)  # File size
     fqpndirectory = models.CharField(default=0, db_index=True, max_length=384)
-        # Directory of the file, lower().replace("//", "/"), ensure it is path, and not path + filename
+    # Directory of the file, lower().replace("//", "/"), ensure it is path, and not path + filename
     parent_dir = models.ForeignKey(
         IndexDirs, on_delete=models.CASCADE, null=True, default=None
     )
@@ -462,7 +464,6 @@ class IndexData(models.Model):
     new_ftnail = models.OneToOneField(
         ThumbnailFiles, on_delete=models.CASCADE, null=True, default=None, blank=True
     )
-
 
     # https://stackoverflow.com/questions/38388423
 
@@ -492,6 +493,26 @@ class IndexData(models.Model):
             .order_by(*SORT_MATRIX[sort])
         )
         return files
+
+    def get_file_sha(self, fqfn) -> str:
+        """
+        Return the SHA256 hash of the file as a hexdigest string
+        
+        Args:
+            fqfn (str) : The fully qualified filename of the file to be hashed
+
+        :return: The SHA256 hash of the file + fqfn as a hexdigest string
+        """
+        sha = None
+        try:
+            with open(fqfn, "rb") as filehandle:
+                digest = hashlib.file_digest(filehandle, "sha256")
+                digest.update(fqfn.encode("utf-8"))
+                sha = digest.hexdigest()
+        except (FileNotFoundError, IOError, AttributeError):
+            print(f"Error: {fqfn}")
+        return sha
+        
 
     def get_webpath(self):
         """
@@ -621,7 +642,7 @@ class IndexData(models.Model):
                 raise Http404
         response["Content-Type"] = mtype
         return response
-       
+
     class Meta:
         verbose_name = "Master Files Index"
         verbose_name_plural = "Master Files Index"
