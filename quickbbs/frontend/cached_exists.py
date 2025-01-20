@@ -41,8 +41,7 @@ import time
 from hashlib import sha224, sha256
 
 import dhash
-from pathvalidate import (is_valid_filename, sanitize_filename,
-                          sanitize_filepath)
+from pathvalidate import is_valid_filename, sanitize_filename, sanitize_filepath
 from PIL import Image, UnidentifiedImageError
 
 SCANNED_PATHS = {}
@@ -618,7 +617,12 @@ class cached_exist:
             self.scanned_paths[dirpath] = {}
 
         if not self.use_modify:
+            #            try:
             self.scanned_paths[dirpath][filename] = fileentry.stat().st_size
+        #           except KeyError:
+        #              print(dirpath, filename)
+        #             print(self.scanned_paths.keys())
+        #            print(dirpath in self.scanned_paths)
         else:
             self.scanned_paths[dirpath][filename] = fileentry.stat().st_mtime
 
