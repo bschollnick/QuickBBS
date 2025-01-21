@@ -16,6 +16,8 @@ import pathlib
 import sys
 import time
 
+from functools import lru_cache
+
 from cache_watcher.watchdogmon import watchdog
 from django.apps import AppConfig
 from django.conf import settings
@@ -53,7 +55,7 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
         dhash = create_hash(dirpath)
         Cache_Storage.remove_from_cache_hdigest(dhash)
 
-
+@lru_cache(maxsize=500)
 def create_hash(text):
     """
     Create a hash of the text, titlecased, stripped, and normpathed that """
@@ -85,7 +87,7 @@ class fs_Cache_Tracking(models.Model):
 
     def add_to_cache(self, DirName):
         entry = fs_Cache_Tracking()
-        entry.DirName = DirName.title().strip()
+        entry.DirName = DirName #.title().strip()
         if not entry.DirName.endswith(os.sep):
             entry.DirName = f"{entry.DirName}{os.sep}"
         #       logger.info(f"Adding to cache {entry.DirName}")
