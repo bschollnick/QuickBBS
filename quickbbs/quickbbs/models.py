@@ -426,7 +426,7 @@ class IndexData(models.Model):
     uuid = models.UUIDField(
         default=None, null=True, editable=False, db_index=True, blank=True
     )
-    file_sha256 = models.CharField(db_index=True, blank=True, null=True, default=None)
+    file_sha256 = models.CharField(db_index=True, blank=True, unique=True, null=True, default=None)
     lastscan = models.FloatField(db_index=True)
     # Stored as Unix TimeStamp (ms)
     lastmod = models.FloatField(db_index=True)  # Stored as Unix TimeStamp (ms)

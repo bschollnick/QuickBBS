@@ -14,41 +14,56 @@ from itertools import chain
 from pathlib import Path
 from typing import Optional
 
-import filetypes
-# import bleach
-# import django_icons.templatetags.icons
 import markdown2
 import psycopg
 from asgiref.sync import sync_to_async
-from cache_watcher.models import Cache_Storage
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
+from django.db import connections, close_old_connections
 from django.db.utils import IntegrityError
-from django.http import (Http404, HttpRequest, HttpResponse,
-                         HttpResponseBadRequest, HttpResponseNotFound)
+from django.http import (  # HttpResponse,
+    Http404,
+    HttpRequest,
+    HttpResponseBadRequest,
+    HttpResponseNotFound,
+)
 from django.shortcuts import render
 from django.views.decorators.vary import vary_on_headers
 from django_htmx.middleware import HtmxDetails
-# from django.db.models import Q
-from numpy import arange
 from PIL import Image, ImageFile
-from quickbbs.models import IndexData, IndexDirs  # , Thumbnails_Files
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
+
+
+from cache_watcher.models import Cache_Storage
+import filetypes
+from frontend.thumbnail import new_process_dir2
+from frontend.utilities import SORT_MATRIX  # executor,
+from frontend.utilities import (
+    MAX_THREADS,
+    DjangoConnectionThreadPoolExecutor,
+    ensures_endswith,
+    read_from_disk,
+    return_breadcrumbs,
+    sort_order,
+    sync_database_disk,
+)
+from frontend.web import detect_mobile, g_option, respond_as_attachment
 from thumbnails import image_utils
 from thumbnails.models import ThumbnailFiles
 
-# import frontend.archives3 as archives
-from frontend.thumbnail import new_process_dir2
-from frontend.utilities import (ensures_endswith, executor, read_from_disk,
-                                return_breadcrumbs, SORT_MATRIX, sort_order,
-                                sync_database_disk)
-from frontend.web import detect_mobile, g_option, respond_as_attachment
+from quickbbs.models import IndexData, IndexDirs  # , Thumbnails_Files
+
+# from rest_framework.decorators import api_view
+# from rest_framework.response import Response
+# from django.db.models import Q
+
+
 
 
 class HtmxHttpRequest(HttpRequest):
     htmx: HtmxDetails
+
+
 # log = logging.getLogger(__name__)
 
 logger = logging.getLogger()
@@ -70,6 +85,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 #         ),
 #         content_type="image/svg+xml",
 #     )
+
 
 def return_prev_next2(directory, sorder) -> tuple:
     """
@@ -173,7 +189,7 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
     thumbsize = request.GET.get("size", "small").lower()
     entry = index_qs[0]
     fs_item = os.path.join(entry.fqpndirectory, entry.name).title().strip()
-    fs_item_hash = ThumbnailFiles.convert_text_to_md5_hdigest(fs_item)
+    #fs_item_hash = ThumbnailFiles.convert_text_to_md5_hdigest(fs_item)
     # fname = os.path.basename(entry.name).title().strip()
     if entry.new_ftnail:
         if entry.new_ftnail.thumbnail_exists(size=thumbsize):
@@ -192,9 +208,14 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
         #         fqpn_hash=fs_item_hash, defaults={"fqpn_hash": fs_item_hash, "fqpn_filename": fs_item}
         #     )
         #     # ThumbnailFiles.objects.filter(fqpn_hash=fs_item_hash).delete()
+        # tnail_record, _ = ThumbnailFiles.objects.get_or_create(
+        #     fqpn_hash=fs_item_hash,
+        #     defaults={"fqpn_hash": fs_item_hash, "fqpn_filename": fs_item, "sha256_hash": entry.file_sha256},
+        # )
         tnail_record, _ = ThumbnailFiles.objects.get_or_create(
-            fqpn_hash=fs_item_hash,
-            defaults={"fqpn_hash": fs_item_hash, "fqpn_filename": fs_item},
+            sha256_hash=entry.file_sha256,
+            defaults={"fqpn_filename": fs_item, "sha256_hash": entry.file_sha256},
+#            defaults={"fqpn_hash": fs_item_hash, "fqpn_filename": fs_item, "sha256_hash": entry.file_sha256},
         )
 
         entry.new_ftnail = tnail_record
@@ -205,7 +226,7 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
         except (IntegrityError, psycopg.errors.UniqueViolation):
             print("IntegrityError, or UniqueViolation")
             # should not occur, but some mp4's appear to have been duplicated?
-            ThumbnailFiles.objects.filter(fqpn_hash=fs_item_hash).delete()
+            ThumbnailFiles.objects.filter(sha256_hash=entry.file_sha256).delete()
             entry.new_ftnail.save()
         entry.save()
         return entry.new_ftnail.send_thumbnail(
@@ -290,7 +311,7 @@ def search_viewresults(request: WSGIRequest):
     return response
 
 
-#@sync_to_async
+# @sync_to_async
 def new_viewgallery(request: WSGIRequest):
     """
     View the requested Gallery page
@@ -302,9 +323,13 @@ def new_viewgallery(request: WSGIRequest):
         response : Django response
 
     """
-    
+
     print("NEW VIEW GALLERY")
-    if request.htmx.boosted and request.htmx.current_url is not None and not request.GET.get("newwin", False):
+    if (
+        request.htmx.boosted
+        and request.htmx.current_url is not None
+        and not request.GET.get("newwin", False)
+    ):
         print("partial")
         template_name = "frontend/gallery/gallery_listing_partial.jinja"
     else:
@@ -358,6 +383,10 @@ def new_viewgallery(request: WSGIRequest):
         "missing": [],
         "search": False,
     }
+    print(f"Up_URI: {context['up_uri']}")
+    print(f"webpath: {context['webpath']}")
+    print(f"request.build_absolute: {request.build_absolute_uri()}")
+    
     layout = layout_manager(
         page_number=context["current_page"],
         directory=directory,
@@ -367,7 +396,7 @@ def new_viewgallery(request: WSGIRequest):
     all_listings = layout["all_uuids"]
 
     chk_list = Paginator(all_listings, per_page=30)
-    context["page_cnt"] = list(arange(1, chk_list.num_pages + 1))
+    context["page_cnt"] = list(range(1, chk_list.num_pages + 1))
 
     try:
         context["pagelist"] = chk_list.page(context["current_page"])
@@ -380,17 +409,22 @@ def new_viewgallery(request: WSGIRequest):
         directory, sorder=context["sort"]
     )
 
-    dirs_to_display = IndexDirs.return_by_uuid_list(sort=context["sort"],
-        uuid_list=layout["data"][context["current_page"] - 1]["directories"]
+    dirs_to_display = IndexDirs.return_by_uuid_list(
+        sort=context["sort"],
+        uuid_list=layout["data"][context["current_page"] - 1]["directories"],
     )
-    files_to_display = IndexData.return_by_uuid_list(sort=context["sort"],
-        uuid_list=layout["data"][context["current_page"] - 1]["files"]
+    files_to_display = IndexData.return_by_uuid_list(
+        sort=context["sort"],
+        uuid_list=layout["data"][context["current_page"] - 1]["files"],
     ).filter(filetype__is_link=False)
-    links_to_display = IndexData.return_by_uuid_list(sort=context["sort"],
-        uuid_list=layout["data"][context["current_page"] - 1]["files"]
+    links_to_display = IndexData.return_by_uuid_list(
+        sort=context["sort"],
+        uuid_list=layout["data"][context["current_page"] - 1]["files"],
     ).filter(filetype__is_link=True)
 
-    context["items_to_display"] = list(chain(dirs_to_display, links_to_display, files_to_display))
+    context["items_to_display"] = list(
+        chain(dirs_to_display, links_to_display, files_to_display)
+    )
 
     if layout["no_thumbnails"] not in ["", None, []]:
         start = time.time()
@@ -400,10 +434,18 @@ def new_viewgallery(request: WSGIRequest):
         no_thumbs = IndexData.return_by_uuid_list(uuid_list=layout["no_thumbnails"])[
             0:batchsize
         ]
-        futures = []
-        for db_entry in no_thumbs:
-            futures.append(executor.submit(update_thumbnail, db_entry))
-        _ = [f.result() for f in futures]
+        if no_thumbs:
+            with DjangoConnectionThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
+                futures = []
+                for db_entry in no_thumbs:
+                    futures.append(executor.submit(update_thumbnail, db_entry))
+                _ = [f.result() for f in futures]
+                del futures
+        close_old_connections()
+        # futures = []
+        # for db_entry in no_thumbs:
+        #     futures.append(executor.submit(update_thumbnail, db_entry))
+        # _ = [f.result() for f in futures]
 
         print("elapsed thumbnail time - ", time.time() - start)
 
@@ -421,18 +463,19 @@ def new_viewgallery(request: WSGIRequest):
 
 def update_thumbnail(entry):
     fs_item = os.path.join(entry.fqpndirectory, entry.name).title().strip()
-    fs_item_hash = ThumbnailFiles.convert_text_to_md5_hdigest(fs_item)
+    # fs_item_hash = ThumbnailFiles.convert_text_to_md5_hdigest(fs_item)
     thumbnail, _ = ThumbnailFiles.objects.get_or_create(
-        fqpn_filename=fs_item, fqpn_hash=fs_item_hash
+        #fqpn_filename=fs_item, fqpn_hash=fs_item_hash
+        fqpn_filename=fs_item, sha256_hash=entry.file_sha256
     )
     thumbnail.image_to_thumbnail()
     entry.new_ftnail = thumbnail
     entry.save()
 
 
-def build_context_info(request: WSGIRequest, i_uuid:str):
+def build_context_info(request: WSGIRequest, i_uuid: str):
     """
-    Create the JSON package for item view.  All Json item requests come here to
+    Create the JSON package for item view.  All Json *item* requests come here to
     get their data.
 
     Parameters
@@ -452,9 +495,9 @@ def build_context_info(request: WSGIRequest, i_uuid:str):
         "breadcrumbs": "",
         "breadcrumbs_list": [],
     }
-    entry = IndexData.objects.prefetch_related("filetype").filter(
-        uuid=context["uuid"]
-    )[0]
+    entry = IndexData.objects.prefetch_related("filetype").filter(uuid=context["uuid"])[
+        0
+    ]
     context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
     found, directory_entry = IndexDirs.search_for_directory(
         fqpn_directory=context["webpath"]
@@ -492,7 +535,7 @@ def build_context_info(request: WSGIRequest, i_uuid:str):
         context["size"] = "medium"
     else:
         context["size"] = "large"
-    
+
     item_list = Paginator(catalog_qs, 1)
 
     try:
@@ -525,9 +568,7 @@ def build_context_info(request: WSGIRequest, i_uuid:str):
             "thumbnail_uri": entry.get_thumbnail_url(size=context["size"]),
         }
     )
-    context["page_locale"] = (
-        int(context["page"] / settings.GALLERY_ITEMS_PER_PAGE) + 1,
-    )
+    context["page_locale"] = int(context["page"] / settings.GALLERY_ITEMS_PER_PAGE) + 1
     # up_uri uses this to return you to the same page offset you were viewing
 
     # generate next uuid pointers, switch this away from paginator?
@@ -538,7 +579,7 @@ def build_context_info(request: WSGIRequest, i_uuid:str):
         context["previous_uuid"] = catalog_qs[
             page_contents.previous_page_number() - 1
         ].uuid
-#    print(context)
+    #    print(context)
     # print("item info - Process time: ", time.perf_counter() - context["start_time"], "secs")
     return context
 
@@ -578,17 +619,16 @@ def download_file(request: WSGIRequest):  # , filename=None):
         download = IndexData.objects.get(uuid=d_uuid)
     except IndexData.DoesNotExist:
         raise Http404
-    
+
     try:
-        return download.inline_sendfile(
-            request, ranged=download.filetype.is_movie
-        )
+        return download.inline_sendfile(request, ranged=download.filetype.is_movie)
     except FileNotFoundError:
         raise Http404
 
 
 async def download_item(request: WSGIRequest):
     return await download_file(request)
+
 
 @vary_on_headers("HX-Request")
 def test(request: HtmxHttpRequest, i_uuid: str):
@@ -597,7 +637,11 @@ def test(request: HtmxHttpRequest, i_uuid: str):
     :param request:
     :return:
     """
-    if request.htmx.boosted and request.htmx.current_url is not None and not request.GET.get("newwin", False):
+    if (
+        request.htmx.boosted
+        and request.htmx.current_url is not None
+        and not request.GET.get("newwin", False)
+    ):
         print("partial")
         template_name = "frontend/item/gallery_htmx_partial.jinja"
     else:
@@ -609,11 +653,11 @@ def test(request: HtmxHttpRequest, i_uuid: str):
 
     i_uuid = str(i_uuid).strip().replace("/", "")
 
-    context = build_context_info(request, i_uuid) | {"user": request.user} # | {"sort": sort_order(request) }
+    context = build_context_info(request, i_uuid) | {
+        "user": request.user
+    }  # | {"sort": sort_order(request) }
 
-    response = render(
-        request, template_name, context, using="Jinja2"
-    )
+    response = render(request, template_name, context, using="Jinja2")
     return response
     # return render(
     #     request,
@@ -625,13 +669,11 @@ def test(request: HtmxHttpRequest, i_uuid: str):
     # )
 
 
-def layout_manager(
-    page_number=0, directory=None, sort_ordering=None):
+def layout_manager(page_number=0, directory=None, sort_ordering=None):
     print("Sort Ordering", sort_ordering)
     output = {}
     output["data"] = {}
     output["page_number"] = page_number
-    # context["paths"] = paths
     output["dirs_count"] = directory.get_dir_counts()
     output["chunk_size"] = settings.GALLERY_ITEMS_PER_PAGE
     output["numb_of_files_on_dir_lastpage"] = 30 - (
@@ -647,11 +689,13 @@ def layout_manager(
     directories = list(
         directory.dirs_in_dir(sort=sort_ordering).values_list("uuid", flat=True)
     )
-    files = list(directory.files_in_dir(sort=sort_ordering).values_list("uuid", flat=True))
-#    links = list(directory.files_in_dir(sort=sort_ordering, additional_filters={'filetype__is_link':True}).values_list("uuid", flat=True))
- #   if links:
-  #      files = set(files)
-   #     files.difference_update(links)
+    files = list(
+        directory.files_in_dir(sort=sort_ordering).values_list("uuid", flat=True)
+    )
+    #    links = list(directory.files_in_dir(sort=sort_ordering, additional_filters={'filetype__is_link':True}).values_list("uuid", flat=True))
+    #   if links:
+    #      files = set(files)
+    #     files.difference_update(links)
     #    files = links + list(files)
     file_offset = 0
     for page_cnt in range(0, output["total_pages"]):
@@ -669,8 +713,9 @@ def layout_manager(
         # output["links"] = links
     output["all_uuids"] = list(chain(directories, files))
     output["no_thumbnails"] = list(
-        directory.files_in_dir(sort=sort_ordering, additional_filters={'new_ftnail__isnull':True})
-        .values_list("uuid", flat=True)
+        directory.files_in_dir(
+            sort=sort_ordering, additional_filters={"new_ftnail__isnull": True}
+        ).values_list("uuid", flat=True)
     )
 
     return output
