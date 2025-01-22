@@ -8,17 +8,17 @@ import filetypes
 from cache_watcher.models import Cache_Storage
 from django.conf import settings
 from django.db.utils import IntegrityError
+from frontend.utilities import (
+    sync_database_disk,  # cr_tnail_img,; return_image_obj,; read_from_disk,
+)
+
 # from quickbbs.models import IndexData  # , Thumbnails_Archives
 from thumbnails.image_utils import (  # image_to_pil,; movie_to_pil,; pdf_to_pil,
-    resize_pil_image, return_image_obj)
-
-from frontend.utilities import \
-    sync_database_disk  # cr_tnail_img,; return_image_obj,; read_from_disk,
+    resize_pil_image,
+    return_image_obj,
+)
 
 # from typing import Iterator  # , Optional, Union, TypeVar, Generic
-
-
-
 
 
 def new_process_dir2(db_entry):
@@ -69,10 +69,15 @@ def new_process_dir2(db_entry):
                 break
     if not db_entry.small_thumb:
         temp = return_image_obj(
-            os.path.join(settings.IMAGES_PATH, filetypes.models.FILETYPE_DATA[".dir"]["icon_filename"])
+            os.path.join(
+                settings.IMAGES_PATH,
+                filetypes.models.FILETYPE_DATA[".dir"]["icon_filename"],
+            )
         )
         img_icon = resize_pil_image(
-            temp, settings.IMAGE_SIZE["small"], filetypes.models.FILETYPE_DATA[".dir"]["icon_filename"]
+            temp,
+            settings.IMAGE_SIZE["small"],
+            filetypes.models.FILETYPE_DATA[".dir"]["icon_filename"],
         )
         # configdata["filetypes"]["dir"][2])
         db_entry.is_generic_icon = True
@@ -102,6 +107,6 @@ def new_process_img(
     if entry.file_tnail.image_to_thumbnail() is None:
         Cache_Storage.remove_from_cache_name(DirName=entry.fqpndirectory)
         return None
-    
+
     entry.file_tnail.FileSize = entry.size
     return entry

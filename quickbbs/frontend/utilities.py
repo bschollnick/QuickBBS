@@ -330,10 +330,12 @@ def process_filedata(fs_entry, db_record) -> IndexData:
     else:
         db_record.file_ssh256 = db_record.get_file_sha(fqfn=fs_entry.absolute())
 
-    if filetype_models.FILETYPE_DATA[fileext]["is_movie"]:
-            db_record.duration = movie_duration(
-                os.path.join(db_record.fqpndirectory, db_record.name)
-            )
+    # if filetype_models.FILETYPE_DATA[fileext]["is_movie"]:
+    #     duration =  (
+    #         os.path.join(db_record.fqpndirectory, db_record.name)
+    #     )
+    #     if duration is not None:
+    #         db_record.duration = duration
     if filetype_models.FILETYPE_DATA[fileext]["is_image"] and fileext in [".gif"]:
         try:
             with Image.open(
@@ -369,7 +371,7 @@ def sync_database_disk(directoryname):
     * Logic Update
         * If there are no database entries for the directory, the fs comparing to the database
     """
-    bulk_size = 5
+    bulk_size = 15
     if directoryname in [os.sep, r"/"]:
         directoryname = settings.ALBUMS_PATH
     webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
