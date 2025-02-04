@@ -14,14 +14,14 @@ Including another URLconf
     2. Add a URL to urlpatterns:  url(r'^blog/', include('blog.urls'))
 """
 
+import frontend.serve_up
+import frontend.views
 from django.conf import settings
+
 # from django.conf.urls import url
 from django.contrib import admin
 from django.urls import include, path, re_path
 from django.views.generic import RedirectView
-
-import frontend.serve_up
-import frontend.views
 
 urlpatterns = []
 if settings.DEBUG_TOOLBAR:
@@ -74,14 +74,12 @@ urlpatterns += [
     # path("thumbnails/", frontend.views.thumbnails, name="thumbnailspath"),
     path("resources/<path:pathstr>", frontend.serve_up.static_or_resources),
     path("static/<path:pathstr>", frontend.serve_up.static_or_resources),
-    
     path(
         "viewer2/<uuid:i_uuid>/",
         frontend.views.test,
         name="test",
     ),
-    #re_path("^test/", frontend.views.test, name="test"),
-    
+    # re_path("^test/", frontend.views.test, name="test"),
     path("accounts/", include("allauth.urls")),
     path("grappelli/", include("grappelli.urls")),  # grappelli URLS
     path(r"Admin/", admin.site.urls),

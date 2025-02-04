@@ -42,7 +42,7 @@ class AdminMaster_Index(admin.ModelAdmin):
         "lastmod",
         "size",
         "fqpndirectory",
-        "ignore",
+        #        "ignore",
         "delete_pending",
         "ownership",
         "filetype",
@@ -56,16 +56,17 @@ class AdminMaster_Index(admin.ModelAdmin):
         "lastmod",
         "size",
         "fqpndirectory",
-        "ignore",
+        #        "ignore",
         "delete_pending",
-
         "ownership",
         "filetype",
     )
 
+
 @admin.register(IndexDirs)
 class AdminMaster_Dirs(admin.ModelAdmin):
     search_fields = ["fqpndirectory"]
+
 
 # @admin.register(Cache_Tracking)
 # class Cache_dir_tracking_Index(admin.ModelAdmin):

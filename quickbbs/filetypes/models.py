@@ -45,7 +45,7 @@ class filetypes(models.Model):
 
     def __unicode__(self):
         return f"{self.fileext}"
-    
+
     def __str__(self):
         return f"{self.fileext}"
 
@@ -113,7 +113,8 @@ def return_identifier(ext):
     #        ext = ext[1:]
     return ext
 
-@lru_cache(maxsize=25)   
+
+@lru_cache(maxsize=25)
 def map_ext_to_id(ext):
     """
     Return the extension portion of the filename (minus the .)

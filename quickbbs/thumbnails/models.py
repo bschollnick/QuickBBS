@@ -1,5 +1,6 @@
 import hashlib
 import io
+from functools import lru_cache
 
 # from io import BytesIO
 import mimetypes
@@ -47,7 +48,9 @@ create_file_entry(filename, filesize, is_default)
 
 
 class ThumbnailFiles(models.Model):
-    sha256_hash = models.CharField(db_index=True, blank=True, unique=True, null=True, default=None)
+    sha256_hash = models.CharField(
+        db_index=True, blank=True, unique=True, null=True, default=None
+    )
     # fqpn_hash = models.CharField(
     #     db_index=True, max_length=32, unique=True, default=None
     # )
@@ -67,12 +70,13 @@ class ThumbnailFiles(models.Model):
         verbose_name = "Image File Thumbnails Cache"
         verbose_name_plural = "Image File Thumbnails Cache"
 
+    @lru_cache(maxsize=250)
     def get_thumbnail_by_sha(self, sha256):
         """
         Given a sha256 hash, return the thumbnail object
         """
         return ThumbnailFiles.objects.get(sha256_hash=sha256)
-    
+
     def thumbnail_exists(self, size="small"):
         match size.lower():
             case "small":
@@ -99,18 +103,19 @@ class ThumbnailFiles(models.Model):
         self.medium_thumb = b""
         self.large_thumb = b""
 
-    @staticmethod
-    def convert_text_to_md5_hdigest(text) -> str:
-        """
-        convert a text string to a md5 hash.  Text string is title cased, whitespace stripped, and
-        encoded as an utf-16 string.  The hash is exported as the hex digest.
+    # @staticmethod
+    # @lru_cache(maxsize=250)
+    # def convert_text_to_md5_hdigest(text) -> str:
+    #     """
+    #     convert a text string to a md5 hash.  Text string is title cased, whitespace stripped, and
+    #     encoded as an utf-16 string.  The hash is exported as the hex digest.
 
-        This is used as key for database lookups, and is standardized using this helper.
+    #     This is used as key for database lookups, and is standardized using this helper.
 
-        :param text:String
-        :return: 32 character md5 hexadecimal string
-        """
-        return hashlib.md5(text.title().strip().encode("utf-16")).hexdigest()
+    #     :param text:String
+    #     :return: 32 character md5 hexadecimal string
+    #     """
+    #     return hashlib.md5(text.title().strip().encode("utf-16")).hexdigest()
 
     def pil_to_thumbnail(self, pil_data):
         """
@@ -120,7 +125,7 @@ class ThumbnailFiles(models.Model):
 
         """
         self.invalidate_thumb()
-        #self.fqpn_hash = self.convert_text_to_md5_hdigest(self.fqpn_filename)
+        # self.fqpn_hash = self.convert_text_to_md5_hdigest(self.fqpn_filename)
         fext = os.path.splitext(self.fqpn_filename)[1][1:].lower()
         # https://stackoverflow.com/questions/1167398/python-access-class-property-from-string
         img_original = pil_data
@@ -136,7 +141,7 @@ class ThumbnailFiles(models.Model):
         Since we are just looking for a thumbnailable image, it doesn't have
         to be the most up to date, nor the most current.  Cached is fine.
         """
-        #self.fqpn_hash = self.convert_text_to_md5_hdigest(self.fqpn_filename)
+        # self.fqpn_hash = self.convert_text_to_md5_hdigest(self.fqpn_filename)
         fext = os.path.splitext(self.fqpn_filename)[1][1:].lower()
         self.invalidate_thumb()
 
@@ -199,16 +204,6 @@ class ThumbnailFiles(models.Model):
                     how-can-i-find-out-whether-a-server-supports-the-range-header
 
         """
-        # if fext_override is not None:
-        #     mimetype_filename = os.path.join(self.fqpn_filename, fext_override)
-        # elif filename_override:
-        #     mimetype_filename = filename_override
-        # else:
-        #     mimetype_filename = self.fqpn_filename
-        # if mimetype_filename:
-        #     mtype = mimetypes.guess_type(mimetype_filename)[0]
-        # else:
-        #     mtype = "application/octet-stream"
         mtype = "image/jpeg"
         blob = self.retrieve_sized_tnail(size=size)
         response = FileResponse(

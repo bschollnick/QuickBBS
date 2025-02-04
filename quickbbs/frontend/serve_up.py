@@ -19,9 +19,9 @@ async def static_or_resources(request, pathstr=None) -> object:
         if os.path.exists(resource_file):
             return serve(
                 request, os.path.basename(resource_file), os.path.dirname(resource_file)
-                )
+            )
         else:
             return serve(
-                    request, os.path.basename(static_file), os.path.dirname(static_file)
-                )
+                request, os.path.basename(static_file), os.path.dirname(static_file)
+            )
     return Http404

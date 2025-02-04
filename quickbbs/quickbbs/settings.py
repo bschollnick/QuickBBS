@@ -15,8 +15,8 @@ import socket
 from pathlib import Path
 
 import django_icons
-from django_htmx.jinja import django_htmx_script
 import humanize
+from django_htmx.jinja import django_htmx_script
 
 # import quickbbs.jinjaenv
 from quickbbs.quickbbs_settings import *
@@ -27,7 +27,7 @@ from quickbbs.quickbbs_settings import *
 #   Debug, enables the debugging mode
 #
 DEBUG = False
-DEBUG = not DEBUG
+# DEBUG = not DEBUG
 print(f"* Debug Mode is {DEBUG}")
 
 #   Django Debug Toolbar, is controlled separately from the debug mode,
@@ -36,6 +36,9 @@ print(f"* Debug Mode is {DEBUG}")
 DEBUG_TOOLBAR = DEBUG
 # DEBUG_TOOLBAR = False
 print(f"* Debug-toolbar is {DEBUG_TOOLBAR}")
+
+SECURE_SSL_REDIRECT = True
+
 # Demo mode, redirects the database to a different database container, and album path.
 # Useful for demonstrating the software without using your master database.
 #
@@ -46,35 +49,13 @@ ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
     "192.168.1.67",
+    # "100.73.202.135"
 ]
 
 INTERNAL_IPS = ["localhost", "127.0.0.1", "nerv.local", "192.168.1.67"]
 machine_name = socket.gethostname().lower()
 print(f"* Running on {machine_name}")
 
-
-# See https://releases.jquery.com/jquery/
-JQUERY_VERSION = "3.7.0"
-# JQUERY_VERSION = '3.6.1'
-JQUERY_URI = (
-    f"https://cdnjs.cloudflare.com/ajax/libs/jquery/{JQUERY_VERSION}/jquery.slim.min.js"
-)
-
-# see https://cdnjs.com/libraries/bulma
-#BULMA_VERSION = "0.9.4"
-BULMA_VERSION = "1.0.2"
-BULMA_URI = (
-    f"https://cdnjs.cloudflare.com/ajax/libs/bulma/{BULMA_VERSION}/css/bulma.min.css"
-)
-
-DJANGO_HTMX_VERSION="2.0.2"
-DJANGO_HTMX_URI=f"https://cdnjs.cloudflare.com/ajax/libs/htmx/{DJANGO_HTMX_VERSION}/htmx.min.js"
-
-# see https://cdnjs.com/libraries/font-awesome
-FONTAWESOME_VERSION = '6.6.0'
-#FONTAWESOME_VERSION = "6.4.0"
-FONTAWESOME_URI = f"https://cdnjs.cloudflare.com/ajax/libs/font-awesome/{FONTAWESOME_VERSION}/css/all.min.css"
-FONTAWESOME_SCRIPT_URI = None  # f'https://kit.fontawesome.com/ad5033c5d1.js'
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 # BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # print(BASE_DIR)
@@ -86,9 +67,9 @@ if not DEBUG:
         "default": {
             "BACKEND": "django.core.cache.backends.db.DatabaseCache",
             "LOCATION": "cache_data_db_table",
-            "TIMEOUT": 180,  # 20 minutes #300, # 5 minutes
+            "TIMEOUT": 300,  # 20 minutes #300, # 5 minutes
             "OPTIONS": {
-                "MAX_ENTRIES": 7500,
+                "MAX_ENTRIES": 10000,
                 "CULL_FREQUENCY": 3,
             },
         }
@@ -147,14 +128,14 @@ INSTALLED_APPS += [
     "allauth.socialaccount",
     "cache_watcher",
     "django_icons",
-    #    'django_unicorn',
     "django_jinja.contrib._humanize",
     "django_extensions",
     "filetypes",
     "frontend",
     "quickbbs",
     "thumbnails",
-    "DirScanning", "django_htmx",
+    "DirScanning",
+    "django_htmx",
 ]
 
 SITE_ID = 1
@@ -166,13 +147,14 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.middleware.cache.UpdateCacheMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    "django.middleware.gzip.GZipMiddleware",
+    # "django.middleware.gzip.GZipMiddleware",
+    "compression_middleware.middleware.CompressionMiddleware",
     "django.middleware.http.ConditionalGetMiddleware",
     "django.middleware.common.CommonMiddleware",
-    "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.cache.FetchFromCacheMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "django_user_agents.middleware.UserAgentMiddleware",
     "django_htmx.middleware.HtmxMiddleware",
@@ -226,7 +208,7 @@ TEMPLATES = [
                 "jinja2.ext.do",
                 "jinja2.ext.loopcontrols",
                 "jinja2.ext.i18n",
-#                "jinja2_humanize_extension.HumanizeExtension", # doesn't seem to work per docs?
+                #                "jinja2_humanize_extension.HumanizeExtension", # doesn't seem to work per docs?
                 "django_jinja.builtins.extensions.CsrfExtension",
                 "django_jinja.builtins.extensions.CacheExtension",
                 "django_jinja.builtins.extensions.TimezoneExtension",
@@ -239,18 +221,19 @@ TEMPLATES = [
                 "static": "django.templatetags.static.static",
                 "url": "django.urls.reverse",
                 "django_htmx_script": django_htmx_script,
-                "any":any,
-                "all":all,
-                "naturaldelta":humanize.naturaldelta,
-                "precisedelta":humanize.precisedelta,
-                "naturalsize":humanize.naturalsize,
+                "any": any,
+                "all": all,
+                "naturaldelta": humanize.naturaldelta,
+                "precisedelta": humanize.precisedelta,
+                "naturalsize": humanize.naturalsize,
             },
             "constants": {
-                "bulma_uri": BULMA_URI,
-                "fontawesome_uri": FONTAWESOME_URI,
-                "fontawesome_script_uri": FONTAWESOME_SCRIPT_URI,
-                "jquery_uri": JQUERY_URI,
-                "django_htmx_uri":DJANGO_HTMX_URI,
+                # "bulma_uri": BULMA_URI,
+                # "fontawesome_uri": FONTAWESOME_URI,
+                # "fontawesome_script_uri": FONTAWESOME_SCRIPT_URI,
+                # "jquery_uri": JQUERY_URI,
+                # "pdf_js_viewer_uri": PDF_JS_VIEWER_URI,
+                # "django_htmx_uri": DJANGO_HTMX_URI,
             },
             "bytecode_cache": {
                 "name": "default",
@@ -271,19 +254,16 @@ WSGI_APPLICATION = "quickbbs.wsgi.application"
 # https://docs.djangoproject.com/en/1.9/ref/settings/#databases
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
+        "ENGINE": "django.db.backends.postgresql_psycopg2",
         "NAME": "postgres",
         "USER": "postgres",
         "PASSWORD": "hentai2020",
         "HOST": "localhost",
         "PORT": "5432",
-        "CONN_MAX_AGE": 300,
+        "CONN_MAX_AGE": 120,
     }
 }
 
-SOUTH_DATABASE_ADAPTERS = {
-    "default": "south.db.postgresql_psycopg2",
-}
 AUTHENTICATION_BACKENDS = (
     # Needed to login by username in Django admin, regardless of `allauth`
     "django.contrib.auth.backends.ModelBackend",

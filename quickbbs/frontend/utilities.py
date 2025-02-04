@@ -379,7 +379,7 @@ def sync_database_disk(directoryname):
     found, dirpath_id = IndexDirs.search_for_directory(fqpn_directory=dirpath)
     if found is False:
         dirpath_id = IndexDirs.add_directory(dirpath)
-        print("\tAdding ", dirpath)
+        # print("\tAdding ", dirpath)
 
     records_to_update = []
     cached = Cache_Storage.name_exists_in_cache(DirName=dirpath) is True
@@ -404,7 +404,6 @@ def sync_database_disk(directoryname):
         if parent_dir.exists():
             parent_dir = parent_dir[0]
             dirpath_id.delete_directory(parent_dir, cache_only=True)
-    # fs_filenames_in_directory = fs_entries.keys()
 
     # retrieve IndexDirs entry for dirpath
     success, dirpath_id = IndexDirs.search_for_directory(dirpath)
@@ -416,7 +415,7 @@ def sync_database_disk(directoryname):
     db_directories = dirpath_id.dirs_in_dir()
     for fqpn in db_directories.values_list("fqpndirectory", flat=True):
         if str(Path(fqpn).name).strip().title() not in fs_entries:
-            print("Database contains a **directory** not in the fs: ", fqpn)
+            # print("Database contains a **directory** not in the fs: ", fqpn)
             IndexDirs.delete_directory(fqpn_directory=fqpn)
 
     update = False
@@ -429,9 +428,9 @@ def sync_database_disk(directoryname):
     for db_entry in db_data:
         fext = os.path.splitext(db_entry.name.strip())[1].lower()
         if db_entry.name.strip() not in fs_entries:
-            print("Database contains a file not in the fs: ", db_entry.name)
+            # print("Database contains a file not in the fs: ", db_entry.name)
             # The entry just is not in the file system.  Delete it.
-            db_entry.ignore = True
+            # db_entry.ignore = True
             db_entry.delete_pending = True
             db_entry.parent_dir = dirpath_id
             records_to_update.append(db_entry)
@@ -443,8 +442,14 @@ def sync_database_disk(directoryname):
             # update = False, unncessary, moved to above the for loop.
             entry = fs_entries[db_entry.name.title()]
             fs_stat = entry.stat()
-            if db_entry.file_sha256 in ["", None] and fext != "" and not filetype_models.FILETYPE_DATA[fext]["is_link"]:
-                db_entry.file_sha256 = db_entry.get_file_sha(fqfn=os.path.join(db_entry.fqpndirectory, db_entry.name))
+            if (
+                db_entry.file_sha256 in ["", None]
+                and fext != ""
+                and not filetype_models.FILETYPE_DATA[fext]["is_link"]
+            ):
+                db_entry.file_sha256 = db_entry.get_file_sha(
+                    fqfn=os.path.join(db_entry.fqpndirectory, db_entry.name)
+                )
                 update = True
             if db_entry.lastmod != fs_stat[stat.ST_MTIME]:
                 # print("LastMod mismatch")
@@ -467,7 +472,7 @@ def sync_database_disk(directoryname):
                         update = True
             if update:
                 records_to_update.append(db_entry)
-                print("Database record being updated: ", db_entry.name)
+                # print("Database record being updated: ", db_entry.name)
                 #                    db_entry.save()
                 update = False
 
@@ -505,7 +510,7 @@ def sync_database_disk(directoryname):
             IndexData.objects.bulk_update(
                 records_to_update,
                 [
-                    "ignore",
+                    #                    "ignore",
                     "lastmod",
                     "delete_pending",
                     "size",

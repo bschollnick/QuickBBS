@@ -1,4 +1,3 @@
-# from filetypes.constants import *
 SITE_NAME = "QuickBBS Site"
 IMAGE_SIZE = {"small": 200, "medium": 740, "large": 1024, "unknown": 200}
 
@@ -9,12 +8,6 @@ ARCHIVE_ITEMS_PER_PAGE = 21
 
 SERVER_IP = "0.0.0.0"
 SERVER_PORT = 8888
-
-# import socket
-# Used for Bonjour / ZeroConf, temporarily removed
-# HOSTNAME = socket.gethostname()
-# EXTERNAL_IP = "192.168.1.19"
-# print(HOSTNAME, EXTERNAL_IP)
 
 PRELOAD = ["/albums", "/albums/hentai_idea"]
 
@@ -31,7 +24,7 @@ JAVASCRIPT_PATH = f"{RESOURCES_PATH}/javascript"
 CSS_PATH = f"{RESOURCES_PATH}/css"
 FONTS_PATH = f"{RESOURCES_PATH}/fonts"
 
-# Used in ftypes / Filetypes
+# Used in ftypes / Filetypes, used in the refresh-filetypes command
 FTYPES = {
     "unknown": 0,
     "dir": 1,
@@ -47,7 +40,8 @@ FTYPES = {
     "markdown": 11,
     "link": 12,
 }
-# TBD: Need to confirm ftypes is still in use.
+
+# used as list of files to ignore when scanning directories
 FILES_TO_IGNORE = [
     ".",
     "..",
@@ -58,6 +52,7 @@ FILES_TO_IGNORE = [
     "icon?",
 ]
 
+# list of file extensions to ignore when scanning directories
 EXTENSIONS_TO_IGNORE = [
     ".pdf_png_preview",
     ".log",
@@ -67,7 +62,9 @@ EXTENSIONS_TO_IGNORE = [
     ".swf",
 ]
 
+# Do not display files that start with a DOT (.)
 IGNORE_DOT_FILES = True
+
 
 REGISTRATION_OPEN = True
 
@@ -75,6 +72,7 @@ REGISTRATION_OPEN = True
 #   **NOTE** if you make any changes to the entries below, re-run manage.py refresh-filetypes
 #           to ensure that the filetype database table is updated with your changes
 #
+# TBD: Verify, Haven't these already been moved to FileTypes?
 GRAPHIC_FILE_TYPES = [".bmp", ".gif", ".jpg", ".jpeg", ".png", ".webp"]
 PDF_FILE_TYPES = [
     ".pdf",
@@ -107,7 +105,3 @@ MARKDOWN_FILE_TYPES = [
 LINK_FILE_TYPES = [".link"]
 
 ARCHIVE_FILE_TYPES = RAR_FILE_TYPES + ZIP_FILE_TYPES
-
-# IMAGE_SAFE_FILES = GRAPHIC_FILE_TYPES + PDF_FILE_TYPES + ARCHIVE_FILE_TYPES
-
-# FILES_TO_CACHE = GRAPHIC_FILE_TYPES + PDF_FILE_TYPES + ARCHIVE_FILE_TYPES
