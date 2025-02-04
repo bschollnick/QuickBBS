@@ -33,8 +33,9 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
     Event Handler for the Watchdog Monitor for QuickBBS, on any on_created, on_deleted, on_modified, on_any_event
     detections, the directory will be removed from the Cache_Storage table, which will cause it to be rescanned
     if that directory is accessed.
-    
+
     """
+
     def on_created(self, event):
         self.on_any_event(event)
 
@@ -55,24 +56,26 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
         dhash = create_hash(dirpath)
         Cache_Storage.remove_from_cache_hdigest(dhash)
 
+
 @lru_cache(maxsize=500)
 def create_hash(text):
     """
-    Create a hash of the text, titlecased, stripped, and normpathed that """
+    Create a hash of the text, titlecased, stripped, and normpathed that"""
     if not text.endswith(os.sep):
         text = f"{text}{os.sep}"
-    return hashlib.md5(text.title().strip().encode("utf-16")).hexdigest()
+    return hashlib.md5(text.title().strip().encode("utf-8")).hexdigest()
 
 
 class fs_Cache_Tracking(models.Model):
     """
     Cache_Storage table is used to signify that a directory has been scanned and is up to date.  After a rescan, the
-    directory is added to the Cache_Storage table.  
-    
+    directory is added to the Cache_Storage table.
+
     The lastscan time is technically not used for aging out the cache, it is there to allow for debugging and to
     generate a human readable time of the last scan (In the admin console).
 
     """
+
     Dir_md5_hdigest = models.CharField(
         db_index=True, max_length=32, default="", blank=True, unique=True
     )
@@ -87,13 +90,14 @@ class fs_Cache_Tracking(models.Model):
 
     def add_to_cache(self, DirName):
         entry = fs_Cache_Tracking()
-        entry.DirName = DirName #.title().strip()
+        entry.DirName = DirName  # .title().strip()
         if not entry.DirName.endswith(os.sep):
             entry.DirName = f"{entry.DirName}{os.sep}"
         #       logger.info(f"Adding to cache {entry.DirName}")
         entry.Dir_md5_hdigest = create_hash(entry.DirName)
-        entry.lastscan = time.time()
-        entry.save()
+        if not self.hdigest_exists_in_cache(entry.Dir_md5_hdigest):
+            entry.lastscan = time.time()
+            entry.save()
 
     def hdigest_exists_in_cache(self, hdigest):
         return fs_Cache_Tracking.objects.filter(Dir_md5_hdigest=hdigest).exists()

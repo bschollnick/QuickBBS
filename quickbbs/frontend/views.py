@@ -58,8 +58,6 @@ from quickbbs.models import IndexData, IndexDirs  # , Thumbnails_Files
 # from django.db.models import Q
 
 
-
-
 class HtmxHttpRequest(HttpRequest):
     htmx: HtmxDetails
 
@@ -176,10 +174,8 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
     :param tnail_id: The UUID of the file - IndexData object
     :return: The sent thumbnail
     """
-    index_qs = (
-        IndexData.objects.prefetch_related("new_ftnail")
-        .prefetch_related("filetype")
-        .filter(uuid=tnail_id)
+    index_qs = IndexData.objects.prefetch_related("new_ftnail", "filetype").filter(
+        uuid=tnail_id
     )
     if not index_qs.exists():
         # does not exist
@@ -189,7 +185,7 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
     thumbsize = request.GET.get("size", "small").lower()
     entry = index_qs[0]
     fs_item = os.path.join(entry.fqpndirectory, entry.name).title().strip()
-    #fs_item_hash = ThumbnailFiles.convert_text_to_md5_hdigest(fs_item)
+    # fs_item_hash = ThumbnailFiles.convert_text_to_md5_hdigest(fs_item)
     # fname = os.path.basename(entry.name).title().strip()
     if entry.new_ftnail:
         if entry.new_ftnail.thumbnail_exists(size=thumbsize):
@@ -215,7 +211,7 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
         tnail_record, _ = ThumbnailFiles.objects.get_or_create(
             sha256_hash=entry.file_sha256,
             defaults={"fqpn_filename": fs_item, "sha256_hash": entry.file_sha256},
-#            defaults={"fqpn_hash": fs_item_hash, "fqpn_filename": fs_item, "sha256_hash": entry.file_sha256},
+            #            defaults={"fqpn_hash": fs_item_hash, "fqpn_filename": fs_item, "sha256_hash": entry.file_sha256},
         )
 
         entry.new_ftnail = tnail_record
@@ -383,10 +379,10 @@ def new_viewgallery(request: WSGIRequest):
         "missing": [],
         "search": False,
     }
-    print(f"Up_URI: {context['up_uri']}")
-    print(f"webpath: {context['webpath']}")
-    print(f"request.build_absolute: {request.build_absolute_uri()}")
-    
+    # print(f"Up_URI: {context['up_uri']}")
+    # print(f"webpath: {context['webpath']}")
+    # print(f"request.build_absolute: {request.build_absolute_uri()}")
+
     layout = layout_manager(
         page_number=context["current_page"],
         directory=directory,
@@ -435,7 +431,9 @@ def new_viewgallery(request: WSGIRequest):
             0:batchsize
         ]
         if no_thumbs:
-            with DjangoConnectionThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
+            with DjangoConnectionThreadPoolExecutor(
+                max_workers=MAX_THREADS
+            ) as executor:
                 futures = []
                 for db_entry in no_thumbs:
                     futures.append(executor.submit(update_thumbnail, db_entry))
@@ -465,8 +463,9 @@ def update_thumbnail(entry):
     fs_item = os.path.join(entry.fqpndirectory, entry.name).title().strip()
     # fs_item_hash = ThumbnailFiles.convert_text_to_md5_hdigest(fs_item)
     thumbnail, _ = ThumbnailFiles.objects.get_or_create(
-        #fqpn_filename=fs_item, fqpn_hash=fs_item_hash
-        fqpn_filename=fs_item, sha256_hash=entry.file_sha256
+        # fqpn_filename=fs_item, fqpn_hash=fs_item_hash
+        fqpn_filename=fs_item,
+        sha256_hash=entry.file_sha256,
     )
     thumbnail.image_to_thumbnail()
     entry.new_ftnail = thumbnail
@@ -529,7 +528,7 @@ def build_context_info(request: WSGIRequest, i_uuid: str):
         context["up_uri"] = context["up_uri"][:-1]
 
     catalog_qs = directory_entry.files_in_dir(sort=context["sort"])
-    page_uuids = list(catalog_qs.values_list("uuid", flat=True))
+    page_uuids = list(catalog_qs.only("uuid").values_list("uuid", flat=True))
     context["mobile"] = detect_mobile(request)
     if context["mobile"]:
         context["size"] = "medium"
@@ -543,10 +542,9 @@ def build_context_info(request: WSGIRequest, i_uuid: str):
     except ValueError:
         current_page = 1
 
-    filetype_data = entry.filetype.__dict__
-    context["filetype"] = filetype_data
     context.update(
         {
+            "filetype": entry.filetype.__dict__,
             "page": current_page,
             "first_uuid": page_uuids[0],
             "last_uuid": page_uuids[len(page_uuids) - 1],
@@ -617,12 +615,8 @@ def download_file(request: WSGIRequest):  # , filename=None):
 
     try:
         download = IndexData.objects.get(uuid=d_uuid)
-    except IndexData.DoesNotExist:
-        raise Http404
-
-    try:
         return download.inline_sendfile(request, ranged=download.filetype.is_movie)
-    except FileNotFoundError:
+    except (IndexData.DoesNotExist, FileNotFoundError):
         raise Http404
 
 

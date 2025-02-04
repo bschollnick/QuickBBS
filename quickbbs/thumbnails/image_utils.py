@@ -64,7 +64,7 @@ def movie_duration(fspath):
         try:
             duration_sec = int(stream.duration * stream.time_base)
         except (av.error.InvalidDataError, StopIteration, TypeError):
-            duration_sec = None 
+            duration_sec = None
     # except (av.error.InvalidDataError, StopIteration, TypeError):
     #    duration_sec = None
     return duration_sec

@@ -20,6 +20,7 @@ class TestEventHandlers(FileSystemEventHandler):
     """
     Test Event Handler to allow visible queues for testing the Watchdog code.
     """
+
     def on_created(self, event):
         if event.is_directory:
             print(f"hey, {event.src_path} has been created!")
@@ -47,6 +48,7 @@ class watchdog_monitor:
     If any change to a file or directory is detected, that directory is marked as "dirty" and when accessed
     a rescan is performed.
     """
+
     def __init__(self):
         pass
 

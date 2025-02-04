@@ -5,6 +5,7 @@ Django Models for quickbbs
 # import asyncio
 import hashlib
 import io
+
 # import mimetypes
 import os
 import pathlib
@@ -79,6 +80,10 @@ class IndexDirs(models.Model):
     fqpndirectory = models.CharField(
         db_index=False, max_length=384, default="", unique=True, blank=True
     )  # FQFN of the file itself
+    dir_sha256 = models.CharField(
+        db_index=True, blank=True, unique=True, null=True, default=None
+    )
+
     # WebPath_md5 = models.CharField(db_index=True, max_length=32, unique=False)
     dir_name_md5 = models.CharField(db_index=True, max_length=32, unique=False)
     # DirName is the just the directory name (eg test1)
@@ -158,6 +163,21 @@ class IndexDirs(models.Model):
         new_rec.filetype = filetypes(fileext=".dir")
         new_rec.save()
         return new_rec
+
+    def get_dir_sha(self) -> str:
+        """
+        Return the SHA256 hash of the file as a hexdigest string
+
+        Args:
+            fqfn (str) : The fully qualified filename of the file to be hashed
+
+        :return: The SHA256 hash of the file + fqfn as a hexdigest string
+        """
+        sha = None
+        digest = hashlib.sha256()
+        digest.update(self.fqpn_directory.encode("utf-8"))
+        sha = digest.hexdigest()
+        return sha
 
     @property
     def numdirs(self) -> None:
@@ -273,10 +293,9 @@ class IndexDirs(models.Model):
         """
         Path = pathlib.Path(fqpn_directory)
         fqpn_directory = IndexDirs.normalize_fqpn(str(Path.resolve()))
-        query = IndexDirs.objects.prefetch_related("filetype").filter(
+        query = IndexDirs.objects.filter(
             combined_md5=convert_text_to_md5_hdigest(fqpn_directory),
             delete_pending=False,
-            ignore=False,
         )
         if query.exists():
             record = query[0]
@@ -296,7 +315,7 @@ class IndexDirs(models.Model):
 
         dirs = (
             IndexDirs.objects.filter(uuid__in=uuid_list)
-            .filter(delete_pending=False, ignore=False)
+            .filter(delete_pending=False)
             .order_by(*SORT_MATRIX[sort])
         )
         return dirs
@@ -315,7 +334,7 @@ class IndexDirs(models.Model):
             additional_filters = {}
 
         files = (
-            IndexData.objects.prefetch_related("new_ftnail")
+            IndexData.objects.select_related("new_ftnail")
             .filter(parent_dir=self.pk, delete_pending=False, **additional_filters)
             .order_by(*SORT_MATRIX[sort])
         )
@@ -426,7 +445,9 @@ class IndexData(models.Model):
     uuid = models.UUIDField(
         default=None, null=True, editable=False, db_index=True, blank=True
     )
-    file_sha256 = models.CharField(db_index=True, blank=True, unique=True, null=True, default=None)
+    file_sha256 = models.CharField(
+        db_index=True, blank=True, unique=True, null=True, default=None
+    )
     lastscan = models.FloatField(db_index=True)
     # Stored as Unix TimeStamp (ms)
     lastmod = models.FloatField(db_index=True)  # Stored as Unix TimeStamp (ms)
@@ -488,8 +509,9 @@ class IndexData(models.Model):
         from frontend.utilities import SORT_MATRIX
 
         files = (
-            IndexData.objects.filter(uuid__in=uuid_list)
-            .filter(delete_pending=False, ignore=False)
+            IndexData.objects.select_related("filetype")
+            .filter(uuid__in=uuid_list)
+            .filter(delete_pending=False)
             .order_by(*SORT_MATRIX[sort])
         )
         return files
@@ -497,7 +519,7 @@ class IndexData(models.Model):
     def get_file_sha(self, fqfn) -> str:
         """
         Return the SHA256 hash of the file as a hexdigest string
-        
+
         Args:
             fqfn (str) : The fully qualified filename of the file to be hashed
 
@@ -512,7 +534,6 @@ class IndexData(models.Model):
         except (FileNotFoundError, IOError, AttributeError):
             print(f"Error: {fqfn}")
         return sha
-        
 
     def get_webpath(self):
         """

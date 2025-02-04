@@ -12,6 +12,7 @@ import filetypes
 from django.conf import settings
 from django.contrib.auth import authenticate, login
 from django.http import FileResponse, Http404, StreamingHttpResponse
+
 # from django.conf import settings
 from django.views.decorators.cache import never_cache
 
@@ -132,7 +133,7 @@ def detect_mobile(request):
 #         mimetype_filename = os.path.join(basename, fext_override)
 #     else:
 #         mimetype_filename = filename
-    
+
 #     fext = os.path.splitext(filename)[1]
 #     #    mtype, encoding = mimetypes.guess_type(filename)
 #     #mtype = mimetypes.guess_type(mimetype_filename)[0]
@@ -167,7 +168,7 @@ def respond_as_attachment(request, file_path, original_filename):
     if mtype is None:
         mtype = "application/octet-stream"
     try:
-    #    mtype = mimetypes.guess_type(filename)[0]
+        #    mtype = mimetypes.guess_type(filename)[0]
         response = FileResponse(
             open(filename, "rb"),
             content_type=mtype,
