@@ -150,9 +150,7 @@ class IndexDirs(models.Model):
         new_rec.dir_name_md5 = convert_text_to_md5_hdigest(
             IndexDirs.normalize_fqpn(filename_seg)
         )
-        new_rec.combined_md5 = convert_text_to_md5_hdigest(
-            IndexDirs.normalize_fqpn(fqpn_directory)
-        )
+        new_rec.combined_md5 = convert_text_to_md5_hdigest(fqpn_directory)
         new_rec.parent_dir_md5 = convert_text_to_md5_hdigest(parent_dir)
         new_rec.uuid = uuid.uuid4()
         #        new_rec.FileCount = FileCount
@@ -368,8 +366,8 @@ class IndexDirs(models.Model):
             Django URL object
 
         """
-        options = {}
-        options["i_uuid"] = str(self.uuid)
+        #options = {}
+        #options["i_uuid"] = str(self.uuid)
         webpath = self.fqpndirectory.replace(
             settings.ALBUMS_PATH.lower() + r"/albums/", r""
         )
@@ -635,34 +633,39 @@ class IndexData(models.Model):
          send_thumbnail("test.png")
 
         """
-        fqpn_filename = os.path.join(self.fqpndirectory, self.name)
+        from frontend.web import stream_video
         mtype = self.filetype.mimetype
         if mtype is None:
             mtype = "application/octet-stream"
-        if not ranged:
-            # with AIOFile(fqpn_filename, "rb") as afh:
-            #     reader = Reader(afh)
-            #     response = HttpResponse(reader, content_type=mtype)
-            #     response["Content-Disposition"] = f"inline; filename={self.name}"
-            try:
-                with open(fqpn_filename, "rb") as fh:
-                    response = HttpResponse(fh.read(), content_type=mtype)
-                    response["Content-Disposition"] = f"inline; filename={self.name}"
-            except FileNotFoundError:
-                raise Http404
-        else:
-            # open must be in the RangedFielRequest, to allow seeking
-            try:
-                response = RangedFileResponse(
-                    request,
-                    file=open(fqpn_filename, "rb"),  # , buffering=1024*8),
-                    as_attachment=False,
-                    filename=self.name,
-                )
-            except FileNotFoundError:
-                raise Http404
-        response["Content-Type"] = mtype
-        return response
+        fqpn_filename = os.path.join(self.fqpndirectory, self.name)
+        return stream_video(request, fqpn_filename, mtype)
+        # mtype = self.filetype.mimetype
+        # if mtype is None:
+        #     mtype = "application/octet-stream"
+        # if not ranged:
+        #     # with AIOFile(fqpn_filename, "rb") as afh:
+        #     #     reader = Reader(afh)
+        #     #     response = HttpResponse(reader, content_type=mtype)
+        #     #     response["Content-Disposition"] = f"inline; filename={self.name}"
+        #     try:
+        #         with open(fqpn_filename, "rb") as fh:
+        #             response = HttpResponse(fh.read(), content_type=mtype)
+        #             response["Content-Disposition"] = f"inline; filename={self.name}"
+        #     except FileNotFoundError:
+        #         raise Http404
+        # else:
+        #     # open must be in the RangedFielRequest, to allow seeking
+        #     try:
+        #         response = RangedFileResponse(
+        #             request,
+        #             file=open(fqpn_filename, "rb"),  # , buffering=1024*8),
+        #             as_attachment=False,
+        #             filename=self.name,
+        #         )
+        #     except FileNotFoundError:
+        #         raise Http404
+        # response["Content-Type"] = mtype
+        # return response
 
     class Meta:
         verbose_name = "Master Files Index"
