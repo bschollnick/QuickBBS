@@ -420,20 +420,15 @@ def sync_database_disk(directoryname):
 
     update = False
     db_data = dirpath_id.files_in_dir()
-    # if count in [0, None]:
-    #     db_data = IndexData.objects.select_related("filetype").filter(
-    #         fqpndirectory=webpath, delete_pending=False, ignore=False
-    #     )
-
+    
     for db_entry in db_data:
         fext = os.path.splitext(db_entry.name.strip())[1].lower()
         if db_entry.name.strip() not in fs_entries:
             # print("Database contains a file not in the fs: ", db_entry.name)
             # The entry just is not in the file system.  Delete it.
             # db_entry.ignore = True
-            db_entry.delete_pending = True
-            db_entry.parent_dir = dirpath_id
-            records_to_update.append(db_entry)
+            db_entry.delete()
+            continue
         else:
             # The db_entry does exist in the file system.
             # Does the lastmod match?
