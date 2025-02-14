@@ -508,8 +508,7 @@ class IndexData(models.Model):
 
         files = (
             IndexData.objects.select_related("filetype")
-            .filter(uuid__in=uuid_list)
-            .filter(delete_pending=False)
+            .filter(uuid__in=uuid_list, delete_pending=False)
             .order_by(*SORT_MATRIX[sort])
         )
         return files
@@ -527,10 +526,11 @@ class IndexData(models.Model):
         try:
             with open(fqfn, "rb") as filehandle:
                 digest = hashlib.file_digest(filehandle, "sha256")
-                digest.update(fqfn.encode("utf-8"))
+                digest.update(str(fqfn).title().encode("utf-8"))
                 sha = digest.hexdigest()
-        except (FileNotFoundError, IOError, AttributeError):
-            print(f"Error: {fqfn}")
+        except FileNotFoundError:
+            sha = None
+            print(f"FNF (SHA256): {fqfn}")
         return sha
 
     def get_webpath(self):

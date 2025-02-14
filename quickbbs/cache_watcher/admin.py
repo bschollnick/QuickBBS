@@ -7,6 +7,5 @@ from django.contrib import admin
 class Cache_dir_tracking_Index(admin.ModelAdmin):
     list_display = ("DirName", "Dir_md5_hdigest", "lastscan")
     fields = ("DirName", "lastscan")
-
-
-# admin.site.register(fs_Cache_Tracking)
+    search_fields = ["DirName", "Dir_md5_hdigest"]
+    readonly_fields = ("Dir_md5_hdigest",)
