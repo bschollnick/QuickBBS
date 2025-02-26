@@ -108,7 +108,7 @@ def return_prev_next2(directory, sorder) -> tuple:
     else:
         return (None, None)
     directories = parent_dir.dirs_in_dir(sort=sorder)
-    count = directories.count()
+    # count = directories.count()
     parent_dir_data = directories.values(
         "pk", "fqpndirectory", "parent_dir_md5", "combined_md5"
     )
@@ -304,6 +304,7 @@ def search_viewresults(request: WSGIRequest):
         using="Jinja2",
     )
     print("search View, processing time: ", time.perf_counter() - start_time)
+    close_old_connections()
     return response
 
 
@@ -439,13 +440,9 @@ def new_viewgallery(request: WSGIRequest):
                     futures.append(executor.submit(update_thumbnail, db_entry))
                 _ = [f.result() for f in futures]
                 del futures
-        close_old_connections()
-        # futures = []
-        # for db_entry in no_thumbs:
-        #     futures.append(executor.submit(update_thumbnail, db_entry))
-        # _ = [f.result() for f in futures]
-
         print("elapsed thumbnail time - ", time.time() - start)
+    close_old_connections()
+
 
     response = render(
         request,
@@ -453,9 +450,7 @@ def new_viewgallery(request: WSGIRequest):
         context,
         using="Jinja2",
     )
-    print(
-        "Gallery View, processing time: ", time.perf_counter() - start_time
-    )  # time.time() - start_time)
+    print("Gallery View, processing time: ", time.perf_counter() - start_time)
     return response
 
 
