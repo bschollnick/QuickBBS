@@ -160,7 +160,7 @@ def respond_as_attachment(request, file_path, original_filename):
 
     filename = os.path.join(file_path, original_filename)
     fext = os.path.splitext(filename)[1].lower()
-    mtype = filetypes.models.FILETYPE_DATA[fext]["mimetype"]
+    mtype = filetypes.models.FILETYPE_DATA[fext].mimetype
     if mtype is None:
         mtype = "application/octet-stream"
     try:

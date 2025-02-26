@@ -71,13 +71,13 @@ def new_process_dir2(db_entry):
         temp = return_image_obj(
             os.path.join(
                 settings.IMAGES_PATH,
-                filetypes.models.FILETYPE_DATA[".dir"]["icon_filename"],
+                filetypes.models.FILETYPE_DATA[".dir"].icon_filename,
             )
         )
         img_icon = resize_pil_image(
             temp,
             settings.IMAGE_SIZE["small"],
-            filetypes.models.FILETYPE_DATA[".dir"]["icon_filename"],
+            filetypes.models.FILETYPE_DATA[".dir"].icon_filename,
         )
         # configdata["filetypes"]["dir"][2])
         db_entry.is_generic_icon = True
