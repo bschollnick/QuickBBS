@@ -38,11 +38,36 @@
                 {% elif filetype.is_movie %}
                 <div class="thumbnail" id="movie_frame" hx-boost="false" style="background-color:#{{filetype.color}};">
                     <center>
-                        <video width="auto" height="auto" controls poster="{{ thumbnail_uri }}" preload="auto" hx-boost="false">
-                            <source src="{{ download_uri }}" type="video/mp4" />
-                          Your browser does not support the video tag.
-                        </video>
-                        
+                        <video
+                        id="video-playback"
+                        class="video-js vjs-big-play-centered vjs-show-big-play-button-on-pause vjs-fluid"
+                        controls="true"
+                        preload="auto"
+                        width="auto"
+                        height="auto"
+                        poster="{{ thumbnail_uri }}"
+                        data-setup='{}'
+                      >
+                        <source src="{{ download_uri }}" type="video/mp4" />
+                        <p class="vjs-no-js">
+                          To view this video please enable JavaScript, and consider upgrading to a
+                          web browser that
+                          <a href="https://videojs.com/html5-video-support/" target="_blank"
+                            >supports HTML5 video</a
+                          >
+                        </p>
+                      </video>
+
+                    <script>
+                        var player = videojs('video-playback');
+                      
+                        player.seekButtons({
+                          forward: 30,
+                          back: 10
+                        });
+                    </script>
+                      
+                      
                     </center>
                 {% endif %}
                     <div class="columns is-multiline" style="padding:0px;margin-left:2px;margin-top:0px;margin-bottom:0px;">
