@@ -163,13 +163,7 @@ def resize_pil_image(source_image, size, fext) -> Image:
     """
     if source_image is None:
         return None
-    # fext = fext.lower().strip()
-    # if not fext.startswith("."):
-    #     fext = f".{fext}"
-
-    # if fext in settings.MOVIE_FILE_TYPES:
-    #     fext = ".jpg"
-
+    
     with BytesIO() as image_data:  # = BytesIO()
         source_image.thumbnail((size, size), Image.Resampling.LANCZOS)
         try:
@@ -221,12 +215,12 @@ def return_image_obj(fs_path, memory=False) -> Image:
         # There is currently no concept of a "None" in filetypes
         extension = ".none"
 
-    if filetypes.models.FILETYPE_DATA[extension]["is_pdf"]:
+    if filetypes.models.FILETYPE_DATA[extension].is_pdf:
         source_image = pdf_to_pil(fs_path)
 
-    elif filetypes.models.FILETYPE_DATA[extension]["is_movie"]:
+    elif filetypes.models.FILETYPE_DATA[extension].is_movie:
         source_image = movie_to_pil(fs_path)
 
-    elif filetypes.models.FILETYPE_DATA[extension]["is_image"]:
+    elif filetypes.models.FILETYPE_DATA[extension].is_image:
         source_image = image_to_pil(fs_path, mem=memory)
     return source_image
