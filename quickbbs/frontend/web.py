@@ -17,7 +17,7 @@ from django.http import FileResponse, Http404, StreamingHttpResponse, HttpRespon
 from django.views.decorators.cache import never_cache
 
 from werkzeug.http import parse_range_header
-# RANGE_RE = re.compile(r"bytes\s*=\s*(\d+)\s*-\s*(\d*)", re.I)
+RANGE_RE = re.compile(r"bytes\s*=\s*(\d+)\s*-\s*(\d*)", re.I)
 
 
 def verify_login_status(request, force_login=False) -> bool:
@@ -232,75 +232,100 @@ def file_iterator(file_path, chunk_size=8192, offset=0, length=None):
 #     return response
 
 
+def stream_video(request, fqpn, content_type="video/mp4"):
+    """
+    https://www.djangotricks.com/tricks/Jw4jNwFziSXD/
+    :param request:
+    :return:
+    """
+    # path = str(settings.BASE_DIR / "data" / "earth.mp4")
+    # content_type = "video/mp4"
+    range_header = request.headers.get("range", "").strip()
+    range_match = RANGE_RE.match(range_header)
+    size = os.path.getsize(fqpn)
+    print("content type:",content_type)
+    if range_match:
+        first_byte, last_byte = range_match.groups()
+        first_byte = int(first_byte) if first_byte else 0
+        last_byte = (
+            first_byte + 1024 * 1024 * 8
+        )  # The max volume of the response body is 8M per piece
+        if last_byte >= size:
+            last_byte = size - 1
+        length = last_byte - first_byte + 1
+        response = StreamingHttpResponse(
+            file_iterator(fqpn, offset=first_byte, length=length),
+            status=206,
+            content_type=content_type,
+        )
+        response["Content-Range"] = f"bytes {first_byte}-{last_byte}/{size}"
+
+    else:
+        response = StreamingHttpResponse(
+            file_iterator(fqpn, offset=0, length=size),
+            content_type=content_type,
+        )
+    response["Accept-Ranges"] = "bytes"
+    return response
+
+
 # def stream_video(request, fqpn, content_type="video/mp4"):
 #     """
-#     https://www.djangotricks.com/tricks/Jw4jNwFziSXD/
-#     :param request:
-#     :return:
-#     """
-#     # path = str(settings.BASE_DIR / "data" / "earth.mp4")
-#     # content_type = "video/mp4"
+# #     https://www.djangotricks.com/tricks/Jw4jNwFziSXD/
+# #     :param request:
+# #     :return:
+# #     """
+
+#     file_size = os.path.getsize(fqpn)
+#     if request.method != 'GET':
+#         return HttpResponseNotAllowed(['GET'])
+
 #     range_header = request.headers.get("range", "").strip()
 #     range_match = RANGE_RE.match(range_header)
-#     size = os.path.getsize(fqpn)
-
 #     if range_match:
-#         first_byte, last_byte = range_match.groups()
-#         first_byte = int(first_byte) if first_byte else 0
-#         last_byte = (
-#             first_byte + 1024 * 1024 * 8
-#         )  # The max volume of the response body is 8M per piece
-#         if last_byte >= size:
-#             last_byte = size - 1
-#         length = last_byte - first_byte + 1
-#         response = StreamingHttpResponse(
-#             file_iterator(fqpn, offset=first_byte, length=length),
-#             status=206,
-#             content_type=content_type,
-#         )
-#         response["Content-Range"] = f"bytes {first_byte}-{last_byte}/{size}"
-
+#         start, end = range_match.groups()
+#         start = int(start) if start else 0
+#         end = int(end) if end else 0
+#         end = end + 1024 * 1024 * 8  # The max volume of the response body is 8M per piece
+#         if end >= file_size:
+#             end = file_size - 1
+#         length = end - start + 1
 #     else:
-#         response = StreamingHttpResponse(
-#             file_iterator(fqpn, offset=0, length=size),
-#             content_type=content_type,
-#         )
-#     response["Accept-Ranges"] = "bytes"
+#         return FileResponse(open(fqpn, 'rb'))
+
+# #    range_header = request.headers.get("range", "").strip()
+#     # if request.is_secure():
+#     #     range_header = request.META.get('HTTPS_RANGE')
+#     # else:
+#     #     range_header = request.META.get('HTTP_RANGE')
+
+#     # all_headers = request.META
+#     # for header, value in all_headers.items():
+#     #     print(f"{header}: {value}")
+#     # print(range_header)
+#     #ranges = parse_range_header(range_header)
+# #    if not ranges:
+# #        return FileResponse(open(fqpn, 'rb'))
+    
+#     # For simplicity, handle only single range requests
+#  #   start, end = ranges[0]
+#     print(start, end)
+#     with open(fqpn, 'rb') as file_to_send:
+#         file_to_send.seek(start)
+#         data = file_to_send.read(end - start + 1)
+
+#     response = FileResponse(data, content_type='application/octet-stream')
+#     response['Content-Length'] = len(data)
+#     response['Content-Range'] = f'bytes {start}-{end}/{file_size}'
+#     response['Accept-Ranges'] = 'bytes'
+#     response.status_code = 206  # Partial Content
 #     return response
 
 
-def stream_video(request, fqpn, content_type="video/mp4"):
-    """
-#     https://www.djangotricks.com/tricks/Jw4jNwFziSXD/
-#     :param request:
-#     :return:
-#     """
-
-    file_size = os.path.getsize(fqpn)
-    if request.method != 'GET':
-        return HttpResponseNotAllowed(['GET'])
-
-    if request.is_secure():
-        range_header = request.META.get('HTTPS_RANGE')
-    else:
-        range_header = request.META.get('HTTP_RANGE')
-
-    ranges = parse_range_header(range_header)
-    if not ranges:
-        return FileResponse(open(fqpn, 'rb'))
-    
-    # For simplicity, handle only single range requests
-    start, end = ranges[0]
-    with open(fqpn, 'rb') as file_to_send:
-        file_to_send.seek(start)
-        data = file_to_send.read(end - start + 1)
-
-    response = FileResponse(data, content_type='application/octet-stream')
-    response['Content-Length'] = len(data)
-    response['Content-Range'] = f'bytes {start}-{end}/{file_size}'
-    response['Accept-Ranges'] = 'bytes'
-    response.status_code = 206  # Partial Content
-    return response
+    # try:
+    #     return response
+    # except OSError:
+    #     pass
 
 # def stream_video(request, fqpn, content_type="video/mp4"):
 #     print("Confirmed")

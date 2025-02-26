@@ -638,34 +638,29 @@ class IndexData(models.Model):
         if mtype is None:
             mtype = "application/octet-stream"
         fqpn_filename = os.path.join(self.fqpndirectory, self.name)
-        return stream_video(request, fqpn_filename, mtype)
-        # mtype = self.filetype.mimetype
-        # if mtype is None:
-        #     mtype = "application/octet-stream"
-        # if not ranged:
-        #     # with AIOFile(fqpn_filename, "rb") as afh:
-        #     #     reader = Reader(afh)
-        #     #     response = HttpResponse(reader, content_type=mtype)
-        #     #     response["Content-Disposition"] = f"inline; filename={self.name}"
-        #     try:
-        #         with open(fqpn_filename, "rb") as fh:
-        #             response = HttpResponse(fh.read(), content_type=mtype)
-        #             response["Content-Disposition"] = f"inline; filename={self.name}"
-        #     except FileNotFoundError:
-        #         raise Http404
-        # else:
-        #     # open must be in the RangedFielRequest, to allow seeking
-        #     try:
-        #         response = RangedFileResponse(
-        #             request,
-        #             file=open(fqpn_filename, "rb"),  # , buffering=1024*8),
-        #             as_attachment=False,
-        #             filename=self.name,
-        #         )
-        #     except FileNotFoundError:
-        #         raise Http404
-        # response["Content-Type"] = mtype
-        # return response
+        mtype = self.filetype.mimetype
+        if mtype is None:
+            mtype = "application/octet-stream"
+        if not ranged:
+            try:
+                with open(fqpn_filename, "rb") as fh:
+                    response = HttpResponse(fh.read(), content_type=mtype)
+                    response["Content-Disposition"] = f"inline; filename={self.name}"
+            except FileNotFoundError:
+                raise Http404
+        else:
+            # open must be in the RangedFielRequest, to allow seeking
+            try:
+                response = RangedFileResponse(
+                    request,
+                    file=open(fqpn_filename, "rb"),  # , buffering=1024*8),
+                    as_attachment=False,
+                    filename=self.name,
+                )
+            except FileNotFoundError:
+                raise Http404
+        response["Content-Type"] = mtype
+        return response
 
     class Meta:
         verbose_name = "Master Files Index"
