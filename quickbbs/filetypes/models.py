@@ -97,11 +97,8 @@ def get_ftype_dict():
     """
     # https://stackoverflow.com/questions/21925671/
     # from django.forms.models import model_to_dict
-    data = {}
-    dbase = filetypes.objects.values()
-    for tabledata in dbase:
-        data[tabledata["fileext"]] = tabledata
-    return data
+    return filetypes.objects.all().in_bulk()
+
 
 
 def return_identifier(ext):
@@ -109,8 +106,6 @@ def return_identifier(ext):
     Return the extension portion of the filename (minus the .)
     """
     ext = ext.lower().strip()
-    #    if ext.startswith("."):
-    #        ext = ext[1:]
     return ext
 
 
@@ -131,34 +126,3 @@ def load_filetypes():
         print("\nPlease use manage.py --refresh-filetypes\n")
         print("This will rebuild and/or update the FileType table.")
     #   sys.exit()
-
-
-# class filetype(AppConfig):
-
-
-# class cache(AppConfig):
-# #     name = "cache"
-# #     path = os.path.join(settings.BASE_DIR, "cache")
-# #     cold_start = False
-# #
-# #     def ready(self):
-# #         global cold_start
-# #         if self.cold_start:
-# #             return
-# #         from cache.models import Cache_Storage
-# #
-# #         try:
-# #             if not self.cold_start:
-# #                 print("Clearing all entries from Cache Tracking")
-# #                 # Cache_Storage.clear_all_records()
-# #                 self.cold_start = True
-# #                 cold_start = True
-# #         except ProgrammingError:
-# #             print("Unable to clear Cache Table")
-# #         except OperationalError:
-# #             print("Cache table doesn't exist")
-
-# FILETYPE_DATA = load_filetypes()
-# reload_filetypes()
-# FILETYPE_DATA = load_filetypes()
-# reload_filetypes()
