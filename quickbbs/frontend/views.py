@@ -464,7 +464,7 @@ def update_thumbnail(entry):
     )
     thumbnail.image_to_thumbnail()
     entry.new_ftnail = thumbnail
-    entry.save()
+    entry.save(update_fields=["new_ftnail"])
 
 
 def build_context_info(request: WSGIRequest, i_uuid: str):
