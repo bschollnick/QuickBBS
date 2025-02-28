@@ -319,7 +319,7 @@ def process_filedata(fs_entry, db_record) -> IndexData:
         # fs_file_count, fs_dir_count = fs_counts(subdirectory)
         # db_record.numfiles, db_record.numdirs = fs_file_count, fs_dir_count
 
-    if filetype_models.FILETYPE_DATA[fileext]["is_link"]:
+    if filetype_models.FILETYPE_DATA[fileext].is_link:
         _, redirect = db_record.name.lower().split("*")
         redirect = (
             redirect.replace("'", "")
@@ -336,7 +336,7 @@ def process_filedata(fs_entry, db_record) -> IndexData:
     #     )
     #     if duration is not None:
     #         db_record.duration = duration
-    if filetype_models.FILETYPE_DATA[fileext]["is_image"] and fileext in [".gif"]:
+    if filetype_models.FILETYPE_DATA[fileext].is_image and fileext in [".gif"]:
         try:
             with Image.open(
                 os.path.join(db_record.fqpndirectory, db_record.name)
@@ -456,7 +456,7 @@ def sync_database_disk(directoryname):
                 update = True
             if fext not in [""]:
                 if (
-                    filetype_models.FILETYPE_DATA[fext]["is_movie"]
+                    filetype_models.FILETYPE_DATA[fext].is_movie
                     and db_entry.duration is None
                 ):
                     duration = movie_duration(

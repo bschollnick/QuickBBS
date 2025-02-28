@@ -153,7 +153,7 @@ class ThumbnailFiles(models.Model):
                 f"{size}_thumb",
                 resize_pil_image(img_original, settings.IMAGE_SIZE[size], fext=fext),
             )
-        self.save()
+        self.save(update_fields=["small_thumb", "medium_thumb", "large_thumb"])
 
     def retrieve_sized_tnail(self, size="small"):
         """
