@@ -3,6 +3,7 @@ Django views for QuickBBS Gallery
 """
 
 import datetime
+from functools import lru_cache
 import logging
 import os
 import os.path
@@ -45,7 +46,7 @@ from frontend.utilities import (
     read_from_disk,
     return_breadcrumbs,
     sort_order,
-    sync_database_disk,
+    sync_database_disk,convert_to_webpath,
 )
 from frontend.web import detect_mobile, g_option, respond_as_attachment
 from thumbnails import image_utils
@@ -84,7 +85,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 #         content_type="image/svg+xml",
 #     )
 
-
+@lru_cache(maxsize=250)
 def return_prev_next2(directory, sorder) -> tuple:
     """
     The return_prev_next function takes a fully qualified pathname,
@@ -466,7 +467,7 @@ def update_thumbnail(entry):
     entry.new_ftnail = thumbnail
     entry.save(update_fields=["new_ftnail"])
 
-
+@lru_cache(maxsize=50)
 def build_context_info(request: WSGIRequest, i_uuid: str):
     """
     Create the JSON package for item view.  All Json *item* requests come here to
@@ -516,9 +517,8 @@ def build_context_info(request: WSGIRequest, i_uuid: str):
             context["html"] = "<br>".join(htmlfile.readlines())
 
     pathmaster = Path(os.path.join(entry.fqpndirectory, entry.name))
-    context["up_uri"] = (
-        str(pathmaster.parent).lower().replace(settings.ALBUMS_PATH.lower(), "")
-    )
+    context["up_uri"] = convert_to_webpath(str(pathmaster.parent))
+    
     while context["up_uri"].endswith("/"):
         context["up_uri"] = context["up_uri"][:-1]
 
@@ -657,7 +657,7 @@ def test(request: HtmxHttpRequest, i_uuid: str):
     #     },
     # )
 
-
+@lru_cache(maxsize=50)
 def layout_manager(page_number=0, directory=None, sort_ordering=None):
     print("Sort Ordering", sort_ordering)
     output = {}

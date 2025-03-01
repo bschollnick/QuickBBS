@@ -2,6 +2,7 @@
 Utilities for QuickBBS, the python edition.
 """
 
+from functools import lru_cache
 import os
 import os.path
 import stat
@@ -21,6 +22,7 @@ import filetypes.models as filetype_models
 from cache_watcher.models import Cache_Storage
 from django.conf import settings
 from django.db.utils import IntegrityError
+from django.utils.html import format_html
 from django_thread import ThreadPoolExecutor
 from PIL import Image
 from thumbnails.image_utils import movie_duration
@@ -218,7 +220,29 @@ def break_down_urls(uri_path) -> list[str]:
     path = urllib.parse.urlsplit(uri_path).path
     return path.split("/")
 
+@lru_cache(maxsize=250)
+def convert_to_webpath(full_path, directory=None):
+    """
+    Convert a full path to a webpath
 
+    Parameters
+    ----------
+    full_path (str): The full path to convert
+
+    Returns
+    -------
+        str : The converted webpath
+
+    """
+    if directory is not None:
+        cutpath = settings.ALBUMS_PATH.lower() + directory.lower() if directory else ""
+    else:
+        cutpath = settings.ALBUMS_PATH.lower()
+
+    return full_path.replace(cutpath, "")
+
+
+@lru_cache(maxsize=250)
 def return_breadcrumbs(uri_path="") -> list[str]:
     """
     Return the breadcrumps for uri_path
@@ -237,13 +261,12 @@ def return_breadcrumbs(uri_path="") -> list[str]:
         context["breadcrumbs"] += f"<li>{bcrumb[2]}</li>"
         context["breadcrumbs_list"].append(bcrumb[2])
     """
-    uris = break_down_urls(uri_path.lower().replace(settings.ALBUMS_PATH.lower(), ""))
+    uris = break_down_urls(convert_to_webpath(uri_path))
     data = []
-    for count in range(1, len(uris)):
-        name = uris[count].split("/")[-1]
-        url = "/".join(uris[0 : count + 1])
+    for count, name in enumerate(uris):
         if name == "":
             continue
+        url = "/".join(uris[0 : count + 1])
         data.append([name, url, f"<a href='{url}'>{name}</a>"])
     return data
 

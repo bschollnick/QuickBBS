@@ -1,12 +1,10 @@
 """
 Django Models for quickbbs
 """
-
-# import asyncio
+from functools import lru_cache
 import hashlib
 import io
 
-# import mimetypes
 import os
 import pathlib
 import time
@@ -25,7 +23,6 @@ from ranged_fileresponse import RangedFileResponse
 from thumbnails.models import ThumbnailFiles
 
 from quickbbs.natsort_model import NaturalSortField
-
 
 def convert_text_to_md5_hdigest(text) -> str:
     """
@@ -366,11 +363,10 @@ class IndexDirs(models.Model):
             Django URL object
 
         """
-        #options = {}
-        #options["i_uuid"] = str(self.uuid)
-        webpath = self.fqpndirectory.replace(
+        from frontend.utilities import convert_to_webpath
+        webpath = convert_to_webpath(self.fqpndirectory.replace(
             settings.ALBUMS_PATH.lower() + r"/albums/", r""
-        )
+        ))
         return reverse("directories") + webpath
 
     def get_bg_color(self) -> str:
@@ -532,6 +528,7 @@ class IndexData(models.Model):
             sha = None
             print(f"FNF (SHA256): {fqfn}")
         return sha
+
 
     def get_webpath(self):
         """
