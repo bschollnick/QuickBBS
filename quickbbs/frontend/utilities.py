@@ -351,7 +351,7 @@ def process_filedata(fs_entry, db_record) -> IndexData:
         )
         db_record.fqpndirectory = f"/{redirect}"
     else:
-        db_record.file_ssh256 = db_record.get_file_sha(fqfn=fs_entry.absolute())
+        db_record.file_sha256 = db_record.get_file_sha(fqfn=fs_entry.absolute())
 
     # if filetype_models.FILETYPE_DATA[fileext]["is_movie"]:
     #     duration =  (
@@ -463,7 +463,7 @@ def sync_database_disk(directoryname):
             if (
                 db_entry.file_sha256 in ["", None]
                 and fext != ""
-                and not filetype_models.FILETYPE_DATA[fext]["is_link"]
+                and not filetype_models.FILETYPE_DATA[fext].is_link
             ):
                 db_entry.file_sha256 = db_entry.get_file_sha(
                     fqfn=os.path.join(db_entry.fqpndirectory, db_entry.name)
