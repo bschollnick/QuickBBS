@@ -163,7 +163,7 @@ def resize_pil_image(source_image, size, fext) -> Image:
     """
     if source_image is None:
         return None
-    
+
     with BytesIO() as image_data:  # = BytesIO()
         source_image.thumbnail((size, size), Image.Resampling.LANCZOS)
         try:

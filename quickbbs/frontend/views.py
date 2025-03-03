@@ -3,7 +3,6 @@ Django views for QuickBBS Gallery
 """
 
 import datetime
-from functools import lru_cache
 import logging
 import os
 import os.path
@@ -11,17 +10,20 @@ import pathlib
 import time
 import uuid
 import warnings
+from functools import lru_cache
 from itertools import chain
 from pathlib import Path
 from typing import Optional
 
+import filetypes
 import markdown2
 import psycopg
 from asgiref.sync import sync_to_async
+from cache_watcher.models import Cache_Storage
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
-from django.db import connections, close_old_connections
+from django.db import close_old_connections, connections
 from django.db.utils import IntegrityError
 from django.http import (  # HttpResponse,
     Http404,
@@ -32,23 +34,20 @@ from django.http import (  # HttpResponse,
 from django.shortcuts import render
 from django.views.decorators.vary import vary_on_headers
 from django_htmx.middleware import HtmxDetails
-from PIL import Image, ImageFile
-
-
-from cache_watcher.models import Cache_Storage
-import filetypes
 from frontend.thumbnail import new_process_dir2
 from frontend.utilities import SORT_MATRIX  # executor,
 from frontend.utilities import (
     MAX_THREADS,
     DjangoConnectionThreadPoolExecutor,
+    convert_to_webpath,
     ensures_endswith,
     read_from_disk,
     return_breadcrumbs,
     sort_order,
-    sync_database_disk,convert_to_webpath,
+    sync_database_disk,
 )
 from frontend.web import detect_mobile, g_option, respond_as_attachment
+from PIL import Image, ImageFile
 from thumbnails import image_utils
 from thumbnails.models import ThumbnailFiles
 
@@ -84,6 +83,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 #         ),
 #         content_type="image/svg+xml",
 #     )
+
 
 @lru_cache(maxsize=250)
 def return_prev_next2(directory, sorder) -> tuple:
@@ -444,7 +444,6 @@ def new_viewgallery(request: WSGIRequest):
         print("elapsed thumbnail time - ", time.time() - start)
     close_old_connections()
 
-
     response = render(
         request,
         f"{template_name}",
@@ -466,6 +465,7 @@ def update_thumbnail(entry):
     thumbnail.image_to_thumbnail()
     entry.new_ftnail = thumbnail
     entry.save(update_fields=["new_ftnail"])
+
 
 @lru_cache(maxsize=50)
 def build_context_info(request: WSGIRequest, i_uuid: str):
@@ -518,7 +518,7 @@ def build_context_info(request: WSGIRequest, i_uuid: str):
 
     pathmaster = Path(os.path.join(entry.fqpndirectory, entry.name))
     context["up_uri"] = convert_to_webpath(str(pathmaster.parent))
-    
+
     while context["up_uri"].endswith("/"):
         context["up_uri"] = context["up_uri"][:-1]
 
@@ -656,6 +656,7 @@ def test(request: HtmxHttpRequest, i_uuid: str):
     #         "page": page,
     #     },
     # )
+
 
 @lru_cache(maxsize=50)
 def layout_manager(page_number=0, directory=None, sort_ordering=None):

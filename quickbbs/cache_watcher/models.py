@@ -15,7 +15,6 @@ import os
 import pathlib
 import sys
 import time
-
 from functools import lru_cache
 
 from cache_watcher.watchdogmon import watchdog
