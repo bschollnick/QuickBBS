@@ -2,8 +2,8 @@
 Utilities for QuickBBS, the python edition.
 """
 
-from functools import lru_cache
 import os
+from functools import lru_cache
 
 from django.apps import AppConfig
 from django.conf import settings
@@ -98,7 +98,6 @@ def get_ftype_dict():
     # https://stackoverflow.com/questions/21925671/
     # from django.forms.models import model_to_dict
     return filetypes.objects.all().in_bulk()
-
 
 
 def return_identifier(ext):

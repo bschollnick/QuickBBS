@@ -1,14 +1,14 @@
 """
 Django Models for quickbbs
 """
-from functools import lru_cache
+
 import hashlib
 import io
-
 import os
 import pathlib
 import time
 import uuid
+from functools import lru_cache
 
 # from aiofile import AIOFile, Reader
 # from asgiref.sync import sync_to_async
@@ -23,6 +23,7 @@ from ranged_fileresponse import RangedFileResponse
 from thumbnails.models import ThumbnailFiles
 
 from quickbbs.natsort_model import NaturalSortField
+
 
 def convert_text_to_md5_hdigest(text) -> str:
     """
@@ -364,9 +365,10 @@ class IndexDirs(models.Model):
 
         """
         from frontend.utilities import convert_to_webpath
-        webpath = convert_to_webpath(self.fqpndirectory.replace(
-            settings.ALBUMS_PATH.lower() + r"/albums/", r""
-        ))
+
+        webpath = convert_to_webpath(
+            self.fqpndirectory.replace(settings.ALBUMS_PATH.lower() + r"/albums/", r"")
+        )
         return reverse("directories") + webpath
 
     def get_bg_color(self) -> str:
@@ -529,7 +531,6 @@ class IndexData(models.Model):
             print(f"FNF (SHA256): {fqfn}")
         return sha
 
-
     def get_webpath(self):
         """
         Convert the fqpndirectory to an web path
@@ -631,6 +632,7 @@ class IndexData(models.Model):
 
         """
         from frontend.web import stream_video
+
         mtype = self.filetype.mimetype
         if mtype is None:
             mtype = "application/octet-stream"

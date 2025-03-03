@@ -11,12 +11,18 @@ from wsgiref.util import FileWrapper
 import filetypes
 from django.conf import settings
 from django.contrib.auth import authenticate, login
-from django.http import FileResponse, Http404, StreamingHttpResponse, HttpResponseNotAllowed, HttpResponseBadRequest
+from django.http import (
+    FileResponse,
+    Http404,
+    HttpResponseBadRequest,
+    HttpResponseNotAllowed,
+    StreamingHttpResponse,
+)
 
 # from django.conf import settings
 from django.views.decorators.cache import never_cache
-
 from werkzeug.http import parse_range_header
+
 RANGE_RE = re.compile(r"bytes\s*=\s*(\d+)\s*-\s*(\d*)", re.I)
 
 
@@ -243,7 +249,7 @@ def stream_video(request, fqpn, content_type="video/mp4"):
     range_header = request.headers.get("range", "").strip()
     range_match = RANGE_RE.match(range_header)
     size = os.path.getsize(fqpn)
-    print("content type:",content_type)
+    print("content type:", content_type)
     if range_match:
         first_byte, last_byte = range_match.groups()
         first_byte = int(first_byte) if first_byte else 0
@@ -306,7 +312,7 @@ def stream_video(request, fqpn, content_type="video/mp4"):
 #     #ranges = parse_range_header(range_header)
 # #    if not ranges:
 # #        return FileResponse(open(fqpn, 'rb'))
-    
+
 #     # For simplicity, handle only single range requests
 #  #   start, end = ranges[0]
 #     print(start, end)
@@ -322,10 +328,10 @@ def stream_video(request, fqpn, content_type="video/mp4"):
 #     return response
 
 
-    # try:
-    #     return response
-    # except OSError:
-    #     pass
+# try:
+#     return response
+# except OSError:
+#     pass
 
 # def stream_video(request, fqpn, content_type="video/mp4"):
 #     print("Confirmed")
@@ -336,7 +342,7 @@ def stream_video(request, fqpn, content_type="video/mp4"):
 #     range_header = request.META.get('HTTPS_RANGE')
 #     if not range_header:
 #       return FileResponse(open(fqpn, 'rb'))
-    
+
 #     try:
 #         ranges = parse_range_header(range_header)
 #         print(ranges)

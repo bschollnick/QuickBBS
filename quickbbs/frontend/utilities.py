@@ -2,7 +2,6 @@
 Utilities for QuickBBS, the python edition.
 """
 
-from functools import lru_cache
 import os
 import os.path
 import stat
@@ -10,7 +9,7 @@ import time
 import urllib.parse
 import uuid
 from datetime import timedelta
-from functools import wraps
+from functools import lru_cache, wraps
 from pathlib import Path
 
 # from moviepy.video.io import VideoFileClip
@@ -219,6 +218,7 @@ def break_down_urls(uri_path) -> list[str]:
     """
     path = urllib.parse.urlsplit(uri_path).path
     return path.split("/")
+
 
 @lru_cache(maxsize=250)
 def convert_to_webpath(full_path, directory=None):
@@ -443,7 +443,7 @@ def sync_database_disk(directoryname):
 
     update = False
     db_data = dirpath_id.files_in_dir()
-    
+
     for db_entry in db_data:
         fext = os.path.splitext(db_entry.name.strip())[1].lower()
         if db_entry.name.strip() not in fs_entries:
