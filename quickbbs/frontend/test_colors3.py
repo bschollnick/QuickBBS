@@ -13,7 +13,7 @@ sys.path.append("/volumes/C-8TB/gallery/quickbbs/quickbbs/quickbbs")
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "quickbbs_settings")
 django.setup()
 
-from cached_exists import *
+from quickbbs.frontend.depreciated.cached_exists import *
 from django_thread import ThreadPoolExecutor
 
 MAX_THREADS = 60
