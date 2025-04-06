@@ -85,7 +85,9 @@ class fs_Cache_Tracking(models.Model):
 
     @staticmethod
     def clear_all_records():
+        from frontend.views import layout_manager
         fs_Cache_Tracking.objects.all().delete()
+        layout_manager.cache_clear()
 
     def add_to_cache(self, DirName):
         entry = fs_Cache_Tracking()
@@ -106,9 +108,12 @@ class fs_Cache_Tracking(models.Model):
         return self.hdigest_exists_in_cache(hdigest=Dir_md5_hdigest)
 
     def remove_from_cache_hdigest(self, hdigest):
+        from frontend.views import layout_manager
         items_removed, _ = fs_Cache_Tracking.objects.filter(
             Dir_md5_hdigest=hdigest
         ).delete()
+        if items_removed != 0:
+            layout_manager.cache_clear()
         return items_removed != 0
 
     def remove_from_cache_name(self, DirName):

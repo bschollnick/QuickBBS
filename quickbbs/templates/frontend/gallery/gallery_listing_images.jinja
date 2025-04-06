@@ -16,7 +16,7 @@
         <div class="column is-one-quarter has-text-left is-gapless m-0 p-0">
                 {% if prev_uri not in ["", None] %}
                     <font class="is-size-7">
-                    <a href="{{ prev_uri }}?sort={{sort}}">
+                    <a href="{{ prev_uri }}?sort={{sort}}" hx-boost="false" >
                         {{- icon("angle-left fa-1x")-}}
                         {{- prev_uri.split("/")[-1][:30]|wordwrap(width=25,break_long_words=True) -}}</a></font>
                 {% endif %}
@@ -24,7 +24,7 @@
         <div class="column is-one-quarter has-text-left is-gapless m-0 p-0">
                 {% if next_uri not in ["", None] %}
                     <font class="is-size-7">
-                    <a href="{{ next_uri }}?sort={{sort}}">
+                    <a href="{{ next_uri }}?sort={{sort}}" hx-boost="false" >
                     {{- icon("angle-right fa-1x")-}}
                     {{- next_uri.split("/")[-1][:30]|wordwrap(width=25,break_long_words=True) -}}</a></font>
                 {% endif %}
