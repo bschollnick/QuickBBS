@@ -49,7 +49,7 @@ class filetypes(models.Model):
     def __str__(self):
         return f"{self.fileext}"
 
-    @lru_cache(maxsize=25)
+    @lru_cache(maxsize=200)
     def return_any_icon_filename(self, fileext):
         """
         The return_icon_filename function takes a file extension as an argument and returns the filename of the
@@ -73,7 +73,7 @@ class filetypes(models.Model):
             return os.path.join(settings.IMAGES_PATH, data[0].icon_filename)
         # else return None
 
-    @lru_cache(maxsize=25)
+    @lru_cache(maxsize=200)
     def return_filetype(self, fileext):
         """
         fileext = gif, jpg, mp4 (lower case, and without prefix .)
@@ -108,7 +108,7 @@ def return_identifier(ext):
     return ext
 
 
-@lru_cache(maxsize=25)
+@lru_cache(maxsize=200)
 def map_ext_to_id(ext):
     """
     Return the extension portion of the filename (minus the .)

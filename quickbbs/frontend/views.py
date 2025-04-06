@@ -23,7 +23,7 @@ from cache_watcher.models import Cache_Storage
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
-from django.db import close_old_connections, connections
+from django.db import close_old_connections, connections, transaction
 from django.db.utils import IntegrityError
 from django.http import (  # HttpResponse,
     Http404,
@@ -433,14 +433,15 @@ def new_viewgallery(request: WSGIRequest):
             0:batchsize
         ]
         if no_thumbs:
-            with DjangoConnectionThreadPoolExecutor(
-                max_workers=MAX_THREADS
-            ) as executor:
-                futures = []
-                for db_entry in no_thumbs:
-                    futures.append(executor.submit(update_thumbnail, db_entry))
-                _ = [f.result() for f in futures]
-                del futures
+            with transaction.atomic():
+                with DjangoConnectionThreadPoolExecutor(
+                    max_workers=MAX_THREADS
+                ) as executor:
+                    futures = []
+                    for db_entry in no_thumbs:
+                        futures.append(executor.submit(update_thumbnail, db_entry))
+                    _ = [f.result() for f in futures]
+                    del futures
         print("elapsed thumbnail time - ", time.time() - start)
     close_old_connections()
 
@@ -456,18 +457,21 @@ def new_viewgallery(request: WSGIRequest):
 
 def update_thumbnail(entry):
     fs_item = os.path.join(entry.fqpndirectory, entry.name).title().strip()
-    # fs_item_hash = ThumbnailFiles.convert_text_to_md5_hdigest(fs_item)
-    thumbnail, _ = ThumbnailFiles.objects.get_or_create(
-        # fqpn_filename=fs_item, fqpn_hash=fs_item_hash
-        fqpn_filename=fs_item,
-        sha256_hash=entry.file_sha256,
-    )
-    thumbnail.image_to_thumbnail()
-    entry.new_ftnail = thumbnail
-    entry.save(update_fields=["new_ftnail"])
+    if not entry.filetype.is_link:
+        thumbnail, created = ThumbnailFiles.objects.get_or_create(
+            sha256_hash=entry.file_sha256, defaults={"fqpn_filename": fs_item, "sha256_hash":entry.file_sha256}
+        )
+        if created or not thumbnail.fqpn_filename:
+            entry.fqpn_filename = fs_item
+            thumbnail.fqpn_filename = fs_item
 
 
-@lru_cache(maxsize=50)
+        thumbnail.image_to_thumbnail()
+        entry.new_ftnail = thumbnail
+        entry.save()#update_fields=["new_ftnail", "fqpn_filename"])
+
+
+@lru_cache(maxsize=250)
 def build_context_info(request: WSGIRequest, i_uuid: str):
     """
     Create the JSON package for item view.  All Json *item* requests come here to
@@ -644,21 +648,13 @@ def test(request: HtmxHttpRequest, i_uuid: str):
 
     context = build_context_info(request, i_uuid) | {
         "user": request.user
-    }  # | {"sort": sort_order(request) }
+    }
 
     response = render(request, template_name, context, using="Jinja2")
     return response
-    # return render(
-    #     request,
-    #     "partial-rendering.html",
-    #     context={
-    #         "base_template": base_template,
-    #         "page": page,
-    #     },
-    # )
 
 
-@lru_cache(maxsize=50)
+@lru_cache(maxsize=200)
 def layout_manager(page_number=0, directory=None, sort_ordering=None):
     print("Sort Ordering", sort_ordering)
     output = {}
@@ -711,13 +707,13 @@ def layout_manager(page_number=0, directory=None, sort_ordering=None):
     return output
 
 
+
 # def view_setup():
 #     """
 #     Wrapper for view startup
 
 #     """
 #     pass
-
 
 #    IndexData.objects.filter(delete_pending=True).delete()
 

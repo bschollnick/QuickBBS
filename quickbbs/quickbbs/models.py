@@ -435,6 +435,16 @@ class IndexData(models.Model):
     """
     The Master Index for All files in the Gallery.  (See IndexDirs for the counterpart
     for Directories)
+
+    The file_sha256 is the Sha256 of the file itself, and can be used to help eliminate multiple
+    thumbnails being created for the same file.  
+
+    The unique_sha256 is the sha256 of the file + the fully qualified pathname of the file.  
+    The unique sha256 is the eventual replacement for the UUID.  The idea is that a regeneration of the 
+    database does not destroy the valid identifiers for the files.  The UUID works as an unique identifier, 
+    but is randomly generated, which means that it can't be regenerated after a database regeneration, or 
+    if the database record is deleted, and then recreated.  Where the unique_sha256 can be, as long as the 
+    file & file path is the same and unchanged. 
     """
 
     id = models.AutoField(primary_key=True)
@@ -442,15 +452,18 @@ class IndexData(models.Model):
         default=None, null=True, editable=False, db_index=True, blank=True
     )
     file_sha256 = models.CharField(
+        db_index=True, blank=True, unique=False, null=True, default=None
+    )       # This is the sha256 of the file itself
+    unique_sha256 = models.CharField(
         db_index=True, blank=True, unique=True, null=True, default=None
-    )
+    )       # This is the sha256 of the (file + fqfn)
+    
     lastscan = models.FloatField(db_index=True)
     # Stored as Unix TimeStamp (ms)
     lastmod = models.FloatField(db_index=True)  # Stored as Unix TimeStamp (ms)
     # Stored as Unix TimeStamp (ms)
     name = models.CharField(db_index=True, max_length=384, default=None)
     # FQFN of the file itself
-    # sortname = models.CharField(editable=False, max_length=384, default='')
     name_sort = NaturalSortField(for_field="name", max_length=384, default="")
     duration = models.DurationField(null=True)
     size = models.BigIntegerField(default=0)  # File size
@@ -478,9 +491,7 @@ class IndexData(models.Model):
         default=False, db_index=False
     )  # icon is a generic icon
 
-    new_ftnail = models.OneToOneField(
-        ThumbnailFiles, on_delete=models.CASCADE, null=True, default=None, blank=True
-    )
+    new_ftnail = models.ForeignKey(ThumbnailFiles, on_delete=models.SET_NULL, blank=True, default=None, null=True)
 
     # https://stackoverflow.com/questions/38388423
 
@@ -511,7 +522,7 @@ class IndexData(models.Model):
         )
         return files
 
-    def get_file_sha(self, fqfn) -> str:
+    def get_file_sha(self, fqfn) -> tuple[str, str]:
         """
         Return the SHA256 hash of the file as a hexdigest string
 
@@ -521,15 +532,18 @@ class IndexData(models.Model):
         :return: The SHA256 hash of the file + fqfn as a hexdigest string
         """
         sha = None
+        unique = None
         try:
-            with open(fqfn, "rb") as filehandle:
+            with open(fqfn, "rb", buffering=0) as filehandle:
                 digest = hashlib.file_digest(filehandle, "sha256")
-                digest.update(str(fqfn).title().encode("utf-8"))
                 sha = digest.hexdigest()
+                digest.update(str(fqfn).title().encode("utf-8"))
+                unique = digest.hexdigest()
         except FileNotFoundError:
             sha = None
+            unique = None
             print(f"FNF (SHA256): {fqfn}")
-        return sha
+        return sha, unique
 
     def get_webpath(self):
         """

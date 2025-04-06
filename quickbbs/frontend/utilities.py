@@ -20,6 +20,7 @@ import django.db.utils
 import filetypes.models as filetype_models
 from cache_watcher.models import Cache_Storage
 from django.conf import settings
+from django.db import transaction
 from django.db.utils import IntegrityError
 from django.utils.html import format_html
 from django_thread import ThreadPoolExecutor
@@ -351,8 +352,7 @@ def process_filedata(fs_entry, db_record) -> IndexData:
         )
         db_record.fqpndirectory = f"/{redirect}"
     else:
-        db_record.file_sha256 = db_record.get_file_sha(fqfn=fs_entry.absolute())
-
+        db_record.file_sha256, db_record.unique_sha256 = db_record.get_file_sha(fqfn=fs_entry.absolute())
     # if filetype_models.FILETYPE_DATA[fileext]["is_movie"]:
     #     duration =  (
     #         os.path.join(db_record.fqpndirectory, db_record.name)
@@ -411,7 +411,7 @@ def sync_database_disk(directoryname):
 
     # It's not cached
     # if not cached:
-    print("Not Cached! Rescanning directory")
+    print(f"Not Cached! Rescanning directory: {dirpath}")
     # If the directory is not found in the Cache_Tracking table, then it needs to be rescanned.
     # Remember, directory is placed in there, when it is scanned.
     # If changed, then watchdog should have removed it from the path.
@@ -465,7 +465,7 @@ def sync_database_disk(directoryname):
                 and fext != ""
                 and not filetype_models.FILETYPE_DATA[fext].is_link
             ):
-                db_entry.file_sha256 = db_entry.get_file_sha(
+                db_entry.file_sha256, db_entry.unique_sha256 = db_entry.get_file_sha(
                     fqfn=os.path.join(db_entry.fqpndirectory, db_entry.name)
                 )
                 update = True
@@ -516,31 +516,34 @@ def sync_database_disk(directoryname):
             record.parent_dir = dirpath_id
             if record.filetype.is_archive:
                 print("Archive detected ", record.name)
+                continue
             try:
                 record.save()
-            except IntegrityError:
-                print("Integrity Error")
+            except IntegrityError as e:
+                print("Integrity Error A")
+                print(e)
                 continue  # Need to rethink the link records, if a directory is deleted, and it
                 # contains a link record, that link record may not be deleted, thus causing
                 # an integrity error if it's attempted to be recreated
     if records_to_update:
         try:
-            IndexData.objects.bulk_update(
-                records_to_update,
-                [
-                    #                    "ignore",
-                    "lastmod",
-                    "delete_pending",
-                    "size",
-                    "duration",
-                    "file_sha256",
-                    #                        "numfiles",
-                    #                        "numdirs",
-                    "parent_dir_id",
-                ],
-                bulk_size,
-            )
-            records_to_update = []
+            with transaction.atomic():
+                IndexData.objects.bulk_update(
+                    records_to_update,
+                    [
+                        "lastmod",
+                        "delete_pending",
+                        "size",
+                        "duration",
+                        "file_sha256",
+                        "unique_sha256",
+                        #                        "numfiles",
+                        #                        "numdirs",
+                        "parent_dir_id",
+                    ],
+                    bulk_size,
+                )
+                records_to_update = []
         except django.db.utils.IntegrityError:
             return None
     else:
@@ -549,8 +552,9 @@ def sync_database_disk(directoryname):
     # The record is in the database, so it's already been vetted in the database comparison
     if records_to_create:
         try:
-            IndexData.objects.bulk_create(records_to_create, bulk_size)
-            records_to_create = []
+            with transaction.atomic():
+                IndexData.objects.bulk_create(records_to_create, bulk_size)
+                records_to_create = []
         except django.db.utils.IntegrityError:
             print("Integrity Error")
             return None

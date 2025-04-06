@@ -30,7 +30,7 @@ from quickbbs.models import *
 
 @admin.register(IndexData)
 class AdminMaster_Index(admin.ModelAdmin):
-    search_fields = ["fqpndirectory", "uuid", "file_sha256"]
+    search_fields = ["name", "fqpndirectory", "uuid", "file_sha256", "id"]
     list_filter = ["filetype"]
     readonly_fields = ("id", "uuid", "file_sha256", "name_sort")
     list_display = (
