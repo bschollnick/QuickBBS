@@ -1,7 +1,7 @@
 """
 Utilities for QuickBBS, the python edition.
 """
-
+import multiprocessing
 import os
 import os.path
 import stat
@@ -22,10 +22,12 @@ from cache_watcher.models import Cache_Storage
 from django.conf import settings
 from django.db import transaction
 from django.db.utils import IntegrityError
+from django.db.models import F, Value, OuterRef, Subquery, Count
 from django.utils.html import format_html
 from django_thread import ThreadPoolExecutor
 from PIL import Image
 from thumbnails.image_utils import movie_duration
+from thumbnails.models import ThumbnailFiles
 
 # from quickbbs.logger import log
 from quickbbs.models import IndexData, IndexDirs
@@ -86,9 +88,6 @@ class DjangoConnectionThreadPoolExecutor(ThreadPoolExecutor):
             self, *args = args
 
         return super(self.__class__, self).submit(fn, *args, **kwargs)
-
-
-# executor = DjangoConnectionThreadPoolExecutor(max_workers=MAX_THREADS)
 
 
 SORT_MATRIX = {
@@ -327,9 +326,9 @@ def process_filedata(fs_entry, db_record) -> IndexData:
         print("Can't match fileext w/filetypes")
         return None
 
-    # db_record.filetype = filetypes(fileext=db_record.fileext)
     fs_stat = fs_entry.stat()
     db_record.filetype = filetype_models.filetypes(fileext=fileext)
+    # db_record.filetype = filetypes(fileext=db_record.fileext)
     db_record.uuid = uuid.uuid4()
     db_record.size = fs_stat[stat.ST_SIZE]
     db_record.lastmod = fs_stat[stat.ST_MTIME]
@@ -339,10 +338,7 @@ def process_filedata(fs_entry, db_record) -> IndexData:
         sub_dir_fqpn = os.path.join(db_record.fqpndirectory, db_record.name)
         sync_database_disk(sub_dir_fqpn)
         return None
-        # _, subdirectory = return_disk_listing(sub_dir_fqpn)
-        # fs_file_count, fs_dir_count = fs_counts(subdirectory)
-        # db_record.numfiles, db_record.numdirs = fs_file_count, fs_dir_count
-
+    
     if filetype_models.FILETYPE_DATA[fileext].is_link:
         _, redirect = db_record.name.lower().split("*")
         redirect = (
@@ -394,7 +390,9 @@ def sync_database_disk(directoryname):
     * Logic Update
         * If there are no database entries for the directory, the fs comparing to the database
     """
-    bulk_size = 15
+    #thumb_subquery = ThumbnailFiles.objects.filter(sha256_hash=OuterRef("file_sha256"))
+    #file_count_subquery = IndexData.objects.filter(file_sha256=OuterRef("file_sha256")).annotate(count=Count('pk')).values('count')
+    bulk_size = 25
     if directoryname in [os.sep, r"/"]:
         directoryname = settings.ALBUMS_PATH
     webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
@@ -442,10 +440,13 @@ def sync_database_disk(directoryname):
             IndexDirs.delete_directory(fqpn_directory=fqpn)
 
     update = False
-    db_data = dirpath_id.files_in_dir()
+    db_data = dirpath_id.files_in_dir().annotate(FileDoesNotExist=Value(F('name') not in fs_entries)).annotate(FileExists=Value(F('name') not in fs_entries))
+    #db_data = dirpath_id.files_in_dir().annotate(FileDoesNotExist=Value(F('name') not in fs_entries)).annotate(active_thumbs=Subquery(thumb_subquery))
+    # db_data = dirpath_id.files_in_dir().annotate(FileDoesNotExist=Value(F('name') not in fs_entries)).\
+    #     annotate(number_entries=IndexData.active_thumbs=Subquery(thumb_subquery))
+    # if db_data.filter(FileDoesNotExist=True,).exists():
 
     for db_entry in db_data:
-        fext = os.path.splitext(db_entry.name.strip())[1].lower()
         if db_entry.name.strip() not in fs_entries:
             # print("Database contains a file not in the fs: ", db_entry.name)
             # The entry just is not in the file system.  Delete it.
@@ -458,6 +459,7 @@ def sync_database_disk(directoryname):
             # Does size match?
             # If directory, does the numfiles, numdirs, count_subfiles match?
             # update = False, unncessary, moved to above the for loop.
+            fext = os.path.splitext(db_entry.name.strip())[1].lower()
             entry = fs_entries[db_entry.name.title()]
             fs_stat = entry.stat()
             if (

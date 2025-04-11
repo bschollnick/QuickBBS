@@ -424,7 +424,8 @@ def new_viewgallery(request: WSGIRequest):
         chain(dirs_to_display, links_to_display, files_to_display)
     )
 
-    if layout["no_thumbnails"] not in ["", None, []]:
+    if layout["no_thumbnails"]:
+        layout_manager.cache_clear()
         start = time.time()
         print(f"{len(layout["no_thumbnails"])} entries need thumbnails")
 
@@ -657,6 +658,7 @@ def test(request: HtmxHttpRequest, i_uuid: str):
 @lru_cache(maxsize=200)
 def layout_manager(page_number=0, directory=None, sort_ordering=None):
     print("Sort Ordering", sort_ordering)
+
     output = {}
     output["data"] = {}
     output["page_number"] = page_number
@@ -672,18 +674,15 @@ def layout_manager(page_number=0, directory=None, sort_ordering=None):
         int((output["dirs_count"] + output["files_count"]) / output["chunk_size"]) + 1
     )
 
+    
+    file_offset = 0
     directories = list(
         directory.dirs_in_dir(sort=sort_ordering).values_list("uuid", flat=True)
     )
     files = list(
         directory.files_in_dir(sort=sort_ordering).values_list("uuid", flat=True)
     )
-    #    links = list(directory.files_in_dir(sort=sort_ordering, additional_filters={'filetype__is_link':True}).values_list("uuid", flat=True))
-    #   if links:
-    #      files = set(files)
-    #     files.difference_update(links)
-    #    files = links + list(files)
-    file_offset = 0
+
     for page_cnt in range(0, output["total_pages"]):
         data = {}
         data["page"] = page_cnt
@@ -703,7 +702,6 @@ def layout_manager(page_number=0, directory=None, sort_ordering=None):
             sort=sort_ordering, additional_filters={"new_ftnail__isnull": True}
         ).values_list("uuid", flat=True)
     )
-
     return output
 
 
