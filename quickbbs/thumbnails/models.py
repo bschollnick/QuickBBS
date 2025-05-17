@@ -51,12 +51,12 @@ class ThumbnailFiles(models.Model):
     sha256_hash = models.CharField(
         db_index=True, blank=True, unique=True, null=True, default=None
     )
-    fqpn_filename = models.CharField(
-        db_index=True,
-        max_length=384,
-        default=None,
-        unique=True,
-    )  # FQFN of the file itself
+    # fqpn_filename = models.CharField(
+    #     db_index=True,
+    #     max_length=384,
+    #     default=None,
+    #     unique=True,
+    # )  # FQFN of the file itself
     small_thumb = models.BinaryField(default=b"", null=True)
     medium_thumb = models.BinaryField(default=b"", null=True)
     large_thumb = models.BinaryField(default=b"", null=True)
@@ -70,8 +70,9 @@ class ThumbnailFiles(models.Model):
         Given a sha256 hash, return the number of IndexData references
         """
         from quickbbs.models import IndexData
-        return IndexData.objects.filter(sha256_hash=self.sha256_hash).count()
-    
+
+        return IndexData.objects.filter(file_sha256=self.sha256_hash).count()
+
     @lru_cache(maxsize=250)
     def get_thumbnail_by_sha(self, sha256):
         """
@@ -105,7 +106,6 @@ class ThumbnailFiles(models.Model):
         self.medium_thumb = b""
         self.large_thumb = b""
 
-
     def pil_to_thumbnail(self, pil_data):
         """
 
@@ -116,7 +116,7 @@ class ThumbnailFiles(models.Model):
 
         """
         self.invalidate_thumb()
-        fext = os.path.splitext(self.fqpn_filename)[1][1:].lower()
+        fext = ".jpg"  # os.path.splitext(self.fqpn_filename)[1][1:].lower()
         img_original = pil_data
         for size in ["large", "medium", "small"]:
             setattr(
@@ -132,16 +132,28 @@ class ThumbnailFiles(models.Model):
 
         https://stackoverflow.com/questions/1167398/python-access-class-property-from-string
         """
-        fext = os.path.splitext(self.fqpn_filename)[1][1:].lower()
+        IndexData_item = self.IndexData.first()
+        filename = (
+            os.path.join(IndexData_item.fqpndirectory, IndexData_item.name)
+            .title()
+            .strip()
+        )
+        fext = os.path.splitext(filename)[1][1:].lower()
         self.invalidate_thumb()
-        img_original = return_image_obj(self.fqpn_filename)
+        img_original = return_image_obj(filename)
         for size in ["large", "medium", "small"]:
             setattr(
                 self,
                 f"{size}_thumb",
                 resize_pil_image(img_original, settings.IMAGE_SIZE[size], fext=fext),
             )
-        self.save(update_fields=["small_thumb", "medium_thumb", "large_thumb", "fqpn_filename"])
+        self.save(
+            update_fields=[
+                "small_thumb",
+                "medium_thumb",
+                "large_thumb",
+            ]
+        )
 
     def retrieve_sized_tnail(self, size="small"):
         """
@@ -192,13 +204,14 @@ class ThumbnailFiles(models.Model):
                     how-can-i-find-out-whether-a-server-supports-the-range-header
 
         """
+        filename = self.IndexData.first().name
         mtype = "image/jpeg"
         blob = self.retrieve_sized_tnail(size=size)
         response = FileResponse(
             io.BytesIO(blob),
             content_type=mtype,
             as_attachment=False,
-            filename=filename_override or self.fqpn_filename,
+            filename=filename_override or filename,
         )
         response["Content-Type"] = mtype
         response["Content-Length"] = len(blob)

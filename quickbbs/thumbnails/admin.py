@@ -12,11 +12,12 @@ class AdminThumbnail_Files(admin.ModelAdmin):
         "mthumb",
         "lthumb",
         "sha256_hash",
-    )  # , "fqpn_hash"
-    search_fields = ["fqpn_filename", "sha256_hash", "id"]  # "fqpn_hash",
+    )  
+    
+    search_fields = ["sha256_hash", "id"]  # "fqpn_hash",
     list_display = (
         "id",
-        "fqpn_filename",
+        # "fqpn_filename",
         # "fqpn_hash",
         "sha256_hash",
         "sthumb",
@@ -25,7 +26,7 @@ class AdminThumbnail_Files(admin.ModelAdmin):
     )
     fields = (
         "id",
-        "fqpn_filename",
+        # "fqpn_filename",
         # "fqpn_hash",
         "sha256_hash",
         "sthumb",
