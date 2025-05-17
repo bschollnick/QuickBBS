@@ -5,7 +5,10 @@ from django.contrib import admin
 
 @admin.register(fs_Cache_Tracking)
 class Cache_dir_tracking_Index(admin.ModelAdmin):
-    list_display = ("DirName", "Dir_md5_hdigest", "lastscan")
-    fields = ("DirName", "lastscan")
-    search_fields = ["DirName", "Dir_md5_hdigest"]
-    readonly_fields = ("Dir_md5_hdigest",)
+    list_display = ("DirName", "directory_sha256", "lastscan")
+    fields = ("DirName", "directory_sha256", "lastscan")
+    search_fields = ["DirName", "directory_sha256"]
+    readonly_fields = (
+        "directory_sha256",
+        "directory_sha256",
+    )
