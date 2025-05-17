@@ -17,7 +17,10 @@ import sys
 import time
 from functools import lru_cache
 
+
 from cache_watcher.watchdogmon import watchdog
+
+from cachetools.keys import hashkey
 from django.apps import AppConfig
 from django.conf import settings
 from django.core.cache import cache
@@ -52,17 +55,51 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
             dirpath = os.path.normpath(event.src_path)
         else:
             dirpath = str(pathlib.Path(os.path.normpath(event.src_path)).parent)
-        dhash = create_hash(dirpath)
-        Cache_Storage.remove_from_cache_hdigest(dhash)
+        # print(dirpath)
+        # dhash = create_hash(dirpath)
+        # Cache_Storage.remove_from_cache_hdigest(dhash)
+        Cache_Storage.remove_from_cache_name(dirpath)
 
 
-@lru_cache(maxsize=500)
+@lru_cache(maxsize=250)
 def create_hash(text):
     """
     Create a hash of the text, titlecased, stripped, and normpathed that"""
     if not text.endswith(os.sep):
         text = f"{text}{os.sep}"
     return hashlib.md5(text.title().strip().encode("utf-8")).hexdigest()
+
+
+@lru_cache(maxsize=250)
+def get_dir_sha(fqpn_directory) -> str:
+    """
+    Return the SHA256 hash of the file as a hexdigest string
+
+    Args:
+        fqfn (str) : The fully qualified filename of the file to be hashed
+
+    :return: The SHA256 hash of the file + fqfn as a hexdigest string
+    """
+    sha = None
+    digest = hashlib.sha256()
+    digest.update(normalize_fqpn(fqpn_directory).encode("utf-8"))
+    sha = digest.hexdigest()
+    return sha
+
+
+@lru_cache(maxsize=250)
+def normalize_fqpn(fqpn_directory) -> str:
+    """
+    Normalize the directory structure fully qualified pathname for conversion to a md5
+    hexdigest string.
+    :param fqpn_directory: String, the fully qualified pathname for the directory
+    :return: normalized string, all lowercase, whitespace stripped, ending with os.sep
+    """
+    Path = pathlib.Path(fqpn_directory)
+    fqpn_directory = str(Path.resolve()).lower().strip()
+    if not fqpn_directory.endswith(os.sep):
+        fqpn_directory = fqpn_directory + os.sep
+    return fqpn_directory
 
 
 class fs_Cache_Tracking(models.Model):
@@ -75,8 +112,8 @@ class fs_Cache_Tracking(models.Model):
 
     """
 
-    Dir_md5_hdigest = models.CharField(
-        db_index=True, max_length=32, default="", blank=True, unique=True
+    directory_sha256 = models.CharField(
+        db_index=True, blank=True, unique=True, null=True, default=None
     )
     DirName = models.CharField(db_index=False, max_length=384, default="", blank=True)
     # the path from watchdog, titlecased, stripped, and normpathed
@@ -86,40 +123,76 @@ class fs_Cache_Tracking(models.Model):
     @staticmethod
     def clear_all_records():
         from frontend.views import layout_manager
+
         fs_Cache_Tracking.objects.all().delete()
-        layout_manager.cache_clear()
+        # layout_manager.cache_clear()
 
     def add_to_cache(self, DirName):
         entry = fs_Cache_Tracking()
-        entry.DirName = DirName  # .title().strip()
-        if not entry.DirName.endswith(os.sep):
-            entry.DirName = f"{entry.DirName}{os.sep}"
-        #       logger.info(f"Adding to cache {entry.DirName}")
-        entry.Dir_md5_hdigest = create_hash(entry.DirName)
-        if not self.hdigest_exists_in_cache(entry.Dir_md5_hdigest):
+        entry.DirName = normalize_fqpn(DirName)  # .title().strip()
+        # if not entry.DirName.endswith(os.sep):
+        #     entry.DirName = f"{entry.DirName}{os.sep}"
+        entry.directory_sha256 = get_dir_sha(entry.DirName)
+        # entry.Dir_md5_hdigest = create_hash(entry.DirName)
+        # print(entry.directory_sha256)
+        if not self.sha_exists_in_cache(entry.directory_sha256):
             entry.lastscan = time.time()
             entry.save()
+        #       logger.info(f"Adding to cache {entry.DirName}")
+        # if not self.hdigest_exists_in_cache(entry.Dir_md5_hdigest):
+        #    entry.lastscan = time.time()
+        #    entry.save()
 
-    def hdigest_exists_in_cache(self, hdigest):
-        return fs_Cache_Tracking.objects.filter(Dir_md5_hdigest=hdigest).exists()
+    def sha_exists_in_cache(self, sha256):
+        return fs_Cache_Tracking.objects.filter(directory_sha256=sha256).exists()
 
-    def name_exists_in_cache(self, DirName):
-        Dir_md5_hdigest = create_hash(DirName)
-        return self.hdigest_exists_in_cache(hdigest=Dir_md5_hdigest)
+    # def hdigest_exists_in_cache(self, hdigest):
+    #     return fs_Cache_Tracking.objects.filter(Dir_md5_hdigest=hdigest).exists()
 
-    def remove_from_cache_hdigest(self, hdigest):
-        from frontend.views import layout_manager
+    # def name_exists_in_cache(self, DirName):
+    #     Dir_md5_hdigest = create_hash(DirName)
+    #     return self.hdigest_exists_in_cache(hdigest=Dir_md5_hdigest)
+
+    # def remove_from_cache_hdigest(self, hdigest):
+    #     from frontend.views import layout_manager_cache
+    #     from quickbbs.models import IndexDirs
+    #     #from frontend.views import layout_manager
+    #     # print("Removing ", hdigest)
+    #     items_removed, _ = fs_Cache_Tracking.objects.filter(
+    #         Dir_md5_hdigest=hdigest
+    #     ).delete()
+    #     if items_removed != 0:
+    #         directory = IndexDirs.objects.get(Dir_md5_hdigest=hdigest)
+    #         #layout_manager.cache_clear()
+    #     return items_removed != 0
+
+    def remove_from_cache_sha(self, sha256):
+        from frontend.views import layout_manager, layout_manager_cache
+        from quickbbs.models import IndexDirs
+
+        # print("Removing ", sha256)
         items_removed, _ = fs_Cache_Tracking.objects.filter(
-            Dir_md5_hdigest=hdigest
+            directory_sha256=sha256
         ).delete()
         if items_removed != 0:
-            layout_manager.cache_clear()
+            directory = IndexDirs.objects.get(dir_sha256=sha256)
+            layout = layout_manager(directory=directory, sort_ordering=0)
+            for page_number in range(1, layout["total_pages"] + 1):
+                key = hashkey(
+                    page_number=page_number, directory=directory, sort_ordering=0
+                )
+                if key in layout_manager_cache:
+                    del layout_manager_cache[key]
+                else:
+                    print("Key not found in cache")
         return items_removed != 0
 
     def remove_from_cache_name(self, DirName):
-        #        logger.info(f"Removing from cache {DirName}")
-        Dir_md5_hdigest = create_hash(DirName)
-        return self.remove_from_cache_hdigest(Dir_md5_hdigest)
+        # print("Removing from cache ", DirName)
+        # logger.info(f"Removing from cache {DirName}")
+        # Dir_md5_hdigest = create_hash(DirName)
+        sha256 = get_dir_sha(DirName)
+        return self.remove_from_cache_sha(sha256)
 
 
 watchdog.startup(
