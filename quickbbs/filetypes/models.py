@@ -50,7 +50,8 @@ class filetypes(models.Model):
         return f"{self.fileext}"
 
     @lru_cache(maxsize=200)
-    def return_any_icon_filename(self, fileext):
+    @staticmethod
+    def return_any_icon_filename(fileext):
         """
         The return_icon_filename function takes a file extension as an argument and returns the filename of the
         icon that corresponds to that file extension.
@@ -62,27 +63,26 @@ class filetypes(models.Model):
         :return: The icon filename for the given file extension (IMAGES_PATH + filename), or NONE if not found or
             the filename for the fileext is blank (e.g. JPEG, since JPEG will always be created based off the file)
         """
-        fileext = fileext.lower()
-        #        if not fileext.startswith("."):
-        #            fileext = f'.{fileext}'
+        fileext = fileext.lower().strip()
         if fileext in ["", None, "unknown"]:
             fileext = ".none"
-
+        if not fileext.startswith("."):
+            fileext = "." + fileext
         data = filetypes.objects.filter(fileext=fileext)
         if data.exists() and data[0].icon_filename != "":
             return os.path.join(settings.IMAGES_PATH, data[0].icon_filename)
-        # else return None
+        return None
 
     @lru_cache(maxsize=200)
-    def return_filetype(self, fileext):
+    def return_filetype(fileext):
         """
         fileext = gif, jpg, mp4 (lower case, and without prefix .)
         """
-        fileext = fileext.lower()
-        #        if not fileext.startswith("."):
-        #            fileext = f'.{fileext}'
+        fileext = fileext.lower().strip()
         if fileext in ["", None, "unknown"]:
             fileext = ".none"
+        if not fileext.startswith("."):
+            fileext = "." + fileext
 
         return filetypes.objects.filter(fileext=fileext)
 
