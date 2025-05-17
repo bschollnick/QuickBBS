@@ -1,42 +1,17 @@
 from django.contrib import admin
 
-from quickbbs.models import *
-
-# @admin.register(filetypes)
-# class AdminFiletypes(admin.ModelAdmin):
-#     fields = ('fileext', 'icon_filename', 'color', 'generic', 'filetype')
-#     list_display = ('fileext', 'icon_filename', 'color', 'generic', 'filetype')
-
-
-# @admin.register(Thumbnails_Files)
-# class AdminThumbnail_Files(admin.ModelAdmin):
-#     readonly_fields = (
-#         "id",
-#         "uuid",
-#     )
-#     list_display = ("id", "uuid", "FileName", "FilePath", "FileSize")
-#     fields = ("id", "uuid", "FileName", "FilePath", "FileSize")
-#
-
-# @admin.register(Thumbnails_Archives)
-# class AdminThumbnail_Archives(admin.ModelAdmin):
-#     readonly_fields = (
-#         "id",
-#         "uuid",
-#     )
-#     list_display = ("zipfilepath", "FilePath", "FileName", "page", "FileSize")
-#     fields = ("uuid", "zipfilepath", "FilePath", "FileName", "page", "FileSize")
-
+from quickbbs.models import IndexData, IndexDirs, Owners, Favorites
 
 @admin.register(IndexData)
 class AdminMaster_Index(admin.ModelAdmin):
     search_fields = ["name", "fqpndirectory", "uuid", "file_sha256", "id"]
     list_filter = ["filetype"]
-    readonly_fields = ("id", "uuid", "file_sha256", "name_sort")
+    readonly_fields = ("id", "uuid", "file_sha256", "unique_sha256", "name_sort")
     list_display = (
         "id",
         "uuid",
         "file_sha256",
+        "unique_sha256",
         "name",
         "lastscan",
         "lastmod",
@@ -51,6 +26,7 @@ class AdminMaster_Index(admin.ModelAdmin):
         "id",
         "uuid",
         "file_sha256",
+        "unique_sha256",
         "name",
         "lastscan",
         "lastmod",
@@ -65,18 +41,42 @@ class AdminMaster_Index(admin.ModelAdmin):
 
 @admin.register(IndexDirs)
 class AdminMaster_Dirs(admin.ModelAdmin):
-    search_fields = ["fqpndirectory"]
+    search_fields = [
+        "fqpndirectory",
+        "dir_sha256",
+    ]
+    readonly_fields = (
+        "id",
+        "dir_sha256",
+        "uuid",
+        "sthumb",
+    )
+    list_display = (
+        "id",
+        "dir_sha256",
+        "uuid",
+        "fqpndirectory",
+        "is_generic_icon",
+        "sthumb",
+        "delete_pending",
+    )
 
+    fields = (
+        "id",
+        "dir_sha256",
+        "uuid",
+        "fqpndirectory",
+        "is_generic_icon",
+        "sthumb",
+        "delete_pending",
+    )
 
-# @admin.register(Cache_Tracking)
-# class Cache_dir_tracking_Index(admin.ModelAdmin):
-#     list_display = ('DirName', 'lastscan')
-#     fields = ('DirName', 'lastscan')
-# @admin.register(scan_lock)
-# class AdminScan_Lock(admin.ModelAdmin):
-#     list_display = ('fqpndirectory',)
-#     fields = ('fqpndirectory',)
-
+    def sthumb(self, obj):
+        if obj.small_thumb is not None:
+            return obj.small_thumb[0:25]
+        else:
+            return "None"
+        
 admin.site.register(Owners)
 admin.site.register(Favorites)
 # admin.site.register(Cache_Tracking)
