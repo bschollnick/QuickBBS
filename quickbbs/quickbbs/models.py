@@ -67,6 +67,21 @@ class Favorites(models.Model):
     )
 
 
+@lru_cache(maxsize=1000)
+def normalize_fqpn(fqpn_directory) -> str:
+    """
+    Normalize the directory structure fully qualified pathname for conversion to a md5
+    hexdigest string.
+    :param fqpn_directory: String, the fully qualified pathname for the directory
+    :return: normalized string, all lowercase, whitespace stripped, ending with os.sep
+    """
+    Path = pathlib.Path(fqpn_directory)
+    fqpn_directory = str(Path.resolve()).lower().strip()
+    if not fqpn_directory.endswith(os.sep):
+        fqpn_directory = fqpn_directory + os.sep
+    return fqpn_directory
+
+
 class IndexDirs(models.Model):
     """
     The master index for Directory / Folders in the Filesystem for the gallery.
@@ -77,14 +92,15 @@ class IndexDirs(models.Model):
     )
     fqpndirectory = models.CharField(
         db_index=False, max_length=384, default="", unique=True, blank=True
-    )  # FQFN of the file itself
+    )  # FQFN of the directory
     dir_sha256 = models.CharField(
         db_index=True, blank=True, unique=True, null=True, default=None
     )
+    dir_parent_sha256 = models.CharField(
+        db_index=True, null=True, default=None, unique=False
+    )
+    # Is the FQPN of the parent directory (eg /var/albums/test)
 
-    # WebPath_md5 = models.CharField(db_index=True, max_length=32, unique=False)
-    dir_name_md5 = models.CharField(db_index=True, max_length=32, unique=False)
-    # DirName is the just the directory name (eg test1)
     combined_md5 = models.CharField(db_index=True, max_length=32, unique=True)
     # Combined is the FQPN md5  (eg /var/albums/test/test1)
     parent_dir_md5 = models.CharField(db_index=True, max_length=32, unique=False)
@@ -99,7 +115,6 @@ class IndexDirs(models.Model):
     is_generic_icon = models.BooleanField(
         default=False, db_index=True
     )  # File is to be ignored
-    ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
     delete_pending = models.BooleanField(
         default=False, db_index=True
     )  # File is to be deleted,
@@ -109,25 +124,21 @@ class IndexDirs(models.Model):
         on_delete=models.CASCADE,
         db_index=True,
         default=".dir",
+        related_name="dirs_filetype_data",
     )
     small_thumb = models.BinaryField(default=b"")
+    file_links = models.ForeignKey(
+        "IndexData",
+        on_delete=models.SET_NULL,
+        blank=True,
+        default=None,
+        null=True,
+        related_name="file_links",
+    )
 
     class Meta:
         verbose_name = "Master Directory Index"
         verbose_name_plural = "Master Directory Index"
-
-    @staticmethod
-    def normalize_fqpn(fqpn_directory) -> str:
-        """
-        Normalize the directory structure fully qualified pathname for conversion to a md5
-        hexdigest string.
-        :param fqpn_directory: String, the fully qualified pathname for the directory
-        :return: normalized string, all lowercase, whitespace stripped, ending with os.sep
-        """
-        fqpn_directory = fqpn_directory.lower().strip()
-        if not fqpn_directory.endswith(os.sep):
-            fqpn_directory = fqpn_directory + os.sep
-        return fqpn_directory
 
     @staticmethod
     def add_directory(fqpn_directory, thumbnail=b"") -> "IndexDirs":
@@ -138,16 +149,15 @@ class IndexDirs(models.Model):
         :return: Database record
         """
         Path = pathlib.Path(fqpn_directory)
-        fqpn_directory = IndexDirs.normalize_fqpn(str(Path.resolve()))
-        parent_dir = IndexDirs.normalize_fqpn(str(Path.parent.resolve()))
+        fqpn_directory = normalize_fqpn(str(Path.resolve()))
+        parent_dir = normalize_fqpn(str(Path.parent.resolve()))
         filename_seg = str(Path.name)
 
         # dir_seg, filename_seg = os.path.split(fqpn_directory)
         new_rec = IndexDirs()
-        new_rec.fqpndirectory = fqpn_directory
-        new_rec.dir_name_md5 = convert_text_to_md5_hdigest(
-            IndexDirs.normalize_fqpn(filename_seg)
-        )
+        new_rec.fqpndirectory = normalize_fqpn(fqpn_directory)
+        # new_rec.dir_sha256 = new_rec.get_dir_sha()
+        new_rec.dir_name_md5 = convert_text_to_md5_hdigest(normalize_fqpn(filename_seg))
         new_rec.combined_md5 = convert_text_to_md5_hdigest(fqpn_directory)
         new_rec.parent_dir_md5 = convert_text_to_md5_hdigest(parent_dir)
         new_rec.uuid = uuid.uuid4()
@@ -158,8 +168,10 @@ class IndexDirs(models.Model):
         new_rec.lastscan = time.time()
         new_rec.filetype = filetypes(fileext=".dir")
         new_rec.save()
+        new_rec.dir_sha256 = new_rec.get_dir_sha()
         return new_rec
 
+    @lru_cache(maxsize=1000)
     def get_dir_sha(self) -> str:
         """
         Return the SHA256 hash of the file as a hexdigest string
@@ -171,7 +183,7 @@ class IndexDirs(models.Model):
         """
         sha = None
         digest = hashlib.sha256()
-        digest.update(self.fqpn_directory.encode("utf-8"))
+        digest.update(normalize_fqpn(self.fqpndirectory).encode("utf-8"))
         sha = digest.hexdigest()
         return sha
 
@@ -213,9 +225,7 @@ class IndexDirs(models.Model):
         # pylint: disable-next=import-outside-toplevel
         from cache_watcher.models import Cache_Storage
 
-        combined_md5 = convert_text_to_md5_hdigest(
-            IndexDirs.normalize_fqpn(fqpn_directory)
-        )
+        combined_md5 = convert_text_to_md5_hdigest(normalize_fqpn(fqpn_directory))
         Cache_Storage.remove_from_cache_name(fqpn_directory)
         if not cache_only:
             IndexDirs.objects.filter(combined_md5=combined_md5).delete()
@@ -265,10 +275,6 @@ class IndexDirs(models.Model):
         for key in FILETYPE_DATA.keys():
             totals[key[1:]] = d_files.filter(filetype__fileext=key).count()
         totals["dir"] = self.get_dir_counts()
-        # totals["dir"] = IndexDirs.objects.filter(
-        #    parent_dir_md5=self.combined_md5, delete_pending=False
-        # ).count()
-        # totals["all_files"] = d_files.filter().count() - totals["dir"]
         totals["all_files"] = self.get_file_counts()
         return totals
 
@@ -288,7 +294,7 @@ class IndexDirs(models.Model):
         :return: A boolean representing the success of the search, and the resultant record
         """
         Path = pathlib.Path(fqpn_directory)
-        fqpn_directory = IndexDirs.normalize_fqpn(str(Path.resolve()))
+        fqpn_directory = normalize_fqpn(str(Path.resolve()))
         query = IndexDirs.objects.filter(
             combined_md5=convert_text_to_md5_hdigest(fqpn_directory),
             delete_pending=False,
@@ -330,7 +336,7 @@ class IndexDirs(models.Model):
             additional_filters = {}
 
         files = (
-            IndexData.objects.select_related("new_ftnail")
+            IndexData.objects.select_related("new_ftnail", "filetype")
             .filter(parent_dir=self.pk, delete_pending=False, **additional_filters)
             .order_by(*SORT_MATRIX[sort])
         )
@@ -347,7 +353,7 @@ class IndexDirs(models.Model):
         from frontend.utilities import SORT_MATRIX
 
         dir_scan = str((pathlib.Path(self.fqpndirectory)).resolve())
-        dir_scan = IndexDirs.normalize_fqpn(dir_scan)
+        dir_scan = normalize_fqpn(dir_scan)
         dir_scan_md5 = convert_text_to_md5_hdigest(dir_scan)
         # dirs = IndexDirs.objects.filter(combined_md5=self.combined_md5, delete_pending=False)
         dirs = IndexDirs.objects.filter(
@@ -380,6 +386,9 @@ class IndexDirs(models.Model):
         * The background hex color code of the current database entry
         """
         return self.filetype.color
+
+    def return_identifier(self) -> str:
+        return self.dir_sha256
 
     # pylint: disable-next=unused-argument
     def get_thumbnail_url(self, size=None) -> str:
@@ -437,14 +446,14 @@ class IndexData(models.Model):
     for Directories)
 
     The file_sha256 is the Sha256 of the file itself, and can be used to help eliminate multiple
-    thumbnails being created for the same file.  
+    thumbnails being created for the same file.
 
-    The unique_sha256 is the sha256 of the file + the fully qualified pathname of the file.  
-    The unique sha256 is the eventual replacement for the UUID.  The idea is that a regeneration of the 
-    database does not destroy the valid identifiers for the files.  The UUID works as an unique identifier, 
-    but is randomly generated, which means that it can't be regenerated after a database regeneration, or 
-    if the database record is deleted, and then recreated.  Where the unique_sha256 can be, as long as the 
-    file & file path is the same and unchanged. 
+    The unique_sha256 is the sha256 of the file + the fully qualified pathname of the file.
+    The unique sha256 is the eventual replacement for the UUID.  The idea is that a regeneration of the
+    database does not destroy the valid identifiers for the files.  The UUID works as an unique identifier,
+    but is randomly generated, which means that it can't be regenerated after a database regeneration, or
+    if the database record is deleted, and then recreated.  Where the unique_sha256 can be, as long as the
+    file & file path is the same and unchanged.
     """
 
     id = models.AutoField(primary_key=True)
@@ -453,11 +462,11 @@ class IndexData(models.Model):
     )
     file_sha256 = models.CharField(
         db_index=True, blank=True, unique=False, null=True, default=None
-    )       # This is the sha256 of the file itself
+    )  # This is the sha256 of the file itself
     unique_sha256 = models.CharField(
         db_index=True, blank=True, unique=True, null=True, default=None
-    )       # This is the sha256 of the (file + fqfn)
-    
+    )  # This is the sha256 of the (file + fqfn)
+
     lastscan = models.FloatField(db_index=True)
     # Stored as Unix TimeStamp (ms)
     lastmod = models.FloatField(db_index=True)  # Stored as Unix TimeStamp (ms)
@@ -470,7 +479,7 @@ class IndexData(models.Model):
     fqpndirectory = models.CharField(default=0, db_index=True, max_length=384)
     # Directory of the file, lower().replace("//", "/"), ensure it is path, and not path + filename
     parent_dir = models.ForeignKey(
-        IndexDirs, on_delete=models.CASCADE, null=True, default=None
+        "IndexDirs", on_delete=models.CASCADE, null=True, default=None
     )
     is_animated = models.BooleanField(default=False, db_index=True)
     ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
@@ -486,12 +495,24 @@ class IndexData(models.Model):
         on_delete=models.CASCADE,
         db_index=True,
         default=".none",
+        related_name="file_filetype_data",
     )
     is_generic_icon = models.BooleanField(
         default=False, db_index=False
     )  # icon is a generic icon
 
-    new_ftnail = models.ForeignKey(ThumbnailFiles, on_delete=models.SET_NULL, blank=True, default=None, null=True)
+    dir_sha256 = models.CharField(
+        db_index=True, blank=True, unique=True, null=True, default=None
+    )
+
+    new_ftnail = models.ForeignKey(
+        ThumbnailFiles,
+        on_delete=models.SET_NULL,
+        blank=True,
+        default=None,
+        null=True,
+        related_name="IndexData",
+    )
 
     # https://stackoverflow.com/questions/38388423
 
@@ -503,6 +524,32 @@ class IndexData(models.Model):
         null=True,
         blank=True,
     )
+
+    def return_identifier(self) -> str:
+        return self.unique_sha256
+
+    @staticmethod
+    def return_identical_files_count(sha) -> int:
+        """
+        Return the number of identical files in the database
+        :return: Integer - Number of identical files
+        """
+        return IndexData.objects.filter(file_sha256=sha).count()
+
+    @staticmethod
+    def return_list_identical_files_by_sha(sha) -> "QuerySet[IndexData]":
+        dupes = (
+            IndexData.objects.filter(file_sha256=sha)
+            .values("file_sha256")
+            .annotate(dupe_count=Count("file_sha256"))
+            .exclude(dupe_count__lt=2)
+            .order_by("-dupe_count")
+        )
+        return dupes
+
+    @staticmethod
+    def return_identical_files_by_sha(sha):
+        return IndexData.objects.values("name", "fqpndirectory").filter(file_sha256=sha)
 
     @staticmethod
     def return_by_uuid_list(uuid_list, sort=0) -> "QuerySet[IndexData]":
@@ -534,7 +581,7 @@ class IndexData(models.Model):
         sha = None
         unique = None
         try:
-            with open(fqfn, "rb", buffering=0) as filehandle:
+            with open(fqfn, "rb") as filehandle:
                 digest = hashlib.file_digest(filehandle, "sha256")
                 sha = digest.hexdigest()
                 digest.update(str(fqfn).title().encode("utf-8"))
