@@ -18,8 +18,6 @@ from thumbnails.image_utils import (  # image_to_pil,; movie_to_pil,; pdf_to_pil
     return_image_obj,
 )
 
-# from typing import Iterator  # , Optional, Union, TypeVar, Generic
-
 
 def new_process_dir2(db_entry):
     """
@@ -40,46 +38,34 @@ def new_process_dir2(db_entry):
         print("Loading thumbnails filetypes")
         filetypes.models.FILETYPE_DATA = filetypes.models.load_filetypes()
 
-    if db_entry.small_thumb not in [b"", None]:
-        # Does the thumbnail exist?
-        raise ValueError(
-            "I shouldn't be here! - new_process_dir2 w/entry that has thumbnail"
-        )
+    files = db_entry.files_in_dir(additional_filters={"filetype__is_image": True})
 
-    files = db_entry.files_in_dir()
     if not files:
         sync_database_disk(db_entry.fqpndirectory)
-        files = db_entry.files_in_dir()
+        files = db_entry.files_in_dir(additional_filters={"filetype__is_image": True})
 
     if files:  # found an file in the directory to use for thumbnail purposes
         for file_to_thumb in files:
-            if file_to_thumb.filetype.is_image:
-                fs_d_fname = os.path.join(
-                    file_to_thumb.fqpndirectory, file_to_thumb.name
-                )
-                # file system location of directory
-                fext = os.path.splitext(file_to_thumb.name)[1].lower()
-                img_icon = resize_pil_image(
-                    return_image_obj(fs_d_fname),
-                    settings.IMAGE_SIZE["small"],
-                    fext=fext,
-                )
-                # imagedata = temp
-                db_entry.small_thumb = img_icon
-                break
-    if not db_entry.small_thumb:
-        temp = return_image_obj(
-            os.path.join(
-                settings.IMAGES_PATH,
-                filetypes.models.FILETYPE_DATA[".dir"].icon_filename,
+            fs_d_fname = os.path.join(file_to_thumb.fqpndirectory, file_to_thumb.name)
+            # file system location of directory
+            fext = os.path.splitext(file_to_thumb.name)[1].lower()
+            img_icon = resize_pil_image(
+                return_image_obj(fs_d_fname),
+                settings.IMAGE_SIZE["small"],
+                fext=fext,
             )
+            # imagedata = temp
+            db_entry.small_thumb = img_icon
+            break
+    if db_entry.small_thumb in [b"", None]:
+        temp = return_image_obj(
+            filetypes.models.filetypes.return_any_icon_filename(fileext=".dir")
         )
         img_icon = resize_pil_image(
             temp,
             settings.IMAGE_SIZE["small"],
-            filetypes.models.FILETYPE_DATA[".dir"].icon_filename,
+            fext=".dir",
         )
-        # configdata["filetypes"]["dir"][2])
         db_entry.is_generic_icon = True
         db_entry.small_thumb = img_icon
     try:

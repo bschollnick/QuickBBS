@@ -4,6 +4,7 @@ Django views for QuickBBS Gallery
 
 import datetime
 import logging
+import math
 import os
 import os.path
 import pathlib
@@ -15,6 +16,8 @@ from itertools import chain
 from pathlib import Path
 from typing import Optional
 
+from cachetools import LRUCache, cached
+from cachetools.keys import hashkey
 import filetypes
 import markdown2
 import psycopg
@@ -31,6 +34,7 @@ from django.http import (  # HttpResponse,
     HttpResponseBadRequest,
     HttpResponseNotFound,
 )
+
 from django.shortcuts import render
 from django.views.decorators.vary import vary_on_headers
 from django_htmx.middleware import HtmxDetails
@@ -62,7 +66,9 @@ class HtmxHttpRequest(HttpRequest):
     htmx: HtmxDetails
 
 
-# log = logging.getLogger(__name__)
+layout_manager_cache = LRUCache(maxsize=1000)
+
+build_context_info_cache = LRUCache(maxsize=500)
 
 logger = logging.getLogger()
 
@@ -109,7 +115,6 @@ def return_prev_next2(directory, sorder) -> tuple:
     else:
         return (None, None)
     directories = parent_dir.dirs_in_dir(sort=sorder)
-    # count = directories.count()
     parent_dir_data = directories.values(
         "pk", "fqpndirectory", "parent_dir_md5", "combined_md5"
     )
@@ -121,9 +126,6 @@ def return_prev_next2(directory, sorder) -> tuple:
 
             try:
                 nextdir = str(pathlib.Path(parent_dir_data[count + 1]["fqpndirectory"]))
-
-                # "webpath": request.path,
-                # "album_viewing": settings.ALBUMS_PATH + request.path,
                 nextdir = nextdir.replace(settings.ALBUMS_PATH, "")
             except IndexError:
                 pass
@@ -145,19 +147,14 @@ def thumbnail_dir(request: WSGIRequest, tnail_id: Optional[str] = None):
 
     :raises: HttpResponseBadRequest - If the uuid can not be found
     """
-    directory_to_tnail = IndexDirs.objects.prefetch_related("filetype").filter(
-        uuid=tnail_id
-    )
-    if not directory_to_tnail.exists():
+    try:
+        entry = IndexDirs.objects.get(uuid=tnail_id)
+    except IndexDirs.DoesNotExist:
         # does not exist
-        print(tnail_id, "The directory Does not exist, No records returned.")
+        print(tnail_id, "Directory not found - No records returned.")
         return Http404
 
-    entry = directory_to_tnail[0]
-    if entry.is_generic_icon:
-        if entry.do_files_exist():
-            entry.small_thumb = None
-    if entry.small_thumb in [b"", None, ""]:
+    if entry.is_generic_icon or entry.small_thumb in [b"", None]:
         new_process_dir2(entry)
 
     return entry.send_thumbnail()  # Send existing thumbnail
@@ -175,19 +172,17 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
     :param tnail_id: The UUID of the file - IndexData object
     :return: The sent thumbnail
     """
-    index_qs = IndexData.objects.prefetch_related("new_ftnail", "filetype").filter(
-        uuid=tnail_id
-    )
-    if not index_qs.exists():
+    try:
+        entry = IndexData.objects.select_related("new_ftnail", "filetype").get(
+            uuid=tnail_id
+        )
+    except IndexData.DoesNotExist:
         # does not exist
         print(tnail_id, "File not found - No records returned.")
         return Http404
 
     thumbsize = request.GET.get("size", "small").lower()
-    entry = index_qs[0]
     fs_item = os.path.join(entry.fqpndirectory, entry.name).title().strip()
-    # fs_item_hash = ThumbnailFiles.convert_text_to_md5_hdigest(fs_item)
-    # fname = os.path.basename(entry.name).title().strip()
     if entry.new_ftnail:
         if entry.new_ftnail.thumbnail_exists(size=thumbsize):
             return entry.new_ftnail.send_thumbnail(
@@ -195,6 +190,71 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
             )
     print("Miss hit")
     # return HttpResponseBadRequest(content="Do not create thumbnail.")
+    #
+    #   The only reason for this code, is for the generic icons, needs to be refactored.
+    #
+    if entry.filetype.is_pdf or entry.filetype.is_image or entry.filetype.is_movie:
+        tnail_record, _ = ThumbnailFiles.objects.get_or_create(
+            sha256_hash=entry.file_sha256,
+            defaults={"sha256_hash": entry.file_sha256},
+        )
+
+        entry.new_ftnail = tnail_record
+        raw_pil = image_utils.return_image_obj(fs_item, memory=False)
+        entry.new_ftnail.pil_to_thumbnail(pil_data=raw_pil)
+        try:
+            entry.new_ftnail.save()
+        except (IntegrityError, psycopg.errors.UniqueViolation):
+            print("IntegrityError, or UniqueViolation")
+            # should not occur, but some mp4's appear to have been duplicated?
+            ThumbnailFiles.objects.filter(sha256_hash=entry.file_sha256).delete()
+            entry.new_ftnail.save()
+        entry.save()
+        return entry.new_ftnail.send_thumbnail(
+            filename_override=None, fext_override=None, size=thumbsize
+        )
+
+    if entry.filetype.icon_filename not in ["", None]:
+        entry.is_generic_icon = True
+        try:
+            entry.save()
+        except IntegrityError:
+            pass
+        return respond_as_attachment(
+            request,
+            os.path.join(settings.RESOURCES_PATH, "Images"),
+            entry.filetype.icon_filename,
+        )
+
+    return HttpResponseBadRequest(content="Bad UUID or Unidentifable file.")
+
+
+@sync_to_async
+def thumbnail2_file(request: WSGIRequest, sha256: str):
+    """
+    Check for a thumbnail / create a thumbnail for a particular file
+    :param request: Django Request object
+    :param sha256: The *UNIQUE* sha256 of the file - IndexData object
+    :return: The sent thumbnail
+    """
+    print("thumbnail2_file :", sha256)
+    try:
+        entry = IndexData.objects.prefetch_related("new_ftnail").get(
+            unique_sha256=sha256
+        )
+    except IndexData.DoesNotExist:
+        print(sha256, "File not found - No records returned.")
+        return HttpResponseBadRequest(content="Thumbnail not found.")
+
+    thumbsize = request.GET.get("size", "small").lower()
+    if entry.new_ftnail:
+        if entry.new_ftnail.thumbnail_exists(size=thumbsize):
+            return entry.new_ftnail.send_thumbnail(
+                filename_override=None, fext_override=".jpg", size=thumbsize
+            )
+
+    print("Miss hit")
+    return HttpResponseBadRequest(content="Do not create thumbnail.")
     #
     #   The only reason for this code, is for the generic icons, needs to be refactored.
     #
@@ -209,6 +269,7 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
         #     fqpn_hash=fs_item_hash,
         #     defaults={"fqpn_hash": fs_item_hash, "fqpn_filename": fs_item, "sha256_hash": entry.file_sha256},
         # )
+        fs_item = os.path.join(entry.fqpndirectory, entry.name).title().strip()
         tnail_record, _ = ThumbnailFiles.objects.get_or_create(
             sha256_hash=entry.file_sha256,
             defaults={"fqpn_filename": fs_item, "sha256_hash": entry.file_sha256},
@@ -245,6 +306,7 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
     return HttpResponseBadRequest(content="Bad UUID or Unidentifable file.")
 
 
+@vary_on_headers("HX-Request")
 async def view_thumbnail(request: WSGIRequest, tnail_id: Optional[str] = None):
     return await thumbnail_file(request, tnail_id)
 
@@ -310,6 +372,7 @@ def search_viewresults(request: WSGIRequest):
 
 
 # @sync_to_async
+@vary_on_headers("HX-Request")
 def new_viewgallery(request: WSGIRequest):
     """
     View the requested Gallery page
@@ -362,9 +425,6 @@ def new_viewgallery(request: WSGIRequest):
         return HttpResponseNotFound("<h1>gallery not found</h1>")
     read_from_disk(paths["album_viewing"], skippable=True)  # new_viewgallery
 
-    # if found:
-    #     directories = directory.dirs_in_dir(sort=sort_order(request))
-    #     files = directory.files_in_dir(sort=sort_order(request))
     context = {
         "debug": settings.DEBUG,
         "small": g_option(request, "size", settings.IMAGE_SIZE["small"]),
@@ -381,16 +441,17 @@ def new_viewgallery(request: WSGIRequest):
         "missing": [],
         "search": False,
     }
-    # print(f"Up_URI: {context['up_uri']}")
-    # print(f"webpath: {context['webpath']}")
-    # print(f"request.build_absolute: {request.build_absolute_uri()}")
 
+    layout_settings = {
+        "page_number": context["current_page"],
+        "directory": directory,
+        "sort_ordering": context["sort"],
+    }
     layout = layout_manager(
-        page_number=context["current_page"],
-        directory=directory,
-        sort_ordering=context["sort"],
+        page_number=layout_settings["page_number"],
+        directory=layout_settings["directory"],
+        sort_ordering=layout_settings["sort_ordering"],
     )
-
     all_listings = layout["all_uuids"]
 
     chk_list = Paginator(all_listings, per_page=30)
@@ -425,7 +486,6 @@ def new_viewgallery(request: WSGIRequest):
     )
 
     if layout["no_thumbnails"]:
-        layout_manager.cache_clear()
         start = time.time()
         print(f"{len(layout["no_thumbnails"])} entries need thumbnails")
 
@@ -443,6 +503,16 @@ def new_viewgallery(request: WSGIRequest):
                         futures.append(executor.submit(update_thumbnail, db_entry))
                     _ = [f.result() for f in futures]
                     del futures
+            for page_numb in range(1, layout_settings["page_number"]):
+                key = hashkey(
+                    page_number=page_numb,
+                    directory=layout_settings["directory"],
+                    sort_ordering=layout_settings["sort_ordering"],
+                )
+                if key in layout_manager_cache:
+                    del layout_manager_cache[key]
+                else:
+                    print("Key not found in cache")
         print("elapsed thumbnail time - ", time.time() - start)
     close_old_connections()
 
@@ -460,19 +530,23 @@ def update_thumbnail(entry):
     fs_item = os.path.join(entry.fqpndirectory, entry.name).title().strip()
     if not entry.filetype.is_link:
         thumbnail, created = ThumbnailFiles.objects.get_or_create(
-            sha256_hash=entry.file_sha256, defaults={"fqpn_filename": fs_item, "sha256_hash":entry.file_sha256}
+            sha256_hash=entry.file_sha256,
+            # defaults={"fqpn_filename": fs_item, "sha256_hash": entry.file_sha256},
+            defaults={"sha256_hash": entry.file_sha256},
         )
-        if created or not thumbnail.fqpn_filename:
+        if created:  # or not thumbnail.fqpn_filename:
             entry.fqpn_filename = fs_item
-            thumbnail.fqpn_filename = fs_item
 
+            # thumbnail.fqpn_filename = fs_item
 
-        thumbnail.image_to_thumbnail()
         entry.new_ftnail = thumbnail
-        entry.save()#update_fields=["new_ftnail", "fqpn_filename"])
+        entry.save()  # update_fields=["new_ftnail", "fqpn_filename"])
+        thumbnail.image_to_thumbnail()
+        thumbnail.save()
 
 
-@lru_cache(maxsize=250)
+# @lru_cache(maxsize=500)
+@cached(build_context_info_cache)
 def build_context_info(request: WSGIRequest, i_uuid: str):
     """
     Create the JSON package for item view.  All Json *item* requests come here to
@@ -495,15 +569,19 @@ def build_context_info(request: WSGIRequest, i_uuid: str):
         "breadcrumbs": "",
         "breadcrumbs_list": [],
     }
-    entry = IndexData.objects.prefetch_related("filetype").filter(uuid=context["uuid"])[
-        0
-    ]
-    context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
-    found, directory_entry = IndexDirs.search_for_directory(
-        fqpn_directory=context["webpath"]
-    )
-    if not entry and not found:
+    try:
+        entry = IndexData.objects.select_related("filetype").get(uuid=context["uuid"])
+    except IndexData.DoesNotExist:
         return HttpResponseBadRequest(content="No entry found.")
+
+    context["webpath"] = entry.fqpndirectory.lower().replace("//", "/")
+    directory_entry = entry.home_directory
+
+    # found, directory_entry = IndexDirs.search_for_directory(
+    #    fqpn_directory=context["webpath"]
+    # )
+    # if not entry and not found:
+    # return HttpResponseBadRequest(content="No entry found.")
 
     breadcrumbs = return_breadcrumbs(context["webpath"])
     for bcrumb in breadcrumbs:
@@ -522,20 +600,15 @@ def build_context_info(request: WSGIRequest, i_uuid: str):
             context["html"] = "<br>".join(htmlfile.readlines())
 
     pathmaster = Path(os.path.join(entry.fqpndirectory, entry.name))
-    context["up_uri"] = convert_to_webpath(str(pathmaster.parent))
-
-    while context["up_uri"].endswith("/"):
-        context["up_uri"] = context["up_uri"][:-1]
+    context["up_uri"] = convert_to_webpath(str(pathmaster.parent)).rstrip("/")
 
     catalog_qs = directory_entry.files_in_dir(sort=context["sort"])
-    page_uuids = list(catalog_qs.only("uuid").values_list("uuid", flat=True))
+    page_uuids = list(catalog_qs.values_list("uuid", flat=True))
     context["mobile"] = detect_mobile(request)
     if context["mobile"]:
         context["size"] = "medium"
     else:
         context["size"] = "large"
-
-    item_list = Paginator(catalog_qs, 1)
 
     try:
         current_page = page_uuids.index(uuid.UUID(context["uuid"])) + 1
@@ -548,7 +621,9 @@ def build_context_info(request: WSGIRequest, i_uuid: str):
             "page": current_page,
             "first_uuid": page_uuids[0],
             "last_uuid": page_uuids[len(page_uuids) - 1],
-            "pagecount": item_list.count,  # Switch this to math only, no paginator?
+            "pagecount": len(
+                page_uuids
+            ),  # item_list.count,  # Switch this to math only, no paginator?
             "uuid": entry.uuid,
             "filename": entry.name,
             "filesize": entry.size,
@@ -570,15 +645,17 @@ def build_context_info(request: WSGIRequest, i_uuid: str):
     # up_uri uses this to return you to the same page offset you were viewing
 
     # generate next uuid pointers, switch this away from paginator?
-    page_contents = item_list.page(context["page"])
-    if page_contents.has_next():
-        context["next_uuid"] = catalog_qs[page_contents.next_page_number() - 1].uuid
-    if page_contents.has_previous():
-        context["previous_uuid"] = catalog_qs[
-            page_contents.previous_page_number() - 1
-        ].uuid
-    #    print(context)
-    # print("item info - Process time: ", time.perf_counter() - context["start_time"], "secs")
+    if current_page < len(page_uuids):
+        context["next_uuid"] = page_uuids[
+            current_page
+        ]  # current_page is 1-indexed, so this gives us next
+    else:
+        context["next_uuid"] = ""
+
+    if current_page > 1:
+        context["previous_uuid"] = page_uuids[current_page - 2]  # Get the previous item
+    else:
+        context["previous_uuid"] = ""
     return context
 
 
@@ -625,7 +702,7 @@ async def download_item(request: WSGIRequest):
 
 
 @vary_on_headers("HX-Request")
-def test(request: HtmxHttpRequest, i_uuid: str):
+def htmx_view_item(request: HtmxHttpRequest, i_uuid: str):
     """
     Test function for mockup tests
     :param request:
@@ -647,63 +724,93 @@ def test(request: HtmxHttpRequest, i_uuid: str):
 
     i_uuid = str(i_uuid).strip().replace("/", "")
 
-    context = build_context_info(request, i_uuid) | {
-        "user": request.user
-    }
+    context = build_context_info(request, i_uuid) | {"user": request.user}
 
     response = render(request, template_name, context, using="Jinja2")
     return response
 
 
-@lru_cache(maxsize=200)
+@cached(layout_manager_cache)
 def layout_manager(page_number=0, directory=None, sort_ordering=None):
-    print("Sort Ordering", sort_ordering)
+    """
+    Optimized layout manager with better performance and readability.
+    """
+    if directory is None:
+        raise ValueError("Directory parameter is required")
 
-    output = {}
-    output["data"] = {}
-    output["page_number"] = page_number
-    output["dirs_count"] = directory.get_dir_counts()
-    output["chunk_size"] = settings.GALLERY_ITEMS_PER_PAGE
-    output["numb_of_files_on_dir_lastpage"] = 30 - (
-        output["dirs_count"] % output["chunk_size"]
-    )
-    output["numb_of_dirs_on_dir_lastpage"] = output["dirs_count"] % output["chunk_size"]
+    chunk_size = settings.GALLERY_ITEMS_PER_PAGE
 
-    output["files_count"] = directory.get_file_counts()
-    output["total_pages"] = (
-        int((output["dirs_count"] + output["files_count"]) / output["chunk_size"]) + 1
-    )
+    # Optimize database queries with select_related/prefetch_related if needed
+    # and only fetch what we need
+    directories_queryset = directory.dirs_in_dir(sort=sort_ordering)
+    files_queryset = directory.files_in_dir(sort=sort_ordering)
 
-    
+    # Get UUIDs in batches instead of loading everything at once
+    directories = list(directories_queryset.values_list("uuid", flat=True))
+    files = list(files_queryset.values_list("uuid", flat=True))
+
+    # Get counts once and cache them
+    dirs_count = len(directories)
+    files_count = len(files)
+    total_items = dirs_count + files_count
+
+    # Calculate pagination info
+    # total_pages = (total_items + chunk_size - 1) // chunk_size  # Ceiling division
+    total_pages = max(1, math.ceil((dirs_count + files_count) / chunk_size))
+    # Build base output structure
+    output = {
+        "data": {},
+        "page_number": page_number,
+        "dirs_count": dirs_count,
+        "chunk_size": chunk_size,
+        "files_count": files_count,
+        "total_pages": total_pages,
+        "numb_of_dirs_on_dir_lastpage": dirs_count % chunk_size,
+        "numb_of_files_on_dir_lastpage": chunk_size - (dirs_count % chunk_size),
+    }
+
+    # Process pages more efficiently
     file_offset = 0
-    directories = list(
-        directory.dirs_in_dir(sort=sort_ordering).values_list("uuid", flat=True)
-    )
-    files = list(
-        directory.files_in_dir(sort=sort_ordering).values_list("uuid", flat=True)
-    )
+    for page_cnt in range(total_pages):
+        start_idx = chunk_size * page_cnt
+        end_idx = chunk_size * (page_cnt + 1)
 
-    for page_cnt in range(0, output["total_pages"]):
-        data = {}
-        data["page"] = page_cnt
-        data["directories"] = directories[
-            output["chunk_size"] * page_cnt : output["chunk_size"] * (page_cnt + 1)
-        ]
-        data["cnt_dirs"] = len(data["directories"])
-        data["files"] = files[file_offset : 30 - data["cnt_dirs"] + file_offset]
-        data["cnt_files"] = len(data["files"])
-        data["total_cnt"] = data["cnt_dirs"] + data["cnt_files"]
-        file_offset += data["cnt_files"]
-        output["data"][page_cnt] = data
-        # output["links"] = links
-    output["all_uuids"] = list(chain(directories, files))
+        # Get directories for this page
+        page_directories = directories[start_idx:end_idx]
+        dirs_on_page = len(page_directories)
+
+        # Calculate remaining space for files
+        files_space = chunk_size - dirs_on_page
+        page_files = (
+            files[file_offset : file_offset + files_space] if files_space > 0 else []
+        )
+        files_on_page = len(page_files)
+
+        # Build page data
+        output["data"][page_cnt] = {
+            "page": page_cnt,
+            "directories": page_directories,
+            "cnt_dirs": dirs_on_page,
+            "files": page_files,
+            "cnt_files": files_on_page,
+            "total_cnt": dirs_on_page + files_on_page,
+        }
+
+        file_offset += files_on_page
+
+    # Add remaining data
+
+    output["all_uuids"] = (
+        directories + files
+    )  # More efficient than itertools.chain for lists
+    # Optimize the no_thumbnails query - only fetch UUIDs
     output["no_thumbnails"] = list(
         directory.files_in_dir(
             sort=sort_ordering, additional_filters={"new_ftnail__isnull": True}
         ).values_list("uuid", flat=True)
     )
-    return output
 
+    return output
 
 
 # def view_setup():
