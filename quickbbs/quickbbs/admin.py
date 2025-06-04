@@ -2,11 +2,19 @@ from django.contrib import admin
 
 from quickbbs.models import IndexData, IndexDirs, Owners, Favorites
 
+
 @admin.register(IndexData)
 class AdminMaster_Index(admin.ModelAdmin):
     search_fields = ["name", "fqpndirectory", "uuid", "file_sha256", "id"]
     list_filter = ["filetype"]
-    readonly_fields = ("id", "uuid", "file_sha256", "unique_sha256", "name_sort")
+    readonly_fields = (
+        "id",
+        "uuid",
+        "file_sha256",
+        "unique_sha256",
+        "name_sort",
+        "display_parent_directory",
+    )
     list_display = (
         "id",
         "uuid",
@@ -32,51 +40,79 @@ class AdminMaster_Index(admin.ModelAdmin):
         "lastmod",
         "size",
         "fqpndirectory",
+        "display_parent_directory",
         #        "ignore",
         "delete_pending",
         "ownership",
         "filetype",
     )
+
+    def display_parent_directory(self, obj):
+        if obj.home_directory:
+            return obj.home_directory.fqpndirectory
+        return "No home directory"
 
 
 @admin.register(IndexDirs)
 class AdminMaster_Dirs(admin.ModelAdmin):
     search_fields = [
         "fqpndirectory",
-        "dir_sha256",
+        "dir_fqpn_sha256",
+        # "dirname_sha256",
     ]
     readonly_fields = (
         "id",
-        "dir_sha256",
+        "dir_fqpn_sha256",
+        # "dirname_sha256",
+        "dir_parent_sha256",
         "uuid",
         "sthumb",
+        "file_links",
+        "display_file_links",
     )
     list_display = (
         "id",
-        "dir_sha256",
-        "uuid",
+        "dir_fqpn_sha256",
+        # "dirname_sha256",
+        "dir_parent_sha256",
         "fqpndirectory",
         "is_generic_icon",
         "sthumb",
         "delete_pending",
+        "uuid",
     )
 
     fields = (
         "id",
-        "dir_sha256",
-        "uuid",
+        "dir_fqpn_sha256",
+        # "dirname_sha256",
+        "dir_parent_sha256",
         "fqpndirectory",
         "is_generic_icon",
         "sthumb",
         "delete_pending",
+        "uuid",
+        "display_file_links",
     )
+
+    def display_file_links(self, obj):
+        links = obj.file_links.all()
+        if len(links) > 25:
+            links = links[:25]
+            links.append("+ More files (Files truncated)...")
+        return (
+            ", \n".join([f"{link.fqpndirectory}{link.name}" for link in links])
+            if links
+            else "No links"
+        )
 
     def sthumb(self, obj):
         if obj.small_thumb is not None:
             return obj.small_thumb[0:25]
         else:
             return "None"
-        
+
+
 admin.site.register(Owners)
 admin.site.register(Favorites)
 # admin.site.register(Cache_Tracking)
