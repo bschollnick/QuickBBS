@@ -1,8 +1,5 @@
-import hashlib
 import io
 
-# from io import BytesIO
-import mimetypes
 import os
 from functools import lru_cache
 
@@ -12,12 +9,7 @@ from django.http import FileResponse
 
 from .image_utils import resize_pil_image, return_image_obj
 
-# from frontend.thumbnail import cr_tnail_img
-
-# from uuid import uuid4
-
-
-__version__ = "1.9"
+__version__ = "2.0"
 
 __author__ = "Benjamin Schollnick"
 __email__ = "Benjamin@schollnick.net"
@@ -49,14 +41,13 @@ create_file_entry(filename, filesize, is_default)
 
 class ThumbnailFiles(models.Model):
     sha256_hash = models.CharField(
-        db_index=True, blank=True, unique=True, null=True, default=None
+        db_index=True,
+        blank=True,
+        unique=True,
+        null=True,
+        default=None,
+        max_length=64,
     )
-    # fqpn_filename = models.CharField(
-    #     db_index=True,
-    #     max_length=384,
-    #     default=None,
-    #     unique=True,
-    # )  # FQFN of the file itself
     small_thumb = models.BinaryField(default=b"", null=True)
     medium_thumb = models.BinaryField(default=b"", null=True)
     large_thumb = models.BinaryField(default=b"", null=True)
@@ -64,6 +55,24 @@ class ThumbnailFiles(models.Model):
     class Meta:
         verbose_name = "Image File Thumbnails Cache"
         verbose_name_plural = "Image File Thumbnails Cache"
+
+    def add_thumbnail(self, file_sha256):
+        from quickbbs.models import IndexData
+
+        defaults = {
+            "sha256_hash": file_sha256,
+            "small_thumb": b"",
+            "medium_thumb": b"",
+            "large_thumb": b"",
+        }
+        thumbnail, created = ThumbnailFiles.objects.get_or_create(
+            **defaults, defaults=defaults
+        )
+        thumbnail.save()
+
+        if not self.thumbnail_exists():
+            thumbnail.image_to_thumbnail()
+        return thumbnail
 
     def number_of_IndexData_references(self):
         """
@@ -88,7 +97,6 @@ class ThumbnailFiles(models.Model):
                 return self.medium_thumb not in ["", b"", None]
             case "large":
                 return self.large_thumb not in ["", b"", None]
-
         return False
 
     def invalidate_thumb(self):
@@ -132,7 +140,12 @@ class ThumbnailFiles(models.Model):
 
         https://stackoverflow.com/questions/1167398/python-access-class-property-from-string
         """
-        IndexData_item = self.IndexData.first()
+        if self.IndexData.all().exists():
+            IndexData_item = self.IndexData.first()
+        else:
+            from quickbbs.models import IndexData
+
+            IndexData_item = IndexData.objects.get(file_sha256=self.sha256_hash)
         filename = (
             os.path.join(IndexData_item.fqpndirectory, IndexData_item.name)
             .title()

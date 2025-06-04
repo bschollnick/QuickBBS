@@ -6,12 +6,8 @@ import os
 import os.path
 from io import BytesIO
 
-# from moviepy.video.io import VideoFileClip
-# from moviepy.editor import VideoFileClip #* # import everythings (variables, classes, methods...)
-# inside moviepy.editor
 import av  # Video Previews
 
-# import filetypes.models as filetype_models
 import filetypes
 import fitz  # PDF previews
 from django.conf import settings
@@ -26,13 +22,8 @@ def pdf_to_pil(fspath):
     :return: A pil
     :doc-author: Trelent
     """
-    #    if filetype_models.FILETYPE_DATA[os.path.splitext(fspath).lower()]["is_pdf"]:
-    # Do not repair the PDF / validate the PDF.  If it's bad,
-    # it should be repaired, not band-aided by a patch from the web server.
-    # results = pdf_utilities.check_pdf(fs_path)
     with fitz.open(fspath) as pdf_file:
         pdf_page = pdf_file.load_page(0)
-        # matrix=fitz.Identity, alpha=True)
         pix = pdf_page.get_pixmap(alpha=True)
         try:
             source_image = Image.open(BytesIO(pix.tobytes()))
