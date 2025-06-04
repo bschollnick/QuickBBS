@@ -16,27 +16,27 @@ __url__ = "https://github.com/bschollnick/bschollnick"
 __license__ = ""
 
 
-class TestEventHandlers(FileSystemEventHandler):
-    """
-    Test Event Handler to allow visible queues for testing the Watchdog code.
-    """
+# class TestEventHandlers(FileSystemEventHandler):
+#     """
+#     Test Event Handler to allow visible queues for testing the Watchdog code.
+#     """
 
-    def on_created(self, event):
-        if event.is_directory:
-            print(f"hey, {event.src_path} has been created!")
+#     def on_created(self, event):
+#         if event.is_directory:
+#             print(f"hey, {event.src_path} has been created!")
 
-    def on_deleted(self, event):
-        if event.is_directory:
-            print(f"what the f**k! Someone deleted {event.src_path}!")
+#     def on_deleted(self, event):
+#         if event.is_directory:
+#             print(f"what the f**k! Someone deleted {event.src_path}!")
 
-    def on_modified(self, event):
-        if event.is_directory:
-            print(f"hey buddy, {event.src_path} has been modified")
-            print(event)
+#     def on_modified(self, event):
+#         if event.is_directory:
+#             print(f"hey buddy, {event.src_path} has been modified")
+#             print(event)
 
-    def on_moved(self, event):
-        if event.is_directory:
-            print(f"ok ok ok, someone moved {event.src_path} to {event.dest_path}")
+#     def on_moved(self, event):
+#         if event.is_directory:
+#             print(f"ok ok ok, someone moved {event.src_path} to {event.dest_path}")
 
 
 class watchdog_monitor:

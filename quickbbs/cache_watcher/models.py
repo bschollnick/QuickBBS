@@ -1,13 +1,9 @@
 """
-Models for the Cache Watchers for QuickBBS, this is a simple cache watcher that will monitor the directories and files
-in the albums directory and all subdirectories for changes.  When a change is detected, the directory will be removed 
-from the Cache_Storage table, which will cause it to be rescanned if that directory is accessed.
-
-The Cache_Storage table is used to signify that a directory has been scanned and is up to date.  If the directory is
-changed, the watchdog will detect the changes, and remove the directory from the Cache_Storage table.
-
-Thus when accessed, QuickBBS will see it is not up-to-date (since it is not in the Cache_Storage table) and will rescan
-the directory, and re-add it to the Cache_Storage table.
+Models for the Cache Watchers for QuickBBS, optimized for performance.
+This is a simple cache watcher that will monitor the directories and files
+in the albums directory and all subdirectories for changes. When a change is detected,
+the directory will be removed from the Cache_Storage table, which will cause it to be rescanned
+if that directory is accessed.
 """
 
 import hashlib
@@ -16,7 +12,8 @@ import pathlib
 import sys
 import time
 from functools import lru_cache
-
+import threading
+from collections import defaultdict
 
 from cache_watcher.watchdogmon import watchdog
 
@@ -24,158 +21,148 @@ from cachetools.keys import hashkey
 from django.apps import AppConfig
 from django.conf import settings
 from django.core.cache import cache
-from django.db import models
-from watchdog.events import FileSystemEventHandler  # , PatternMatchingEventHandler
+from django.db import models, transaction, close_old_connections
+
+from quickbbs.common import normalize_fqpn, get_dir_sha
+from watchdog.events import FileSystemEventHandler
 
 Cache_Storage = None
+
+# Global event buffer for batch processing
+event_buffer = defaultdict(int)
+event_buffer_lock = threading.Lock()
+EVENT_PROCESSING_DELAY = 1  # seconds
 
 
 class CacheFileMonitorEventHandler(FileSystemEventHandler):
     """
-    Event Handler for the Watchdog Monitor for QuickBBS, on any on_created, on_deleted, on_modified, on_any_event
-    detections, the directory will be removed from the Cache_Storage table, which will cause it to be rescanned
-    if that directory is accessed.
-
+    Event Handler for the Watchdog Monitor for QuickBBS, optimized to batch process events.
     """
 
+    def __init__(self):
+        super().__init__()
+        self.event_timer = None
+
     def on_created(self, event):
-        self.on_any_event(event)
+        self.buffer_event(event)
 
     def on_deleted(self, event):
-        self.on_any_event(event)
+        self.buffer_event(event)
 
     def on_modified(self, event):
-        self.on_any_event(event)
+        self.buffer_event(event)
 
     def on_moved(self, event):
-        self.on_any_event(event)
+        self.buffer_event(event)
 
-    def on_any_event(self, event):
+    def buffer_event(self, event):
+        """Buffer events to process them in batches"""
         if event.is_directory:
             dirpath = os.path.normpath(event.src_path)
         else:
             dirpath = str(pathlib.Path(os.path.normpath(event.src_path)).parent)
-        # print(dirpath)
-        # dhash = create_hash(dirpath)
-        # Cache_Storage.remove_from_cache_hdigest(dhash)
-        Cache_Storage.remove_from_cache_name(dirpath)
 
+        with event_buffer_lock:
+            event_buffer[dirpath] += 1
 
-@lru_cache(maxsize=250)
-def create_hash(text):
-    """
-    Create a hash of the text, titlecased, stripped, and normpathed that"""
-    if not text.endswith(os.sep):
-        text = f"{text}{os.sep}"
-    return hashlib.md5(text.title().strip().encode("utf-8")).hexdigest()
+            # Reset or create timer
+            if self.event_timer is not None:
+                self.event_timer.cancel()
 
+            self.event_timer = threading.Timer(
+                EVENT_PROCESSING_DELAY, self.process_buffered_events
+            )
+            self.event_timer.daemon = True
+            self.event_timer.start()
 
-@lru_cache(maxsize=250)
-def get_dir_sha(fqpn_directory) -> str:
-    """
-    Return the SHA256 hash of the file as a hexdigest string
+    def process_buffered_events(self):
+        """Process all buffered events at once"""
+        paths_to_process = []
 
-    Args:
-        fqfn (str) : The fully qualified filename of the file to be hashed
+        with event_buffer_lock:
+            paths_to_process = list(event_buffer.keys())
+            event_buffer.clear()
 
-    :return: The SHA256 hash of the file + fqfn as a hexdigest string
-    """
-    sha = None
-    digest = hashlib.sha256()
-    digest.update(normalize_fqpn(fqpn_directory).encode("utf-8"))
-    sha = digest.hexdigest()
-    return sha
-
-
-@lru_cache(maxsize=250)
-def normalize_fqpn(fqpn_directory) -> str:
-    """
-    Normalize the directory structure fully qualified pathname for conversion to a md5
-    hexdigest string.
-    :param fqpn_directory: String, the fully qualified pathname for the directory
-    :return: normalized string, all lowercase, whitespace stripped, ending with os.sep
-    """
-    Path = pathlib.Path(fqpn_directory)
-    fqpn_directory = str(Path.resolve()).lower().strip()
-    if not fqpn_directory.endswith(os.sep):
-        fqpn_directory = fqpn_directory + os.sep
-    return fqpn_directory
+        if paths_to_process:
+            Cache_Storage.remove_multiple_from_cache(paths_to_process)
 
 
 class fs_Cache_Tracking(models.Model):
     """
-    Cache_Storage table is used to signify that a directory has been scanned and is up to date.  After a rescan, the
-    directory is added to the Cache_Storage table.
-
-    The lastscan time is technically not used for aging out the cache, it is there to allow for debugging and to
-    generate a human readable time of the last scan (In the admin console).
-
+    Cache_Storage table is used to signify that a directory has been scanned and is up to date.
     """
 
     directory_sha256 = models.CharField(
-        db_index=True, blank=True, unique=True, null=True, default=None
+        db_index=True,
+        blank=True,
+        unique=True,
+        null=True,
+        default=None,
+        max_length=64,
     )
     DirName = models.CharField(db_index=False, max_length=384, default="", blank=True)
-    # the path from watchdog, titlecased, stripped, and normpathed
-    # dirpath = os.path.normpath(event.src_path.title().strip())
-    lastscan = models.FloatField()  # Stored as Unix TimeStamp (ms)
+    lastscan = models.FloatField(
+        default="", blank=True
+    )  # Stored as Unix TimeStamp (ms)
+    invalidated = models.BooleanField(default=False)
 
     @staticmethod
     def clear_all_records():
-        from frontend.views import layout_manager
-
         fs_Cache_Tracking.objects.all().delete()
-        # layout_manager.cache_clear()
 
     def add_to_cache(self, DirName):
-        entry = fs_Cache_Tracking()
-        entry.DirName = normalize_fqpn(DirName)  # .title().strip()
-        # if not entry.DirName.endswith(os.sep):
-        #     entry.DirName = f"{entry.DirName}{os.sep}"
-        entry.directory_sha256 = get_dir_sha(entry.DirName)
-        # entry.Dir_md5_hdigest = create_hash(entry.DirName)
-        # print(entry.directory_sha256)
-        if not self.sha_exists_in_cache(entry.directory_sha256):
-            entry.lastscan = time.time()
-            entry.save()
-        #       logger.info(f"Adding to cache {entry.DirName}")
-        # if not self.hdigest_exists_in_cache(entry.Dir_md5_hdigest):
-        #    entry.lastscan = time.time()
-        #    entry.save()
+        dir_sha = get_dir_sha(DirName)
+        scan_time = time.time()
+        defaults = {
+            "directory_sha256": dir_sha,
+            "lastscan": scan_time,
+            "invalidated": False,
+        }
+
+        entry, created = fs_Cache_Tracking.objects.update_or_create(
+            directory_sha256=dir_sha,
+            defaults=defaults,
+            create_defaults=defaults,
+        )
+        entry.DirName = DirName
+        entry.lastscan = scan_time
+        entry.save()
 
     def sha_exists_in_cache(self, sha256):
-        return fs_Cache_Tracking.objects.filter(directory_sha256=sha256).exists()
-
-    # def hdigest_exists_in_cache(self, hdigest):
-    #     return fs_Cache_Tracking.objects.filter(Dir_md5_hdigest=hdigest).exists()
-
-    # def name_exists_in_cache(self, DirName):
-    #     Dir_md5_hdigest = create_hash(DirName)
-    #     return self.hdigest_exists_in_cache(hdigest=Dir_md5_hdigest)
-
-    # def remove_from_cache_hdigest(self, hdigest):
-    #     from frontend.views import layout_manager_cache
-    #     from quickbbs.models import IndexDirs
-    #     #from frontend.views import layout_manager
-    #     # print("Removing ", hdigest)
-    #     items_removed, _ = fs_Cache_Tracking.objects.filter(
-    #         Dir_md5_hdigest=hdigest
-    #     ).delete()
-    #     if items_removed != 0:
-    #         directory = IndexDirs.objects.get(Dir_md5_hdigest=hdigest)
-    #         #layout_manager.cache_clear()
-    #     return items_removed != 0
+        # Use filter().exists() as it's most efficient for existence checks
+        return fs_Cache_Tracking.objects.filter(
+            directory_sha256=sha256, invalidated=False
+        ).exists()
 
     def remove_from_cache_sha(self, sha256):
         from frontend.views import layout_manager, layout_manager_cache
         from quickbbs.models import IndexDirs
 
-        # print("Removing ", sha256)
-        items_removed, _ = fs_Cache_Tracking.objects.filter(
-            directory_sha256=sha256
-        ).delete()
-        if items_removed != 0:
-            directory = IndexDirs.objects.get(dir_sha256=sha256)
+        # try:
+        # Get the directory information before deleting
+        try:
+            directory = IndexDirs.objects.get(dir_fqpn_sha256=sha256)
+            directory_found = True
+            directory.invalidate_thumb()
+            directory.save()
+        except IndexDirs.DoesNotExist:
+            directory_found = False
+
+        scan_time = time.time()
+        defaults = {
+            "directory_sha256": sha256,
+            "lastscan": scan_time,
+            "invalidated": True,
+        }
+        entry, created = fs_Cache_Tracking.objects.update_or_create(
+            directory_sha256=sha256,
+            defaults=defaults,
+            create_defaults=defaults,
+        )
+        entry.save()
+
+        # Clear layout cache if needed
+        if directory_found:
             layout = layout_manager(directory=directory, sort_ordering=0)
             for page_number in range(1, layout["total_pages"] + 1):
                 key = hashkey(
@@ -183,18 +170,61 @@ class fs_Cache_Tracking(models.Model):
                 )
                 if key in layout_manager_cache:
                     del layout_manager_cache[key]
-                else:
-                    print("Key not found in cache")
-        return items_removed != 0
+
+        return True
+        # except Exception as e:
+        #     # Log the exception
+        #     # logger.error(f"Error removing from cache: {e}")
+        #     return False
 
     def remove_from_cache_name(self, DirName):
-        # print("Removing from cache ", DirName)
-        # logger.info(f"Removing from cache {DirName}")
-        # Dir_md5_hdigest = create_hash(DirName)
         sha256 = get_dir_sha(DirName)
         return self.remove_from_cache_sha(sha256)
 
+    def remove_multiple_from_cache(self, dir_names):
+        """
+        Remove multiple directories from cache in a single transaction
+        """
+        from frontend.views import layout_manager, layout_manager_cache
+        from quickbbs.models import IndexDirs
 
+        updates = False
+        print("Removal multiple", dir_names)
+        close_old_connections()  # Ensure we have a fresh connection for the transaction
+        # Convert all directory names to SHA256 hashes
+        sha_list = set([get_dir_sha(dir_name) for dir_name in dir_names])
+        directories = list(IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list))
+        updated_cnt = IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list).update(
+            is_generic_icon=False, small_thumb=b""
+        )
+
+        dir_map = {d.dir_fqpn_sha256: d for d in directories}
+
+        with transaction.atomic():
+            # Get all affected directories before deletion
+            # Delete the cache entries
+            update_cache_entries = fs_Cache_Tracking.objects.filter(
+                directory_sha256__in=sha_list
+            )
+            updates = update_cache_entries.exists()
+            if updates:
+                update_cache_entries.update(invalidated=True)
+        # Clear all affected layout caches
+        for sha in sha_list:
+            if sha in dir_map:
+                directory = dir_map[sha]
+                layout = layout_manager(directory=directory, sort_ordering=0)
+                for page_number in range(1, layout["total_pages"] + 1):
+                    key = hashkey(
+                        page_number=page_number, directory=directory, sort_ordering=0
+                    )
+                    if key in layout_manager_cache:
+                        del layout_manager_cache[key]
+
+        return updates == True
+
+
+# Initialize watchdog with the optimized event handler
 watchdog.startup(
     monitor_path=os.path.join(settings.ALBUMS_PATH, "albums"),
     event_handler=CacheFileMonitorEventHandler(),
