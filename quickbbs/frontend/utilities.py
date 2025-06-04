@@ -1,6 +1,7 @@
 """
 Utilities for QuickBBS, the python edition.
 """
+
 import multiprocessing
 import os
 import os.path
@@ -18,7 +19,7 @@ from pathlib import Path
 # import av  # Video Previews
 import django.db.utils
 import filetypes.models as filetype_models
-from cache_watcher.models import Cache_Storage
+from cache_watcher.models import Cache_Storage, get_dir_sha
 from django.conf import settings
 from django.db import transaction
 from django.db.utils import IntegrityError
@@ -31,6 +32,7 @@ from thumbnails.models import ThumbnailFiles
 
 # from quickbbs.logger import log
 from quickbbs.models import IndexData, IndexDirs
+from quickbbs.common import normalize_fqpn
 
 Image.MAX_IMAGE_PIXELS = None  # Disable PILLOW DecompressionBombError errors.
 
@@ -134,29 +136,7 @@ def sort_order(request) -> int:
 
 def return_disk_listing(fqpn) -> tuple[bool, dict]:
     """
-    Return a dictionary that contains the scandir data (& some extra data) for the directory.
 
-    each entry will be in this vein:
-
-    data[<filename in titlecase>] = {"filename": the filename in titlecase,
-                                       "lower_filename": the filename in lowercase (depreciated?),
-                                            # Most likely depreciated in v3
-                                       "path": The fully qualified pathname and filename
-                                       'sortname': A naturalized sort ready filename
-                                       'size': FileSize
-                                       'lastmod': Last modified timestamp
-                                       'is_dir': Is this entry a directory?
-                                       'is_file': Is this entry a file?
-                                       'is_archive': is this entry an archive
-                                       'is_image': is this entry an image
-                                       'is_movie': is this entry a movie file (not animated gif)
-                                       'is_audio': is this entry an audio file
-                                       'is_text': is this entry a text file
-                                       'is_html': is this entry a html file
-                                       'is_markdown': is this entry a markdown file
-                                       'is_animated': Is this an animated file (e.g. animated GIF),
-                                            not a movie file
-                                       }
     This code obeys the following quickbbs_settings, settings:
 
     * EXTENSIONS_TO_IGNORE
@@ -196,7 +176,8 @@ def return_disk_listing(fqpn) -> tuple[bool, dict]:
                 # IGNORE_DOT_FLES is enabled, *and* the filename startswith an ., skip it.
                 continue
 
-            fs_data[item.name.title().strip()] = item
+            name = item.name.title().strip()
+            fs_data[name] = item
     except FileNotFoundError:
         return False, {}
     return (True, fs_data)
@@ -338,17 +319,30 @@ def process_filedata(fs_entry, db_record) -> IndexData:
         sub_dir_fqpn = os.path.join(db_record.fqpndirectory, db_record.name)
         sync_database_disk(sub_dir_fqpn)
         return None
-    
-    if filetype_models.FILETYPE_DATA[fileext].is_link:
-        _, redirect = db_record.name.lower().split("*")
-        redirect = (
-            redirect.replace("'", "")
-            .replace("__", "/")
-            .replace(redirect.split(".")[-1], "")[:-1]
-        )
-        db_record.fqpndirectory = f"/{redirect}"
+
+    # if filetype_models.FILETYPE_DATA[fileext].is_link:
+    if db_record.filetype.is_link:
+        if db_record.filetype.fileext == ".link":
+            _, redirect = db_record.name.lower().split("*")
+            redirect = (
+                redirect.replace("'", "")
+                .replace("__", "/")
+                .replace(redirect.split(".")[-1], "")[:-1]
+            )
+            db_record.fqpndirectory = f"/{redirect}"
+        elif db_record.filetype.fileext == ".alias":
+            # Resolve the alias path
+            try:
+                filename = os.path.join(db_record.fqpndirectory, db_record.name)
+                db_record.name = filename
+                db_record.fqpndirectory = resolve_alias_path(filename)
+            except ValueError as e:
+                print(f"Error resolving alias: {e}")
+                return None
     else:
-        db_record.file_sha256, db_record.unique_sha256 = db_record.get_file_sha(fqfn=fs_entry.absolute())
+        db_record.file_sha256, db_record.unique_sha256 = db_record.get_file_sha(
+            fqfn=fs_entry.absolute()
+        )
     # if filetype_models.FILETYPE_DATA[fileext]["is_movie"]:
     #     duration =  (
     #         os.path.join(db_record.fqpndirectory, db_record.name)
@@ -390,20 +384,23 @@ def sync_database_disk(directoryname):
     * Logic Update
         * If there are no database entries for the directory, the fs comparing to the database
     """
-    #thumb_subquery = ThumbnailFiles.objects.filter(sha256_hash=OuterRef("file_sha256"))
-    #file_count_subquery = IndexData.objects.filter(file_sha256=OuterRef("file_sha256")).annotate(count=Count('pk')).values('count')
-    bulk_size = 25
+    bulk_size = 50
     if directoryname in [os.sep, r"/"]:
         directoryname = settings.ALBUMS_PATH
     webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
-    dirpath = IndexDirs.normalize_fqpn(os.path.abspath(directoryname.title().strip()))
-    found, dirpath_id = IndexDirs.search_for_directory(fqpn_directory=dirpath)
-    if found is False:
-        dirpath_id = IndexDirs.add_directory(dirpath)
-        # print("\tAdding ", dirpath)
-
+    dirpath = normalize_fqpn(os.path.abspath(directoryname.title().strip()))
+    directory_sha256 = get_dir_sha(dirpath)
+    found, dirpath_info = IndexDirs.search_for_directory(fqpn_directory=dirpath)
     records_to_update = []
-    cached = Cache_Storage.name_exists_in_cache(DirName=dirpath) is True
+    if found is False:
+        found, dirpath_info = IndexDirs.add_directory(dirpath)
+        cached = False
+        Cache_Storage.remove_from_cache_sha(dirpath_info.dir_fqpn_sha256)
+        # print("\tAdding ", dirpath)
+    else:
+        cached = Cache_Storage.sha_exists_in_cache(sha256=directory_sha256) is True
+
+    # cached = Cache_Storage.name_exists_in_cache(DirName=dirpath) is True
     if cached:
         return None
 
@@ -419,35 +416,36 @@ def sync_database_disk(directoryname):
         # remove file path from cache
         # remove parent from cache
         # remove file path from Database
-        success, dirpath_id = IndexDirs.search_for_directory(dirpath)
-        parent_dir = dirpath_id.return_parent_directory()
-        dirpath_id.delete_directory(dirpath)
+        success, dirpath_info = IndexDirs.search_for_directory(dirpath)
+        parent_dir = dirpath_info.return_parent_directory()
+        dirpath_info.delete_directory(dirpath)
         if parent_dir.exists():
             parent_dir = parent_dir[0]
-            dirpath_id.delete_directory(parent_dir, cache_only=True)
-
-    # retrieve IndexDirs entry for dirpath
-    success, dirpath_id = IndexDirs.search_for_directory(dirpath)
-    if not success:
+            dirpath_info.delete_directory(parent_dir, cache_only=True)
         return None
 
     # Compare the database entries to see if they exist in the file system
     # If they don't, remove from cache, and delete the directory
-    db_directories = dirpath_id.dirs_in_dir()
+    db_directories = dirpath_info.dirs_in_dir()
     for fqpn in db_directories.values_list("fqpndirectory", flat=True):
         if str(Path(fqpn).name).strip().title() not in fs_entries:
             # print("Database contains a **directory** not in the fs: ", fqpn)
             IndexDirs.delete_directory(fqpn_directory=fqpn)
 
     update = False
-    db_data = dirpath_id.files_in_dir().annotate(FileDoesNotExist=Value(F('name') not in fs_entries)).annotate(FileExists=Value(F('name') not in fs_entries))
-    #db_data = dirpath_id.files_in_dir().annotate(FileDoesNotExist=Value(F('name') not in fs_entries)).annotate(active_thumbs=Subquery(thumb_subquery))
+    db_data = (
+        dirpath_info.files_in_dir()
+        .annotate(FileDoesNotExist=Value(F("name") not in fs_entries))
+        .annotate(FileExists=Value(F("name") in fs_entries))
+    )
+
+    # db_data = dirpath_id.files_in_dir().annotate(FileDoesNotExist=Value(F('name') not in fs_entries)).annotate(active_thumbs=Subquery(thumb_subquery))
     # db_data = dirpath_id.files_in_dir().annotate(FileDoesNotExist=Value(F('name') not in fs_entries)).\
     #     annotate(number_entries=IndexData.active_thumbs=Subquery(thumb_subquery))
     # if db_data.filter(FileDoesNotExist=True,).exists():
 
     for db_entry in db_data:
-        if db_entry.name.strip() not in fs_entries:
+        if db_entry.name not in fs_entries:
             # print("Database contains a file not in the fs: ", db_entry.name)
             # The entry just is not in the file system.  Delete it.
             # db_entry.ignore = True
@@ -459,8 +457,8 @@ def sync_database_disk(directoryname):
             # Does size match?
             # If directory, does the numfiles, numdirs, count_subfiles match?
             # update = False, unncessary, moved to above the for loop.
-            fext = os.path.splitext(db_entry.name.strip())[1].lower()
-            entry = fs_entries[db_entry.name.title()]
+            fext = os.path.splitext(db_entry.name)[1].lower()
+            entry = fs_entries[db_entry.name]
             fs_stat = entry.stat()
             if (
                 db_entry.file_sha256 in ["", None]
@@ -515,7 +513,7 @@ def sync_database_disk(directoryname):
             record = process_filedata(entry, record)
             if record is None:
                 continue
-            record.parent_dir = dirpath_id
+            record.parent_dir = dirpath_info
             if record.filetype.is_archive:
                 print("Archive detected ", record.name)
                 continue
@@ -577,8 +575,9 @@ def sync_database_disk(directoryname):
     #   old connections?  But Django doesn't appear to be running out of connections to
     #   postgres?  So probably a red herring.
     #
-    # from django.db import connection, close_old_connections
-    # close_old_connections()
+    from django.db import connection, close_old_connections
+
+    close_old_connections()
     # connection.connect()
     return None
 
@@ -607,26 +606,29 @@ def read_from_disk(dir_to_scan, skippable=True):
     sync_database_disk(str(dir_path))
 
 
-# import os.path
-# from Foundation import *
-# from cocoa import NSURL
+from Foundation import (
+    NSURL,
+    NSData,
+    NSError,
+    NSURLBookmarkResolutionWithoutMounting,
+    NSURLBookmarkResolutionWithoutUI,
+)
 
-# def target_of_alias(path):
-#     url = NSURL.fileURLWithPath_(path)
-#     bookmarkData, error = NSURL.bookmarkDataWithContentsOfURL_error_(url, None)
-#     if bookmarkData is None:
-#         return None
-#     opts = NSURLBookmarkResolutionWithoutUI | NSURLBookmarkResolutionWithoutMounting
-#     resolved, stale, error = NSURL.URLByResolvingBookmarkData_options_relativeToURL_bookmarkDataIsStale_error_(bookmarkData, opts, None, None, None)
-#     return resolved.path()
 
-# def resolve_links_and_aliases(path):
-#     while True:
-#         alias_target = target_of_alias(path)
-#         if alias_target:
-#             path = alias_target
-#             continue
-#         if os.path.islink(path):
-#             path = os.path.realpath(path)
-#             continue
-#         return path
+def resolve_alias_path(alias_path: str) -> str:
+    """Given a path to a macOS alias file, return the resolved path to the original file"""
+    options = NSURLBookmarkResolutionWithoutUI | NSURLBookmarkResolutionWithoutMounting
+    alias_url = NSURL.fileURLWithPath_(alias_path)
+    bookmark, error = NSURL.bookmarkDataWithContentsOfURL_error_(alias_url, None)
+    if error:
+        raise ValueError(f"Error creating bookmark data: {error}")
+
+    resolved_url, is_stale, error = (
+        NSURL.URLByResolvingBookmarkData_options_relativeToURL_bookmarkDataIsStale_error_(
+            bookmark, options, None, None, None
+        )
+    )
+    if error:
+        raise ValueError(f"Error resolving bookmark data: {error}")
+
+    return str(resolved_url.path())

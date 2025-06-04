@@ -294,11 +294,11 @@ signatures = {
         rarfile.RarFile,
     ),
     b"Rar!": (["rar", "cbr"], "application/x-rar-compressed", rarfile.RarFile),
-    b"\x1F\\9D": (["lzh"], "tar lzh compression", None),
-    b"\x1F\\A0": (["lzh"], "tar lzh compression", None),
-    b"\x42\x5A\x68": (["bzip", "bz"], "bzip compression", None),
-    b"\x37\x7A\xBC\xAF\x27\x1C": (["7z"], "7zip compression", None),
-    b"\x1F\x8B": (["gz"], "gzip compression", None),
+    b"\x1f\\9D": (["lzh"], "tar lzh compression", None),
+    b"\x1f\\A0": (["lzh"], "tar lzh compression", None),
+    b"\x42\x5a\x68": (["bzip", "bz"], "bzip compression", None),
+    b"\x37\x7a\xbc\xaf\x27\x1c": (["7z"], "7zip compression", None),
+    b"\x1f\x8b": (["gz"], "gzip compression", None),
 }
 
 sign_byte_count = 4
