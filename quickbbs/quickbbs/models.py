@@ -197,7 +197,7 @@ class IndexDirs(models.Model):
         :return: None
         """
         # Get all files in the directory
-        files = IndexData.objects.filter(parent_dir=self.pk)
+        files = IndexData.objects.filter(home_directory=self.pk)
         for file in files:
             file.directory = self
             file.save()
@@ -260,7 +260,7 @@ class IndexDirs(models.Model):
         if additional_filters is None:
             additional_filters = {}
         return IndexData.objects.filter(
-            parent_dir=self.pk, delete_pending=False, **additional_filters
+            home_directory=self.pk, delete_pending=False, **additional_filters
         ).exists()
 
     def get_file_counts(self) -> int:
