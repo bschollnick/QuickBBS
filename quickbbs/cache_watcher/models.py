@@ -108,7 +108,7 @@ class fs_Cache_Tracking(models.Model):
 
     @staticmethod
     def clear_all_records():
-        fs_Cache_Tracking.objects.all().delete()
+        fs_Cache_Tracking.objects.all().update(invalidated=True)
 
     def add_to_cache(self, DirName):
         dir_sha = get_dir_sha(DirName)
