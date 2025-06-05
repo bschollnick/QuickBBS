@@ -275,7 +275,7 @@ def fs_counts(fs_entries) -> tuple[int, int]:
     return (files, dirs)
 
 
-def process_filedata(fs_entry, db_record) -> IndexData:
+def process_filedata(fs_entry, db_record, directory_id=None) -> IndexData:
     """
     The process_filedata function takes a file system entry and returns an IndexData object.
     The IndexData object contains the following attributes:
@@ -291,11 +291,12 @@ def process_filedata(fs_entry, db_record) -> IndexData:
     :return: A dictionary of values that can be
     :doc-author: Trelent
     """
-    db_record.fqpndirectory, db_record.name = os.path.split(fs_entry.absolute())
-    db_record.fqpndirectory = ensures_endswith(
-        db_record.fqpndirectory.lower().replace("//", "/"), os.sep
-    )
-    db_record.name = db_record.name.title().replace("//", "/").strip()
+    #db_record.fqpndirectory, db_record.name = os.path.split(fs_entry.absolute())
+    #db_record.fqpndirectory = ensures_endswith(
+    #    db_record.fqpndirectory.lower().replace("//", "/"), os.sep
+    #)
+    db_record.home_directory = directory_id
+    db_record.name = os.path.split(fs_entry.absolute())[1].title().replace("//", "/").strip()
     fileext = fs_entry.suffix.lower()
     is_dir = fs_entry.is_dir()
     if is_dir:
@@ -496,7 +497,7 @@ def sync_database_disk(directoryname):
 
     # Check for entries that are not in the database, but do exist in the file system
     names = (
-        IndexData.objects.filter(fqpndirectory=webpath)
+        IndexData.objects.filter(home_directory=dirpath_info)
         .only("name")
         .values_list("name", flat=True)
     )
@@ -510,10 +511,10 @@ def sync_database_disk(directoryname):
             # The record has not been found
             # add it.
             record = IndexData()
-            record = process_filedata(entry, record)
+            record = process_filedata(entry, record, directory_id=dirpath_info)
             if record is None:
                 continue
-            record.parent_dir = dirpath_info
+            record.home_directory = dirpath_info
             if record.filetype.is_archive:
                 print("Archive detected ", record.name)
                 continue
@@ -539,7 +540,7 @@ def sync_database_disk(directoryname):
                         "unique_sha256",
                         #                        "numfiles",
                         #                        "numdirs",
-                        "parent_dir_id",
+                        "home_directory",
                     ],
                     bulk_size,
                 )
