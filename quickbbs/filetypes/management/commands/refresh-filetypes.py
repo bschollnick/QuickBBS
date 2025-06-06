@@ -101,6 +101,18 @@ class Command(BaseCommand):
                 },
             )
 
+        for ext in settings.LINK_FILE_TYPES:
+            filetypes.objects.update_or_create(
+                fileext=ext,
+                defaults={
+                    "generic": True,
+                    "icon_filename": "redirecting-link.png",
+                    "color": "FDEDB1",
+                    "filetype": settings.FTYPES["link"],
+                    "is_link": True,
+                    "mimetype": guess_type(f"test.{ext}")[0],
+                },
+            )
         filetypes.objects.update_or_create(
             fileext=".link",
             defaults={

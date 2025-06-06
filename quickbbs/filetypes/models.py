@@ -2,6 +2,7 @@
 Utilities for QuickBBS, the python edition.
 """
 
+# from asgiref.sync import async_to_sync
 import os
 from functools import lru_cache
 
@@ -51,6 +52,22 @@ class filetypes(models.Model):
 
     @lru_cache(maxsize=200)
     @staticmethod
+    def filetype_exists_by_ext(fileext):
+        """
+        Check if a filetype exists by its file extension.
+
+        :param fileext: The file extension to check, lower case, and includes the DOT (e.g. .html, not html)
+        :return: True if the filetype exists, False otherwise.
+        """
+        fileext = fileext.lower().strip()
+        if fileext in ["", None, "unknown"]:
+            return False
+        if not fileext.startswith("."):
+            fileext = "." + fileext
+        return filetypes.objects.filter(fileext=fileext).exists()
+
+    @lru_cache(maxsize=200)
+    @staticmethod
     def return_any_icon_filename(fileext):
         """
         The return_icon_filename function takes a file extension as an argument and returns the filename of the
@@ -68,12 +85,14 @@ class filetypes(models.Model):
             fileext = ".none"
         if not fileext.startswith("."):
             fileext = "." + fileext
-        data = filetypes.objects.filter(fileext=fileext)
+        #data = filetypes.objects.filter(fileext=fileext)
+        data = filestypes.return_filetype(fileext)
         if data.exists() and data[0].icon_filename != "":
             return os.path.join(settings.IMAGES_PATH, data[0].icon_filename)
         return None
 
     @lru_cache(maxsize=200)
+    @staticmethod
     def return_filetype(fileext):
         """
         fileext = gif, jpg, mp4 (lower case, and without prefix .)
@@ -84,13 +103,14 @@ class filetypes(models.Model):
         if not fileext.startswith("."):
             fileext = "." + fileext
 
-        return filetypes.objects.filter(fileext=fileext)
+        return filetypes.objects.get(fileext=fileext)
 
     class Meta:
         verbose_name = "File Type"
         verbose_name_plural = "File Types"
 
 
+@lru_cache(maxsize=200)
 def get_ftype_dict():
     """
     Return filetypes information (from table) in an dictionary form.
@@ -117,11 +137,15 @@ def map_ext_to_id(ext):
     return return_identifier(ext)
 
 
-def load_filetypes():
-    try:
-        return get_ftype_dict()
-    except:
-        print("Unable to validate or create FileType database table.")
-        print("\nPlease use manage.py --refresh-filetypes\n")
-        print("This will rebuild and/or update the FileType table.")
-    #   sys.exit()
+def load_filetypes(force=False):    
+    global FILETYPE_DATA
+    if not FILETYPE_DATA or force:
+        try:
+            print("Loading FileType data from database...")
+            FILETYPE_DATA = get_ftype_dict()
+        except:
+            print("Unable to validate or create FileType database table.")
+            print("\nPlease use manage.py --refresh-filetypes\n")
+            print("This will rebuild and/or update the FileType table.")
+    return FILETYPE_DATA
+        #   sys.exit()
