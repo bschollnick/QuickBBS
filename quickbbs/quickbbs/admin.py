@@ -5,7 +5,7 @@ from quickbbs.models import IndexData, IndexDirs, Owners, Favorites
 
 @admin.register(IndexData)
 class AdminMaster_Index(admin.ModelAdmin):
-    search_fields = ["name", "fqpndirectory", "uuid", "file_sha256", "id"]
+    search_fields = ["name", "uuid", "file_sha256", "id"]
     list_filter = ["filetype"]
     readonly_fields = (
         "id",
@@ -13,6 +13,7 @@ class AdminMaster_Index(admin.ModelAdmin):
         "file_sha256",
         "unique_sha256",
         "name_sort",
+        "display_fqpndirectory",
         "display_parent_directory",
     )
     list_display = (
@@ -24,8 +25,7 @@ class AdminMaster_Index(admin.ModelAdmin):
         "lastscan",
         "lastmod",
         "size",
-        "fqpndirectory",
-        #        "ignore",
+        "display_fqpndirectory",
         "delete_pending",
         "ownership",
         "filetype",
@@ -39,14 +39,18 @@ class AdminMaster_Index(admin.ModelAdmin):
         "lastscan",
         "lastmod",
         "size",
-        "fqpndirectory",
+        "display_fqpndirectory",
         "display_parent_directory",
-        #        "ignore",
         "delete_pending",
         "ownership",
         "filetype",
     )
 
+    def display_fqpndirectory(self, obj):
+        if obj.fqpndirectory:
+            return obj.fqpndirectory
+        return "No directory"
+    
     def display_parent_directory(self, obj):
         if obj.home_directory:
             return obj.home_directory.fqpndirectory
@@ -77,10 +81,12 @@ class AdminMaster_Dirs(admin.ModelAdmin):
         "dir_parent_sha256",
         "fqpndirectory",
         "is_generic_icon",
+        "filetype",
         "sthumb",
         "delete_pending",
         "uuid",
     )
+    list_filter = ["filetype"]
 
     fields = (
         "id",

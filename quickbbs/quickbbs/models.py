@@ -588,6 +588,7 @@ class IndexData(models.Model):
         :return: Tuple (found, new_rec) where found is a boolean indicating if the record was found,
                  and new_rec is the IndexData object.
         """
+        print("Debug: ", fs_record["filetype"])
         defaults = {
             "name": fs_record["name"],
             "fqpndirectory": normalize_fqpn(fs_record["fqpndirectory"]),
@@ -599,7 +600,8 @@ class IndexData(models.Model):
             "ignore": bool(fs_record.get("ignore", False)),
             "delete_pending": bool(fs_record.get("delete_pending", False)),
             "index_image": bool(fs_record.get("index_image", False)),
-            "filetype": filetypes.objects.get(fileext=fs_record["filetype"]),
+            "filetype": fs_record["filetype"],
+#            "filetype": filetypes.objects.get(fileext=fs_record["filetype"]),
             "dir_sha256": dir_sha256,
         }
 
@@ -785,9 +787,6 @@ class IndexData(models.Model):
         if mtype is None:
             mtype = "application/octet-stream"
         fqpn_filename = os.path.join(self.fqpndirectory, self.name)
-        mtype = self.filetype.mimetype
-        if mtype is None:
-            mtype = "application/octet-stream"
         if not ranged:
             try:
                 with open(fqpn_filename, "rb") as fh:
