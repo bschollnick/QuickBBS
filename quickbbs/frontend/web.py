@@ -8,7 +8,7 @@ import os
 import re
 from wsgiref.util import FileWrapper
 
-import filetypes
+from filetypes.models import filetypes, FILETYPE_DATA, load_filetypes
 from django.conf import settings
 from django.contrib.auth import authenticate, login
 from django.http import (
@@ -160,17 +160,16 @@ def detect_mobile(request):
 
 @never_cache
 def respond_as_attachment(request, file_path, original_filename):
-    if not filetypes.models.FILETYPE_DATA:
+    if not FILETYPE_DATA:
         print("Loading web filetypes")
-        filetypes.models.FILETYPE_DATA = filetypes.models.load_filetypes()
+        FILETYPE_DATA = load_filetypes()
 
     filename = os.path.join(file_path, original_filename)
     fext = os.path.splitext(filename)[1].lower()
-    mtype = filetypes.models.FILETYPE_DATA[fext].mimetype
+    mtype = filetypes.return_filetype(fext).mimetype
     if mtype is None:
         mtype = "application/octet-stream"
     try:
-        #    mtype = mimetypes.guess_type(filename)[0]
         response = FileResponse(
             open(filename, "rb"),
             content_type=mtype,

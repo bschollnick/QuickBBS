@@ -161,7 +161,7 @@ def return_disk_listing(fqpn) -> tuple[bool, dict]:
             elif item.is_dir():
                 fext = ".dir"
 
-            if fext not in filetype_models.FILETYPE_DATA:
+            if not filetype_models.filetypes.filetype_exists_by_ext(fext):
                 # The file extension is not in FILETYPE_DATA, so ignore it.
                 continue
 
@@ -304,13 +304,13 @@ def process_filedata(fs_entry, db_record, directory_id=None) -> IndexData:
     if fileext in [".", ""]:
         fileext = ".none"
 
-    if fileext not in filetype_models.FILETYPE_DATA:
+    if not filetype_models.filetypes.filetype_exists_by_ext(fileext):
         print("Can't match fileext w/filetypes")
         return None
 
+    filetype = filetype_models.filetypes.return_filetype(fileext=fileext)
     fs_stat = fs_entry.stat()
-    db_record.filetype = filetype_models.filetypes(fileext=fileext)
-    # db_record.filetype = filetypes(fileext=db_record.fileext)
+    db_record.filetype = filetype
     db_record.uuid = uuid.uuid4()
     db_record.size = fs_stat[stat.ST_SIZE]
     db_record.lastmod = fs_stat[stat.ST_MTIME]
@@ -321,7 +321,6 @@ def process_filedata(fs_entry, db_record, directory_id=None) -> IndexData:
         sync_database_disk(sub_dir_fqpn)
         return None
 
-    # if filetype_models.FILETYPE_DATA[fileext].is_link:
     if db_record.filetype.is_link:
         if db_record.filetype.fileext == ".link":
             _, redirect = db_record.name.lower().split("*")
@@ -335,11 +334,19 @@ def process_filedata(fs_entry, db_record, directory_id=None) -> IndexData:
             # Resolve the alias path
             try:
                 filename = os.path.join(db_record.fqpndirectory, db_record.name)
-                db_record.name = filename
-                db_record.fqpndirectory = resolve_alias_path(filename)
+                db_record.name = db_record.name.title()
+                alias_path = resolve_alias_path(filename).lower().rstrip(os.sep)+os.sep
+                print(alias_path)
+            # If the alias is not valid, then it will raise a ValueError
             except ValueError as e:
                 print(f"Error resolving alias: {e}")
                 return None
+            found, directory_linking_to = IndexDirs.search_for_directory(fqpn_directory=alias_path)
+            if not found:
+                print(f"Directory {alias_path} not found in database, skipping link.")
+                return None
+            db_record.home_directory = directory_linking_to
+
     else:
         db_record.file_sha256, db_record.unique_sha256 = db_record.get_file_sha(
             fqfn=fs_entry.absolute()
@@ -350,7 +357,7 @@ def process_filedata(fs_entry, db_record, directory_id=None) -> IndexData:
     #     )
     #     if duration is not None:
     #         db_record.duration = duration
-    if filetype_models.FILETYPE_DATA[fileext].is_image and fileext in [".gif"]:
+    if db_record.filetype.is_image and fileext in [".gif"]:
         try:
             with Image.open(
                 os.path.join(db_record.fqpndirectory, db_record.name)
@@ -459,12 +466,13 @@ def sync_database_disk(directoryname):
             # If directory, does the numfiles, numdirs, count_subfiles match?
             # update = False, unncessary, moved to above the for loop.
             fext = os.path.splitext(db_entry.name)[1].lower()
+            filetype = filetype_models.filetypes.return_filetype(fileext=fext)
             entry = fs_entries[db_entry.name]
             fs_stat = entry.stat()
             if (
                 db_entry.file_sha256 in ["", None]
                 and fext != ""
-                and not filetype_models.FILETYPE_DATA[fext].is_link
+                and not filetype.is_link
             ):
                 db_entry.file_sha256, db_entry.unique_sha256 = db_entry.get_file_sha(
                     fqfn=os.path.join(db_entry.fqpndirectory, db_entry.name)
@@ -480,7 +488,7 @@ def sync_database_disk(directoryname):
                 update = True
             if fext not in [""]:
                 if (
-                    filetype_models.FILETYPE_DATA[fext].is_movie
+                    filetype.is_movie
                     and db_entry.duration is None
                 ):
                     duration = movie_duration(
