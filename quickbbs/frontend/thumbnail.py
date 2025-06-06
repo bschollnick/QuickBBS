@@ -34,10 +34,7 @@ def new_process_dir2(db_entry):
     #
     # webpath contains the URL equivalent to the file system path (fs_path)
     #
-    if not filetypes.models.FILETYPE_DATA:
-        print("Loading thumbnails filetypes")
-        filetypes.models.FILETYPE_DATA = filetypes.models.load_filetypes()
-
+    
     files = db_entry.files_in_dir(additional_filters={"filetype__is_image": True})
 
     if not files:

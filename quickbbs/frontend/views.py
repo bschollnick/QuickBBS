@@ -18,7 +18,7 @@ from typing import Optional
 
 from cachetools import LRUCache, cached
 from cachetools.keys import hashkey
-import filetypes
+from filetypes.models import filetypes, load_filetypes 
 import markdown2
 import psycopg
 from asgiref.sync import sync_to_async
@@ -384,7 +384,6 @@ def new_viewgallery(request: WSGIRequest):
         response : Django response
 
     """
-
     print("NEW VIEW GALLERY")
     if (
         request.htmx.boosted
@@ -396,9 +395,8 @@ def new_viewgallery(request: WSGIRequest):
     else:
         print("full")
         template_name = "frontend/gallery/gallery_listing_complete.jinja"
-    if not filetypes.models.FILETYPE_DATA:
-        print("Loading filetypes")
-        filetypes.models.FILETYPE_DATA = filetypes.models.load_filetypes()
+
+    load_filetypes()
 
     start_time = time.perf_counter()  # time.time()
     request.path = request.path.lower().replace(os.sep, r"/")
@@ -678,10 +676,6 @@ def download_file(request: WSGIRequest):  # , filename=None):
         #     found during v2 development).
 
     """
-    if not filetypes.models.FILETYPE_DATA:
-        print("Loading filetypes")
-        filetypes.models.FILETYPE_DATA = filetypes.models.load_filetypes()
-
     # Is this from an archive?  If so, get the Page ID.
     d_uuid = request.GET.get("UUID", None)
     if d_uuid is None:  # == None:
@@ -718,10 +712,7 @@ def htmx_view_item(request: HtmxHttpRequest, i_uuid: str):
     else:
         print("full")
         template_name = "frontend/item/gallery_htmx_complete.jinja"
-    if not filetypes.models.FILETYPE_DATA:
-        print("Loading filetypes")
-        filetypes.models.FILETYPE_DATA = filetypes.models.load_filetypes()
-
+    
     i_uuid = str(i_uuid).strip().replace("/", "")
 
     context = build_context_info(request, i_uuid) | {"user": request.user}
