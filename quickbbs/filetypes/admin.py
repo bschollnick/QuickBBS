@@ -43,3 +43,5 @@ class AdminFiletypes(admin.ModelAdmin):
         "is_markdown",
         "is_link",
     )
+    
+    list_filter = ["fileext", "generic", "is_image", "is_archive", "is_pdf", "is_movie", "is_audio", "is_dir", "is_text", "is_html", "is_markdown", "is_link"]
