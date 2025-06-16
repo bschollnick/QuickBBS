@@ -31,7 +31,7 @@ Cache_Storage = None
 # Global event buffer for batch processing
 event_buffer = defaultdict(int)
 event_buffer_lock = threading.Lock()
-EVENT_PROCESSING_DELAY = 1  # seconds
+EVENT_PROCESSING_DELAY = 5  # seconds
 
 
 class CacheFileMonitorEventHandler(FileSystemEventHandler):
@@ -188,38 +188,48 @@ class fs_Cache_Tracking(models.Model):
         from frontend.views import layout_manager, layout_manager_cache
         from quickbbs.models import IndexDirs
 
-        updates = False
-        print("Removal multiple", dir_names)
-        close_old_connections()  # Ensure we have a fresh connection for the transaction
-        # Convert all directory names to SHA256 hashes
-        sha_list = set([get_dir_sha(dir_name) for dir_name in dir_names])
-        directories = list(IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list))
-        updated_cnt = IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list).update(
-            is_generic_icon=False, small_thumb=b""
-        )
-
-        dir_map = {d.dir_fqpn_sha256: d for d in directories}
-
-        with transaction.atomic():
-            # Get all affected directories before deletion
-            # Delete the cache entries
-            update_cache_entries = fs_Cache_Tracking.objects.filter(
-                directory_sha256__in=sha_list
+        try:
+            close_old_connections()
+            updates = False
+            print("Removal multiple", dir_names)
+            close_old_connections()  # Ensure we have a fresh connection for the transaction
+            # Convert all directory names to SHA256 hashes
+            sha_list = set([get_dir_sha(dir_name) for dir_name in dir_names])
+            directories = list(IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list))
+            updated_cnt = IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list).update(
+                is_generic_icon=False, small_thumb=b""
             )
-            updates = update_cache_entries.exists()
+
+            dir_map = {d.dir_fqpn_sha256: d for d in directories}
+
+            with transaction.atomic():
+                # Get all affected directories before deletion
+                # Delete the cache entries
+                update_cache_entries = fs_Cache_Tracking.objects.filter(
+                    directory_sha256__in=sha_list
+                )
+                updates = update_cache_entries.exists()
+                if updates:
+                    update_cache_entries.update(invalidated=True)
+            # Clear all affected layout caches
+            
             if updates:
-                update_cache_entries.update(invalidated=True)
-        # Clear all affected layout caches
-        for sha in sha_list:
-            if sha in dir_map:
-                directory = dir_map[sha]
-                layout = layout_manager(directory=directory, sort_ordering=0)
-                for page_number in range(1, layout["total_pages"] + 1):
-                    key = hashkey(
-                        page_number=page_number, directory=directory, sort_ordering=0
-                    )
-                    if key in layout_manager_cache:
-                        del layout_manager_cache[key]
+                for sha in sha_list:
+                    if sha in dir_map:
+                        directory = dir_map[sha]
+                        layout = layout_manager(directory=directory, sort_ordering=0)
+                        for page_number in range(1, layout["total_pages"] + 1):
+                            key = hashkey(
+                                page_number=page_number, directory=directory, sort_ordering=0
+                            )
+                            if key in layout_manager_cache:
+                                del layout_manager_cache[key]
+        except Exception as e:
+            # Log the exception if needed
+            # logger.error(f"Error in remove_multiple_from_cache: {e}")
+            return False
+        finally:
+            close_old_connections()
 
         return updates == True
 

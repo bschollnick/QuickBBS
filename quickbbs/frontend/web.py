@@ -160,10 +160,6 @@ def detect_mobile(request):
 
 @never_cache
 def respond_as_attachment(request, file_path, original_filename):
-    if not FILETYPE_DATA:
-        print("Loading web filetypes")
-        FILETYPE_DATA = load_filetypes()
-
     filename = os.path.join(file_path, original_filename)
     fext = os.path.splitext(filename)[1].lower()
     mtype = filetypes.return_filetype(fext).mimetype

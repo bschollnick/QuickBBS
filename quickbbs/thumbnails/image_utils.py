@@ -206,12 +206,13 @@ def return_image_obj(fs_path, memory=False) -> Image:
         # There is currently no concept of a "None" in filetypes
         extension = ".none"
 
-    if filetypes.models.FILETYPE_DATA[extension].is_pdf:
+    filetype = filetypes.models.FILETYPE_DATA[extension]
+    if filetype.is_pdf:
         source_image = pdf_to_pil(fs_path)
 
-    elif filetypes.models.FILETYPE_DATA[extension].is_movie:
+    elif filetype.is_movie:
         source_image = movie_to_pil(fs_path)
 
-    elif filetypes.models.FILETYPE_DATA[extension].is_image:
+    elif filetype.is_image:
         source_image = image_to_pil(fs_path, mem=memory)
     return source_image

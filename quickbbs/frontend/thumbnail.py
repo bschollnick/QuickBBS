@@ -4,7 +4,8 @@ Thumbnail routines for QuickBBS
 
 import os
 
-import filetypes
+#import filetypes
+from filetypes.models import filetypes as filetypes_model
 from cache_watcher.models import Cache_Storage
 from django.conf import settings
 from django.db.utils import IntegrityError
@@ -56,7 +57,7 @@ def new_process_dir2(db_entry):
             break
     if db_entry.small_thumb in [b"", None]:
         temp = return_image_obj(
-            filetypes.models.filetypes.return_any_icon_filename(fileext=".dir")
+            filetypes_model.return_any_icon_filename(fileext=".dir")
         )
         img_icon = resize_pil_image(
             temp,
