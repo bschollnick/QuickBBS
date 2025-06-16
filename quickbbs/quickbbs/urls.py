@@ -39,32 +39,24 @@ urlpatterns += [
     # when it was download/<str:uuid>, the web browser would believe the filename was the
     # uuid, and ignore the filename in the download header.
     # path("info/<uuid:i_uuid>/", frontend.views.item_info, name="item_info"),
+    re_path("^download_file/", frontend.views.download_file, name="download_file"),
+
+
     path(
         "view_item/<uuid:i_uuid>/",
-        frontend.views.test,
-        name="new_viewitem",
+        frontend.views.htmx_view_item,
+        name="view_item",
     ),
-    # path(
-    #     "view_archive/<uuid:i_uuid>",
-    #     frontend.views.new_view_archive,
-    #     name="new_view_archive",
-    # ),
-    # path(
-    #     "view_archive_item/<uuid:i_uuid>",
-    #     frontend.views.new_archive_item,
-    #     name="new_archive_item",
-    # ),
     re_path("^albums/", frontend.views.new_viewgallery, name="directories"),
-    # path("thumbnails/<uuid:tnail_id>", frontend.views.thumbnails, name="thumbnails"),
-    # path(
-    #     "thumbnail_file/<uuid:tnail_id>",
-    #     frontend.views.thumbnail_file,
-    #     name="thumbnail_file",
-    # ),
     path(
         "thumbnail_file/<uuid:tnail_id>",
         frontend.views.view_thumbnail,
         name="thumbnail_file",
+    ),
+    path(
+        "thumbnail2_file/<str:sha256>",
+        frontend.views.thumbnail2_file,
+        name="thumbnail2_file",
     ),
     path(
         "thumbnail_directory/<uuid:tnail_id>",
@@ -74,12 +66,6 @@ urlpatterns += [
     # path("thumbnails/", frontend.views.thumbnails, name="thumbnailspath"),
     path("resources/<path:pathstr>", frontend.serve_up.static_or_resources),
     path("static/<path:pathstr>", frontend.serve_up.static_or_resources),
-    path(
-        "viewer2/<uuid:i_uuid>/",
-        frontend.views.test,
-        name="test",
-    ),
-    # re_path("^test/", frontend.views.test, name="test"),
     path("accounts/", include("allauth.urls")),
     path("grappelli/", include("grappelli.urls")),  # grappelli URLS
     path(r"Admin/", admin.site.urls),

@@ -173,9 +173,7 @@ def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
     :return: The sent thumbnail
     """
     try:
-        entry = IndexData.objects.select_related("new_ftnail", "filetype").get(
-            uuid=tnail_id
-        )
+        entry = IndexData.get_by_uuid(tnail_id)
     except IndexData.DoesNotExist:
         # does not exist
         print(tnail_id, "File not found - No records returned.")
@@ -466,18 +464,32 @@ def new_viewgallery(request: WSGIRequest):
         directory, sorder=context["sort"]
     )
 
-    dirs_to_display = IndexDirs.return_by_uuid_list(
-        sort=context["sort"],
-        uuid_list=layout["data"][context["current_page"] - 1]["directories"],
-    )
-    files_to_display = IndexData.return_by_uuid_list(
-        sort=context["sort"],
-        uuid_list=layout["data"][context["current_page"] - 1]["files"],
-    ).filter(filetype__is_link=False)
-    links_to_display = IndexData.return_by_uuid_list(
-        sort=context["sort"],
-        uuid_list=layout["data"][context["current_page"] - 1]["files"],
-    ).filter(filetype__is_link=True)
+    all_dirs_in_directory = directory.dirs_in_dir()
+    all_files_in_directory = directory.files_in_dir()
+
+    data_for_current_page = layout["data"][context["current_page"] - 1]
+    dirs_to_display = all_dirs_in_directory.filter(uuid__in=data_for_current_page["directories"]).order_by(
+        *SORT_MATRIX[context["sort"]]   )
+
+    files_to_display = all_files_in_directory.filter(
+        uuid__in=data_for_current_page["files"]
+    ).filter(filetype__is_link=False).order_by(*SORT_MATRIX[context["sort"]])
+
+    links_to_display = all_files_in_directory.filter(
+        uuid__in=data_for_current_page["files"]
+    ).filter(filetype__is_link=True).order_by(*SORT_MATRIX[context["sort"]])
+    # dirs_to_display = IndexDirs.return_by_uuid_list(
+    #     sort=context["sort"],
+    #     uuid_list=layout["data"][context["current_page"] - 1]["directories"],
+    #  )
+    # files_to_display = IndexData.return_by_uuid_list(
+    #     sort=context["sort"],
+    #     uuid_list=layout["data"][context["current_page"] - 1]["files"],
+    # ).filter(filetype__is_link=False)
+    # links_to_display = IndexData.return_by_uuid_list(
+    #     sort=context["sort"],
+    #     uuid_list=layout["data"][context["current_page"] - 1]["files"],
+    # ).filter(filetype__is_link=True)
 
     context["items_to_display"] = list(
         chain(dirs_to_display, links_to_display, files_to_display)
@@ -488,9 +500,12 @@ def new_viewgallery(request: WSGIRequest):
         print(f"{len(layout["no_thumbnails"])} entries need thumbnails")
 
         batchsize = 100
-        no_thumbs = IndexData.return_by_uuid_list(uuid_list=layout["no_thumbnails"])[
-            0:batchsize
-        ]
+        no_thumbs = all_files_in_directory.filter(
+            uuid__in=layout["no_thumbnails"][0:batchsize]
+        )
+        # no_thumbs = IndexData.return_by_uuid_list(uuid_list=layout["no_thumbnails"])[
+            #0:batchsize
+        #]
         if no_thumbs:
             with transaction.atomic():
                 with DjangoConnectionThreadPoolExecutor(
@@ -501,7 +516,7 @@ def new_viewgallery(request: WSGIRequest):
                         futures.append(executor.submit(update_thumbnail, db_entry))
                     _ = [f.result() for f in futures]
                     del futures
-            for page_numb in range(1, layout_settings["page_number"]):
+            for page_numb in range(0, layout_settings["page_number"]):
                 key = hashkey(
                     page_number=page_numb,
                     directory=layout_settings["directory"],
@@ -568,7 +583,8 @@ def build_context_info(request: WSGIRequest, i_uuid: str):
         "breadcrumbs_list": [],
     }
     try:
-        entry = IndexData.objects.select_related("filetype").get(uuid=context["uuid"])
+        # entry = IndexData.objects.select_related("filetype").get(uuid=context["uuid"])
+        entry = IndexData.get_by_uuid(context["uuid"])
     except IndexData.DoesNotExist:
         return HttpResponseBadRequest(content="No entry found.")
 
@@ -600,8 +616,7 @@ def build_context_info(request: WSGIRequest, i_uuid: str):
     pathmaster = Path(os.path.join(entry.fqpndirectory, entry.name))
     context["up_uri"] = convert_to_webpath(str(pathmaster.parent)).rstrip("/")
 
-    catalog_qs = directory_entry.files_in_dir(sort=context["sort"])
-    page_uuids = list(catalog_qs.values_list("uuid", flat=True))
+    all_uuids = list(directory_entry.files_in_dir(sort=context["sort"]).only("uuid").values_list("uuid", flat=True))
     context["mobile"] = detect_mobile(request)
     if context["mobile"]:
         context["size"] = "medium"
@@ -609,7 +624,7 @@ def build_context_info(request: WSGIRequest, i_uuid: str):
         context["size"] = "large"
 
     try:
-        current_page = page_uuids.index(uuid.UUID(context["uuid"])) + 1
+        current_page = all_uuids.index(uuid.UUID(context["uuid"])) + 1
     except ValueError:
         current_page = 1
 
@@ -617,10 +632,10 @@ def build_context_info(request: WSGIRequest, i_uuid: str):
         {
             "filetype": entry.filetype.__dict__,
             "page": current_page,
-            "first_uuid": page_uuids[0],
-            "last_uuid": page_uuids[len(page_uuids) - 1],
+            "first_uuid": all_uuids[0],
+            "last_uuid": all_uuids[len(all_uuids) - 1],
             "pagecount": len(
-                page_uuids
+                all_uuids
             ),  # item_list.count,  # Switch this to math only, no paginator?
             "uuid": entry.uuid,
             "filename": entry.name,
@@ -643,22 +658,21 @@ def build_context_info(request: WSGIRequest, i_uuid: str):
     # up_uri uses this to return you to the same page offset you were viewing
 
     # generate next uuid pointers, switch this away from paginator?
-    if current_page < len(page_uuids):
-        context["next_uuid"] = page_uuids[
+    if current_page < len(all_uuids):
+        context["next_uuid"] = all_uuids[
             current_page
         ]  # current_page is 1-indexed, so this gives us next
     else:
         context["next_uuid"] = ""
 
     if current_page > 1:
-        context["previous_uuid"] = page_uuids[current_page - 2]  # Get the previous item
+        context["previous_uuid"] = all_uuids[current_page - 2]  # Get the previous item
     else:
         context["previous_uuid"] = ""
     return context
 
 
-@sync_to_async
-def download_file(request: WSGIRequest):  # , filename=None):
+def download_item(request: WSGIRequest):  # , filename=None):
     """
     Replaces new_download.
 
@@ -685,15 +699,43 @@ def download_file(request: WSGIRequest):  # , filename=None):
         raise Http404
 
     try:
-        download = IndexData.objects.get(uuid=d_uuid)
+        # download = IndexData.objects.get(uuid=d_uuid)
+        download = IndexData.get_by_uuid(d_uuid)
         return download.inline_sendfile(request, ranged=download.filetype.is_movie)
     except (IndexData.DoesNotExist, FileNotFoundError):
         raise Http404
 
+def download_file(request: WSGIRequest):  # , filename=None):
+    """
+    Replaces new_download.
 
-async def download_item(request: WSGIRequest):
-    return await download_file(request)
+    This now takes http://<servername>/downloads/<filename>?UUID=<uuid>
 
+    This fakes the browser into displaying the filename as the title of the
+    download.
+
+    Args:
+        request : Django request object
+        # filename (str): This is unused, and only captured in django URLS to allow
+        #     the web browser to "see" a default filename.  That's why the uuid is
+        #     an argument passed in (?uuid=xxxxxx), so that the web browser doesn't
+        #     see the uuid, and use that as the filename (which is an issue that was
+        #     found during v2 development).
+
+    """
+    # Is this from an archive?  If so, get the Page ID.
+    sha_value = request.GET.get("usha", None)
+    
+    if sha_value in ["", None]:
+        raise Http404
+
+    #try:
+    file_to_send = IndexData.get_by_sha256(sha_value, unique=False)
+    if file_to_send is None:
+        raise Http404
+    return file_to_send.inline_sendfile(request, ranged=file_to_send.filetype.is_movie)
+    #except (IndexData.DoesNotExist, FileNotFoundError):
+    #    raise Http404
 
 @vary_on_headers("HX-Request")
 def htmx_view_item(request: HtmxHttpRequest, i_uuid: str):

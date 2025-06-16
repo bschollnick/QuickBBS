@@ -308,9 +308,8 @@ def process_filedata(fs_entry, db_record, directory_id=None) -> IndexData:
         print("Can't match fileext w/filetypes")
         return None
 
-    filetype = filetype_models.filetypes.return_filetype(fileext=fileext)
     fs_stat = fs_entry.stat()
-    db_record.filetype = filetype
+    db_record.filetype = filetype_models.filetypes.return_filetype(fileext=fileext)
     db_record.uuid = uuid.uuid4()
     db_record.size = fs_stat[stat.ST_SIZE]
     db_record.lastmod = fs_stat[stat.ST_MTIME]
@@ -398,7 +397,9 @@ def sync_database_disk(directoryname):
     webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
     dirpath = normalize_fqpn(os.path.abspath(directoryname.title().strip()))
     directory_sha256 = get_dir_sha(dirpath)
-    found, dirpath_info = IndexDirs.search_for_directory(fqpn_directory=dirpath)
+    # found, dirpath_info = IndexDirs.search_for_directory(fqpn_directory=dirpath)
+    
+    found, dirpath_info = IndexDirs.search_for_directory_by_sha(directory_sha256)
     records_to_update = []
     if found is False:
         found, dirpath_info = IndexDirs.add_directory(dirpath)
@@ -424,7 +425,8 @@ def sync_database_disk(directoryname):
         # remove file path from cache
         # remove parent from cache
         # remove file path from Database
-        success, dirpath_info = IndexDirs.search_for_directory(dirpath)
+        # success, dirpath_info = IndexDirs.search_for_directory(dirpath)
+        found, dirpath_info = IndexDirs.search_for_directory_by_sha(directory_sha256)
         parent_dir = dirpath_info.return_parent_directory()
         dirpath_info.delete_directory(dirpath)
         if parent_dir.exists():

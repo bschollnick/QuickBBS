@@ -18,7 +18,6 @@ async def static_or_resources(request, pathstr=None):
     Uses Django's staticfiles finders which can locate files from multiple
     static directories (including app-specific static folders).
     """
-    print(pathstr)
     if pathstr is None:
         raise Http404("No path specified")
 

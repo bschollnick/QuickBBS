@@ -18,7 +18,7 @@ from django.db import models
 from django.db.models.query import QuerySet
 from django.http import FileResponse, Http404, HttpResponse
 from django.urls import reverse
-from filetypes.models import FILETYPE_DATA, filetypes
+from filetypes.models import FILETYPE_DATA, filetypes, get_ftype_dict
 from ranged_fileresponse import RangedFileResponse
 from thumbnails.models import ThumbnailFiles
 
@@ -191,16 +191,16 @@ class IndexDirs(models.Model):
         self.is_generic_icon = False
         self.save()
 
-    def associate_files(self) -> None:
-        """
-        Associate files with the directory.
-        :return: None
-        """
-        # Get all files in the directory
-        files = IndexData.objects.filter(home_directory=self.pk)
-        for file in files:
-            file.directory = self
-            file.save()
+    # def associate_files(self) -> None:
+    #     """
+    #     Associate files with the directory.
+    #     :return: None
+    #     """
+    #     # Get all files in the directory
+    #     files = IndexData.objects.filter(home_directory=self.pk)
+    #     for file in files:
+    #         file.directory = self
+    #         file.save()
 
     def get_dir_sha(self) -> str:
         """
@@ -213,6 +213,15 @@ class IndexDirs(models.Model):
         """
         return get_dir_sha(self.fqpndirectory)
 
+    @property 
+    def virtual_directory(self) -> str:
+        """
+        Return the virtual directory name of the directory.
+        This is used to return the directory name without the full path.
+        :return: String
+        """
+        return str(pathlib.Path(self.fqpndirectory).name)
+    
     @property
     def numdirs(self) -> None:
         """
@@ -259,7 +268,7 @@ class IndexDirs(models.Model):
     def do_files_exist(self, additional_filters=None) -> bool:
         if additional_filters is None:
             additional_filters = {}
-        return IndexData.objects.filter(
+        return self.IndexData_entries.filter(
             home_directory=self.pk, delete_pending=False, **additional_filters
         ).exists()
 
@@ -268,9 +277,10 @@ class IndexDirs(models.Model):
         Return the number of files that are in the database for the current directory
         :return: Integer - Number of files in the database for the directory
         """
-        return IndexData.objects.filter(
-            home_directory=self.pk, delete_pending=False
-        ).count()
+        return self.IndexData_entries.filter(delete_pending=False).count()
+        #return IndexData.objects.filter(
+        #    home_directory=self.pk, delete_pending=False
+        #).count()
 
     def do_dirs_exist(self) -> bool:
         return IndexDirs.objects.filter(
@@ -293,13 +303,13 @@ class IndexDirs(models.Model):
         and the value is the number of items of that filetype.
         A special "all_files" key is used to store the # of all items in the directory (except
         for directories).  (all_files is the sum of all file types, except "dir")
-        """
-        d_files = IndexData.objects.filter(
-            parent_dir_md5__combined_md5=self.combined_md5
-        )
+        """ 
+        filetypes_dict = get_ftype_dict()
+        d_files = self.files_in_dir()
         totals = {}
-        for key in FILETYPE_DATA.keys():
+        for key in filetypes_dict.keys():
             totals[key[1:]] = d_files.filter(filetype__fileext=key).count()
+
         totals["dir"] = self.get_dir_counts()
         totals["all_files"] = self.get_file_counts()
         return totals
@@ -312,6 +322,25 @@ class IndexDirs(models.Model):
         parent_dir = IndexDirs.objects.filter(combined_md5=self.parent_dir_md5)
         return parent_dir
 
+    @lru_cache(maxsize=1000)
+    @staticmethod
+    def search_for_directory_by_sha(sha_256) -> tuple[bool, "IndexDirs"]:
+        """
+        Return the database object matching the dir_fqpn_sha256
+        :param sha_256: The SHA-256 hash of the directory's fully qualified pathname
+        :return: A boolean representing the success of the search, and the resultant record
+        """
+        try:
+            record = IndexDirs.objects.get(
+                dir_fqpn_sha256=sha_256,
+                delete_pending=False,
+            )
+            return (True, record)
+        except IndexDirs.DoesNotExist:
+            return (False, IndexDirs.objects.none())  # return an empty query set
+
+
+    @lru_cache(maxsize=1000)
     @staticmethod
     def search_for_directory(fqpn_directory) -> tuple[bool, "IndexDirs"]:
         """
@@ -333,9 +362,9 @@ class IndexDirs(models.Model):
     @staticmethod
     def return_by_uuid_list(uuid_list, sort=0) -> "QuerySet[IndexDirs]":
         """
-        Return the files in the current directory
-        :param sort: The sort order of the files (0-2)
-        :return: The sorted query of files
+        Return the dirs in the current directory
+        :param sort: The sort order of the dirs (0-2)
+        :return: The sorted query of dirs
         """
         # necessary to prevent circular references on startup
         # pylint: disable-next=import-outside-toplevel
@@ -361,11 +390,13 @@ class IndexDirs(models.Model):
         if additional_filters is None:
             additional_filters = {}
 
-        files = (
-            IndexData.objects.select_related("new_ftnail", "filetype")
-            .filter(home_directory=self.pk, delete_pending=False, **additional_filters)
-            .order_by(*SORT_MATRIX[sort])
-        )
+        # files = (
+        #     IndexData.objects.prefetch_related("new_ftnail", "filetype")
+        #     .filter(home_directory=self.pk, delete_pending=False, **additional_filters)
+        #     .order_by(*SORT_MATRIX[sort])
+        # )
+        files = self.IndexData_entries.prefetch_related("new_ftnail").select_related("filetype").filter(delete_pending=False, **additional_filters).order_by(*SORT_MATRIX[sort])
+
         return files
 
     def dirs_in_dir(self, sort=0) -> "QuerySet[IndexDirs]":
@@ -514,7 +545,8 @@ class IndexData(models.Model):
     size = models.BigIntegerField(default=0)  # File size
     
     home_directory = models.ForeignKey(
-        "IndexDirs", on_delete=models.CASCADE, null=True, default=None
+        "IndexDirs", on_delete=models.CASCADE, null=True, default=None,
+        related_name="IndexData_entries"
     )
     is_animated = models.BooleanField(default=False, db_index=True)
     ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
@@ -626,7 +658,7 @@ class IndexData(models.Model):
         return IndexData.objects.filter(file_sha256=sha).count()
 
     @staticmethod
-    def return_list_identical_files_by_sha(sha) -> "QuerySet[IndexData]":
+    def return_list_all_identical_files_by_sha(sha) -> "QuerySet[IndexData]":
         dupes = (
             IndexData.objects.filter(file_sha256=sha)
             .values("file_sha256")
@@ -637,9 +669,36 @@ class IndexData(models.Model):
         return dupes
 
     @staticmethod
-    def return_identical_files_by_sha(sha):
+    def get_identical_file_entries_by_sha(sha):
         return IndexData.objects.values("name", "fqpndirectory").filter(file_sha256=sha)
 
+
+    @lru_cache(maxsize=1000)
+    @staticmethod
+    def get_by_filters(additional_filters=None) -> "QuerySet[IndexData]":
+        """
+        Return the files in the current directory, filtered by additional filters
+        :param additional_filters: Additional filters to apply to the query
+        :return: The filtered query of files
+        """
+        if additional_filters is None:
+            additional_filters = {}
+        return IndexData.objects.filter(delete_pending=False, **additional_filters)
+    
+
+    @lru_cache(maxsize=1000)
+    @staticmethod
+    def get_by_uuid(uuid_value) -> "IndexData":
+        """
+        Return the IndexData object by UUID
+        :param uuid_value: The UUID of the IndexData object
+        :return: IndexData object or None if not found
+        """
+        try:
+            return IndexData.objects.prefetch_related("new_ftnail").select_related("filetype").get(uuid=uuid_value, delete_pending=False)
+        except IndexData.DoesNotExist:
+            return None
+        
     @staticmethod
     def return_by_uuid_list(uuid_list, sort=0) -> "QuerySet[IndexData]":
         """
@@ -652,12 +711,28 @@ class IndexData(models.Model):
         from frontend.utilities import SORT_MATRIX
 
         files = (
-            IndexData.objects.select_related("filetype", "new_ftnail")
+            IndexData.objects.prefetch_related("new_ftnail").select_related("filetype")
             .filter(uuid__in=uuid_list, delete_pending=False)
             .order_by(*SORT_MATRIX[sort])
         )
         return files
 
+    @lru_cache(maxsize=1000)
+    @staticmethod
+    def get_by_sha256(sha_value, unique=False) -> "IndexData":
+        """
+        Return the IndexData object by SHA256
+        :param sha_value: The SHA256 of the IndexData object
+        :param unique: If True, search by unique_sha256, otherwise by file_sha256
+        :return: IndexData object or None if not found
+        """
+        try:
+            if unique:
+                return IndexData.objects.prefetch_related("new_ftnail").select_related("filetype").get(unique_sha256=sha_value, delete_pending=False)
+            return IndexData.objects.prefetch_related("new_ftnail").select_related("filetype").get(file_sha256=sha_value, delete_pending=False)
+        except IndexData.DoesNotExist:
+            return None
+        
     def get_file_sha(self, fqfn) -> tuple[str, str]:
         """
         Return the SHA256 hash of the file as a hexdigest string
@@ -758,8 +833,8 @@ class IndexData(models.Model):
             Django URL object
 
         """
-        return reverse("download") + f"?UUID={self.uuid}"
-        # null = System Owned
+        return reverse("download") + self.name + f"?UUID={self.uuid}"
+
 
     def inline_sendfile(self, request, ranged=False):
         """
@@ -811,9 +886,3 @@ class IndexData(models.Model):
     class Meta:
         verbose_name = "Master Files Index"
         verbose_name_plural = "Master Files Index"
-
-        # constraints = [
-        #     models.UniqueConstraint(
-        #         fields=["name", "fqpndirectory"], name="unique name directory"
-        #     )
-        # ]
