@@ -520,6 +520,7 @@ def sync_database_disk(directoryname):
         if test_name not in names:
             # The record has not been found
             # add it.
+            # Use a Update_OrCreate to prevent duplicates
             record = IndexData()
             record = process_filedata(entry, record, directory_id=dirpath_info)
             if record is None:
