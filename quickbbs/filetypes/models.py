@@ -85,10 +85,10 @@ class filetypes(models.Model):
             fileext = ".none"
         if not fileext.startswith("."):
             fileext = "." + fileext
-        #data = filetypes.objects.filter(fileext=fileext)
-        data = filestypes.return_filetype(fileext)
-        if data.exists() and data[0].icon_filename != "":
-            return os.path.join(settings.IMAGES_PATH, data[0].icon_filename)
+        # data = filetypes.objects.filter(fileext=fileext)
+        data = filetypes.return_filetype(fileext)
+        if data and data.icon_filename != "":
+            return os.path.join(settings.IMAGES_PATH, data.icon_filename)
         return None
 
     @lru_cache(maxsize=200)
