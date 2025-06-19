@@ -40,8 +40,6 @@ urlpatterns += [
     # uuid, and ignore the filename in the download header.
     # path("info/<uuid:i_uuid>/", frontend.views.item_info, name="item_info"),
     re_path("^download_file/", frontend.views.download_file, name="download_file"),
-
-
     path(
         "view_item/<uuid:i_uuid>/",
         frontend.views.htmx_view_item,

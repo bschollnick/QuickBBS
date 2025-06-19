@@ -50,7 +50,7 @@ class AdminMaster_Index(admin.ModelAdmin):
         if obj.fqpndirectory:
             return obj.fqpndirectory
         return "No directory"
-    
+
     def display_parent_directory(self, obj):
         if obj.home_directory:
             return obj.home_directory.fqpndirectory
