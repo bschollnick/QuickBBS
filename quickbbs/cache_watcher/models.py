@@ -212,7 +212,7 @@ class fs_Cache_Tracking(models.Model):
                 if updates:
                     update_cache_entries.update(invalidated=True)
             # Clear all affected layout caches
-            
+
             if updates:
                 for sha in sha_list:
                     if sha in dir_map:
@@ -220,7 +220,9 @@ class fs_Cache_Tracking(models.Model):
                         layout = layout_manager(directory=directory, sort_ordering=0)
                         for page_number in range(1, layout["total_pages"] + 1):
                             key = hashkey(
-                                page_number=page_number, directory=directory, sort_ordering=0
+                                page_number=page_number,
+                                directory=directory,
+                                sort_ordering=0,
                             )
                             if key in layout_manager_cache:
                                 del layout_manager_cache[key]

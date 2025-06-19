@@ -137,7 +137,7 @@ def map_ext_to_id(ext):
     return return_identifier(ext)
 
 
-def load_filetypes(force=False):    
+def load_filetypes(force=False):
     global FILETYPE_DATA
     if not FILETYPE_DATA or force:
         try:
@@ -148,4 +148,4 @@ def load_filetypes(force=False):
             print("\nPlease use manage.py --refresh-filetypes\n")
             print("This will rebuild and/or update the FileType table.")
     return FILETYPE_DATA
-        #   sys.exit()
+    #   sys.exit()

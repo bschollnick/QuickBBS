@@ -4,7 +4,7 @@ Thumbnail routines for QuickBBS
 
 import os
 
-#import filetypes
+# import filetypes
 from filetypes.models import filetypes as filetypes_model
 from cache_watcher.models import Cache_Storage
 from django.conf import settings
@@ -35,7 +35,7 @@ def new_process_dir2(db_entry):
     #
     # webpath contains the URL equivalent to the file system path (fs_path)
     #
-    
+
     files = db_entry.files_in_dir(additional_filters={"filetype__is_image": True})
 
     if not files:

@@ -18,7 +18,7 @@ from typing import Optional
 
 from cachetools import LRUCache, cached
 from cachetools.keys import hashkey
-from filetypes.models import filetypes, load_filetypes 
+from filetypes.models import filetypes, load_filetypes
 import markdown2
 import psycopg
 from asgiref.sync import sync_to_async
@@ -468,16 +468,21 @@ def new_viewgallery(request: WSGIRequest):
     all_files_in_directory = directory.files_in_dir()
 
     data_for_current_page = layout["data"][context["current_page"] - 1]
-    dirs_to_display = all_dirs_in_directory.filter(uuid__in=data_for_current_page["directories"]).order_by(
-        *SORT_MATRIX[context["sort"]]   )
+    dirs_to_display = all_dirs_in_directory.filter(
+        uuid__in=data_for_current_page["directories"]
+    ).order_by(*SORT_MATRIX[context["sort"]])
 
-    files_to_display = all_files_in_directory.filter(
-        uuid__in=data_for_current_page["files"]
-    ).filter(filetype__is_link=False).order_by(*SORT_MATRIX[context["sort"]])
+    files_to_display = (
+        all_files_in_directory.filter(uuid__in=data_for_current_page["files"])
+        .filter(filetype__is_link=False)
+        .order_by(*SORT_MATRIX[context["sort"]])
+    )
 
-    links_to_display = all_files_in_directory.filter(
-        uuid__in=data_for_current_page["files"]
-    ).filter(filetype__is_link=True).order_by(*SORT_MATRIX[context["sort"]])
+    links_to_display = (
+        all_files_in_directory.filter(uuid__in=data_for_current_page["files"])
+        .filter(filetype__is_link=True)
+        .order_by(*SORT_MATRIX[context["sort"]])
+    )
     # dirs_to_display = IndexDirs.return_by_uuid_list(
     #     sort=context["sort"],
     #     uuid_list=layout["data"][context["current_page"] - 1]["directories"],
@@ -504,8 +509,8 @@ def new_viewgallery(request: WSGIRequest):
             uuid__in=layout["no_thumbnails"][0:batchsize]
         )
         # no_thumbs = IndexData.return_by_uuid_list(uuid_list=layout["no_thumbnails"])[
-            #0:batchsize
-        #]
+        # 0:batchsize
+        # ]
         if no_thumbs:
             with transaction.atomic():
                 with DjangoConnectionThreadPoolExecutor(
@@ -616,7 +621,11 @@ def build_context_info(request: WSGIRequest, i_uuid: str):
     pathmaster = Path(os.path.join(entry.fqpndirectory, entry.name))
     context["up_uri"] = convert_to_webpath(str(pathmaster.parent)).rstrip("/")
 
-    all_uuids = list(directory_entry.files_in_dir(sort=context["sort"]).only("uuid").values_list("uuid", flat=True))
+    all_uuids = list(
+        directory_entry.files_in_dir(sort=context["sort"])
+        .only("uuid")
+        .values_list("uuid", flat=True)
+    )
     context["mobile"] = detect_mobile(request)
     if context["mobile"]:
         context["size"] = "medium"
@@ -705,6 +714,7 @@ def download_item(request: WSGIRequest):  # , filename=None):
     except (IndexData.DoesNotExist, FileNotFoundError):
         raise Http404
 
+
 def download_file(request: WSGIRequest):  # , filename=None):
     """
     Replaces new_download.
@@ -725,17 +735,18 @@ def download_file(request: WSGIRequest):  # , filename=None):
     """
     # Is this from an archive?  If so, get the Page ID.
     sha_value = request.GET.get("usha", None)
-    
+
     if sha_value in ["", None]:
         raise Http404
 
-    #try:
+    # try:
     file_to_send = IndexData.get_by_sha256(sha_value, unique=False)
     if file_to_send is None:
         raise Http404
     return file_to_send.inline_sendfile(request, ranged=file_to_send.filetype.is_movie)
-    #except (IndexData.DoesNotExist, FileNotFoundError):
+    # except (IndexData.DoesNotExist, FileNotFoundError):
     #    raise Http404
+
 
 @vary_on_headers("HX-Request")
 def htmx_view_item(request: HtmxHttpRequest, i_uuid: str):
@@ -754,7 +765,7 @@ def htmx_view_item(request: HtmxHttpRequest, i_uuid: str):
     else:
         print("full")
         template_name = "frontend/item/gallery_htmx_complete.jinja"
-    
+
     i_uuid = str(i_uuid).strip().replace("/", "")
 
     context = build_context_info(request, i_uuid) | {"user": request.user}

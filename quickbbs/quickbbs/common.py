@@ -1,6 +1,7 @@
 import hashlib
 import os
 import pathlib
+from typing import Optional
 from functools import lru_cache
 
 
@@ -27,3 +28,29 @@ def normalize_fqpn(fqpn_directory) -> str:
         fqpn += os.sep
 
     return fqpn
+
+
+def get_file_sha(fqfn) -> tuple[Optional[str], Optional[str]]:
+    """
+    Return the SHA256 hash of the file as a hexdigest string
+
+    Args:
+        fqfn (str) : The fully qualified filename of the file to be hashed
+
+    :return: The SHA256 hash of the file + fqfn as a hexdigest string
+    """
+    sha256 = hashlib.sha256()
+    unique_sha256 = None
+    try:
+        with open(fqfn, "rb") as filehandle:
+            for chunk in iter(lambda: filehandle.read(4096), b""):
+                # Update the hash with each chunk
+                sha256.update(chunk)
+        file_sha256 = sha256.hexdigest()
+        sha256.update(str(fqfn).title().encode("utf-8"))
+        unique_sha256 = sha256.hexdigest()
+    except (FileNotFoundError, OSError, IOError):
+        file_sha256 = None
+        unique_sha256 = None
+        print(f"Error producing SHA 256 for: {fqfn}")
+    return file_sha256, unique_sha256

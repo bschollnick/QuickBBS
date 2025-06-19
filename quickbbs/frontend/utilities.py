@@ -2,16 +2,18 @@
 Utilities for QuickBBS, the python edition.
 """
 
+from datetime import timedelta
+from functools import lru_cache, wraps
+import logging
 import multiprocessing
 import os
 import os.path
+from pathlib import Path
 import stat
 import time
+from typing import Optional, Dict, Any, List, Tuple
 import urllib.parse
 import uuid
-from datetime import timedelta
-from functools import lru_cache, wraps
-from pathlib import Path
 
 # from moviepy.video.io import VideoFileClip
 # from moviepy.editor import VideoFileClip #* # import everythings (variables, classes, methods...)
@@ -19,6 +21,7 @@ from pathlib import Path
 # import av  # Video Previews
 import django.db.utils
 import filetypes.models as filetype_models
+from quickbbs.common import get_file_sha
 from cache_watcher.models import Cache_Storage, get_dir_sha
 from django.conf import settings
 from django.db import transaction
@@ -33,6 +36,8 @@ from thumbnails.models import ThumbnailFiles
 # from quickbbs.logger import log
 from quickbbs.models import IndexData, IndexDirs
 from quickbbs.common import normalize_fqpn
+
+logger = logging.getLogger(__name__)
 
 Image.MAX_IMAGE_PIXELS = None  # Disable PILLOW DecompressionBombError errors.
 
@@ -132,6 +137,248 @@ def sort_order(request) -> int:
 
     """
     return int(request.GET.get("sort", default=0))
+
+
+def _get_or_create_directory(
+    directory_sha256: str, dirpath: str
+) -> Tuple[Optional[object], bool]:
+    """Get or create directory record and check cache status."""
+    found, dirpath_info = IndexDirs.search_for_directory_by_sha(directory_sha256)
+
+    if not found:
+        found, dirpath_info = IndexDirs.add_directory(dirpath)
+        if not found:
+            logger.error(f"Failed to create directory record for {dirpath}")
+            return None, False
+        Cache_Storage.remove_from_cache_sha(dirpath_info.dir_fqpn_sha256)
+        return dirpath_info, False
+
+    # Check cache status
+    is_cached = Cache_Storage.sha_exists_in_cache(sha256=directory_sha256)
+    return dirpath_info, is_cached
+
+
+def _handle_missing_directory(directory_sha256: str, dirpath_info: object) -> None:
+    """Handle case where directory doesn't exist on filesystem."""
+    try:
+        parent_dirs = dirpath_info.return_parent_directory()
+        dirpath_info.delete_directory(dirpath_info.fqpndirectory)
+
+        # Clean up parent directory cache if it exists
+        if parent_dirs and parent_dirs.exists():
+            parent_dir = parent_dirs.first()
+            if parent_dir:
+                parent_dir.delete_directory(parent_dir.fqpndirectory, cache_only=True)
+    except Exception as e:
+        logger.error(f"Error handling missing directory: {e}")
+    return None
+
+
+def _sync_directories(dirpath_info: object, fs_entries: Dict) -> None:
+    """Synchronize database directories with filesystem."""
+    # Get all database directories in one query
+    logger.info("Synchronizing directories...")
+    db_directories = set(
+        dirpath_info.dirs_in_dir().values_list("fqpndirectory", flat=True)
+    )
+
+    # Get filesystem directory names
+    fs_directory_names = {
+        entry.name.strip().title() for entry in fs_entries.values() if entry.is_dir()
+    }
+
+    # Find directories to delete (in DB but not in filesystem)
+    directories_to_delete = []
+    for fqpn in db_directories:
+        dir_name = str(Path(fqpn).name).strip().title()
+        if dir_name not in fs_directory_names:
+            directories_to_delete.append(fqpn)
+
+    # Batch delete directories
+    if directories_to_delete:
+        for fqpn in directories_to_delete:
+            try:
+                IndexDirs.delete_directory(fqpn_directory=fqpn)
+            except Exception as e:
+                logger.error(f"Error deleting directory {fqpn}: {e}")
+
+
+def _sync_files(dirpath_info: object, fs_entries: Dict, bulk_size: int) -> None:
+    """Synchronize database files with filesystem."""
+    # Get all database files in one optimized query
+    db_files = {
+        file_record.name: file_record
+        for file_record in dirpath_info.files_in_dir()
+        .select_related("filetype")
+        .only(
+            "name",
+            "lastmod",
+            "size",
+            "file_sha256",
+            "unique_sha256",
+            "duration",
+            "filetype",
+        )
+    }
+
+    fs_file_names = {
+        name: entry for name, entry in fs_entries.items() if not entry.is_dir()
+    }
+
+    # Process updates and deletions
+    records_to_update = []
+    records_to_delete = []
+
+    for db_name, db_record in db_files.items():
+        if db_name not in fs_file_names:
+            # File exists in DB but not in filesystem
+            records_to_delete.append(db_record.id)
+        else:
+            # File exists in both - check for updates
+            updated_record = _check_file_updates(db_record, fs_file_names[db_name])
+            if updated_record:
+                records_to_update.append(updated_record)
+
+    # Process new files
+    records_to_create = _process_new_files(dirpath_info, fs_file_names, db_files)
+
+    # Execute batch operations
+    _execute_batch_operations(
+        records_to_update, records_to_create, records_to_delete, bulk_size
+    )
+
+
+def _check_file_updates(db_record: object, fs_entry: Path) -> Optional[object]:
+    """Check if database record needs updating based on filesystem entry."""
+    try:
+        fs_stat = fs_entry.stat()
+        update_needed = False
+
+        # Check file hash if missing
+        fext = os.path.splitext(db_record.name)[1].lower()
+        if fext:  # Only process files with extensions
+            filetype = filetype_models.filetypes.return_filetype(fileext=fext)
+
+            if not db_record.file_sha256 and not filetype.is_link:
+                try:
+                    db_record.file_sha256, db_record.unique_sha256 = (
+                        db_record.get_file_sha(fqfn=fs_entry)
+                    )
+                    update_needed = True
+                except Exception as e:
+                    logger.error(f"Error calculating SHA for {fs_entry}: {e}")
+
+            # Check modification time
+            if db_record.lastmod != fs_stat.st_mtime:
+                db_record.lastmod = fs_stat.st_mtime
+                update_needed = True
+
+            # Check file size
+            if db_record.size != fs_stat.st_size:
+                db_record.size = fs_stat.st_size
+                update_needed = True
+
+            # Check movie duration
+            if filetype.is_movie and db_record.duration is None:
+                try:
+                    duration = movie_duration(str(fs_entry))
+                    if duration is not None:
+                        db_record.duration = timedelta(seconds=duration)
+                        update_needed = True
+                except Exception as e:
+                    logger.error(f"Error getting duration for {fs_entry}: {e}")
+
+        return db_record if update_needed else None
+
+    except (OSError, IOError) as e:
+        logger.error(f"Error checking file {fs_entry}: {e}")
+        return None
+
+
+def _process_new_files(
+    dirpath_info: object, fs_file_names: Dict, db_files: Dict
+) -> List[object]:
+    """Process files that exist in filesystem but not in database."""
+    records_to_create = []
+
+    for fs_name, fs_entry in fs_file_names.items():
+        test_name = fs_entry.name.title().replace("//", "/").strip()
+
+        if test_name not in db_files:
+            try:
+                # Process new file
+                filedata = process_filedata(fs_entry, directory_id=dirpath_info)
+                if filedata is None:
+                    continue
+
+                # Skip archives for now (as per original logic)
+                filetype = filedata.get("filetype")
+                if hasattr(filetype, "is_archive") and filetype.is_archive:
+                    logger.info(f"Archive detected: {filedata['name']}")
+                    continue
+
+                # Create record using get_or_create to handle duplicates
+                record, created = IndexData.objects.get_or_create(
+                    unique_sha256=filedata.get("unique_sha256"), defaults=filedata
+                )
+
+                if created:
+                    record.home_directory = dirpath_info
+                    records_to_create.append(record)
+
+            except Exception as e:
+                logger.error(f"Error processing new file {fs_entry}: {e}")
+                continue
+
+    return records_to_create
+
+
+def _execute_batch_operations(
+    records_to_update: List,
+    records_to_create: List,
+    records_to_delete: List,
+    bulk_size: int,
+) -> None:
+    """Execute all database operations in batches with proper transaction handling."""
+
+    try:
+        with transaction.atomic():
+            # Batch delete
+            if records_to_delete:
+                IndexData.objects.filter(id__in=records_to_delete).delete()
+                logger.info(f"Deleted {len(records_to_delete)} records")
+
+            # Batch update
+            if records_to_update:
+                IndexData.objects.bulk_update(
+                    records_to_update,
+                    fields=[
+                        "lastmod",
+                        "size",
+                        "duration",
+                        "file_sha256",
+                        "unique_sha256",
+                        "home_directory",
+                    ],
+                    batch_size=bulk_size,
+                )
+                logger.info(f"Updated {len(records_to_update)} records")
+
+            # Batch create
+            if records_to_create:
+                # Process in chunks to avoid memory issues
+                for i in range(0, len(records_to_create), bulk_size):
+                    chunk = records_to_create[i : i + bulk_size]
+                    IndexData.objects.bulk_create(
+                        chunk,
+                        batch_size=bulk_size,
+                        ignore_conflicts=True,  # Handle duplicates gracefully
+                    )
+                logger.info(f"Created {len(records_to_create)} records")
+
+    except Exception as e:
+        logger.error(f"Database operation failed: {e}")
+        raise
 
 
 def return_disk_listing(fqpn) -> tuple[bool, dict]:
@@ -275,323 +522,419 @@ def fs_counts(fs_entries) -> tuple[int, int]:
     return (files, dirs)
 
 
-def process_filedata(fs_entry, db_record, directory_id=None) -> IndexData:
+def process_filedata(
+    fs_entry: Path, directory_id: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
     """
-    The process_filedata function takes a file system entry and returns an IndexData object.
-    The IndexData object contains the following attributes:
-        fqpndirectory - The fully qualified path to the directory containing the file or folder.
-        name - The name of the file or folder (without any parent directories).
-        sortname - A normalized version of 'name' with all capital letters replaced by lower case letters,
-            spaces replaced by underscores, and punctuation removed. This is used for sorting purposes only;
-            it does not need to be unique nor must it match 'name'. It is recommended that
-    :param fs_entry: Get the absolute path of the file
-    :param db_record: Store the data in the database
-    :param v3: Force the old version of process_filedata to be used, if True use v3 structures
-        (Not yet ready)
-    :return: A dictionary of values that can be
-    :doc-author: Trelent
+    Process a file system entry and return a dictionary with file metadata.
+
+    Args:
+        fs_entry: Path object representing the file or directory
+        directory_id: Optional directory identifier for the parent directory
+
+    Returns:
+        Dictionary containing file metadata or None if processing fails
     """
-    #db_record.fqpndirectory, db_record.name = os.path.split(fs_entry.absolute())
-    #db_record.fqpndirectory = ensures_endswith(
-    #    db_record.fqpndirectory.lower().replace("//", "/"), os.sep
-    #)
-    db_record.home_directory = directory_id
-    db_record.name = os.path.split(fs_entry.absolute())[1].title().replace("//", "/").strip()
-    fileext = fs_entry.suffix.lower()
-    is_dir = fs_entry.is_dir()
-    if is_dir:
-        fileext = ".dir"
-    if fileext in [".", ""]:
-        fileext = ".none"
+    try:
+        # Initialize the record dictionary
+        record = {
+            "home_directory": directory_id,
+            "name": fs_entry.name.title().strip(),  # More efficient than os.path.split
+            "uuid": str(uuid.uuid4()),  # Convert to string for JSON serialization
+            "is_animated": False,
+            "file_sha256": None,
+            "unique_sha256": None,
+            "duration": None,
+        }
 
-    if not filetype_models.filetypes.filetype_exists_by_ext(fileext):
-        print("Can't match fileext w/filetypes")
-        return None
+        # Get file extension and determine if it's a directory
+        fileext = fs_entry.suffix.lower() if fs_entry.suffix else ".none"
+        is_dir = fs_entry.is_dir()
 
-    fs_stat = fs_entry.stat()
-    db_record.filetype = filetype_models.filetypes.return_filetype(fileext=fileext)
-    db_record.uuid = uuid.uuid4()
-    db_record.size = fs_stat[stat.ST_SIZE]
-    db_record.lastmod = fs_stat[stat.ST_MTIME]
-    db_record.lastscan = time.time()
-    db_record.is_animated = False
-    if is_dir:
-        sub_dir_fqpn = os.path.join(db_record.fqpndirectory, db_record.name)
-        sync_database_disk(sub_dir_fqpn)
-        return None
+        if is_dir:
+            fileext = ".dir"
+        elif not fileext or fileext == ".":
+            fileext = ".none"
 
-    if db_record.filetype.is_link:
-        if db_record.filetype.fileext == ".link":
-            _, redirect = db_record.name.lower().split("*")
-            redirect = (
-                redirect.replace("'", "")
-                .replace("__", "/")
-                .replace(redirect.split(".")[-1], "")[:-1]
+        # Check if filetype exists (assuming this function is available)
+        if not filetype_models.filetypes.filetype_exists_by_ext(fileext):
+            print(f"Can't match fileext '{fileext}' with filetypes")
+            return None
+
+        # Get file stats efficiently
+        try:
+            fs_stat = fs_entry.stat()
+            record.update(
+                {
+                    "size": fs_stat.st_size,
+                    "lastmod": fs_stat.st_mtime,
+                    "lastscan": time.time(),
+                    "filetype": filetype_models.filetypes.return_filetype(
+                        fileext=fileext
+                    ),
+                }
             )
-            db_record.fqpndirectory = f"/{redirect}"
-        elif db_record.filetype.fileext == ".alias":
-            # Resolve the alias path
-            try:
-                filename = os.path.join(db_record.fqpndirectory, db_record.name)
-                db_record.name = db_record.name.title()
-                alias_path = resolve_alias_path(filename).lower().rstrip(os.sep)+os.sep
-                print(alias_path)
-            # If the alias is not valid, then it will raise a ValueError
-            except ValueError as e:
-                print(f"Error resolving alias: {e}")
-                return None
-            found, directory_linking_to = IndexDirs.search_for_directory(fqpn_directory=alias_path)
-            if not found:
-                print(f"Directory {alias_path} not found in database, skipping link.")
-                return None
-            db_record.home_directory = directory_linking_to
+        except (OSError, IOError) as e:
+            print(f"Error getting file stats for {fs_entry}: {e}")
+            return None
 
-    else:
-        db_record.file_sha256, db_record.unique_sha256 = db_record.get_file_sha(
-            fqfn=fs_entry.absolute()
-        )
-    # if filetype_models.FILETYPE_DATA[fileext]["is_movie"]:
-    #     duration =  (
-    #         os.path.join(db_record.fqpndirectory, db_record.name)
-    #     )
-    #     if duration is not None:
-    #         db_record.duration = duration
-    if db_record.filetype.is_image and fileext in [".gif"]:
-        try:
-            with Image.open(
-                os.path.join(db_record.fqpndirectory, db_record.name)
-            ) as test_animation:
-                # db_record.is_animated = Image.open(os.path.join(db_record.fqpndirectory, db_record.name)).is_animated
-                db_record.is_animated = test_animation.is_animated
-        except AttributeError:
-            db_record.is_animated = False
-    return db_record
+        # Handle directories
+        if is_dir:
+            # Assuming sync_database_disk is defined elsewhere
+            sync_database_disk(str(fs_entry))
+            return None
 
-
-def sync_database_disk(directoryname):
-    """
-
-    Parameters
-    ----------
-    directoryname : The "webpath", the fragment of the directory name to load, lowercased, and
-        double '//' is replaced with '/'
-
-    Returns
-    -------
-    None
-
-    Note:
-           * This does not currently contend with Archives.
-           * Archive logic will need to be built-out or broken out elsewhere
-           * This is still currently using the v2 data structures.  First test is
-                to ensure that the logic works as expected.  Second is to then update
-                to use new data structures for v3.
-           * There's little path work done here, but look to rewrite to pass in Path from Pathlib?
-
-    * Logic Update
-        * If there are no database entries for the directory, the fs comparing to the database
-    """
-    bulk_size = 50
-    if directoryname in [os.sep, r"/"]:
-        directoryname = settings.ALBUMS_PATH
-    webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
-    dirpath = normalize_fqpn(os.path.abspath(directoryname.title().strip()))
-    directory_sha256 = get_dir_sha(dirpath)
-    # found, dirpath_info = IndexDirs.search_for_directory(fqpn_directory=dirpath)
-    
-    found, dirpath_info = IndexDirs.search_for_directory_by_sha(directory_sha256)
-    records_to_update = []
-    if found is False:
-        found, dirpath_info = IndexDirs.add_directory(dirpath)
-        cached = False
-        Cache_Storage.remove_from_cache_sha(dirpath_info.dir_fqpn_sha256)
-        # print("\tAdding ", dirpath)
-    else:
-        cached = Cache_Storage.sha_exists_in_cache(sha256=directory_sha256) is True
-
-    # cached = Cache_Storage.name_exists_in_cache(DirName=dirpath) is True
-    if cached:
-        return None
-
-    # It's not cached
-    # if not cached:
-    print(f"Not Cached! Rescanning directory: {dirpath}")
-    # If the directory is not found in the Cache_Tracking table, then it needs to be rescanned.
-    # Remember, directory is placed in there, when it is scanned.
-    # If changed, then watchdog should have removed it from the path.
-    success, fs_entries = return_disk_listing(dirpath)
-    if not success:
-        # File path doesn't exist
-        # remove file path from cache
-        # remove parent from cache
-        # remove file path from Database
-        # success, dirpath_info = IndexDirs.search_for_directory(dirpath)
-        found, dirpath_info = IndexDirs.search_for_directory_by_sha(directory_sha256)
-        parent_dir = dirpath_info.return_parent_directory()
-        dirpath_info.delete_directory(dirpath)
-        if parent_dir.exists():
-            parent_dir = parent_dir[0]
-            dirpath_info.delete_directory(parent_dir, cache_only=True)
-        return None
-
-    # Compare the database entries to see if they exist in the file system
-    # If they don't, remove from cache, and delete the directory
-    db_directories = dirpath_info.dirs_in_dir()
-    for fqpn in db_directories.values_list("fqpndirectory", flat=True):
-        if str(Path(fqpn).name).strip().title() not in fs_entries:
-            # print("Database contains a **directory** not in the fs: ", fqpn)
-            IndexDirs.delete_directory(fqpn_directory=fqpn)
-
-    update = False
-    db_data = (
-        dirpath_info.files_in_dir()
-        .annotate(FileDoesNotExist=Value(F("name") not in fs_entries))
-        .annotate(FileExists=Value(F("name") in fs_entries))
-    )
-
-    # db_data = dirpath_id.files_in_dir().annotate(FileDoesNotExist=Value(F('name') not in fs_entries)).annotate(active_thumbs=Subquery(thumb_subquery))
-    # db_data = dirpath_id.files_in_dir().annotate(FileDoesNotExist=Value(F('name') not in fs_entries)).\
-    #     annotate(number_entries=IndexData.active_thumbs=Subquery(thumb_subquery))
-    # if db_data.filter(FileDoesNotExist=True,).exists():
-
-    for db_entry in db_data:
-        if db_entry.name not in fs_entries:
-            # print("Database contains a file not in the fs: ", db_entry.name)
-            # The entry just is not in the file system.  Delete it.
-            # db_entry.ignore = True
-            db_entry.delete()
-            continue
-        else:
-            # The db_entry does exist in the file system.
-            # Does the lastmod match?
-            # Does size match?
-            # If directory, does the numfiles, numdirs, count_subfiles match?
-            # update = False, unncessary, moved to above the for loop.
-            fext = os.path.splitext(db_entry.name)[1].lower()
-            filetype = filetype_models.filetypes.return_filetype(fileext=fext)
-            entry = fs_entries[db_entry.name]
-            fs_stat = entry.stat()
-            if (
-                db_entry.file_sha256 in ["", None]
-                and fext != ""
-                and not filetype.is_link
-            ):
-                db_entry.file_sha256, db_entry.unique_sha256 = db_entry.get_file_sha(
-                    fqfn=os.path.join(db_entry.fqpndirectory, db_entry.name)
-                )
-                update = True
-            if db_entry.lastmod != fs_stat[stat.ST_MTIME]:
-                # print("LastMod mismatch")
-                db_entry.lastmod = fs_stat[stat.ST_MTIME]
-                update = True
-            if db_entry.size != fs_stat[stat.ST_SIZE]:
-                # print("Size mismatch")
-                db_entry.size = fs_stat[stat.ST_SIZE]
-                update = True
-            if fext not in [""]:
-                if (
-                    filetype.is_movie
-                    and db_entry.duration is None
-                ):
-                    duration = movie_duration(
-                        os.path.join(db_entry.fqpndirectory, db_entry.name)
+        # Handle link files
+        filetype = record["filetype"]
+        if hasattr(filetype, "is_link") and filetype.is_link:
+            if filetype.fileext == ".link":
+                try:
+                    _, redirect = (
+                        record["name"].lower().split("*", 1)
+                    )  # Limit split to 1
+                    redirect = (
+                        redirect.replace("'", "")
+                        .replace("__", "/")
+                        .rsplit(".", 1)[0]  # More efficient than split + slice
                     )
-                    if duration is not None:
-                        db_entry.duration = timedelta(duration)
-                        update = True
-            if update:
-                records_to_update.append(db_entry)
-                # print("Database record being updated: ", db_entry.name)
-                #                    db_entry.save()
-                update = False
+                    record["fqpndirectory"] = f"/{redirect}"
+                except ValueError:
+                    print(f"Invalid link format in file: {record['name']}")
+                    return None
 
-    # Check for entries that are not in the database, but do exist in the file system
-    names = (
-        IndexData.objects.filter(home_directory=dirpath_info)
-        .only("name")
-        .values_list("name", flat=True)
-    )
-    # fetch an updated set of records, since we may have changed it from above.
-    records_to_create = []
-    # print("names:",names)
-    for _, entry in fs_entries.items():
-        test_name = entry.name.title().replace("//", "/").strip()
-        # print(test_name, test_name in names )
-        if test_name not in names:
-            # The record has not been found
-            # add it.
-            # Use a Update_OrCreate to prevent duplicates
-            record = IndexData()
-            record = process_filedata(entry, record, directory_id=dirpath_info)
-            if record is None:
-                continue
-            record.home_directory = dirpath_info
-            if record.filetype.is_archive:
-                print("Archive detected ", record.name)
-                continue
+            elif filetype.fileext == ".alias":
+                try:
+                    alias_path = (
+                        resolve_alias_path(str(fs_entry)).lower().rstrip(os.sep)
+                        + os.sep
+                    )
+                    print(f"Resolved alias path: {alias_path}")
+
+                    # Assuming IndexDirs.search_for_directory is available
+                    found, directory_linking_to = IndexDirs.search_for_directory(
+                        fqpn_directory=alias_path
+                    )
+                    if not found:
+                        print(
+                            f"Directory {alias_path} not found in database, skipping link."
+                        )
+                        return None
+                    record["home_directory"] = directory_linking_to
+
+                except ValueError as e:
+                    print(f"Error resolving alias: {e}")
+                    return None
+        else:
+            # Calculate file hashes for non-link files
             try:
-                record.save()
-            except IntegrityError as e:
-                print("Integrity Error A")
-                print(e)
-                continue  # Need to rethink the link records, if a directory is deleted, and it
-                # contains a link record, that link record may not be deleted, thus causing
-                # an integrity error if it's attempted to be recreated
-    if records_to_update:
-        try:
-            with transaction.atomic():
-                IndexData.objects.bulk_update(
-                    records_to_update,
-                    [
-                        "lastmod",
-                        "delete_pending",
-                        "size",
-                        "duration",
-                        "file_sha256",
-                        "unique_sha256",
-                        #                        "numfiles",
-                        #                        "numdirs",
-                        "home_directory",
-                    ],
-                    bulk_size,
+                # Assuming get_file_sha is a separate function now
+                record["file_sha256"], record["unique_sha256"] = get_file_sha(
+                    str(fs_entry)
                 )
-                records_to_update = []
-        except django.db.utils.IntegrityError:
+            except Exception as e:
+                print(f"Error calculating SHA for {fs_entry}: {e}")
+                # Continue processing even if SHA calculation fails
+
+        # Handle animated GIF detection
+        if hasattr(filetype, "is_image") and filetype.is_image and fileext == ".gif":
+            try:
+                with Image.open(fs_entry) as img:
+                    record["is_animated"] = getattr(img, "is_animated", False)
+            except (AttributeError, IOError, OSError) as e:
+                print(f"Error checking animation for {fs_entry}: {e}")
+                record["is_animated"] = False
+
+        return record
+
+    except Exception as e:
+        print(f"Unexpected error processing {fs_entry}: {e}")
+        return None
+
+
+def sync_database_disk(directoryname: str) -> Optional[bool]:
+    """
+    Synchronize database entries with filesystem for a given directory.
+
+    Args:
+        directoryname: The directory path to synchronize
+
+    Returns:
+        None on completion, bool on early exit conditions
+    """
+    BULK_SIZE = 100  # Increased from 50 for better batch performance
+
+    try:
+        # Normalize directory path
+        if directoryname in [os.sep, r"/"]:
+            directoryname = settings.ALBUMS_PATH
+
+        webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
+        dirpath = normalize_fqpn(os.path.abspath(directoryname.title().strip()))
+        directory_sha256 = get_dir_sha(dirpath)
+
+        # Find or create directory record
+        dirpath_info, is_cached = _get_or_create_directory(directory_sha256, dirpath)
+        if dirpath_info is None:
+            return False
+
+        # Early return if cached
+        if is_cached:
             return None
-    else:
-        pass
-        # print("No records to update")
-    # The record is in the database, so it's already been vetted in the database comparison
-    if records_to_create:
-        try:
-            with transaction.atomic():
-                IndexData.objects.bulk_create(records_to_create, bulk_size)
-                records_to_create = []
-        except django.db.utils.IntegrityError:
-            print("Integrity Error")
-            return None
-        # The record is in the database, so it's already been vetted in the database comparison
-    else:
-        pass
 
-    # The path has not been seen since the Cache Tracking has been enabled
-    # (eg Startup, or the entry has been nullified)
-    # Add to table, and allow a rescan to occur.
-    print(f"\nSaving, {dirpath} to cache tracking\n")
-    Cache_Storage.add_to_cache(DirName=dirpath)
-    # new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
-    # new_rec.save()
+        logger.info(f"Rescanning directory: {dirpath}")
 
-    #
-    #   Testing - TODO: Remove.  Only testing to see if the rescan memory leak is due to
-    #   old connections?  But Django doesn't appear to be running out of connections to
-    #   postgres?  So probably a red herring.
-    #
-    from django.db import connection, close_old_connections
+        # Get filesystem entries
+        success, fs_entries = return_disk_listing(dirpath)
+        if not success:
+            return _handle_missing_directory(directory_sha256, dirpath_info)
 
-    close_old_connections()
-    # connection.connect()
-    return None
+        # Batch process all operations
+        _sync_directories(dirpath_info, fs_entries)
+        _sync_files(dirpath_info, fs_entries, BULK_SIZE)
+
+        # Cache the result
+        Cache_Storage.add_to_cache(DirName=dirpath)
+        logger.info(f"Cached directory: {dirpath}")
+
+        return None
+
+    except Exception as e:
+        logger.error(f"Error syncing directory {directoryname}: {e}")
+        return False
+
+
+# def sync_database_disk(directoryname):
+#     """
+
+#     Parameters
+#     ----------
+#     directoryname : The "webpath", the fragment of the directory name to load, lowercased, and
+#         double '//' is replaced with '/'
+
+#     Returns
+#     -------
+#     None
+
+#     Note:
+#            * This does not currently contend with Archives.
+#            * Archive logic will need to be built-out or broken out elsewhere
+#            * This is still currently using the v2 data structures.  First test is
+#                 to ensure that the logic works as expected.  Second is to then update
+#                 to use new data structures for v3.
+#            * There's little path work done here, but look to rewrite to pass in Path from Pathlib?
+
+#     * Logic Update
+#         * If there are no database entries for the directory, the fs comparing to the database
+#     """
+#     bulk_size = 50
+#     if directoryname in [os.sep, r"/"]:
+#         directoryname = settings.ALBUMS_PATH
+#     webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
+#     dirpath = normalize_fqpn(os.path.abspath(directoryname.title().strip()))
+#     directory_sha256 = get_dir_sha(dirpath)
+#     # found, dirpath_info = IndexDirs.search_for_directory(fqpn_directory=dirpath)
+
+#     found, dirpath_info = IndexDirs.search_for_directory_by_sha(directory_sha256)
+#     records_to_update = []
+#     if found is False:
+#         found, dirpath_info = IndexDirs.add_directory(dirpath)
+#         cached = False
+#         Cache_Storage.remove_from_cache_sha(dirpath_info.dir_fqpn_sha256)
+#         # print("\tAdding ", dirpath)
+#     else:
+#         cached = Cache_Storage.sha_exists_in_cache(sha256=directory_sha256) is True
+
+#     # cached = Cache_Storage.name_exists_in_cache(DirName=dirpath) is True
+#     if cached:
+#         return None
+
+#     # It's not cached
+#     # if not cached:
+#     print(f"Not Cached! Rescanning directory: {dirpath}")
+#     # If the directory is not found in the Cache_Tracking table, then it needs to be rescanned.
+#     # Remember, directory is placed in there, when it is scanned.
+#     # If changed, then watchdog should have removed it from the path.
+#     success, fs_entries = return_disk_listing(dirpath)
+#     if not success:
+#         # File path doesn't exist
+#         # remove file path from cache
+#         # remove parent from cache
+#         # remove file path from Database
+#         # success, dirpath_info = IndexDirs.search_for_directory(dirpath)
+#         found, dirpath_info = IndexDirs.search_for_directory_by_sha(directory_sha256)
+#         parent_dir = dirpath_info.return_parent_directory()
+#         dirpath_info.delete_directory(dirpath)
+#         if parent_dir.exists():
+#             parent_dir = parent_dir[0]
+#             dirpath_info.delete_directory(parent_dir, cache_only=True)
+#         return None
+
+#     # Compare the database entries to see if they exist in the file system
+#     # If they don't, remove from cache, and delete the directory
+#     db_directories = dirpath_info.dirs_in_dir()
+#     for fqpn in db_directories.values_list("fqpndirectory", flat=True):
+#         if str(Path(fqpn).name).strip().title() not in fs_entries:
+#             # print("Database contains a **directory** not in the fs: ", fqpn)
+#             IndexDirs.delete_directory(fqpn_directory=fqpn)
+
+#     update = False
+#     db_data = (
+#         dirpath_info.files_in_dir()
+#         .annotate(FileDoesNotExist=Value(F("name") not in fs_entries))
+#         .annotate(FileExists=Value(F("name") in fs_entries))
+#     )
+
+#     # db_data = dirpath_id.files_in_dir().annotate(FileDoesNotExist=Value(F('name') not in fs_entries)).annotate(active_thumbs=Subquery(thumb_subquery))
+#     # db_data = dirpath_id.files_in_dir().annotate(FileDoesNotExist=Value(F('name') not in fs_entries)).\
+#     #     annotate(number_entries=IndexData.active_thumbs=Subquery(thumb_subquery))
+#     # if db_data.filter(FileDoesNotExist=True,).exists():
+
+#     for db_entry in db_data:
+#         if db_entry.name not in fs_entries:
+#             # print("Database contains a file not in the fs: ", db_entry.name)
+#             # The entry just is not in the file system.  Delete it.
+#             # db_entry.ignore = True
+#             db_entry.delete()
+#             continue
+#         else:
+#             # The db_entry does exist in the file system.
+#             # Does the lastmod match?
+#             # Does size match?
+#             # If directory, does the numfiles, numdirs, count_subfiles match?
+#             # update = False, unncessary, moved to above the for loop.
+#             fext = os.path.splitext(db_entry.name)[1].lower()
+#             filetype = filetype_models.filetypes.return_filetype(fileext=fext)
+#             entry = fs_entries[db_entry.name]
+#             fs_stat = entry.stat()
+#             if (
+#                 db_entry.file_sha256 in ["", None]
+#                 and fext != ""
+#                 and not filetype.is_link
+#             ):
+#                 db_entry.file_sha256, db_entry.unique_sha256 = db_entry.get_file_sha(
+#                     fqfn=os.path.join(db_entry.fqpndirectory, db_entry.name)
+#                 )
+#                 update = True
+#             if db_entry.lastmod != fs_stat[stat.ST_MTIME]:
+#                 # print("LastMod mismatch")
+#                 db_entry.lastmod = fs_stat[stat.ST_MTIME]
+#                 update = True
+#             if db_entry.size != fs_stat[stat.ST_SIZE]:
+#                 # print("Size mismatch")
+#                 db_entry.size = fs_stat[stat.ST_SIZE]
+#                 update = True
+#             if fext not in [""]:
+#                 if (
+#                     filetype.is_movie
+#                     and db_entry.duration is None
+#                 ):
+#                     duration = movie_duration(
+#                         os.path.join(db_entry.fqpndirectory, db_entry.name)
+#                     )
+#                     if duration is not None:
+#                         db_entry.duration = timedelta(duration)
+#                         update = True
+#             if update:
+#                 records_to_update.append(db_entry)
+#                 # print("Database record being updated: ", db_entry.name)
+#                 #                    db_entry.save()
+#                 update = False
+
+#     # Check for entries that are not in the database, but do exist in the file system
+#     names = (
+#         IndexData.objects.filter(home_directory=dirpath_info)
+#         .only("name")
+#         .values_list("name", flat=True)
+#     )
+#     # fetch an updated set of records, since we may have changed it from above.
+#     records_to_create = []
+#     for _, entry in fs_entries.items():
+#         test_name = entry.name.title().replace("//", "/").strip()
+#         # print(test_name, test_name in names )
+#         if test_name not in names:
+#             # The record has not been found
+#             # add it.
+#             filedata = process_filedata(entry, directory_id=dirpath_info)
+#             if filedata is None:
+#                 continue
+#             defaults = {**filedata}  # Unpack the filedata dictionary
+
+#             record, created = IndexData.objects.select_related("filetype").get_or_create(
+#                 unique_sha256=defaults["unique_sha256"], defaults=defaults
+#             )
+
+
+#             #record = process_filedata(entry, record, directory_id=dirpath_info)
+#             # if record is None:
+#             #     continue
+#             record.home_directory = dirpath_info
+#             if record.filetype.is_archive:
+#                 print("Archive detected ", record.name)
+#                 continue
+#             try:
+#                 if created:
+#                     record.save()
+#             except IntegrityError as e:
+#                 print("Integrity Error A")
+#                 print(e)
+#                 continue  # Need to rethink the link records, if a directory is deleted, and it
+#                 # contains a link record, that link record may not be deleted, thus causing
+#                 # an integrity error if it's attempted to be recreated
+#     if records_to_update:
+#         try:
+#             with transaction.atomic():
+#                 IndexData.objects.bulk_update(
+#                     records_to_update,
+#                     [
+#                         "lastmod",
+#                         "delete_pending",
+#                         "size",
+#                         "duration",
+#                         "file_sha256",
+#                         "unique_sha256",
+#                         #                        "numfiles",
+#                         #                        "numdirs",
+#                         "home_directory",
+#                     ],
+#                     bulk_size,
+#                 )
+#                 records_to_update = []
+#         except django.db.utils.IntegrityError:
+#             return None
+#     else:
+#         pass
+#         # print("No records to update")
+#     # The record is in the database, so it's already been vetted in the database comparison
+#     if records_to_create:
+#         try:
+#             with transaction.atomic():
+#                 IndexData.objects.bulk_create(records_to_create, bulk_size)
+#                 records_to_create = []
+#         except django.db.utils.IntegrityError:
+#             print("Integrity Error")
+#             return None
+#         # The record is in the database, so it's already been vetted in the database comparison
+#     else:
+#         pass
+
+#     # The path has not been seen since the Cache Tracking has been enabled
+#     # (eg Startup, or the entry has been nullified)
+#     # Add to table, and allow a rescan to occur.
+#     print(f"\nSaving, {dirpath} to cache tracking\n")
+#     Cache_Storage.add_to_cache(DirName=dirpath)
+#     # new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
+#     # new_rec.save()
+
+#     #
+#     #   Testing - TODO: Remove.  Only testing to see if the rescan memory leak is due to
+#     #   old connections?  But Django doesn't appear to be running out of connections to
+#     #   postgres?  So probably a red herring.
+#     #
+#     from django.db import connection, close_old_connections
+
+#     close_old_connections()
+#     # connection.connect()
+#     return None
 
 
 def read_from_disk(dir_to_scan, skippable=True):

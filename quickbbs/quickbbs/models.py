@@ -213,7 +213,7 @@ class IndexDirs(models.Model):
         """
         return get_dir_sha(self.fqpndirectory)
 
-    @property 
+    @property
     def virtual_directory(self) -> str:
         """
         Return the virtual directory name of the directory.
@@ -221,7 +221,7 @@ class IndexDirs(models.Model):
         :return: String
         """
         return str(pathlib.Path(self.fqpndirectory).name)
-    
+
     @property
     def numdirs(self) -> None:
         """
@@ -278,9 +278,9 @@ class IndexDirs(models.Model):
         :return: Integer - Number of files in the database for the directory
         """
         return self.IndexData_entries.filter(delete_pending=False).count()
-        #return IndexData.objects.filter(
+        # return IndexData.objects.filter(
         #    home_directory=self.pk, delete_pending=False
-        #).count()
+        # ).count()
 
     def do_dirs_exist(self) -> bool:
         return IndexDirs.objects.filter(
@@ -303,7 +303,7 @@ class IndexDirs(models.Model):
         and the value is the number of items of that filetype.
         A special "all_files" key is used to store the # of all items in the directory (except
         for directories).  (all_files is the sum of all file types, except "dir")
-        """ 
+        """
         filetypes_dict = get_ftype_dict()
         d_files = self.files_in_dir()
         totals = {}
@@ -338,7 +338,6 @@ class IndexDirs(models.Model):
             return (True, record)
         except IndexDirs.DoesNotExist:
             return (False, IndexDirs.objects.none())  # return an empty query set
-
 
     @lru_cache(maxsize=1000)
     @staticmethod
@@ -395,7 +394,12 @@ class IndexDirs(models.Model):
         #     .filter(home_directory=self.pk, delete_pending=False, **additional_filters)
         #     .order_by(*SORT_MATRIX[sort])
         # )
-        files = self.IndexData_entries.prefetch_related("new_ftnail").select_related("filetype").filter(delete_pending=False, **additional_filters).order_by(*SORT_MATRIX[sort])
+        files = (
+            self.IndexData_entries.prefetch_related("new_ftnail")
+            .select_related("filetype")
+            .filter(delete_pending=False, **additional_filters)
+            .order_by(*SORT_MATRIX[sort])
+        )
 
         return files
 
@@ -543,10 +547,13 @@ class IndexData(models.Model):
     name_sort = NaturalSortField(for_field="name", max_length=384, default="")
     duration = models.DurationField(null=True)
     size = models.BigIntegerField(default=0)  # File size
-    
+
     home_directory = models.ForeignKey(
-        "IndexDirs", on_delete=models.CASCADE, null=True, default=None,
-        related_name="IndexData_entries"
+        "IndexDirs",
+        on_delete=models.CASCADE,
+        null=True,
+        default=None,
+        related_name="IndexData_entries",
     )
     is_animated = models.BooleanField(default=False, db_index=True)
     ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
@@ -598,7 +605,7 @@ class IndexData(models.Model):
     )
 
     @property
-    def fqpndirectory (self) -> str:
+    def fqpndirectory(self) -> str:
         return self.home_directory.fqpndirectory
 
     def update_or_create_file(self, fs_record, unique_file_sha256, dir_sha256):
@@ -633,7 +640,7 @@ class IndexData(models.Model):
             "delete_pending": bool(fs_record.get("delete_pending", False)),
             "index_image": bool(fs_record.get("index_image", False)),
             "filetype": fs_record["filetype"],
-#            "filetype": filetypes.objects.get(fileext=fs_record["filetype"]),
+            #            "filetype": filetypes.objects.get(fileext=fs_record["filetype"]),
             "dir_sha256": dir_sha256,
         }
 
@@ -672,7 +679,6 @@ class IndexData(models.Model):
     def get_identical_file_entries_by_sha(sha):
         return IndexData.objects.values("name", "fqpndirectory").filter(file_sha256=sha)
 
-
     @lru_cache(maxsize=1000)
     @staticmethod
     def get_by_filters(additional_filters=None) -> "QuerySet[IndexData]":
@@ -684,7 +690,6 @@ class IndexData(models.Model):
         if additional_filters is None:
             additional_filters = {}
         return IndexData.objects.filter(delete_pending=False, **additional_filters)
-    
 
     @lru_cache(maxsize=1000)
     @staticmethod
@@ -695,10 +700,14 @@ class IndexData(models.Model):
         :return: IndexData object or None if not found
         """
         try:
-            return IndexData.objects.prefetch_related("new_ftnail").select_related("filetype").get(uuid=uuid_value, delete_pending=False)
+            return (
+                IndexData.objects.prefetch_related("new_ftnail")
+                .select_related("filetype")
+                .get(uuid=uuid_value, delete_pending=False)
+            )
         except IndexData.DoesNotExist:
             return None
-        
+
     @staticmethod
     def return_by_uuid_list(uuid_list, sort=0) -> "QuerySet[IndexData]":
         """
@@ -711,7 +720,8 @@ class IndexData(models.Model):
         from frontend.utilities import SORT_MATRIX
 
         files = (
-            IndexData.objects.prefetch_related("new_ftnail").select_related("filetype")
+            IndexData.objects.prefetch_related("new_ftnail")
+            .select_related("filetype")
             .filter(uuid__in=uuid_list, delete_pending=False)
             .order_by(*SORT_MATRIX[sort])
         )
@@ -728,11 +738,19 @@ class IndexData(models.Model):
         """
         try:
             if unique:
-                return IndexData.objects.prefetch_related("new_ftnail").select_related("filetype").get(unique_sha256=sha_value, delete_pending=False)
-            return IndexData.objects.prefetch_related("new_ftnail").select_related("filetype").get(file_sha256=sha_value, delete_pending=False)
+                return (
+                    IndexData.objects.prefetch_related("new_ftnail")
+                    .select_related("filetype")
+                    .get(unique_sha256=sha_value, delete_pending=False)
+                )
+            return (
+                IndexData.objects.prefetch_related("new_ftnail")
+                .select_related("filetype")
+                .get(file_sha256=sha_value, delete_pending=False)
+            )
         except IndexData.DoesNotExist:
             return None
-        
+
     def get_file_sha(self, fqfn) -> tuple[str, str]:
         """
         Return the SHA256 hash of the file as a hexdigest string
@@ -834,7 +852,6 @@ class IndexData(models.Model):
 
         """
         return reverse("download") + self.name + f"?UUID={self.uuid}"
-
 
     def inline_sendfile(self, request, ranged=False):
         """
