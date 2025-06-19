@@ -4,11 +4,12 @@ Thumbnail routines for QuickBBS
 
 import os
 
-# import filetypes
-from filetypes.models import filetypes as filetypes_model
 from cache_watcher.models import Cache_Storage
 from django.conf import settings
 from django.db.utils import IntegrityError
+
+# import filetypes
+from filetypes.models import filetypes as filetypes_model
 from frontend.utilities import (
     sync_database_disk,  # cr_tnail_img,; return_image_obj,; read_from_disk,
 )

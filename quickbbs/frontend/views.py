@@ -16,13 +16,12 @@ from itertools import chain
 from pathlib import Path
 from typing import Optional
 
-from cachetools import LRUCache, cached
-from cachetools.keys import hashkey
-from filetypes.models import filetypes, load_filetypes
 import markdown2
 import psycopg
 from asgiref.sync import sync_to_async
 from cache_watcher.models import Cache_Storage
+from cachetools import LRUCache, cached
+from cachetools.keys import hashkey
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
@@ -34,10 +33,10 @@ from django.http import (  # HttpResponse,
     HttpResponseBadRequest,
     HttpResponseNotFound,
 )
-
 from django.shortcuts import render
 from django.views.decorators.vary import vary_on_headers
 from django_htmx.middleware import HtmxDetails
+from filetypes.models import filetypes, load_filetypes
 from frontend.thumbnail import new_process_dir2
 from frontend.utilities import SORT_MATRIX  # executor,
 from frontend.utilities import (

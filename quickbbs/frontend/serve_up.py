@@ -5,10 +5,10 @@ Serve Resources, and Static documents from Django
 import os.path
 
 from django.conf import settings
-from django.http import Http404, FileResponse
-from django.views.static import serve
 from django.contrib.staticfiles.finders import find
 from django.contrib.staticfiles.views import serve as staticfiles_serve
+from django.http import FileResponse, Http404
+from django.views.static import serve
 
 
 async def static_or_resources(request, pathstr=None):
