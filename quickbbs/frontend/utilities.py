@@ -2,18 +2,18 @@
 Utilities for QuickBBS, the python edition.
 """
 
-from datetime import timedelta
-from functools import lru_cache, wraps
 import logging
 import multiprocessing
 import os
 import os.path
-from pathlib import Path
 import stat
 import time
-from typing import Optional, Dict, Any, List, Tuple
 import urllib.parse
 import uuid
+from datetime import timedelta
+from functools import lru_cache, wraps
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 # from moviepy.video.io import VideoFileClip
 # from moviepy.editor import VideoFileClip #* # import everythings (variables, classes, methods...)
@@ -21,21 +21,21 @@ import uuid
 # import av  # Video Previews
 import django.db.utils
 import filetypes.models as filetype_models
-from quickbbs.common import get_file_sha
 from cache_watcher.models import Cache_Storage, get_dir_sha
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Count, F, OuterRef, Subquery, Value
 from django.db.utils import IntegrityError
-from django.db.models import F, Value, OuterRef, Subquery, Count
 from django.utils.html import format_html
 from django_thread import ThreadPoolExecutor
 from PIL import Image
 from thumbnails.image_utils import movie_duration
 from thumbnails.models import ThumbnailFiles
 
+from quickbbs.common import get_file_sha, normalize_fqpn
+
 # from quickbbs.logger import log
 from quickbbs.models import IndexData, IndexDirs
-from quickbbs.common import normalize_fqpn
 
 logger = logging.getLogger(__name__)
 
@@ -177,30 +177,51 @@ def _handle_missing_directory(directory_sha256: str, dirpath_info: object) -> No
 def _sync_directories(dirpath_info: object, fs_entries: Dict) -> None:
     """Synchronize database directories with filesystem."""
     # Get all database directories in one query
+    print("Synchronizing directories...")
     logger.info("Synchronizing directories...")
+    current_path = dirpath_info.fqpndirectory
     db_directories = set(
         dirpath_info.dirs_in_dir().values_list("fqpndirectory", flat=True)
     )
-
     # Get filesystem directory names
     fs_directory_names = {
-        entry.name.strip().title() for entry in fs_entries.values() if entry.is_dir()
+        entry.name.strip().lower() for entry in fs_entries.values() if entry.is_dir()
     }
 
     # Find directories to delete (in DB but not in filesystem)
     directories_to_delete = []
     for fqpn in db_directories:
-        dir_name = str(Path(fqpn).name).strip().title()
+        dir_name = str(Path(fqpn).name).strip().lower()
         if dir_name not in fs_directory_names:
             directories_to_delete.append(fqpn)
 
+    # Process new directories (in filesystem but not in DB)
+    directories_to_create = []
+    for dir_name in fs_directory_names:
+        dir_name = os.path.join(current_path, dir_name) + os.sep
+        if dir_name not in db_directories:
+            directories_to_create.append(dir_name)
+
+
     # Batch delete directories
     if directories_to_delete:
+        print(f"Directories to delete: {len(directories_to_delete)}")
+        logger.info(f"Directories to delete: {len(directories_to_delete)}")
         for fqpn in directories_to_delete:
             try:
                 IndexDirs.delete_directory(fqpn_directory=fqpn)
             except Exception as e:
                 logger.error(f"Error deleting directory {fqpn}: {e}")
+
+    # Batch create directories
+    if directories_to_create:
+        print(f"Directories to create: {len(directories_to_create)}")
+        logger.info(f"Directories to create: {len(directories_to_create)}")
+        for dir_name in directories_to_create:
+            try:
+                IndexDirs.add_directory(fqpn_directory=dir_name)
+            except Exception as e:
+                logger.error(f"Error creating directory {dir_name}: {e}")
 
 
 def _sync_files(dirpath_info: object, fs_entries: Dict, bulk_size: int) -> None:
@@ -661,6 +682,7 @@ def sync_database_disk(directoryname: str) -> Optional[bool]:
     Returns:
         None on completion, bool on early exit conditions
     """
+    print("Syncing database with disk for directory:", directoryname)
     BULK_SIZE = 100  # Increased from 50 for better batch performance
 
     try:
@@ -668,7 +690,6 @@ def sync_database_disk(directoryname: str) -> Optional[bool]:
         if directoryname in [os.sep, r"/"]:
             directoryname = settings.ALBUMS_PATH
 
-        webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
         dirpath = normalize_fqpn(os.path.abspath(directoryname.title().strip()))
         directory_sha256 = get_dir_sha(dirpath)
 
@@ -677,15 +698,17 @@ def sync_database_disk(directoryname: str) -> Optional[bool]:
         if dirpath_info is None:
             return False
 
+        print(dirpath_info, is_cached)
         # Early return if cached
         if is_cached:
             return None
 
-        logger.info(f"Rescanning directory: {dirpath}")
+        print(f"Rescanning directory: {dirpath}")
 
         # Get filesystem entries
         success, fs_entries = return_disk_listing(dirpath)
         if not success:
+            print("File path doesn't exist, removing from cache and database.")
             return _handle_missing_directory(directory_sha256, dirpath_info)
 
         # Batch process all operations
@@ -699,9 +722,10 @@ def sync_database_disk(directoryname: str) -> Optional[bool]:
         return None
 
     except Exception as e:
+        print(f"Error syncing directory {directoryname}: {e}")
         logger.error(f"Error syncing directory {directoryname}: {e}")
         return False
-
+    print("End Sync")
 
 # def sync_database_disk(directoryname):
 #     """
