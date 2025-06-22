@@ -134,36 +134,6 @@ def return_prev_next2(directory, sorder) -> tuple:
     return (prevdir, nextdir)
 
 
-@sync_to_async
-def thumbnail_dir(request: WSGIRequest, tnail_id: Optional[str] = None):
-    """
-    The thumbnails function is used to serve the thumbnail memory image.
-    It takes a request and an optional uuid as arguments.
-    If no uuid is provided, it will return the default image for thumbnails.
-    Otherwise, it will attempt to find a matching UUID in the database and return that file's thumbnail.
-
-    :param request: Django Request object
-    :param tnail_id: the uuid of the original file / thumbnail uuid
-    :return: The image of the thumbnail to send
-
-    :raises: HttpResponseBadRequest - If the uuid can not be found
-    """
-    try:
-        entry = IndexDirs.objects.get(uuid=tnail_id)
-    except IndexDirs.DoesNotExist:
-        # does not exist
-        print(tnail_id, "Directory not found - No records returned.")
-        return Http404
-
-    if entry.is_generic_icon or entry.small_thumb in [b"", None]:
-        new_process_dir2(entry)
-
-    return entry.send_thumbnail()  # Send existing thumbnail
-
-
-async def view_dir_thumbnail(request: WSGIRequest, tnail_id: Optional[str] = None):
-    return await thumbnail_dir(request, tnail_id)
-
 def thumbnail2_dir(request: WSGIRequest, dir_sha256: Optional[str] = None):
     """
     The thumbnails function is used to serve the thumbnail memory image.
@@ -188,7 +158,6 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: Optional[str] = None):
     if directory.is_generic_icon or directory.thumbnail in [b"", None]:
         # If the directory is generic or has no thumbnail, force a rescan
         # to help ensure that there are files in the directory
-        print("linking")
         sync_database_disk(directory.fqpndirectory)
         files_in_directory = directory.files_in_dir(
             additional_filters={"filetype__is_image": True}
@@ -198,9 +167,7 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: Optional[str] = None):
         directory.is_generic_icon = False
         directory.save()
 
-    print(directory.thumbnail, "Directory thumbnail")
     if directory.thumbnail is None:
-        print("thumbnail is None!")
         # there is no links (eg. Files) in the directory
         sync_database_disk(directory.fqpndirectory)
         files_in_directory = directory.files_in_dir(
@@ -208,11 +175,9 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: Optional[str] = None):
         )
         file_count = len(files_in_directory)
         if file_count == 0:
-            print("Trying to send generic directory icon")
             if directory.is_generic_icon is False:
                 directory.is_generic_icon = True
                 directory.save()
-            print(directory.filetype.icon_filename, "Default icon")
             return static_or_resources(request, settings.RESOURCES_PATH + r"/images/" + directory.filetype.icon_filename)  # Default icon
 
     if directory.thumbnail.new_ftnail is None:
@@ -222,7 +187,6 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: Optional[str] = None):
                 directory.thumbnail.file_sha256
             )
         except ThumbnailFiles.DoesNotExist:
-            print(directory.thumbnail.file_sha256, "Directory thumbnail not found - No records returned.")
             return HttpResponseBadRequest(content="Thumbnail not found.")
 
         directory.thumbnail.new_ftnail = thumbnail
@@ -249,64 +213,6 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
     return thumbnail.send_thumbnail(
                 filename_override=thumbnail.IndexData.all().first().name, fext_override=".jpg", size=thumbsize
             )
-
-    print("Miss hit")
-    return HttpResponseBadRequest(content="Do not create thumbnail.")
-    #
-    #   The only reason for this code, is for the generic icons, needs to be refactored.
-    #
-    if entry.filetype.is_pdf or entry.filetype.is_image or entry.filetype.is_movie:
-        # add in file size comparison
-        # if not entry.new_ftnail:
-        #     tnail_record, created = ThumbnailFiles.objects.get_or_create(
-        #         fqpn_hash=fs_item_hash, defaults={"fqpn_hash": fs_item_hash, "fqpn_filename": fs_item}
-        #     )
-        #     # ThumbnailFiles.objects.filter(fqpn_hash=fs_item_hash).delete()
-        # tnail_record, _ = ThumbnailFiles.objects.get_or_create(
-        #     fqpn_hash=fs_item_hash,
-        #     defaults={"fqpn_hash": fs_item_hash, "fqpn_filename": fs_item, "sha256_hash": entry.file_sha256},
-        # )
-        fs_item = os.path.join(entry.fqpndirectory, entry.name).title().strip()
-        tnail_record, _ = ThumbnailFiles.objects.get_or_create(
-            sha256_hash=entry.file_sha256,
-            defaults={"fqpn_filename": fs_item, "sha256_hash": entry.file_sha256},
-            #            defaults={"fqpn_hash": fs_item_hash, "fqpn_filename": fs_item, "sha256_hash": entry.file_sha256},
-        )
-
-        entry.new_ftnail = tnail_record
-        raw_pil = image_utils.return_image_obj(fs_item, memory=False)
-        entry.new_ftnail.pil_to_thumbnail(pil_data=raw_pil)
-        try:
-            entry.new_ftnail.save()
-        except (IntegrityError, psycopg.errors.UniqueViolation):
-            print("IntegrityError, or UniqueViolation")
-            # should not occur, but some mp4's appear to have been duplicated?
-            ThumbnailFiles.objects.filter(sha256_hash=entry.file_sha256).delete()
-            entry.new_ftnail.save()
-        entry.save()
-        return entry.new_ftnail.send_thumbnail(
-            filename_override=None, fext_override=None, size=thumbsize
-        )
-
-    if entry.filetype.icon_filename not in ["", None]:
-        entry.is_generic_icon = True
-        try:
-            entry.save()
-        except IntegrityError:
-            pass
-        return respond_as_attachment(
-            request,
-            os.path.join(settings.RESOURCES_PATH, "Images"),
-            entry.filetype.icon_filename,
-        )
-
-    return HttpResponseBadRequest(content="Bad UUID or Unidentifable file.")
-
-
-@vary_on_headers("HX-Request")
-async def view_thumbnail(request: WSGIRequest, tnail_id: Optional[str] = None):
-    return await thumbnail_file(request, tnail_id)
-
 
 def search_viewresults(request: WSGIRequest):
     """
@@ -531,23 +437,23 @@ def new_viewgallery(request: WSGIRequest):
     return response
 
 
-def update_thumbnail(entry):
-    fs_item = os.path.join(entry.fqpndirectory, entry.name).title().strip()
-    if not entry.filetype.is_link:
-        thumbnail, created = ThumbnailFiles.objects.get_or_create(
-            sha256_hash=entry.file_sha256,
-            # defaults={"fqpn_filename": fs_item, "sha256_hash": entry.file_sha256},
-            defaults={"sha256_hash": entry.file_sha256},
-        )
-        if created:  # or not thumbnail.fqpn_filename:
-            entry.fqpn_filename = fs_item
+# def update_thumbnail(entry):
+#     fs_item = os.path.join(entry.fqpndirectory, entry.name).title().strip()
+#     if not entry.filetype.is_link:
+#         thumbnail, created = ThumbnailFiles.objects.get_or_create(
+#             sha256_hash=entry.file_sha256,
+#             # defaults={"fqpn_filename": fs_item, "sha256_hash": entry.file_sha256},
+#             defaults={"sha256_hash": entry.file_sha256},
+#         )
+#         if created:  # or not thumbnail.fqpn_filename:
+#             entry.fqpn_filename = fs_item
 
-            # thumbnail.fqpn_filename = fs_item
+#             # thumbnail.fqpn_filename = fs_item
 
-        entry.new_ftnail = thumbnail
-        entry.save()  # update_fields=["new_ftnail", "fqpn_filename"])
-        thumbnail.image_to_thumbnail()
-        thumbnail.save()
+#         entry.new_ftnail = thumbnail
+#         entry.save()  # update_fields=["new_ftnail", "fqpn_filename"])
+#         thumbnail.image_to_thumbnail()
+#         thumbnail.save()
 
 
 # @lru_cache(maxsize=500)
