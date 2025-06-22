@@ -4,7 +4,7 @@ from typing import Literal, Optional, Union
 from PIL import Image, ImageOps
 
 
-class ImageBackend(ABC):
+class AbstractBackend(ABC):
     """Abstract base class for image processing backends."""
 
     @abstractmethod

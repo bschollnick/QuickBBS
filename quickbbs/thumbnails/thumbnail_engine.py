@@ -1,16 +1,17 @@
 import platform
 from typing import Literal
 
-from Abstractbase_thumbnails import ImageBackend
+from .Abstractbase_thumbnails import AbstractBackend
 from PIL import Image
-from pil_thumbnails import PillowBackend
+from .pil_thumbnails import ImageBackend
+from .video_thumbnails import VideoBackend
 
+# from quickbbs.frontend.core_image_thumbnails import CoreAbstractBackend
 # In testing, a Memory leak message keeps arising when using Core Image.
-# So we disable it for now.
-# from quickbbs.frontend.core_image_thumbnails import CoreImageBackend
+# So we are disabling it for now.
 CORE_IMAGE_AVAILABLE = False
 
-BackendType = Literal["pillow", "coreimage", "auto"]
+BackendType = Literal["image", "coreimage", "auto", "video"]
 
 
 class FastImageProcessor:
@@ -22,32 +23,36 @@ class FastImageProcessor:
         """
         Args:
             image_sizes: dict mapping size names to (width, height) tuples
-            backend: Backend to use ("pillow", "coreimage", "auto")
+            backend: Backend to use ("image", "coreimage", "auto")
         """
         self.image_sizes = image_sizes
-        self.backend_type = backend
+        self.backend_type = backend.lower()
         self._backend = self._create_backend()
 
-    def _create_backend(self) -> ImageBackend:
+    def _create_backend(self) -> AbstractBackend:
         """Create appropriate backend based on system and preference."""
-        if self.backend_type == "pillow":
-            return PillowBackend()
+        match self.backend_type:
+            case "image": return ImageBackend()
+            case "video": return VideoBackend()
+            case _: raise ValueError("Unknown backend type specified")
+
+            # Uncomment when Core Image backend is ready        
         # elif self.backend_type == "coreimage":
         #     if not CORE_IMAGE_AVAILABLE:
         #         raise ImportError("Core Image backend not available on this system")
-        #     return CoreImageBackend()
-        if self.backend_type == "auto":
-            # Auto-select: Core Image on macOS with Apple Silicon, Pillow elsewhere
-            if CORE_IMAGE_AVAILABLE and self._is_apple_silicon():
-                try:
-                    raise ValueError(f"{self.backend_type} is unavailable.")
-                    # return CoreImageBackend()
-                except Exception:
-                    # Fall back to Pillow if Core Image setup fails
-                    return PillowBackend()
-            else:
-                return PillowBackend()
-        raise ValueError(f"Unknown backend: {self.backend_type}")
+        #     return CoreAbstractBackend()
+        # if self.backend_type == "auto":
+        #     # Auto-select: Core Image on macOS with Apple Silicon, Pillow elsewhere
+        #     if CORE_IMAGE_AVAILABLE and self._is_apple_silicon():
+        #         try:
+        #             raise ValueError(f"{self.backend_type} is unavailable.")
+        #             # return CoreAbstractBackend()
+        #         except Exception:
+        #             # Fall back to Pillow if Core Image setup fails
+        #             return PillowBackend()
+        #     else:
+        #         return PillowBackend()
+        # raise ValueError(f"Unknown backend: {self.backend_type}")
 
     def _is_apple_silicon(self) -> bool:
         """Check if running on Apple Silicon."""
@@ -198,7 +203,7 @@ if __name__ == "__main__":
     # quality: int = 85,
     # backend: BackendType = "auto",
     thumbnails_pillow = create_thumbnails_from_path(
-        image_filename, IMAGE_SIZES, output="JPEG", backend="pillow"
+        image_filename, IMAGE_SIZES, output="JPEG", backend="image"
     )
     print("CORE_IMAGE_AVAILABLE:", CORE_IMAGE_AVAILABLE)
     # On macOS with Core Image available
@@ -217,6 +222,7 @@ if __name__ == "__main__":
         f"{len(large_thumb_bytes)} bytes (large)"
     )
     # Output to disk for verification
+    print(small_thumb_bytes[:20], medium_thumb_bytes[:20], large_thumb_bytes[:20])
     output_disk("small_thumb.jpg", small_thumb_bytes)
     output_disk("medium_thumb.jpg", medium_thumb_bytes)
     output_disk("large_thumb.jpg", large_thumb_bytes)

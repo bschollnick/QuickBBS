@@ -1,5 +1,4 @@
 import io
-
 import os
 from functools import lru_cache
 
@@ -8,8 +7,9 @@ from django.db import models
 from django.http import FileResponse
 
 from .image_utils import resize_pil_image, return_image_obj
+from .thumbnail_engine import create_thumbnails_from_path
 
-__version__ = "2.0"
+__version__ = "3.0"
 
 __author__ = "Benjamin Schollnick"
 __email__ = "Benjamin@schollnick.net"
@@ -38,6 +38,8 @@ create_file_entry(filename, filesize, is_default)
 
 """
 
+# z = IndexData.objects.filter(new_ftnail=None, filetype__is_image=True)
+# ThumbnailFiles.get_or_create_thumbnail_record(z[0].file_sha256, z[0].unique_sha256)
 
 class ThumbnailFiles(models.Model):
     sha256_hash = models.CharField(
@@ -56,9 +58,11 @@ class ThumbnailFiles(models.Model):
         verbose_name = "Image File Thumbnails Cache"
         verbose_name_plural = "Image File Thumbnails Cache"
 
-    def add_thumbnail(self, file_sha256):
+    @staticmethod
+    def get_or_create_thumbnail_record(file_sha256, unique_sha256):
         from quickbbs.models import IndexData
 
+        make_link = False
         defaults = {
             "sha256_hash": file_sha256,
             "small_thumb": b"",
@@ -66,12 +70,42 @@ class ThumbnailFiles(models.Model):
             "large_thumb": b"",
         }
         thumbnail, created = ThumbnailFiles.objects.get_or_create(
-            **defaults, defaults=defaults
+            sha256_hash=file_sha256, defaults=defaults
         )
-        thumbnail.save()
+        
+        if thumbnail.IndexData.all().exists():
+            # Reverse lookup to get the first IndexData model that matches this sha256
+ #           print("Found IndexData item for sha256:")
+            IndexData_item = thumbnail.IndexData.filter(unique_sha256=unique_sha256).first()
+        else:
+            # Go the long way around to get the IndexData item, presumably there are no 
+            # active IndexData items that match this sha256, so we will just get the first one
+            from quickbbs.models import IndexData
+#            print("No active IndexData items found, Going the long way around:")
+            IndexData_item = IndexData.objects.filter(file_sha256=file_sha256, unique_sha256=unique_sha256).first()
+            make_link = True
 
-        if not self.thumbnail_exists():
-            thumbnail.image_to_thumbnail()
+        make_link = make_link or created
+        filename = os.path.join(IndexData_item.fqpndirectory, IndexData_item.name)
+
+        filetype = IndexData_item.filetype
+        # thumbnails = process_from_file(
+
+        thumbnail.save()
+        if make_link:
+            IndexData_item.new_ftnail = thumbnail
+            IndexData_item.save()
+
+        if not thumbnail.thumbnail_exists():
+            if filetype.is_image():
+                # If the file is an image, we can create the thumbnail
+                thumbnails = create_thumbnails_from_path(
+                    filename, settings.IMAGE_SIZES, output="JPEG", backend="image"
+                )
+            thumbnail.small_thumb = thumbnails["small"]
+            thumbnail.medium_thumb = thumbnails["medium"]
+            thumbnail.large_thumb = thumbnails["large"]
+            thumbnail.save(update_fields=["small_thumb", "medium_thumb", "large_thumb"])
         return thumbnail
 
     def number_of_IndexData_references(self):
@@ -141,10 +175,12 @@ class ThumbnailFiles(models.Model):
         https://stackoverflow.com/questions/1167398/python-access-class-property-from-string
         """
         if self.IndexData.all().exists():
+            # Reverse lookup to get the first IndexData model that matches this sha256
             IndexData_item = self.IndexData.first()
         else:
+            # Go the long way around to get the IndexData item, presumably there are no 
+            # active IndexData items that match this sha256, so we will just get the first one
             from quickbbs.models import IndexData
-
             IndexData_item = IndexData.objects.get(file_sha256=self.sha256_hash)
         filename = (
             os.path.join(IndexData_item.fqpndirectory, IndexData_item.name)

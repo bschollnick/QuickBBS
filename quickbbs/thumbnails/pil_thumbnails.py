@@ -4,11 +4,11 @@ import platform
 import sys
 from typing import Literal, Optional, Union
 
-from Abstractbase_thumbnails import ImageBackend
+from .Abstractbase_thumbnails import AbstractBackend
 from PIL import Image, ImageOps
 
 
-class PillowBackend(ImageBackend):
+class ImageBackend(AbstractBackend):
     """PIL/Pillow backend for cross-platform image processing."""
 
     def process_from_file(
