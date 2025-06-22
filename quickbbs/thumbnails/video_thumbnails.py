@@ -2,10 +2,16 @@ import io
 import os
 from pathlib import Path
 
-from .Abstractbase_thumbnails import AbstractBackend
-from PIL import Image, ImageOps
+from PIL import Image
 import ffmpeg
-from .pil_thumbnails import ImageBackend
+
+try:
+    from .Abstractbase_thumbnails import AbstractBackend
+    from .pil_thumbnails import ImageBackend
+except ImportError:
+    from Abstractbase_thumbnails import AbstractBackend
+    from pil_thumbnails import ImageBackend
+
 
 class VideoBackend(AbstractBackend):
     """PIL/Pillow backend for cross-platform image processing."""
