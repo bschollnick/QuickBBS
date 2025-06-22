@@ -132,6 +132,7 @@ class IndexDirs(models.Model):
         default=".dir",
         related_name="dirs_filetype_data",
     )
+    thumbnail = models.ForeignKey("IndexData", on_delete=models.CASCADE, related_name="dir_thumbnail", null=True, default=None)
     small_thumb = models.BinaryField(default=b"")
     file_links = models.ManyToManyField(
         "IndexData",
@@ -168,6 +169,8 @@ class IndexDirs(models.Model):
             "dir_fqpn_sha256": get_dir_sha(fqpn_directory),
             "dir_parent_sha256": get_dir_sha(parent_dir),
             "small_thumb": b"",
+            "is_generic_icon": False,
+            "thumbnail": None,
         }
 
         # Use get_or_create with fqpndirectory as the unique lookup field
@@ -449,7 +452,7 @@ class IndexDirs(models.Model):
         return self.filetype.color
 
     def return_identifier(self) -> str:
-        return self.dir_sha256
+        return self.dir_fqpn_sha256
 
     # pylint: disable-next=unused-argument
     def get_thumbnail_url(self, size=None) -> str:
@@ -462,7 +465,8 @@ class IndexDirs(models.Model):
             Django URL object
 
         """
-        return reverse(r"thumbnail_dir", args=(self.uuid,))
+        #return reverse(r"thumbnail_dir", args=(self.uuid,))
+        return reverse(r"thumbnail2_dir", args=(self.dir_fqpn_sha256,))
 
     def send_thumbnail(self) -> FileResponse:
         """
@@ -839,7 +843,8 @@ class IndexData(models.Model):
         size = size.lower()
 
         # options = {"i_uuid": str(self.uuid)}
-        url = reverse(r"thumbnail_file", args=(self.uuid,)) + f"?size={size}"
+        # url = reverse(r"thumbnail_file", args=(self.uuid,)) + f"?size={size}"
+        url = reverse(r"thumbnail2_file", args=(self.file_sha256,)) + f"?size={size}"
         return url
 
     def get_download_url(self):

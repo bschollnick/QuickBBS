@@ -41,6 +41,7 @@ class FastImageProcessor:
         match self.backend_type:
             case "image": return ImageBackend()
             case "video": return VideoBackend()
+            case "pdf": return PDFBackend()
             case _: raise ValueError("Unknown backend type specified")
 
             # Uncomment when Core Image backend is ready        

@@ -1,5 +1,5 @@
 SITE_NAME = "QuickBBS Site"
-IMAGE_SIZE = {"small": 200, "medium": 740, "large": 1024, "unknown": 200}
+IMAGE_SIZE = {"small": (200, 200), "medium": (740, 740), "large": (1024, 1024), "unknown": (200, 200)}
 
 QUICKBBS_REQUIRE_LOGIN = 0
 SITE_NAME = "The Gallery"
@@ -93,7 +93,7 @@ MOVIE_FILE_TYPES = [
     ".m4v",
 ]
 AUDIO_FILE_TYPES = [
-    ".MP3",
+    ".mp3",
 ]
 BOOK_FILE_TYPES = [
     ".epub",
@@ -102,6 +102,6 @@ MARKDOWN_FILE_TYPES = [
     ".markdown",
 ]
 
-LINK_FILE_TYPES = [".link"]
+LINK_FILE_TYPES = [".link", ".alias"]
 
 ARCHIVE_FILE_TYPES = RAR_FILE_TYPES + ZIP_FILE_TYPES
