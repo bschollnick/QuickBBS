@@ -176,6 +176,13 @@ class PDFBackend(ImageBackend):
 
 # Example usage
 if __name__ == "__main__":
+
+    def output_disk(filename, data):
+        """Helper function to write bytes to a file."""
+        with open(filename, "wb") as f:
+            f.write(data)
+        print(f"Saved {filename} with {len(data)} bytes.")
+
     backend = PDFBackend()
 
     # Define thumbnail sizes
@@ -197,10 +204,10 @@ if __name__ == "__main__":
         print(f"size of small thumbnail: {len(thumbnails['small'])} bytes")
         print(f"size of medium thumbnail: {len(thumbnails['medium'])} bytes")
         print(f"size of large thumbnail: {len(thumbnails['large'])} bytes")
-        # Save thumbnails
-        for size_name, thumbnail_bytes in thumbnails.items():
-            with open(f"thumbnail_{size_name}.jpg", "wb") as f:
-                f.write(thumbnail_bytes)
+
+        output_disk("pdf_small_thumb.jpg", small_thumb_bytes)
+        output_disk("pdf_medium_thumb.jpg", medium_thumb_bytes)
+        output_disk("pdf_large_thumb.jpg", large_thumb_bytes)
 
         print("PDF thumbnails created successfully!")
 

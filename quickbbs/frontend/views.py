@@ -37,6 +37,7 @@ from django.shortcuts import render
 from django.views.decorators.vary import vary_on_headers
 from django_htmx.middleware import HtmxDetails
 from filetypes.models import filetypes, load_filetypes
+from frontend.serve_up import static_or_resources
 from frontend.thumbnail import new_process_dir2
 from frontend.utilities import SORT_MATRIX  # executor,
 from frontend.utilities import (
@@ -50,6 +51,7 @@ from frontend.utilities import (
     sync_database_disk,
 )
 from frontend.web import detect_mobile, g_option, respond_as_attachment
+from thumbnails.thumbnail_engine import FastImageProcessor
 from PIL import Image, ImageFile
 from thumbnails import image_utils
 from thumbnails.models import ThumbnailFiles
@@ -162,92 +164,90 @@ def thumbnail_dir(request: WSGIRequest, tnail_id: Optional[str] = None):
 async def view_dir_thumbnail(request: WSGIRequest, tnail_id: Optional[str] = None):
     return await thumbnail_dir(request, tnail_id)
 
-
-@sync_to_async
-def thumbnail_file(request: WSGIRequest, tnail_id: Optional[str] = None):
+def thumbnail2_dir(request: WSGIRequest, dir_sha256: Optional[str] = None):
     """
-    Check for a thumbnail / create a thumbnail for a particular file
+    The thumbnails function is used to serve the thumbnail memory image.
+    It takes a request and an optional uuid as arguments.
+    If no uuid is provided, it will return the default image for thumbnails.
+    Otherwise, it will attempt to find a matching UUID in the database and return that file's thumbnail.
+
     :param request: Django Request object
-    :param tnail_id: The UUID of the file - IndexData object
-    :return: The sent thumbnail
+    :param dir_sha256: the sha256 of the directory
+    :return: The image of the thumbnail to send
+
+    :raises: HttpResponseBadRequest - If the uuid can not be found
     """
     try:
-        entry = IndexData.get_by_uuid(tnail_id)
-    except IndexData.DoesNotExist:
+        directory = IndexDirs.objects.get(dir_fqpn_sha256=dir_sha256)
+    except IndexDirs.DoesNotExist:
         # does not exist
-        print(tnail_id, "File not found - No records returned.")
+        print(tnail_id, "Directory not found - No records returned.")
         return Http404
+    file_count = 0
 
-    thumbsize = request.GET.get("size", "small").lower()
-    fs_item = os.path.join(entry.fqpndirectory, entry.name).title().strip()
-    if entry.new_ftnail:
-        if entry.new_ftnail.thumbnail_exists(size=thumbsize):
-            return entry.new_ftnail.send_thumbnail(
-                filename_override=None, fext_override=".jpg", size=thumbsize
+    if directory.is_generic_icon or directory.thumbnail in [b"", None]:
+        # If the directory is generic or has no thumbnail, force a rescan
+        # to help ensure that there are files in the directory
+        print("linking")
+        sync_database_disk(directory.fqpndirectory)
+        files_in_directory = directory.files_in_dir(
+            additional_filters={"filetype__is_image": True}
+        )
+        file_count = len(files_in_directory)
+        directory.thumbnail = files_in_directory.first() if files_in_directory else None
+        directory.is_generic_icon = False
+        directory.save()
+
+    print(directory.thumbnail, "Directory thumbnail")
+    if directory.thumbnail is None:
+        print("thumbnail is None!")
+        # there is no links (eg. Files) in the directory
+        sync_database_disk(directory.fqpndirectory)
+        files_in_directory = directory.files_in_dir(
+            additional_filters={"filetype__is_image": True}
+        )
+        file_count = len(files_in_directory)
+        if file_count == 0:
+            print("Trying to send generic directory icon")
+            if directory.is_generic_icon is False:
+                directory.is_generic_icon = True
+                directory.save()
+            print(directory.filetype.icon_filename, "Default icon")
+            return static_or_resources(request, settings.RESOURCES_PATH + r"/images/" + directory.filetype.icon_filename)  # Default icon
+
+    if directory.thumbnail.new_ftnail is None:
+        # If the thumbnail is not set, create a new thumbnail
+        try:
+            thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(
+                directory.thumbnail.file_sha256
             )
-    print("Miss hit")
-    # return HttpResponseBadRequest(content="Do not create thumbnail.")
-    #
-    #   The only reason for this code, is for the generic icons, needs to be refactored.
-    #
-    if entry.filetype.is_pdf or entry.filetype.is_image or entry.filetype.is_movie:
-        tnail_record, _ = ThumbnailFiles.objects.get_or_create(
-            sha256_hash=entry.file_sha256,
-            defaults={"sha256_hash": entry.file_sha256},
-        )
+        except ThumbnailFiles.DoesNotExist:
+            print(directory.thumbnail.file_sha256, "Directory thumbnail not found - No records returned.")
+            return HttpResponseBadRequest(content="Thumbnail not found.")
 
-        entry.new_ftnail = tnail_record
-        raw_pil = image_utils.return_image_obj(fs_item, memory=False)
-        entry.new_ftnail.pil_to_thumbnail(pil_data=raw_pil)
-        try:
-            entry.new_ftnail.save()
-        except (IntegrityError, psycopg.errors.UniqueViolation):
-            print("IntegrityError, or UniqueViolation")
-            # should not occur, but some mp4's appear to have been duplicated?
-            ThumbnailFiles.objects.filter(sha256_hash=entry.file_sha256).delete()
-            entry.new_ftnail.save()
-        entry.save()
-        return entry.new_ftnail.send_thumbnail(
-            filename_override=None, fext_override=None, size=thumbsize
-        )
+        directory.thumbnail.new_ftnail = thumbnail
+        directory.save()
+        
 
-    if entry.filetype.icon_filename not in ["", None]:
-        entry.is_generic_icon = True
-        try:
-            entry.save()
-        except IntegrityError:
-            pass
-        return respond_as_attachment(
-            request,
-            os.path.join(settings.RESOURCES_PATH, "Images"),
-            entry.filetype.icon_filename,
-        )
+    if directory.thumbnail:
+        return directory.thumbnail.new_ftnail.send_thumbnail(fext_override=".jpg", size="small")  # Send existing thumbnail
 
-    return HttpResponseBadRequest(content="Bad UUID or Unidentifable file.")
-
-
-@sync_to_async
 def thumbnail2_file(request: WSGIRequest, sha256: str):
     """
     Check for a thumbnail / create a thumbnail for a particular file
     :param request: Django Request object
-    :param sha256: The *UNIQUE* sha256 of the file - IndexData object
+    :param sha256: The sha256 of the file - IndexData object
     :return: The sent thumbnail
     """
-    print("thumbnail2_file :", sha256)
     try:
-        entry = IndexData.objects.prefetch_related("new_ftnail").get(
-            unique_sha256=sha256
-        )
-    except IndexData.DoesNotExist:
+        thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(sha256)
+    except ThumbnailFiles.DoesNotExist:
         print(sha256, "File not found - No records returned.")
         return HttpResponseBadRequest(content="Thumbnail not found.")
 
     thumbsize = request.GET.get("size", "small").lower()
-    if entry.new_ftnail:
-        if entry.new_ftnail.thumbnail_exists(size=thumbsize):
-            return entry.new_ftnail.send_thumbnail(
-                filename_override=None, fext_override=".jpg", size=thumbsize
+    return thumbnail.send_thumbnail(
+                filename_override=thumbnail.IndexData.all().first().name, fext_override=".jpg", size=thumbsize
             )
 
     print("Miss hit")
@@ -418,6 +418,7 @@ def new_viewgallery(request: WSGIRequest):
             sync_database_disk(paths["album_viewing"])
         #   Albums doesn't exist
         return HttpResponseNotFound("<h1>gallery not found</h1>")
+    
     read_from_disk(paths["album_viewing"], skippable=True)  # new_viewgallery
 
     context = {
@@ -482,56 +483,43 @@ def new_viewgallery(request: WSGIRequest):
         .filter(filetype__is_link=True)
         .order_by(*SORT_MATRIX[context["sort"]])
     )
-    # dirs_to_display = IndexDirs.return_by_uuid_list(
-    #     sort=context["sort"],
-    #     uuid_list=layout["data"][context["current_page"] - 1]["directories"],
-    #  )
-    # files_to_display = IndexData.return_by_uuid_list(
-    #     sort=context["sort"],
-    #     uuid_list=layout["data"][context["current_page"] - 1]["files"],
-    # ).filter(filetype__is_link=False)
-    # links_to_display = IndexData.return_by_uuid_list(
-    #     sort=context["sort"],
-    #     uuid_list=layout["data"][context["current_page"] - 1]["files"],
-    # ).filter(filetype__is_link=True)
 
     context["items_to_display"] = list(
         chain(dirs_to_display, links_to_display, files_to_display)
     )
 
+    #print("elapsed view gallery (pre-thumb) time - ", time.time() - start_time)
     if layout["no_thumbnails"]:
-        start = time.time()
+        no_thumb_start = time.time()
         print(f"{len(layout["no_thumbnails"])} entries need thumbnails")
 
         batchsize = 100
-        no_thumbs = all_files_in_directory.filter(
-            uuid__in=layout["no_thumbnails"][0:batchsize]
-        )
-        # no_thumbs = IndexData.return_by_uuid_list(uuid_list=layout["no_thumbnails"])[
-        # 0:batchsize
-        # ]
+        no_thumbs = layout["no_thumbnails"][0:batchsize]
+
         if no_thumbs:
             with transaction.atomic():
                 with DjangoConnectionThreadPoolExecutor(
                     max_workers=MAX_THREADS
                 ) as executor:
                     futures = []
-                    for db_entry in no_thumbs:
-                        futures.append(executor.submit(update_thumbnail, db_entry))
+                    for sha256 in no_thumbs:
+                        futures.append(executor.submit(ThumbnailFiles.get_or_create_thumbnail_record, sha256))
+                        #futures.append(executor.submit(update_thumbnail, db_entry))
                     _ = [f.result() for f in futures]
                     del futures
-            for page_numb in range(0, layout_settings["page_number"]):
+            for page_numb in range(0, layout_settings["page_number"]+1):
                 key = hashkey(
                     page_number=page_numb,
                     directory=layout_settings["directory"],
                     sort_ordering=layout_settings["sort_ordering"],
                 )
                 if key in layout_manager_cache:
+                    print("Key found in cache", key)
                     del layout_manager_cache[key]
                 else:
-                    print("Key not found in cache")
-        print("elapsed thumbnail time - ", time.time() - start)
-    close_old_connections()
+                    print("Key not found in cache", key)
+        print("elapsed thumbnail time - ", time.time() - no_thumb_start)
+    # close_old_connections()
 
     response = render(
         request,
@@ -850,7 +838,7 @@ def layout_manager(page_number=0, directory=None, sort_ordering=None):
     output["no_thumbnails"] = list(
         directory.files_in_dir(
             sort=sort_ordering, additional_filters={"new_ftnail__isnull": True}
-        ).values_list("uuid", flat=True)
+        ).values_list("file_sha256", flat=True)
     )
 
     return output

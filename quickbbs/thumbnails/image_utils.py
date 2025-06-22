@@ -156,7 +156,7 @@ def resize_pil_image(source_image, size, fext) -> Image:
         return None
 
     with BytesIO() as image_data:  # = BytesIO()
-        source_image.thumbnail((size, size), Image.Resampling.LANCZOS)
+        source_image.thumbnail(size, Image.Resampling.LANCZOS)
         try:
             source_image.save(
                 fp=image_data,

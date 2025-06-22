@@ -59,7 +59,7 @@ class ThumbnailFiles(models.Model):
         verbose_name_plural = "Image File Thumbnails Cache"
 
     @staticmethod
-    def get_or_create_thumbnail_record(file_sha256, unique_sha256):
+    def get_or_create_thumbnail_record(file_sha256):
         from quickbbs.models import IndexData
 
         make_link = False
@@ -76,32 +76,45 @@ class ThumbnailFiles(models.Model):
         if thumbnail.IndexData.all().exists():
             # Reverse lookup to get the first IndexData model that matches this sha256
  #           print("Found IndexData item for sha256:")
-            IndexData_item = thumbnail.IndexData.filter(unique_sha256=unique_sha256).first()
+            IndexData_item = thumbnail.IndexData.first()
         else:
             # Go the long way around to get the IndexData item, presumably there are no 
             # active IndexData items that match this sha256, so we will just get the first one
             from quickbbs.models import IndexData
 #            print("No active IndexData items found, Going the long way around:")
-            IndexData_item = IndexData.objects.filter(file_sha256=file_sha256, unique_sha256=unique_sha256).first()
+            IndexData_item = IndexData.objects.filter(file_sha256=file_sha256).first()
             make_link = True
 
         make_link = make_link or created
         filename = os.path.join(IndexData_item.fqpndirectory, IndexData_item.name)
-
         filetype = IndexData_item.filetype
-        # thumbnails = process_from_file(
-
         thumbnail.save()
+
         if make_link:
             IndexData_item.new_ftnail = thumbnail
             IndexData_item.save()
 
         if not thumbnail.thumbnail_exists():
-            if filetype.is_image():
+            if filetype.is_image:
                 # If the file is an image, we can create the thumbnail
-                thumbnails = create_thumbnails_from_path(
-                    filename, settings.IMAGE_SIZES, output="JPEG", backend="image"
+                    thumbnails = create_thumbnails_from_path(
+                        filename, settings.IMAGE_SIZE, output="JPEG", backend="image"
+                    )
+            elif filetype.is_movie:
+                thumbnails = create_video_thumbnails(
+                    filename, settings.IMAGE_SIZES, output="JPEG", backend="video"
                 )
+            elif filetype.is_pdf:
+                thumbnails = create_pdf_thumbnails(
+                    filename, settings.IMAGE_SIZES, output="JPEG", backend="pdf"
+                )
+            else:
+                # If the file is not an image, movie, or pdf, we cannot create a thumbnail
+                thumbnails = {
+                    "small": b"",
+                    "medium": b"",
+                    "large": b"",
+                }
             thumbnail.small_thumb = thumbnails["small"]
             thumbnail.medium_thumb = thumbnails["medium"]
             thumbnail.large_thumb = thumbnails["large"]
@@ -148,61 +161,61 @@ class ThumbnailFiles(models.Model):
         self.medium_thumb = b""
         self.large_thumb = b""
 
-    def pil_to_thumbnail(self, pil_data):
-        """
+    # def pil_to_thumbnail(self, pil_data):
+    #     """
 
-        Args:
-            pil_data:
+    #     Args:
+    #         pil_data:
 
-        # https://stackoverflow.com/questions/1167398/python-access-class-property-from-string
+    #     # https://stackoverflow.com/questions/1167398/python-access-class-property-from-string
 
-        """
-        self.invalidate_thumb()
-        fext = ".jpg"  # os.path.splitext(self.fqpn_filename)[1][1:].lower()
-        img_original = pil_data
-        for size in ["large", "medium", "small"]:
-            setattr(
-                self,
-                f"{size}_thumb",
-                resize_pil_image(img_original, settings.IMAGE_SIZE[size], fext=fext),
-            )
+    #     """
+    #     self.invalidate_thumb()
+    #     fext = ".jpg"  # os.path.splitext(self.fqpn_filename)[1][1:].lower()
+    #     img_original = pil_data
+    #     for size in ["large", "medium", "small"]:
+    #         setattr(
+    #             self,
+    #             f"{size}_thumb",
+    #             resize_pil_image(img_original, settings.IMAGE_SIZE[size], fext=fext),
+    #         )
 
-    def image_to_thumbnail(self):
-        """
-        Since we are just looking for a thumbnailable image, it doesn't have
-        to be the most up to date, nor the most current.  Cached is fine.
+    # def image_to_thumbnail(self):
+    #     """
+    #     Since we are just looking for a thumbnailable image, it doesn't have
+    #     to be the most up to date, nor the most current.  Cached is fine.
 
-        https://stackoverflow.com/questions/1167398/python-access-class-property-from-string
-        """
-        if self.IndexData.all().exists():
-            # Reverse lookup to get the first IndexData model that matches this sha256
-            IndexData_item = self.IndexData.first()
-        else:
-            # Go the long way around to get the IndexData item, presumably there are no 
-            # active IndexData items that match this sha256, so we will just get the first one
-            from quickbbs.models import IndexData
-            IndexData_item = IndexData.objects.get(file_sha256=self.sha256_hash)
-        filename = (
-            os.path.join(IndexData_item.fqpndirectory, IndexData_item.name)
-            .title()
-            .strip()
-        )
-        fext = os.path.splitext(filename)[1][1:].lower()
-        self.invalidate_thumb()
-        img_original = return_image_obj(filename)
-        for size in ["large", "medium", "small"]:
-            setattr(
-                self,
-                f"{size}_thumb",
-                resize_pil_image(img_original, settings.IMAGE_SIZE[size], fext=fext),
-            )
-        self.save(
-            update_fields=[
-                "small_thumb",
-                "medium_thumb",
-                "large_thumb",
-            ]
-        )
+    #     https://stackoverflow.com/questions/1167398/python-access-class-property-from-string
+    #     """
+    #     if self.IndexData.all().exists():
+    #         # Reverse lookup to get the first IndexData model that matches this sha256
+    #         IndexData_item = self.IndexData.first()
+    #     else:
+    #         # Go the long way around to get the IndexData item, presumably there are no 
+    #         # active IndexData items that match this sha256, so we will just get the first one
+    #         from quickbbs.models import IndexData
+    #         IndexData_item = IndexData.objects.get(file_sha256=self.sha256_hash)
+    #     filename = (
+    #         os.path.join(IndexData_item.fqpndirectory, IndexData_item.name)
+    #         .title()
+    #         .strip()
+    #     )
+    #     fext = os.path.splitext(filename)[1][1:].lower()
+    #     self.invalidate_thumb()
+    #     img_original = return_image_obj(filename)
+    #     for size in ["large", "medium", "small"]:
+    #         setattr(
+    #             self,
+    #             f"{size}_thumb",
+    #             resize_pil_image(img_original, settings.IMAGE_SIZE[size], fext=fext),
+    #         )
+    #     self.save(
+    #         update_fields=[
+    #             "small_thumb",
+    #             "medium_thumb",
+    #             "large_thumb",
+    #         ]
+    #     )
 
     def retrieve_sized_tnail(self, size="small"):
         """
