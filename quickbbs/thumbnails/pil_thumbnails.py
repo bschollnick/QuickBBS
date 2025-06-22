@@ -4,8 +4,12 @@ import platform
 import sys
 from typing import Literal, Optional, Union
 
-from .Abstractbase_thumbnails import AbstractBackend
 from PIL import Image, ImageOps
+
+try:
+    from .Abstractbase_thumbnails import AbstractBackend
+except ImportError:
+    from Abstractbase_thumbnails import AbstractBackend
 
 
 class ImageBackend(AbstractBackend):
@@ -77,7 +81,7 @@ class ImageBackend(AbstractBackend):
             buffer = io.BytesIO()
             save_kwargs = {"format": output_format}
 
-            if output_format.upper() == "JPEG":
+            if output_format.upper() in ["JPEG", "JPG"]:
                 save_kwargs.update(
                     {"quality": quality, "optimize": True, "progressive": True}
                 )

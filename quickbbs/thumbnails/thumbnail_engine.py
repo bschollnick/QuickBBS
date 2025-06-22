@@ -1,10 +1,17 @@
 import platform
 from typing import Literal
 
-from .Abstractbase_thumbnails import AbstractBackend
 from PIL import Image
-from .pil_thumbnails import ImageBackend
-from .video_thumbnails import VideoBackend
+try:
+    from .Abstractbase_thumbnails import AbstractBackend
+    from .pil_thumbnails import ImageBackend
+    from .video_thumbnails import VideoBackend
+    from .pdf_thumbnails import PDFBackend
+except ImportError:
+    from Abstractbase_thumbnails import AbstractBackend
+    from pil_thumbnails import ImageBackend
+    from video_thumbnails import VideoBackend
+    from pdf_thumbnails import PDFBackend
 
 # from quickbbs.frontend.core_image_thumbnails import CoreAbstractBackend
 # In testing, a Memory leak message keeps arising when using Core Image.
