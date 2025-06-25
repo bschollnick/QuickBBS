@@ -38,7 +38,6 @@ from django.views.decorators.vary import vary_on_headers
 from django_htmx.middleware import HtmxDetails
 from filetypes.models import filetypes, load_filetypes
 from frontend.serve_up import static_or_resources
-from frontend.thumbnail import new_process_dir2
 from frontend.utilities import SORT_MATRIX  # executor,
 from frontend.utilities import (
     MAX_THREADS,
@@ -51,10 +50,10 @@ from frontend.utilities import (
     sync_database_disk,
 )
 from frontend.web import detect_mobile, g_option, respond_as_attachment
-from thumbnails.thumbnail_engine import FastImageProcessor
 from PIL import Image, ImageFile
 from thumbnails import image_utils
 from thumbnails.models import ThumbnailFiles
+from thumbnails.thumbnail_engine import FastImageProcessor
 
 from quickbbs.models import IndexData, IndexDirs  # , Thumbnails_Files
 
@@ -403,27 +402,37 @@ def new_viewgallery(request: WSGIRequest):
         no_thumbs = layout["no_thumbnails"][0:batchsize]
 
         if no_thumbs:
+            updated_thumbnails = []
             with transaction.atomic():
-                with DjangoConnectionThreadPoolExecutor(
-                    max_workers=MAX_THREADS
-                ) as executor:
-                    futures = []
-                    for sha256 in no_thumbs:
-                        futures.append(executor.submit(ThumbnailFiles.get_or_create_thumbnail_record, sha256))
-                        #futures.append(executor.submit(update_thumbnail, db_entry))
-                    _ = [f.result() for f in futures]
-                    del futures
-            for page_numb in range(0, layout_settings["page_number"]+1):
-                key = hashkey(
-                    page_number=page_numb,
-                    directory=layout_settings["directory"],
-                    sort_ordering=layout_settings["sort_ordering"],
-                )
-                if key in layout_manager_cache:
-                    print("Key found in cache", key)
-                    del layout_manager_cache[key]
-                else:
-                    print("Key not found in cache", key)
+                for sha256 in no_thumbs:
+                    try:
+                        thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(sha256, suppress_save=True)
+                        updated_thumbnails.append(thumbnail)
+                    except IntegrityError as e:
+                        print(f"Error creating thumbnail for {sha256}: {e}")
+                if updated_thumbnails:
+                    thumbnail_objects = ThumbnailFiles.objects.bulk_create(updated_thumbnails, ignore_conflicts=True, batch_size=25)
+            # with transaction.atomic():
+            #     with DjangoConnectionThreadPoolExecutor(
+            #         max_workers=MAX_THREADS
+            #     ) as executor:
+            #         futures = []
+            #         for sha256 in no_thumbs:
+            #             futures.append(executor.submit(ThumbnailFiles.get_or_create_thumbnail_record, sha256))
+            #             #futures.append(executor.submit(update_thumbnail, db_entry))
+            #         _ = [f.result() for f in futures]
+            #         del futures
+                    for page_numb in range(0, layout_settings["page_number"]+1):
+                        key = hashkey(
+                            page_number=page_numb,
+                            directory=layout_settings["directory"],
+                            sort_ordering=layout_settings["sort_ordering"],
+                        )
+                        if key in layout_manager_cache:
+                            print("Key found in cache", key)
+                            del layout_manager_cache[key]
+                        else:
+                            print("Key not found in cache", key)
         print("elapsed thumbnail time - ", time.time() - no_thumb_start)
     # close_old_connections()
 

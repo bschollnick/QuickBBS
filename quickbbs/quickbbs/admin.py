@@ -70,7 +70,6 @@ class AdminMaster_Dirs(admin.ModelAdmin):
         # "dirname_sha256",
         "dir_parent_sha256",
         "uuid",
-        "sthumb",
         "file_links",
         "display_file_links",
     )
@@ -82,7 +81,6 @@ class AdminMaster_Dirs(admin.ModelAdmin):
         "fqpndirectory",
         "is_generic_icon",
         "filetype",
-        "sthumb",
         "delete_pending",
         "uuid",
     )
@@ -95,7 +93,6 @@ class AdminMaster_Dirs(admin.ModelAdmin):
         "dir_parent_sha256",
         "fqpndirectory",
         "is_generic_icon",
-        "sthumb",
         "delete_pending",
         "uuid",
         "display_file_links",
@@ -112,11 +109,7 @@ class AdminMaster_Dirs(admin.ModelAdmin):
             else "No links"
         )
 
-    def sthumb(self, obj):
-        if obj.small_thumb is not None:
-            return obj.small_thumb[0:25]
-        else:
-            return "None"
+
 
 
 admin.site.register(Owners)

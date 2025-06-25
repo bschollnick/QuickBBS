@@ -2,16 +2,17 @@ import platform
 from typing import Literal
 
 from PIL import Image
+
 try:
     from .Abstractbase_thumbnails import AbstractBackend
+    from .pdf_thumbnails import PDFBackend
     from .pil_thumbnails import ImageBackend
     from .video_thumbnails import VideoBackend
-    from .pdf_thumbnails import PDFBackend
 except ImportError:
     from Abstractbase_thumbnails import AbstractBackend
+    from pdf_thumbnails import PDFBackend
     from pil_thumbnails import ImageBackend
     from video_thumbnails import VideoBackend
-    from pdf_thumbnails import PDFBackend
 
 # from quickbbs.frontend.core_image_thumbnails import CoreAbstractBackend
 # In testing, a Memory leak message keeps arising when using Core Image.
@@ -39,12 +40,16 @@ class FastImageProcessor:
     def _create_backend(self) -> AbstractBackend:
         """Create appropriate backend based on system and preference."""
         match self.backend_type:
-            case "image": return ImageBackend()
-            case "video": return VideoBackend()
-            case "pdf": return PDFBackend()
-            case _: raise ValueError("Unknown backend type specified")
+            case "image":
+                return ImageBackend()
+            case "video":
+                return VideoBackend()
+            case "pdf":
+                return PDFBackend()
+            case _:
+                raise ValueError("Unknown backend type specified")
 
-            # Uncomment when Core Image backend is ready        
+            # Uncomment when Core Image backend is ready
         # elif self.backend_type == "coreimage":
         #     if not CORE_IMAGE_AVAILABLE:
         #         raise ImportError("Core Image backend not available on this system")

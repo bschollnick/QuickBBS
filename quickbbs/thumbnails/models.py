@@ -1,22 +1,3 @@
-import io
-import os
-from functools import lru_cache
-
-from django.conf import settings
-from django.db import models
-from django.http import FileResponse
-
-from .image_utils import resize_pil_image, return_image_obj
-from .thumbnail_engine import create_thumbnails_from_path
-
-__version__ = "3.0"
-
-__author__ = "Benjamin Schollnick"
-__email__ = "Benjamin@schollnick.net"
-
-__url__ = "https://github.com/bschollnick/quickbbs"
-__license__ = "TBD"
-
 """
 The models, and logic for thumbnail storage for the Quickbbs reloaded project.
 
@@ -29,19 +10,54 @@ The models, and logic for thumbnail storage for the Quickbbs reloaded project.
     * MediumThumb - The Binary storage for the Medium Thumbnails
     * LargeThumb - The Binary Storage for the Large Thumbnails
 
-create_file_entry(filename, filesize, is_default)
-    Is used to create the initial record, and creates the small, medium, and large
-    Thumbnails in a "empty" placeholder fashion.
+v4 - Attempting to reduce the amount of queries by maximizing the foreign key logic,
+    to access the IndexData information, instead of fetching it separately.
+    Changing the directory thumbnail logic, the directory data is still it's own table,
+    but the thumbnail is now a foreign key to the ThumbnailFiles model for the file
+    that is being shown as the thumbnail. This eliminates the need for the redundant blob
+    in the DirectoryThumbnail model, and allows for easier management of the thumbnails.
 
-    If filesize is None, then create_file_entry will use os.path.getsize to get the
-    files filesize.
+v3 - Pilot changing the thumbnail storage to be a single table, with the small, medium,
+    and large blobs containing the actual thumbnail data.  This will reduce the number of
+    queries, and allow for easier management of the thumbnails.
+
+    Split the directory thumbnails into a separate table, so that we can manage the thumbnails
+    separately from the IndexData model.
 
 """
 
-# z = IndexData.objects.filter(new_ftnail=None, filetype__is_image=True)
-# ThumbnailFiles.get_or_create_thumbnail_record(z[0].file_sha256, z[0].unique_sha256)
+import io
+import os
+from functools import lru_cache
+
+from django.conf import settings
+from django.db import models
+from django.http import FileResponse
+
+# from .image_utils import resize_pil_image, return_image_obj
+from .thumbnail_engine import create_thumbnails_from_path
+
+__version__ = "4.0"
+
+__author__ = "Benjamin Schollnick"
+__email__ = "Benjamin@schollnick.net"
+
+__url__ = "https://github.com/bschollnick/quickbbs"
+__license__ = "TBD"
+
 
 class ThumbnailFiles(models.Model):
+    """
+    ThumbnailFiles is the primary storage for any thumbnails that are created.
+
+    Primary Key - `sha256_hash` - This is the sha256 hash of the file that the thumbnail is for.
+
+    * SmallThumb - The binary storage for the Small Thumbnails
+    * MediumThumb - The Binary storage for the Medium Thumbnails
+    * LargeThumb - The Binary Storage for the Large Thumbnails
+
+    """
+
     sha256_hash = models.CharField(
         db_index=True,
         blank=True,
@@ -59,7 +75,18 @@ class ThumbnailFiles(models.Model):
         verbose_name_plural = "Image File Thumbnails Cache"
 
     @staticmethod
-    def get_or_create_thumbnail_record(file_sha256):
+    def get_or_create_thumbnail_record(file_sha256, suppress_save=False) -> "ThumbnailFiles":
+        """
+        Given a sha256 hash, return the thumbnail object, or create it if it
+        does not exist.
+
+        Args:
+            file_sha256 (str): The sha256 hash of the file to retrieve or create a thumbnail for.
+
+        Returns:
+            ThumbnailFiles: The thumbnail object, either retrieved or created.
+        """
+
         from quickbbs.models import IndexData
 
         make_link = False
@@ -72,40 +99,39 @@ class ThumbnailFiles(models.Model):
         thumbnail, created = ThumbnailFiles.objects.get_or_create(
             sha256_hash=file_sha256, defaults=defaults
         )
-        
+
         if thumbnail.IndexData.all().exists():
             # Reverse lookup to get the first IndexData model that matches this sha256
- #           print("Found IndexData item for sha256:")
-            IndexData_item = thumbnail.IndexData.first()
+            #           print("Found IndexData item for sha256:")
+            index_data_item = thumbnail.IndexData.first()
         else:
-            # Go the long way around to get the IndexData item, presumably there are no 
+            # Go the long way around to get the IndexData item, presumably there are no
             # active IndexData items that match this sha256, so we will just get the first one
-            from quickbbs.models import IndexData
-#            print("No active IndexData items found, Going the long way around:")
-            IndexData_item = IndexData.objects.filter(file_sha256=file_sha256).first()
+            #            print("No active IndexData items found, Going the long way around:")
+            index_data_item = IndexData.objects.filter(file_sha256=file_sha256).first()
             make_link = True
 
         make_link = make_link or created
-        filename = os.path.join(IndexData_item.fqpndirectory, IndexData_item.name)
-        filetype = IndexData_item.filetype
+        filename = os.path.join(index_data_item.fqpndirectory, index_data_item.name)
+        filetype = index_data_item.filetype
         thumbnail.save()
 
         if make_link:
-            IndexData_item.new_ftnail = thumbnail
-            IndexData_item.save()
+            index_data_item.new_ftnail = thumbnail
+            index_data_item.save()
 
         if not thumbnail.thumbnail_exists():
             if filetype.is_image:
                 # If the file is an image, we can create the thumbnail
-                    thumbnails = create_thumbnails_from_path(
-                        filename, settings.IMAGE_SIZE, output="JPEG", backend="image"
-                    )
+                thumbnails = create_thumbnails_from_path(
+                    filename, settings.IMAGE_SIZE, output="JPEG", backend="image"
+                )
             elif filetype.is_movie:
-                thumbnails = create_video_thumbnails(
+                thumbnails = create_thumbnails_from_path(
                     filename, settings.IMAGE_SIZES, output="JPEG", backend="video"
                 )
             elif filetype.is_pdf:
-                thumbnails = create_pdf_thumbnails(
+                thumbnails = create_thumbnails_from_path(
                     filename, settings.IMAGE_SIZES, output="JPEG", backend="pdf"
                 )
             else:
@@ -118,10 +144,13 @@ class ThumbnailFiles(models.Model):
             thumbnail.small_thumb = thumbnails["small"]
             thumbnail.medium_thumb = thumbnails["medium"]
             thumbnail.large_thumb = thumbnails["large"]
-            thumbnail.save(update_fields=["small_thumb", "medium_thumb", "large_thumb"])
+            if suppress_save:
+                pass
+            else:
+                thumbnail.save(update_fields=["small_thumb", "medium_thumb", "large_thumb"])
         return thumbnail
 
-    def number_of_IndexData_references(self):
+    def number_of_indexdata_references(self):
         """
         Given a sha256 hash, return the number of IndexData references
         """
@@ -137,6 +166,15 @@ class ThumbnailFiles(models.Model):
         return ThumbnailFiles.objects.get(sha256_hash=sha256)
 
     def thumbnail_exists(self, size="small"):
+        """
+        Check if the thumbnail exists for the given size.
+
+        Args:
+            size (str): The size of the thumbnail to check for (eg. small, medium, large).
+
+        Returns:
+            bool: True if the thumbnail exists, False otherwise.
+        """
         match size.lower():
             case "small":
                 return self.small_thumb not in ["", b"", None]
@@ -152,70 +190,25 @@ class ThumbnailFiles(models.Model):
         to an empty byte string. It is used when the thumbnail file cannot be found on disk,
         or when the thumbnail file has been corrupted.
 
-        :param thumbnail: Store the thumbnail data
-        :return: The thumbnail object
+        Note:
+            This function does not delete the thumbnail object, it simply clears the thumbnail data.
+            This also does not save the object, so you will need to call save() after this.
+            The intention is to clear the thumbnail data, so that it can be regenerated, so
+            callling save here is potentially redundant.
+
+        Args:
+            thumbnail: Store the thumbnail data
+
+        Returns:
+            ThumbnailFile: The thumbnail object
+
+
         >>> test = quickbbs.models.IndexData()
-        >>> test = invalidate_thumb(test)
+        >>> test.invalidate_thumb()
         """
         self.small_thumb = b""
         self.medium_thumb = b""
         self.large_thumb = b""
-
-    # def pil_to_thumbnail(self, pil_data):
-    #     """
-
-    #     Args:
-    #         pil_data:
-
-    #     # https://stackoverflow.com/questions/1167398/python-access-class-property-from-string
-
-    #     """
-    #     self.invalidate_thumb()
-    #     fext = ".jpg"  # os.path.splitext(self.fqpn_filename)[1][1:].lower()
-    #     img_original = pil_data
-    #     for size in ["large", "medium", "small"]:
-    #         setattr(
-    #             self,
-    #             f"{size}_thumb",
-    #             resize_pil_image(img_original, settings.IMAGE_SIZE[size], fext=fext),
-    #         )
-
-    # def image_to_thumbnail(self):
-    #     """
-    #     Since we are just looking for a thumbnailable image, it doesn't have
-    #     to be the most up to date, nor the most current.  Cached is fine.
-
-    #     https://stackoverflow.com/questions/1167398/python-access-class-property-from-string
-    #     """
-    #     if self.IndexData.all().exists():
-    #         # Reverse lookup to get the first IndexData model that matches this sha256
-    #         IndexData_item = self.IndexData.first()
-    #     else:
-    #         # Go the long way around to get the IndexData item, presumably there are no 
-    #         # active IndexData items that match this sha256, so we will just get the first one
-    #         from quickbbs.models import IndexData
-    #         IndexData_item = IndexData.objects.get(file_sha256=self.sha256_hash)
-    #     filename = (
-    #         os.path.join(IndexData_item.fqpndirectory, IndexData_item.name)
-    #         .title()
-    #         .strip()
-    #     )
-    #     fext = os.path.splitext(filename)[1][1:].lower()
-    #     self.invalidate_thumb()
-    #     img_original = return_image_obj(filename)
-    #     for size in ["large", "medium", "small"]:
-    #         setattr(
-    #             self,
-    #             f"{size}_thumb",
-    #             resize_pil_image(img_original, settings.IMAGE_SIZE[size], fext=fext),
-    #         )
-    #     self.save(
-    #         update_fields=[
-    #             "small_thumb",
-    #             "medium_thumb",
-    #             "large_thumb",
-    #         ]
-    #     )
 
     def retrieve_sized_tnail(self, size="small"):
         """

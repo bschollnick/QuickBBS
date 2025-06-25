@@ -14,11 +14,12 @@ from functools import lru_cache
 # from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.db.models import Count
 from django.db import models
 from django.db.models.query import QuerySet
 from django.http import FileResponse, Http404, HttpResponse
 from django.urls import reverse
-from filetypes.models import FILETYPE_DATA, filetypes, get_ftype_dict
+from filetypes.models import filetypes, get_ftype_dict
 from ranged_fileresponse import RangedFileResponse
 from thumbnails.models import ThumbnailFiles
 
@@ -66,21 +67,6 @@ class Favorites(models.Model):
     uuid = models.UUIDField(
         default=None, null=True, editable=False, blank=True, db_index=True
     )
-
-
-@lru_cache(maxsize=1000)
-def normalize_fqpn(fqpn_directory) -> str:
-    """
-    Normalize the directory structure fully qualified pathname for conversion to a md5
-    hexdigest string.
-    :param fqpn_directory: String, the fully qualified pathname for the directory
-    :return: normalized string, all lowercase, whitespace stripped, ending with os.sep
-    """
-    Path = pathlib.Path(fqpn_directory)
-    fqpn_directory = str(Path.resolve()).lower().strip()
-    if not fqpn_directory.endswith(os.sep):
-        fqpn_directory = fqpn_directory + os.sep
-    return fqpn_directory
 
 
 class IndexDirs(models.Model):
@@ -132,8 +118,13 @@ class IndexDirs(models.Model):
         default=".dir",
         related_name="dirs_filetype_data",
     )
-    thumbnail = models.ForeignKey("IndexData", on_delete=models.CASCADE, related_name="dir_thumbnail", null=True, default=None)
-    small_thumb = models.BinaryField(default=b"")
+    thumbnail = models.ForeignKey(
+        "IndexData",
+        on_delete=models.CASCADE,
+        related_name="dir_thumbnail",
+        null=True,
+        default=None,
+    )
     file_links = models.ManyToManyField(
         "IndexData",
         default=None,
@@ -155,20 +146,17 @@ class IndexDirs(models.Model):
         Path = pathlib.Path(fqpn_directory)
         fqpn_directory = normalize_fqpn(str(Path.resolve()))
         parent_dir = normalize_fqpn(str(Path.parent.resolve()))
-        filename_seg = str(Path.name)
         # Prepare the defaults for fields that should be set on creation
         defaults = {
             "fqpndirectory": normalize_fqpn(fqpn_directory),
             "combined_md5": convert_text_to_md5_hdigest(fqpn_directory),
             "parent_dir_md5": convert_text_to_md5_hdigest(parent_dir),
             "uuid": uuid.uuid4(),
-            "small_thumb": thumbnail,
             "lastmod": os.path.getmtime(fqpn_directory),
             "lastscan": time.time(),
             "filetype": filetypes(fileext=".dir"),
             "dir_fqpn_sha256": get_dir_sha(fqpn_directory),
             "dir_parent_sha256": get_dir_sha(parent_dir),
-            "small_thumb": b"",
             "is_generic_icon": False,
             "thumbnail": None,
         }
@@ -190,7 +178,7 @@ class IndexDirs(models.Model):
         :return: None
         """
         print("Invalidating generic thumbnail for ", self.fqpndirectory)
-        self.small_thumb = b""
+        self.thumbnail
         self.is_generic_icon = False
         self.save()
 
@@ -325,7 +313,7 @@ class IndexDirs(models.Model):
         parent_dir = IndexDirs.objects.filter(combined_md5=self.parent_dir_md5)
         return parent_dir
 
-    @lru_cache(maxsize=1000)
+    #@lru_cache(maxsize=1000)
     @staticmethod
     def search_for_directory_by_sha(sha_256) -> tuple[bool, "IndexDirs"]:
         """
@@ -342,7 +330,7 @@ class IndexDirs(models.Model):
         except IndexDirs.DoesNotExist:
             return (False, IndexDirs.objects.none())  # return an empty query set
 
-    @lru_cache(maxsize=1000)
+    #@lru_cache(maxsize=1000)
     @staticmethod
     def search_for_directory(fqpn_directory) -> tuple[bool, "IndexDirs"]:
         """
@@ -465,44 +453,44 @@ class IndexDirs(models.Model):
             Django URL object
 
         """
-        #return reverse(r"thumbnail_dir", args=(self.uuid,))
+        # return reverse(r"thumbnail_dir", args=(self.uuid,))
         return reverse(r"thumbnail2_dir", args=(self.dir_fqpn_sha256,))
 
-    def send_thumbnail(self) -> FileResponse:
-        """
-         Output a http response header, for an image attachment.
+    # def send_thumbnail(self) -> FileResponse:
+    #     """
+    #      Output a http response header, for an image attachment.
 
-        Args:
-             filename (str): The filename to be sent with the thumbnail
+    #     Args:
+    #          filename (str): The filename to be sent with the thumbnail
 
-         Returns:
-             object::
-                 The Django response object that contains the attachment and header
+    #      Returns:
+    #          object::
+    #              The Django response object that contains the attachment and header
 
-         Raises:
-             None
+    #      Raises:
+    #          None
 
-         Examples
-         --------
-         return_img_attach("test.png", img_data)
+    #      Examples
+    #      --------
+    #      return_img_attach("test.png", img_data)
 
-         # https://stackoverflow.com/questions/36392510/django-download-a-file
-         # https://stackoverflow.com/questions/27712778/
-         #               video-plays-in-other-browsers-but-not-safari
-         # https://stackoverflow.com/questions/720419/
-         #               how-can-i-find-out-whether-a-server-supports-the-range-header
+    #      # https://stackoverflow.com/questions/36392510/django-download-a-file
+    #      # https://stackoverflow.com/questions/27712778/
+    #      #               video-plays-in-other-browsers-but-not-safari
+    #      # https://stackoverflow.com/questions/720419/
+    #      #               how-can-i-find-out-whether-a-server-supports-the-range-header
 
-        """
-        mtype = "application/octet-stream"
-        response = FileResponse(
-            io.BytesIO(self.small_thumb),
-            content_type=mtype,
-            as_attachment=False,
-            filename=os.path.basename(self.fqpndirectory) + ".jpg",
-        )
-        response["Content-Type"] = mtype
-        response["Content-Length"] = len(self.small_thumb)
-        return response
+    #     """
+    #     mtype = "application/octet-stream"
+    #     response = FileResponse(
+    #         io.BytesIO(self.small_thumb),
+    #         content_type=mtype,
+    #         as_attachment=False,
+    #         filename=os.path.basename(self.fqpndirectory) + ".jpg",
+    #     )
+    #     response["Content-Type"] = mtype
+    #     response["Content-Length"] = len(self.small_thumb)
+    #     return response
 
 
 class IndexData(models.Model):
@@ -878,7 +866,7 @@ class IndexData(models.Model):
          send_thumbnail("test.png")
 
         """
-        from frontend.web import stream_video
+        # from frontend.web import stream_video
 
         mtype = self.filetype.mimetype
         if mtype is None:

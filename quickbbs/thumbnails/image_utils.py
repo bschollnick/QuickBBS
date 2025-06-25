@@ -7,7 +7,6 @@ import os.path
 from io import BytesIO
 
 import av  # Video Previews
-
 import filetypes
 import fitz  # PDF previews
 from django.conf import settings

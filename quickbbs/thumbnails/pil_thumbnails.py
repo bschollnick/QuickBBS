@@ -1,8 +1,4 @@
 import io
-import os
-import platform
-import sys
-from typing import Literal, Optional, Union
 
 from PIL import Image, ImageOps
 

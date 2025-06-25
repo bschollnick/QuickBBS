@@ -1,7 +1,9 @@
+"""
+Abstract base class for image processing backends.
+"""
 from abc import ABC, abstractmethod
-from typing import Literal, Optional, Union
 
-from PIL import Image, ImageOps
+from PIL import Image
 
 
 class AbstractBackend(ABC):
@@ -15,6 +17,7 @@ class AbstractBackend(ABC):
         output_format: str,
         quality: int,
     ) -> dict[str, bytes]:
+        """Process an file and generate multiple thumbnails."""
         pass
 
     @abstractmethod
@@ -25,6 +28,7 @@ class AbstractBackend(ABC):
         output_format: str,
         quality: int,
     ) -> dict[str, bytes]:
+        """Process an in-memory blob and generate multiple thumbnails."""
         pass
 
     @abstractmethod
@@ -35,4 +39,5 @@ class AbstractBackend(ABC):
         output_format: str,
         quality: int,
     ) -> dict[str, bytes]:
+        """Process an image (PILLOW) and generate multiple thumbnails."""
         pass
