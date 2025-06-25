@@ -1,5 +1,4 @@
 import io
-from typing import Optional
 
 import fitz  # PyMuPDF
 from PIL import Image
@@ -10,8 +9,6 @@ try:
 except ImportError:
     from Abstractbase_thumbnails import AbstractBackend
     from pil_thumbnails import ImageBackend
-
-
 
 
 class PDFBackend(ImageBackend):
@@ -56,17 +53,19 @@ class PDFBackend(ImageBackend):
             img = Image.open(io.BytesIO(img_data))
 
             # Process the image
-#            results = self._process_pil_image(img, sizes, output_format, quality)
+            #            results = self._process_pil_image(img, sizes, output_format, quality)
             output = {}
             converter = ImageBackend()
-            pillow_output = converter._process_pil_image(img, sizes, output_format, quality)
+            pillow_output = converter._process_pil_image(
+                img, sizes, output_format, quality
+            )
             output["format"] = output_format
             output.update(pillow_output)
 
             # Clean up
             pdf_doc.close()
 
-            #return results
+            # return results
             return output
 
         except Exception as e:
@@ -197,9 +196,9 @@ if __name__ == "__main__":
             quality=85,
         )
         print(f"Format: {thumbnails['format']}")
-        small_thumb_bytes = thumbnails['small']
-        medium_thumb_bytes = thumbnails['medium']
-        large_thumb_bytes = thumbnails['large']
+        small_thumb_bytes = thumbnails["small"]
+        medium_thumb_bytes = thumbnails["medium"]
+        large_thumb_bytes = thumbnails["large"]
         print(small_thumb_bytes[:20], medium_thumb_bytes[:20], large_thumb_bytes[:20])
         print(f"size of small thumbnail: {len(thumbnails['small'])} bytes")
         print(f"size of medium thumbnail: {len(thumbnails['medium'])} bytes")

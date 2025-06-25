@@ -197,7 +197,7 @@ class fs_Cache_Tracking(models.Model):
             sha_list = set([get_dir_sha(dir_name) for dir_name in dir_names])
             directories = list(IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list))
             updated_cnt = IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list).update(
-                is_generic_icon=False, small_thumb=b""
+                is_generic_icon=False
             )
 
             dir_map = {d.dir_fqpn_sha256: d for d in directories}

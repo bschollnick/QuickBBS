@@ -3,14 +3,16 @@ Utilities for QuickBBS, the python edition.
 """
 
 import logging
-import multiprocessing
+
+# import multiprocessing
 import os
 import os.path
-import stat
+
+# import stat
 import time
 import urllib.parse
 import uuid
-from datetime import timedelta
+# from datetime import timedelta
 from functools import lru_cache, wraps
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -19,23 +21,27 @@ from typing import Any, Dict, List, Optional, Tuple
 # from moviepy.editor import VideoFileClip #* # import everythings (variables, classes, methods...)
 # inside moviepy.editor
 # import av  # Video Previews
-import django.db.utils
+# import django.db.utils
 import filetypes.models as filetype_models
 from cache_watcher.models import Cache_Storage, get_dir_sha
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, F, OuterRef, Subquery, Value
-from django.db.utils import IntegrityError
-from django.utils.html import format_html
+
+# from django.db.models import Count, F, OuterRef, Subquery, Value
+# from django.db.utils import IntegrityError
+# from django.utils.html import format_html
 from django_thread import ThreadPoolExecutor
 from PIL import Image
-from thumbnails.image_utils import movie_duration
-from thumbnails.models import ThumbnailFiles
 
 from quickbbs.common import get_file_sha, normalize_fqpn
 
 # from quickbbs.logger import log
 from quickbbs.models import IndexData, IndexDirs
+
+# from thumbnails.image_utils import movie_duration
+# from thumbnails.models import ThumbnailFiles
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +150,7 @@ def _get_or_create_directory(
 ) -> Tuple[Optional[object], bool]:
     """Get or create directory record and check cache status."""
     found, dirpath_info = IndexDirs.search_for_directory_by_sha(directory_sha256)
-
+    print("Directory found:", found, dirpath_info)
     if not found:
         found, dirpath_info = IndexDirs.add_directory(dirpath)
         if not found:
@@ -300,14 +306,14 @@ def _check_file_updates(db_record: object, fs_entry: Path) -> Optional[object]:
                 update_needed = True
 
             # Check movie duration
-            if filetype.is_movie and db_record.duration is None:
-                try:
-                    duration = movie_duration(str(fs_entry))
-                    if duration is not None:
-                        db_record.duration = timedelta(seconds=duration)
-                        update_needed = True
-                except Exception as e:
-                    logger.error(f"Error getting duration for {fs_entry}: {e}")
+            # if filetype.is_movie and db_record.duration is None:
+            #     try:
+            #         duration = 0
+            #         if duration is not None:
+            #             db_record.duration = duration
+            #             update_needed = True
+            #     except Exception as e:
+            #         logger.error(f"Error getting duration for {fs_entry}: {e}")
 
         return db_record if update_needed else None
 
@@ -682,7 +688,7 @@ def sync_database_disk(directoryname: str) -> Optional[bool]:
     Returns:
         None on completion, bool on early exit conditions
     """
-    print("Syncing database with disk for directory:", directoryname)
+    print("Starting ...  Syncing database with disk for directory:", directoryname)
     BULK_SIZE = 100  # Increased from 50 for better batch performance
 
     try:
@@ -701,6 +707,7 @@ def sync_database_disk(directoryname: str) -> Optional[bool]:
         print(dirpath_info, is_cached)
         # Early return if cached
         if is_cached:
+            print(f"Directory {dirpath} is already cached, skipping sync.")
             return None
 
         print(f"Rescanning directory: {dirpath}")
@@ -985,10 +992,8 @@ def read_from_disk(dir_to_scan, skippable=True):
     sync_database_disk(str(dir_path))
 
 
-from Foundation import (
+from Foundation import (  # NSData,; NSError,
     NSURL,
-    NSData,
-    NSError,
     NSURLBookmarkResolutionWithoutMounting,
     NSURLBookmarkResolutionWithoutUI,
 )

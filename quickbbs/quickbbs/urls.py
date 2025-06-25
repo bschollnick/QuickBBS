@@ -46,28 +46,32 @@ urlpatterns += [
         name="view_item",
     ),
     re_path("^albums/", frontend.views.new_viewgallery, name="directories"),
-    path(
-        "thumbnail_file/<uuid:tnail_id>",
-        frontend.views.view_thumbnail,
-        name="thumbnail_file",
-    ),
+    # path(
+    #     "thumbnail_file/<uuid:tnail_id>",
+    #     frontend.views.view_thumbnail,
+    #     name="thumbnail_file",
+    # ),
     path(
         "thumbnail2_file/<str:sha256>",
         frontend.views.thumbnail2_file,
         name="thumbnail2_file",
     ),
-    path(
-        "thumbnail_directory/<uuid:tnail_id>",
-        frontend.views.view_dir_thumbnail,
-        name="thumbnail_dir",
-    ),
+    # path(
+    #     "thumbnail_directory/<uuid:tnail_id>",
+    #     frontend.views.view_dir_thumbnail,
+    #     name="thumbnail_dir",
+    # ),
     path(
         "thumbnail2_directory/<str:dir_sha256>",
         frontend.views.thumbnail2_dir,
         name="thumbnail2_dir",
     ),
     # path("thumbnails/", frontend.views.thumbnails, name="thumbnailspath"),
-    path("resources/<path:pathstr>", frontend.serve_up.static_or_resources, name="resources"),
+    path(
+        "resources/<path:pathstr>",
+        frontend.serve_up.static_or_resources,
+        name="resources",
+    ),
     path("static/<path:pathstr>", frontend.serve_up.static_or_resources, name="static"),
     path("accounts/", include("allauth.urls")),
     path("grappelli/", include("grappelli.urls")),  # grappelli URLS
