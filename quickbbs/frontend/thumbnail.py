@@ -20,7 +20,6 @@ from thumbnails.image_utils import (  # image_to_pil,; movie_to_pil,; pdf_to_pil
     return_image_obj,
 )
 
-
 # def new_process_dir2(db_entry):
 #     """
 #     input:

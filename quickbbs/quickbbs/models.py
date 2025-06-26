@@ -14,8 +14,8 @@ from functools import lru_cache
 # from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.contrib.auth.models import User
-from django.db.models import Count
 from django.db import models
+from django.db.models import Count
 from django.db.models.query import QuerySet
 from django.http import FileResponse, Http404, HttpResponse
 from django.urls import reverse
@@ -23,8 +23,8 @@ from filetypes.models import filetypes, get_ftype_dict
 from ranged_fileresponse import RangedFileResponse
 from thumbnails.models import ThumbnailFiles
 
+from quickbbs.common import get_dir_sha, normalize_fqpn
 from quickbbs.natsort_model import NaturalSortField
-from quickbbs.common import normalize_fqpn, get_dir_sha
 
 
 def convert_text_to_md5_hdigest(text) -> str:
@@ -313,7 +313,7 @@ class IndexDirs(models.Model):
         parent_dir = IndexDirs.objects.filter(combined_md5=self.parent_dir_md5)
         return parent_dir
 
-    #@lru_cache(maxsize=1000)
+    # @lru_cache(maxsize=1000)
     @staticmethod
     def search_for_directory_by_sha(sha_256) -> tuple[bool, "IndexDirs"]:
         """
@@ -330,7 +330,7 @@ class IndexDirs(models.Model):
         except IndexDirs.DoesNotExist:
             return (False, IndexDirs.objects.none())  # return an empty query set
 
-    #@lru_cache(maxsize=1000)
+    # @lru_cache(maxsize=1000)
     @staticmethod
     def search_for_directory(fqpn_directory) -> tuple[bool, "IndexDirs"]:
         """

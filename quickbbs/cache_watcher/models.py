@@ -10,21 +10,20 @@ import hashlib
 import os
 import pathlib
 import sys
-import time
-from functools import lru_cache
 import threading
+import time
 from collections import defaultdict
+from functools import lru_cache
 
 from cache_watcher.watchdogmon import watchdog
-
 from cachetools.keys import hashkey
 from django.apps import AppConfig
 from django.conf import settings
 from django.core.cache import cache
-from django.db import models, transaction, close_old_connections
-
-from quickbbs.common import normalize_fqpn, get_dir_sha
+from django.db import close_old_connections, models, transaction
 from watchdog.events import FileSystemEventHandler
+
+from quickbbs.common import get_dir_sha, normalize_fqpn
 
 Cache_Storage = None
 
@@ -136,6 +135,7 @@ class fs_Cache_Tracking(models.Model):
 
     def remove_from_cache_sha(self, sha256):
         from frontend.views import layout_manager, layout_manager_cache
+
         from quickbbs.models import IndexDirs
 
         # try:
@@ -186,6 +186,7 @@ class fs_Cache_Tracking(models.Model):
         Remove multiple directories from cache in a single transaction
         """
         from frontend.views import layout_manager, layout_manager_cache
+
         from quickbbs.models import IndexDirs
 
         try:

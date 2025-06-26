@@ -12,6 +12,7 @@ import os.path
 import time
 import urllib.parse
 import uuid
+
 # from datetime import timedelta
 from functools import lru_cache, wraps
 from pathlib import Path
@@ -40,7 +41,6 @@ from quickbbs.models import IndexData, IndexDirs
 
 # from thumbnails.image_utils import movie_duration
 # from thumbnails.models import ThumbnailFiles
-
 
 
 logger = logging.getLogger(__name__)
@@ -207,7 +207,6 @@ def _sync_directories(dirpath_info: object, fs_entries: Dict) -> None:
         dir_name = os.path.join(current_path, dir_name) + os.sep
         if dir_name not in db_directories:
             directories_to_create.append(dir_name)
-
 
     # Batch delete directories
     if directories_to_delete:
@@ -733,6 +732,7 @@ def sync_database_disk(directoryname: str) -> Optional[bool]:
         logger.error(f"Error syncing directory {directoryname}: {e}")
         return False
     print("End Sync")
+
 
 # def sync_database_disk(directoryname):
 #     """
