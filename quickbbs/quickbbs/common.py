@@ -1,8 +1,8 @@
 import hashlib
 import os
 import pathlib
-from typing import Optional
 from functools import lru_cache
+from typing import Optional
 
 
 # Optimized hash function - use a single consistent hashing method

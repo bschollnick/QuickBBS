@@ -75,7 +75,9 @@ class ThumbnailFiles(models.Model):
         verbose_name_plural = "Image File Thumbnails Cache"
 
     @staticmethod
-    def get_or_create_thumbnail_record(file_sha256, suppress_save=False) -> "ThumbnailFiles":
+    def get_or_create_thumbnail_record(
+        file_sha256, suppress_save=False
+    ) -> "ThumbnailFiles":
         """
         Given a sha256 hash, return the thumbnail object, or create it if it
         does not exist.
@@ -147,7 +149,9 @@ class ThumbnailFiles(models.Model):
             if suppress_save:
                 pass
             else:
-                thumbnail.save(update_fields=["small_thumb", "medium_thumb", "large_thumb"])
+                thumbnail.save(
+                    update_fields=["small_thumb", "medium_thumb", "large_thumb"]
+                )
         return thumbnail
 
     def number_of_indexdata_references(self):

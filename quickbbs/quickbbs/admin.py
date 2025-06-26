@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from quickbbs.models import IndexData, IndexDirs, Owners, Favorites
+from quickbbs.models import Favorites, IndexData, IndexDirs, Owners
 
 
 @admin.register(IndexData)
@@ -108,8 +108,6 @@ class AdminMaster_Dirs(admin.ModelAdmin):
             if links
             else "No links"
         )
-
-
 
 
 admin.site.register(Owners)

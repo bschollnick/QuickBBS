@@ -35,5 +35,4 @@ def static_or_resources(request, pathstr=None):
     if os.path.exists(resource_file) and os.path.isfile(resource_file):
         return FileResponse(open(resource_file, "rb"))
 
-
     raise Http404(f"File {pathstr} not found in resources or static files")

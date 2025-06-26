@@ -17,15 +17,14 @@ from pathlib import Path
 from typing import Optional
 
 import markdown2
-import psycopg
-from asgiref.sync import sync_to_async
+# from asgiref.sync import sync_to_async
 from cache_watcher.models import Cache_Storage
 from cachetools import LRUCache, cached
 from cachetools.keys import hashkey
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
-from django.db import close_old_connections, connections, transaction
+from django.db import close_old_connections, transaction # , connections, 
 from django.db.utils import IntegrityError
 from django.http import (  # HttpResponse,
     Http404,
@@ -36,12 +35,12 @@ from django.http import (  # HttpResponse,
 from django.shortcuts import render
 from django.views.decorators.vary import vary_on_headers
 from django_htmx.middleware import HtmxDetails
-from filetypes.models import filetypes, load_filetypes
+from filetypes.models import load_filetypes # , filetypes 
 from frontend.serve_up import static_or_resources
 from frontend.utilities import SORT_MATRIX  # executor,
 from frontend.utilities import (
-    MAX_THREADS,
-    DjangoConnectionThreadPoolExecutor,
+#    MAX_THREADS,
+#    DjangoConnectionThreadPoolExecutor,
     convert_to_webpath,
     ensures_endswith,
     read_from_disk,
@@ -49,11 +48,11 @@ from frontend.utilities import (
     sort_order,
     sync_database_disk,
 )
-from frontend.web import detect_mobile, g_option, respond_as_attachment
+from frontend.web import detect_mobile, g_option # , respond_as_attachment
 from PIL import Image, ImageFile
-from thumbnails import image_utils
+# from thumbnails import image_utils
 from thumbnails.models import ThumbnailFiles
-from thumbnails.thumbnail_engine import FastImageProcessor
+# from thumbnails.thumbnail_engine import FastImageProcessor
 
 from quickbbs.models import IndexData, IndexDirs  # , Thumbnails_Files
 
@@ -150,7 +149,7 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: Optional[str] = None):
         directory = IndexDirs.objects.get(dir_fqpn_sha256=dir_sha256)
     except IndexDirs.DoesNotExist:
         # does not exist
-        print(tnail_id, "Directory not found - No records returned.")
+        print(dir_sha256, "Directory not found - No records returned.")
         return Http404
     file_count = 0
 
@@ -177,7 +176,12 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: Optional[str] = None):
             if directory.is_generic_icon is False:
                 directory.is_generic_icon = True
                 directory.save()
-            return static_or_resources(request, settings.RESOURCES_PATH + r"/images/" + directory.filetype.icon_filename)  # Default icon
+            return static_or_resources(
+                request,
+                settings.RESOURCES_PATH
+                + r"/images/"
+                + directory.filetype.icon_filename,
+            )  # Default icon
 
     if directory.thumbnail.new_ftnail is None:
         # If the thumbnail is not set, create a new thumbnail
@@ -190,10 +194,12 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: Optional[str] = None):
 
         directory.thumbnail.new_ftnail = thumbnail
         directory.save()
-        
 
     if directory.thumbnail:
-        return directory.thumbnail.new_ftnail.send_thumbnail(fext_override=".jpg", size="small")  # Send existing thumbnail
+        return directory.thumbnail.new_ftnail.send_thumbnail(
+            fext_override=".jpg", size="small"
+        )  # Send existing thumbnail
+
 
 def thumbnail2_file(request: WSGIRequest, sha256: str):
     """
@@ -210,8 +216,11 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
 
     thumbsize = request.GET.get("size", "small").lower()
     return thumbnail.send_thumbnail(
-                filename_override=thumbnail.IndexData.all().first().name, fext_override=".jpg", size=thumbsize
-            )
+        filename_override=thumbnail.IndexData.all().first().name,
+        fext_override=".jpg",
+        size=thumbsize,
+    )
+
 
 def search_viewresults(request: WSGIRequest):
     """
@@ -246,7 +255,7 @@ def search_viewresults(request: WSGIRequest):
     )
 
     chk_list = Paginator(index, per_page=30, orphans=3)
-    context["page_cnt"] = list(arange(1, chk_list.num_pages + 1))
+    context["page_cnt"] = list(range(1, chk_list.num_pages + 1))
 
     if "/search/" in context["originator"] or context["originator"] is None:
         context["originator"] = request.GET.get("originator", "/albums")
@@ -323,7 +332,7 @@ def new_viewgallery(request: WSGIRequest):
             sync_database_disk(paths["album_viewing"])
         #   Albums doesn't exist
         return HttpResponseNotFound("<h1>gallery not found</h1>")
-    
+
     read_from_disk(paths["album_viewing"], skippable=True)  # new_viewgallery
 
     context = {
@@ -393,7 +402,7 @@ def new_viewgallery(request: WSGIRequest):
         chain(dirs_to_display, links_to_display, files_to_display)
     )
 
-    #print("elapsed view gallery (pre-thumb) time - ", time.time() - start_time)
+    # print("elapsed view gallery (pre-thumb) time - ", time.time() - start_time)
     if layout["no_thumbnails"]:
         no_thumb_start = time.time()
         print(f"{len(layout["no_thumbnails"])} entries need thumbnails")
@@ -406,23 +415,27 @@ def new_viewgallery(request: WSGIRequest):
             with transaction.atomic():
                 for sha256 in no_thumbs:
                     try:
-                        thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(sha256, suppress_save=True)
+                        thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(
+                            sha256, suppress_save=True
+                        )
                         updated_thumbnails.append(thumbnail)
                     except IntegrityError as e:
                         print(f"Error creating thumbnail for {sha256}: {e}")
                 if updated_thumbnails:
-                    thumbnail_objects = ThumbnailFiles.objects.bulk_create(updated_thumbnails, ignore_conflicts=True, batch_size=25)
-            # with transaction.atomic():
-            #     with DjangoConnectionThreadPoolExecutor(
-            #         max_workers=MAX_THREADS
-            #     ) as executor:
-            #         futures = []
-            #         for sha256 in no_thumbs:
-            #             futures.append(executor.submit(ThumbnailFiles.get_or_create_thumbnail_record, sha256))
-            #             #futures.append(executor.submit(update_thumbnail, db_entry))
-            #         _ = [f.result() for f in futures]
-            #         del futures
-                    for page_numb in range(0, layout_settings["page_number"]+1):
+                    ThumbnailFiles.objects.bulk_create(
+                        updated_thumbnails, ignore_conflicts=True, batch_size=25
+                    )
+                    # with transaction.atomic():
+                    #     with DjangoConnectionThreadPoolExecutor(
+                    #         max_workers=MAX_THREADS
+                    #     ) as executor:
+                    #         futures = []
+                    #         for sha256 in no_thumbs:
+                    #             futures.append(executor.submit(ThumbnailFiles.get_or_create_thumbnail_record, sha256))
+                    #             #futures.append(executor.submit(update_thumbnail, db_entry))
+                    #         _ = [f.result() for f in futures]
+                    #         del futures
+                    for page_numb in range(0, layout_settings["page_number"] + 1):
                         key = hashkey(
                             page_number=page_numb,
                             directory=layout_settings["directory"],
@@ -698,7 +711,7 @@ def layout_manager(page_number=0, directory=None, sort_ordering=None):
     # Get counts once and cache them
     dirs_count = len(directories)
     files_count = len(files)
-    total_items = dirs_count + files_count
+    # total_items = dirs_count + files_count
 
     # Calculate pagination info
     # total_pages = (total_items + chunk_size - 1) // chunk_size  # Ceiling division
