@@ -27,19 +27,6 @@ from quickbbs.common import get_dir_sha, normalize_fqpn
 from quickbbs.natsort_model import NaturalSortField
 
 
-def convert_text_to_md5_hdigest(text) -> str:
-    """
-    convert a text string to a md5 hash.  Text string is title cased, whitespace stripped, and
-    encoded as an utf-16 string.  The hash is exported as the hex digest.
-
-    This is used as key for database lookups, and is standardized using this helper.
-
-    :param text:String
-    :return: 32 character md5 hexadecimal string
-    """
-    return hashlib.md5(text.title().strip().encode("utf-16")).hexdigest()
-
-
 class Owners(models.Model):
     """
     Start of a permissions based model.
@@ -74,9 +61,6 @@ class IndexDirs(models.Model):
     The master index for Directory / Folders in the Filesystem for the gallery.
     """
 
-    uuid = models.UUIDField(
-        default=None, null=True, editable=False, db_index=True, blank=True
-    )
     fqpndirectory = models.CharField(
         db_index=False, max_length=384, default="", unique=True, blank=True
     )  # True fqpn name
@@ -93,10 +77,6 @@ class IndexDirs(models.Model):
         db_index=True, null=True, default=None, unique=False, max_length=64
     )  # Is the FQPN of the parent directory (eg /var/albums/test)
 
-    combined_md5 = models.CharField(db_index=True, max_length=32, unique=True)
-    # Combined is the md5 of the true fqpn  (eg /var/albums/test/test1)
-    parent_dir_md5 = models.CharField(db_index=True, max_length=32, unique=False)
-    # Is the FQPN of the parent directory (eg /var/albums/test)
     lastscan = models.FloatField(
         db_index=True, default=None
     )  # Stored as Unix TimeStamp (ms)
@@ -149,9 +129,6 @@ class IndexDirs(models.Model):
         # Prepare the defaults for fields that should be set on creation
         defaults = {
             "fqpndirectory": normalize_fqpn(fqpn_directory),
-            "combined_md5": convert_text_to_md5_hdigest(fqpn_directory),
-            "parent_dir_md5": convert_text_to_md5_hdigest(parent_dir),
-            "uuid": uuid.uuid4(),
             "lastmod": os.path.getmtime(fqpn_directory),
             "lastscan": time.time(),
             "filetype": filetypes(fileext=".dir"),
@@ -273,18 +250,13 @@ class IndexDirs(models.Model):
         #    home_directory=self.pk, delete_pending=False
         # ).count()
 
-    def do_dirs_exist(self) -> bool:
-        return IndexDirs.objects.filter(
-            parent_dir_md5=self.combined_md5, delete_pending=False
-        ).exists()
-
     def get_dir_counts(self) -> int:
         """
         Return the number of directories that are in the database for the current directory
         :return: Integer - Number of directories
         """
         return IndexDirs.objects.filter(
-            parent_dir_md5=self.combined_md5, delete_pending=False
+            dir_parent_sha256=self.dir_fqpn_sha256, delete_pending=False
         ).count()
 
     def get_count_breakdown(self) -> dict:
@@ -305,15 +277,17 @@ class IndexDirs(models.Model):
         totals["all_files"] = self.get_file_counts()
         return totals
 
+    @lru_cache(maxsize=100)
     def return_parent_directory(self) -> "QuerySet[IndexDirs]":
         """
         Return the database object of the parent directory to the current directory
         :return: database record of parent directory
         """
-        parent_dir = IndexDirs.objects.filter(combined_md5=self.parent_dir_md5)
+        parent = pathlib.Path(self.fqpndirectory).parent
+        parent_dir = IndexDirs.objects.filter(fqpndirectory=str(parent) + os.sep)
         return parent_dir
 
-    # @lru_cache(maxsize=1000)
+    @lru_cache(maxsize=1000)
     @staticmethod
     def search_for_directory_by_sha(sha_256) -> tuple[bool, "IndexDirs"]:
         """
@@ -330,7 +304,7 @@ class IndexDirs(models.Model):
         except IndexDirs.DoesNotExist:
             return (False, IndexDirs.objects.none())  # return an empty query set
 
-    # @lru_cache(maxsize=1000)
+    @lru_cache(maxsize=1000)
     @staticmethod
     def search_for_directory(fqpn_directory) -> tuple[bool, "IndexDirs"]:
         """
@@ -350,7 +324,7 @@ class IndexDirs(models.Model):
             return (False, IndexDirs.objects.none())  # return an empty query set
 
     @staticmethod
-    def return_by_uuid_list(uuid_list, sort=0) -> "QuerySet[IndexDirs]":
+    def return_by_sha256_list(sha256_list, sort=0) -> "QuerySet[IndexDirs]":
         """
         Return the dirs in the current directory
         :param sort: The sort order of the dirs (0-2)
@@ -361,7 +335,7 @@ class IndexDirs(models.Model):
         from frontend.utilities import SORT_MATRIX
 
         dirs = (
-            IndexDirs.objects.filter(uuid__in=uuid_list)
+            IndexDirs.objects.filter(dir_fqpn_sha256__in=sha256_list)
             .filter(delete_pending=False)
             .order_by(*SORT_MATRIX[sort])
         )
@@ -404,14 +378,9 @@ class IndexDirs(models.Model):
         # pylint: disable-next=import-outside-toplevel
         from frontend.utilities import SORT_MATRIX
 
-        dir_scan = str((pathlib.Path(self.fqpndirectory)).resolve())
-        dir_scan = normalize_fqpn(dir_scan)
-        dir_scan_md5 = convert_text_to_md5_hdigest(dir_scan)
-        # dirs = IndexDirs.objects.filter(combined_md5=self.combined_md5, delete_pending=False)
-        dirs = IndexDirs.objects.filter(
-            parent_dir_md5=dir_scan_md5, delete_pending=False
+        return IndexDirs.objects.filter(
+            dir_parent_sha256=self.dir_fqpn_sha256, delete_pending=False
         ).order_by(*SORT_MATRIX[sort])
-        return dirs
 
     def get_view_url(self) -> str:
         """
@@ -453,7 +422,6 @@ class IndexDirs(models.Model):
             Django URL object
 
         """
-        # return reverse(r"thumbnail_dir", args=(self.uuid,))
         return reverse(r"thumbnail2_dir", args=(self.dir_fqpn_sha256,))
 
     # def send_thumbnail(self) -> FileResponse:
@@ -510,9 +478,7 @@ class IndexData(models.Model):
     """
 
     id = models.AutoField(primary_key=True)
-    uuid = models.UUIDField(
-        default=None, null=True, editable=False, db_index=True, blank=True
-    )
+
     file_sha256 = models.CharField(
         db_index=True,
         blank=True,
@@ -683,25 +649,8 @@ class IndexData(models.Model):
             additional_filters = {}
         return IndexData.objects.filter(delete_pending=False, **additional_filters)
 
-    @lru_cache(maxsize=1000)
     @staticmethod
-    def get_by_uuid(uuid_value) -> "IndexData":
-        """
-        Return the IndexData object by UUID
-        :param uuid_value: The UUID of the IndexData object
-        :return: IndexData object or None if not found
-        """
-        try:
-            return (
-                IndexData.objects.prefetch_related("new_ftnail")
-                .select_related("filetype")
-                .get(uuid=uuid_value, delete_pending=False)
-            )
-        except IndexData.DoesNotExist:
-            return None
-
-    @staticmethod
-    def return_by_uuid_list(uuid_list, sort=0) -> "QuerySet[IndexData]":
+    def return_by_sha256_list(sha256_list, sort=0) -> "QuerySet[IndexData]":
         """
         Return the files in the current directory
         :param sort: The sort order of the files (0-2)
@@ -714,7 +663,7 @@ class IndexData(models.Model):
         files = (
             IndexData.objects.prefetch_related("new_ftnail")
             .select_related("filetype")
-            .filter(uuid__in=uuid_list, delete_pending=False)
+            .filter(file_sha256__in=sha256_list, delete_pending=False)
             .order_by(*SORT_MATRIX[sort])
         )
         return files
@@ -810,10 +759,9 @@ class IndexData(models.Model):
             Django URL object
 
         """
-        options = {}
-        options["i_uuid"] = str(self.uuid)
-        parameters = []
-        return reverse("view_item", kwargs=options) + "".join(parameters)
+        # options = {}
+        # parameters = []
+        return reverse("view_item", args=(self.unique_sha256,))
 
     def get_thumbnail_url(self, size=None):
         """
@@ -830,8 +778,6 @@ class IndexData(models.Model):
             size = "small"
         size = size.lower()
 
-        # options = {"i_uuid": str(self.uuid)}
-        # url = reverse(r"thumbnail_file", args=(self.uuid,)) + f"?size={size}"
         url = reverse(r"thumbnail2_file", args=(self.file_sha256,)) + f"?size={size}"
         return url
 
@@ -844,7 +790,7 @@ class IndexData(models.Model):
             Django URL object
 
         """
-        return reverse("download") + self.name + f"?UUID={self.uuid}"
+        return reverse("download_file") + self.name + f"?SHA256={self.file_sha256}"
 
     def inline_sendfile(self, request, ranged=False):
         """

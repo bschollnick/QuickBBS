@@ -9,8 +9,8 @@
                     <p align=center>{{ icon("angle-double-left fa-3x")}}</a></p>
                 <hr>
                 <span class="step-links">
-                    {% if pagelist.has_previous() %}
-                        <a href="?page={{ pagelist.previous_page_number() }}&sort={{sort}}" hx-swap="outerHTML" >
+                    {% if current_page > 1%}
+                        <a href="?page={{ current_page-1 }}&sort={{sort}}" hx-swap="outerHTML" >
                         <p align=center>{{ icon("angle-left fa-3x")}}</a></p>
                     {% else %}
                             <p align=center><img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/></p>
@@ -20,24 +20,23 @@
                         <input type="hidden" id="sort" name="sort" value="{{sort}}">
                     Page<br>
                         <select name="page" onchange='this.form.submit()'>
-                            {% for pagecnt in page_cnt %}
-                                {% set current_page = pagecnt %}
-                                <option value="{{pagecnt}}" {% if pagecnt == pagelist.number %}selected{% endif %}>{{pagecnt}}</option>
+                            {% for pagecnt in page_range %}
+                                <option value="{{pagecnt}}" {% if pagecnt == current_page %}selected{% endif %}>{{pagecnt}}</option>
                             {% endfor %}
                         </select><br>
-                        of {{ pagelist.paginator.num_pages }}.
+                        of {{ total_pages }}.
                     </form></center>
                 <hr>
 
-                    {% if pagelist.has_next() %}
-                        <a href="?page={{ pagelist.next_page_number() }}&sort={{sort}}" hx-swap="outerHTML" >
+                    {% if current_page < total_pages %}
+                        <a href="?page={{ current_page+1 }}&sort={{sort}}" hx-swap="outerHTML" >
                         <p align=center>{{ icon("angle-right fa-3x")}}</a></p>
                     {% else %}
                             <img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/>
                     {% endif %}
                 <hr>
 
-                <a href="?page={{ pagelist.paginator.num_pages }}&sort={{sort}}" hx-swap="outerHTML" >
+                <a href="?page={{ total_pages }}&sort={{sort}}" hx-swap="outerHTML" >
                         <p align=center>{{ icon("angle-double-right fa-3x")}}</a></p>
                 </span>
                 <hr>

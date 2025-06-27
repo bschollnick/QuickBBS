@@ -10,11 +10,11 @@
 
                     {% if previous_uuid %}
                         <p align=center>
-                        <a href="/viewer2/{{ first_uuid }}?sort={{sort}}" id="first_uuid" hx-swap="outerHTML">
+                        <a href="/view_item/{{ first_uuid }}?sort={{sort}}" id="first_uuid" hx-swap="outerHTML">
                         {{ icon("angle-double-left fa-3x")}}</a></p>
                         <hr style="padding:2px;margin:2px">
                         <p align=center id="previous_icon">
-                        <a href="/viewer2/{{ previous_uuid }}?sort={{sort}}" id="previous_uuid" hx-swap="outerHTML">
+                        <a href="/view_item/{{ previous_uuid }}?sort={{sort}}" id="previous_uuid" hx-swap="outerHTML">
                         {{ icon("angle-left fa-3x")}}</a></p>
                     {% else %}
                         <p align=center>
@@ -34,15 +34,15 @@
 
                     {% if next_uuid %}
                         <p align=center>
-                        <a href="/viewer2/{{ next_uuid }}?sort={{sort}}" id="next_uuid" hx-swap="outerHTML">
+                        <a href="/view_item/{{ next_uuid }}?sort={{sort}}" id="next_uuid" hx-swap="outerHTML">
                         {{ icon("angle-right fa-3x")}}</a></p>
                         <hr style="padding:2px;margin:2px">
                         <p align=center hx-boost="false">
-                        <a href="/viewer2/{{ next_uuid }}?sort={{sort}}&newwin=True" hx-boost="false" id="next_tab_uuid" target="_blank" hx-swap="outerHTML">
+                        <a href="/view_item/{{ next_uuid }}?sort={{sort}}&newwin=True" hx-boost="false" id="next_tab_uuid" target="_blank" hx-swap="outerHTML">
                         {{ icon('fas fa-external-link-alt fa-3x') }}</a></p>
                         <hr style="padding:2px;margin:2px">
                         <p align=center>
-                        <a href="/viewer2/{{ last_uuid }}?sort={{sort}}" id="last_uuid" hx-swap="outerHTML">
+                        <a href="/view_item/{{ last_uuid }}?sort={{sort}}" id="last_uuid" hx-swap="outerHTML">
                                 {{ icon("angle-double-right fa-3x")}}</a></p>
                     {% else %}
                         <p align=center>
