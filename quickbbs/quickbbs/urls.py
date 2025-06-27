@@ -34,14 +34,14 @@ if settings.DEBUG_TOOLBAR:
 urlpatterns += [
     path("search/", frontend.views.search_viewresults, name="search_viewresults"),
     #    re_path("^download/", frontend.views.download_file, name="download"),
-    re_path("^download/", frontend.views.download_item, name="download"),
+    # re_path("^download/", frontend.views.download_item, name="download"),
     # the filename is not used, but is there for web browser to see the expected filename
     # when it was download/<str:uuid>, the web browser would believe the filename was the
     # uuid, and ignore the filename in the download header.
     # path("info/<uuid:i_uuid>/", frontend.views.item_info, name="item_info"),
     re_path("^download_file/", frontend.views.download_file, name="download_file"),
     path(
-        "view_item/<uuid:i_uuid>/",
+        "view_item/<str:sha256>/",
         frontend.views.htmx_view_item,
         name="view_item",
     ),

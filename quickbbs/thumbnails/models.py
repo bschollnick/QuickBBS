@@ -33,6 +33,7 @@ from functools import lru_cache
 from django.conf import settings
 from django.db import models
 from django.http import FileResponse
+from django.db import transaction
 
 # from .image_utils import resize_pil_image, return_image_obj
 from .thumbnail_engine import create_thumbnails_from_path
@@ -98,60 +99,71 @@ class ThumbnailFiles(models.Model):
             "medium_thumb": b"",
             "large_thumb": b"",
         }
-        thumbnail, created = ThumbnailFiles.objects.get_or_create(
-            sha256_hash=file_sha256, defaults=defaults
-        )
+        with transaction.atomic():
+            thumbnail, created = ThumbnailFiles.objects.get_or_create(
+                sha256_hash=file_sha256, defaults=defaults
+            )
 
-        if thumbnail.IndexData.all().exists():
-            # Reverse lookup to get the first IndexData model that matches this sha256
-            #           print("Found IndexData item for sha256:")
-            index_data_item = thumbnail.IndexData.first()
-        else:
-            # Go the long way around to get the IndexData item, presumably there are no
-            # active IndexData items that match this sha256, so we will just get the first one
-            #            print("No active IndexData items found, Going the long way around:")
-            index_data_item = IndexData.objects.filter(file_sha256=file_sha256).first()
-            make_link = True
-
-        make_link = make_link or created
-        filename = os.path.join(index_data_item.fqpndirectory, index_data_item.name)
-        filetype = index_data_item.filetype
-        thumbnail.save()
-
-        if make_link:
-            index_data_item.new_ftnail = thumbnail
-            index_data_item.save()
-
-        if not thumbnail.thumbnail_exists():
-            if filetype.is_image:
-                # If the file is an image, we can create the thumbnail
-                thumbnails = create_thumbnails_from_path(
-                    filename, settings.IMAGE_SIZE, output="JPEG", backend="image"
-                )
-            elif filetype.is_movie:
-                thumbnails = create_thumbnails_from_path(
-                    filename, settings.IMAGE_SIZES, output="JPEG", backend="video"
-                )
-            elif filetype.is_pdf:
-                thumbnails = create_thumbnails_from_path(
-                    filename, settings.IMAGE_SIZES, output="JPEG", backend="pdf"
-                )
+            if thumbnail.IndexData.all().exists():
+                # Reverse lookup to get the first IndexData model that matches this sha256
+                #           print("Found IndexData item for sha256:")
+                index_data_item = thumbnail.IndexData.first()
             else:
-                # If the file is not an image, movie, or pdf, we cannot create a thumbnail
-                thumbnails = {
-                    "small": b"",
-                    "medium": b"",
-                    "large": b"",
-                }
-            thumbnail.small_thumb = thumbnails["small"]
-            thumbnail.medium_thumb = thumbnails["medium"]
-            thumbnail.large_thumb = thumbnails["large"]
-            if suppress_save:
-                pass
-            else:
-                thumbnail.save(
-                    update_fields=["small_thumb", "medium_thumb", "large_thumb"]
-                )
+                # Go the long way around to get the IndexData item, presumably there are no
+                # active IndexData items that match this sha256, so we will just get the first one
+                #            print("No active IndexData items found, Going the long way around:")
+                index_data_item = IndexData.objects.filter(
+                    file_sha256=file_sha256
+                ).first()
+                make_link = True
+
+            make_link = (
+                make_link
+                or created
+                or IndexData.objects.filter(
+                    file_sha256=file_sha256, new_ftnail__isnull=True
+                ).exists()
+            )
+            filename = os.path.join(index_data_item.fqpndirectory, index_data_item.name)
+            filetype = index_data_item.filetype
+            thumbnail.save()
+
+            if make_link:
+                IndexData.objects.filter(
+                    file_sha256=file_sha256,
+                    new_ftnail__isnull=True,  # Only update if not already set
+                ).update(new_ftnail=thumbnail)
+
+            if not thumbnail.thumbnail_exists():
+                if filetype.is_image:
+                    # If the file is an image, we can create the thumbnail
+                    thumbnails = create_thumbnails_from_path(
+                        filename, settings.IMAGE_SIZE, output="JPEG", backend="image"
+                    )
+                elif filetype.is_movie:
+                    thumbnails = create_thumbnails_from_path(
+                        filename, settings.IMAGE_SIZE, output="JPEG", backend="video"
+                    )
+                elif filetype.is_pdf:
+                    thumbnails = create_thumbnails_from_path(
+                        filename, settings.IMAGE_SIZE, output="JPEG", backend="pdf"
+                    )
+                else:
+                    # If the file is not an image, movie, or pdf, we cannot create a thumbnail
+                    thumbnails = {
+                        "small": b"",
+                        "medium": b"",
+                        "large": b"",
+                    }
+                thumbnail.small_thumb = thumbnails["small"]
+                thumbnail.medium_thumb = thumbnails["medium"]
+                thumbnail.large_thumb = thumbnails["large"]
+                if suppress_save:
+                    pass
+                else:
+                    thumbnail.save(
+                        update_fields=["small_thumb", "medium_thumb", "large_thumb"]
+                    )
         return thumbnail
 
     def number_of_indexdata_references(self):

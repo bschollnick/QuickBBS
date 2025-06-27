@@ -11,7 +11,6 @@ import os.path
 # import stat
 import time
 import urllib.parse
-import uuid
 
 # from datetime import timedelta
 from functools import lru_cache, wraps
@@ -35,6 +34,7 @@ from django_thread import ThreadPoolExecutor
 from PIL import Image
 
 from quickbbs.common import get_file_sha, normalize_fqpn
+from frontend.file_listings import return_disk_listing
 
 # from quickbbs.logger import log
 from quickbbs.models import IndexData, IndexDirs
@@ -393,67 +393,18 @@ def _execute_batch_operations(
             # Batch create
             if records_to_create:
                 # Process in chunks to avoid memory issues
-                for i in range(0, len(records_to_create), bulk_size):
-                    chunk = records_to_create[i : i + bulk_size]
-                    IndexData.objects.bulk_create(
-                        chunk,
-                        batch_size=bulk_size,
-                        ignore_conflicts=True,  # Handle duplicates gracefully
-                    )
+                # for i in range(0, len(records_to_create), bulk_size):
+                #     chunk = records_to_create[i : i + bulk_size]
+                IndexData.objects.bulk_create(
+                    records_to_create,
+                    batch_size=bulk_size,
+                    ignore_conflicts=True,  # Handle duplicates gracefully
+                )
                 logger.info(f"Created {len(records_to_create)} records")
 
     except Exception as e:
         logger.error(f"Database operation failed: {e}")
         raise
-
-
-def return_disk_listing(fqpn) -> tuple[bool, dict]:
-    """
-
-    This code obeys the following quickbbs_settings, settings:
-
-    * EXTENSIONS_TO_IGNORE
-    * FILES_TO_IGNORE
-    * IGNORE_DOT_FILES
-
-    Parameters
-    ----------
-    fqpn (str): The fully qualified pathname of the directory to scan
-
-    Returns
-    -------
-        dict of dicts - See above
-
-    """
-    fs_data = {}
-    try:
-        for item in Path(fqpn).iterdir():
-            fext = os.path.splitext(item.name.lower())[1]
-            if fext == "":
-                fext = ".none"
-            elif item.is_dir():
-                fext = ".dir"
-
-            if not filetype_models.filetypes.filetype_exists_by_ext(fext):
-                # The file extension is not in FILETYPE_DATA, so ignore it.
-                continue
-
-            if (fext in settings.EXTENSIONS_TO_IGNORE) or (
-                item.name.lower() in settings.FILES_TO_IGNORE
-            ):
-                # file extension is in EXTENSIONS_TO_IGNORE, so skip it.
-                # or the filename is in FILES_TO_IGNORE, so skip it.
-                continue
-
-            if settings.IGNORE_DOT_FILES and item.name.lower().startswith("."):
-                # IGNORE_DOT_FLES is enabled, *and* the filename startswith an ., skip it.
-                continue
-
-            name = item.name.title().strip()
-            fs_data[name] = item
-    except FileNotFoundError:
-        return False, {}
-    return (True, fs_data)
 
 
 def break_down_urls(uri_path) -> list[str]:
@@ -566,7 +517,6 @@ def process_filedata(
         record = {
             "home_directory": directory_id,
             "name": fs_entry.name.title().strip(),  # More efficient than os.path.split
-            "uuid": str(uuid.uuid4()),  # Convert to string for JSON serialization
             "is_animated": False,
             "file_sha256": None,
             "unique_sha256": None,
@@ -703,7 +653,6 @@ def sync_database_disk(directoryname: str) -> Optional[bool]:
         if dirpath_info is None:
             return False
 
-        print(dirpath_info, is_cached)
         # Early return if cached
         if is_cached:
             print(f"Directory {dirpath} is already cached, skipping sync.")

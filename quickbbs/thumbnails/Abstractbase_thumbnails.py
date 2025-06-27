@@ -1,6 +1,7 @@
 """
 Abstract base class for image processing backends.
 """
+
 from abc import ABC, abstractmethod
 
 from PIL import Image
