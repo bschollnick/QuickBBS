@@ -790,7 +790,7 @@ class IndexData(models.Model):
             Django URL object
 
         """
-        return reverse("download_file") + self.name + f"?SHA256={self.file_sha256}"
+        return reverse("download_file") + self.name + f"?usha={self.unique_sha256}"
 
     def inline_sendfile(self, request, ranged=False):
         """

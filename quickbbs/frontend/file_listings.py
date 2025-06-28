@@ -2,11 +2,11 @@ import os
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import partial
-import threading
 
 import filetypes.models as filetype_models
 from django.conf import settings
 
+# from more_itertools import chunked
 
 def _process_item_batch(items_batch, ext_ignore, files_ignore, ignore_dots):
     """Process a batch of directory items in a separate thread"""
@@ -47,7 +47,7 @@ def _process_item_batch(items_batch, ext_ignore, files_ignore, ignore_dots):
 
 
 def return_disk_listing(
-    fqpn, use_threading=True, batch_size=200, max_workers=4
+    fqpn, use_threading=True, batch_size=25, max_workers=4
 ) -> tuple[bool, dict]:
     """
     This code obeys the following quickbbs_settings, settings:

@@ -8,13 +8,13 @@
 
                     <hr style="padding:2px;margin:2px">
 
-                    {% if previous_uuid %}
+                    {% if previous_sha %}
                         <p align=center>
-                        <a href="/view_item/{{ first_uuid }}?sort={{sort}}" id="first_uuid" hx-swap="outerHTML">
+                        <a href="/view_item/{{ first_sha }}?sort={{sort}}" id="first_sha" hx-swap="outerHTML">
                         {{ icon("angle-double-left fa-3x")}}</a></p>
                         <hr style="padding:2px;margin:2px">
                         <p align=center id="previous_icon">
-                        <a href="/view_item/{{ previous_uuid }}?sort={{sort}}" id="previous_uuid" hx-swap="outerHTML">
+                        <a href="/view_item/{{ previous_sha }}?sort={{sort}}" id="previous_sha" hx-swap="outerHTML">
                         {{ icon("angle-left fa-3x")}}</a></p>
                     {% else %}
                         <p align=center>
@@ -32,17 +32,17 @@
                         </center>
                     <hr style="padding:2px;margin:2px">
 
-                    {% if next_uuid %}
+                    {% if next_sha %}
                         <p align=center>
-                        <a href="/view_item/{{ next_uuid }}?sort={{sort}}" id="next_uuid" hx-swap="outerHTML">
+                        <a href="/view_item/{{ next_sha }}?sort={{sort}}" id="next_sha" hx-swap="outerHTML">
                         {{ icon("angle-right fa-3x")}}</a></p>
                         <hr style="padding:2px;margin:2px">
                         <p align=center hx-boost="false">
-                        <a href="/view_item/{{ next_uuid }}?sort={{sort}}&newwin=True" hx-boost="false" id="next_tab_uuid" target="_blank" hx-swap="outerHTML">
+                        <a href="/view_item/{{ next_sha }}?sort={{sort}}&newwin=True" hx-boost="false" id="next_tab_sha" target="_blank" hx-swap="outerHTML">
                         {{ icon('fas fa-external-link-alt fa-3x') }}</a></p>
                         <hr style="padding:2px;margin:2px">
                         <p align=center>
-                        <a href="/view_item/{{ last_uuid }}?sort={{sort}}" id="last_uuid" hx-swap="outerHTML">
+                        <a href="/view_item/{{ last_sha }}?sort={{sort}}" id="last_sha" hx-swap="outerHTML">
                                 {{ icon("angle-double-right fa-3x")}}</a></p>
                     {% else %}
                         <p align=center>
