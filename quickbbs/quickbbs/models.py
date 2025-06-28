@@ -503,7 +503,7 @@ class IndexData(models.Model):
     name = models.CharField(db_index=True, max_length=384, default=None)
     # FQFN of the file itself
     name_sort = NaturalSortField(for_field="name", max_length=384, default="")
-    duration = models.DurationField(null=True)
+    duration = models.BigIntegerField(null=True)
     size = models.BigIntegerField(default=0)  # File size
 
     home_directory = models.ForeignKey(
