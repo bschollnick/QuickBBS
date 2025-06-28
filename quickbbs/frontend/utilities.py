@@ -17,11 +17,7 @@ from functools import lru_cache, wraps
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-# from moviepy.video.io import VideoFileClip
-# from moviepy.editor import VideoFileClip #* # import everythings (variables, classes, methods...)
-# inside moviepy.editor
-# import av  # Video Previews
-# import django.db.utils
+from thumbnails.video_thumbnails import _get_video_info
 import filetypes.models as filetype_models
 from cache_watcher.models import Cache_Storage, get_dir_sha
 from django.conf import settings
@@ -305,8 +301,15 @@ def _check_file_updates(db_record: object, fs_entry: Path) -> Optional[object]:
                 update_needed = True
 
             # Check movie duration
-            # if filetype.is_movie and db_record.duration is None:
-            #     try:
+            if filetype.is_movie and db_record.duration is None:
+                try:
+                    video_details = _get_video_info(
+                        str(fs_entry)
+                    )
+                    db_record.duration = video_details.get("duration", None)
+                    update_needed = True
+                except Exception as e:
+                    logger.error(f"Error getting duration for {fs_entry}: {e}")
             #         duration = 0
             #         if duration is not None:
             #             db_record.duration = duration
