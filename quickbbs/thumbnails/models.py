@@ -149,6 +149,7 @@ class ThumbnailFiles(models.Model):
                         filename, settings.IMAGE_SIZE, output="JPEG", backend="pdf"
                     )
                 else:
+                    print("Unable to create thumbnails for this file type.")
                     # If the file is not an image, movie, or pdf, we cannot create a thumbnail
                     thumbnails = {
                         "small": b"",

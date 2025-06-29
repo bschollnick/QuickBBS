@@ -11,10 +11,10 @@ except ImportError:
     from pil_thumbnails import ImageBackend
 
 
-class PDFBackend(ImageBackend):
+class PDFBackend(AbstractBackend ):
     """PyMuPDF backend for PDF thumbnail generation."""
 
-    def process_pdf_file(
+    def process_from_file(
         self,
         file_path: str,
         sizes: dict[str, tuple[int, int]],
@@ -32,7 +32,6 @@ class PDFBackend(ImageBackend):
         """
         page_num = 0  # Page number to use for thumbnail (0-indexed)
         zoom = 2.0  # Zoom level for rendering (higher = better quality)
-        print(file_path)
         try:
             pdf_doc = fitz.open(file_path)
 
@@ -71,7 +70,7 @@ class PDFBackend(ImageBackend):
         except Exception as e:
             raise Exception(f"Error processing PDF: {e}")
 
-    def process_pdf_bytes(
+    def process_from_memory(
         self,
         pdf_bytes: bytes,
         sizes: dict[str, tuple[int, int]],
@@ -107,7 +106,7 @@ class PDFBackend(ImageBackend):
             pix = page.get_pixmap(matrix=mat)
 
             # Convert to PIL Image
-            img_data = pix.tobytes("png")
+            img_data = pix.tobytes(output_format)
             img = Image.open(io.BytesIO(img_data))
 
             # Process the image
@@ -120,6 +119,24 @@ class PDFBackend(ImageBackend):
 
         except Exception as e:
             raise Exception(f"Error processing PDF bytes: {e}")
+
+    def process_data(
+        self,
+        pil_image: Image.Image,
+        sizes: dict[str, tuple[int, int]],
+        output_format: str,
+        quality: int,
+    ) -> dict[str, bytes]:
+        """
+        Process a PIL Image and generate thumbnails.
+
+        Args:
+            pil_image: PIL Image object
+            sizes: Dictionary of size names to (width, height) tuples
+            output_format: Output format (JPEG, PNG, WEBP)
+            quality: Image quality (1-100)
+        """
+        raise NotImplementedError("PDF processing from PIL Image is not implemented.")
 
     # def _process_pil_image(
     #     self,
