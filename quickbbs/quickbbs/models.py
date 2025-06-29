@@ -55,6 +55,13 @@ class Favorites(models.Model):
         default=None, null=True, editable=False, blank=True, db_index=True
     )
 
+INDEXDIRS_PREFETCH_LIST = [
+    "IndexData_entries",
+    "file_links",
+    "thumbnail",
+    "filetype",
+    "parent_directory",
+]
 
 class IndexDirs(models.Model):
     """
@@ -73,10 +80,8 @@ class IndexDirs(models.Model):
         default=None,
         max_length=64,
     )  # sha of the directory fqpn
-    dir_parent_sha256 = models.CharField(
-        db_index=True, null=True, default=None, unique=False, max_length=64
-    )  # Is the FQPN of the parent directory (eg /var/albums/test)
 
+    parent_directory = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, default=None, related_name="parent_dir")
     lastscan = models.FloatField(
         db_index=True, default=None
     )  # Stored as Unix TimeStamp (ms)
@@ -100,7 +105,7 @@ class IndexDirs(models.Model):
     )
     thumbnail = models.ForeignKey(
         "IndexData",
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         related_name="dir_thumbnail",
         null=True,
         default=None,
@@ -123,9 +128,20 @@ class IndexDirs(models.Model):
         :param thumbnail: thumbnail image to store for the thumbnail/cover art
         :return: Database record
         """
+        from django.conf import settings
         Path = pathlib.Path(fqpn_directory)
         fqpn_directory = normalize_fqpn(str(Path.resolve()))
         parent_dir = normalize_fqpn(str(Path.parent.resolve()))
+        if fqpn_directory.lower().startswith(settings.ALBUMS_PATH.lower()):
+            found, parent_dir_link = IndexDirs.search_for_directory_by_sha(get_dir_sha(parent_dir))
+            if not found and parent_dir.lower().startswith(settings.ALBUMS_PATH.lower()):
+                # If the parent directory is not found, create it
+                parent_dir_link = IndexDirs.add_directory(parent_dir)
+            else:
+                parent_dir_link = None
+        else:
+            parent_dir_link = None
+        print(parent_dir_link)
         # Prepare the defaults for fields that should be set on creation
         defaults = {
             "fqpndirectory": normalize_fqpn(fqpn_directory),
@@ -133,7 +149,7 @@ class IndexDirs(models.Model):
             "lastscan": time.time(),
             "filetype": filetypes(fileext=".dir"),
             "dir_fqpn_sha256": get_dir_sha(fqpn_directory),
-            "dir_parent_sha256": get_dir_sha(parent_dir),
+            "parent_directory": parent_dir_link if parent_dir_link else None,
             "is_generic_icon": False,
             "thumbnail": None,
         }
@@ -158,17 +174,6 @@ class IndexDirs(models.Model):
         self.thumbnail
         self.is_generic_icon = False
         self.save()
-
-    # def associate_files(self) -> None:
-    #     """
-    #     Associate files with the directory.
-    #     :return: None
-    #     """
-    #     # Get all files in the directory
-    #     files = IndexData.objects.filter(home_directory=self.pk)
-    #     for file in files:
-    #         file.directory = self
-    #         file.save()
 
     def get_dir_sha(self) -> str:
         """
@@ -256,7 +261,7 @@ class IndexDirs(models.Model):
         :return: Integer - Number of directories
         """
         return IndexDirs.objects.filter(
-            dir_parent_sha256=self.dir_fqpn_sha256, delete_pending=False
+            parent_directory=self.parent_directory, delete_pending=False
         ).count()
 
     def get_count_breakdown(self) -> dict:
@@ -283,9 +288,7 @@ class IndexDirs(models.Model):
         Return the database object of the parent directory to the current directory
         :return: database record of parent directory
         """
-        parent = pathlib.Path(self.fqpndirectory).parent
-        parent_dir = IndexDirs.objects.filter(fqpndirectory=str(parent) + os.sep)
-        return parent_dir
+        return self.parent_directory if self.parent_directory else IndexDirs.objects.none()
 
     @lru_cache(maxsize=1000)
     @staticmethod
@@ -296,7 +299,7 @@ class IndexDirs(models.Model):
         :return: A boolean representing the success of the search, and the resultant record
         """
         try:
-            record = IndexDirs.objects.get(
+            record = IndexDirs.objects.prefetch_related(*INDEXDIRS_PREFETCH_LIST).get(
                 dir_fqpn_sha256=sha_256,
                 delete_pending=False,
             )
@@ -315,7 +318,7 @@ class IndexDirs(models.Model):
         Path = pathlib.Path(fqpn_directory)
         fqpn_directory = normalize_fqpn(str(Path.resolve()))
         try:
-            record = IndexDirs.objects.get(
+            record = IndexDirs.objects.prefetch_related(*INDEXDIRS_PREFETCH_LIST).get(
                 dir_fqpn_sha256=get_dir_sha(fqpn_directory),
                 delete_pending=False,
             )
@@ -335,7 +338,7 @@ class IndexDirs(models.Model):
         from frontend.utilities import SORT_MATRIX
 
         dirs = (
-            IndexDirs.objects.filter(dir_fqpn_sha256__in=sha256_list)
+            IndexDirs.objects.prefetch_related(*INDEXDIRS_PREFETCH_LIST).filter(dir_fqpn_sha256__in=sha256_list)
             .filter(delete_pending=False)
             .order_by(*SORT_MATRIX[sort])
         )
@@ -378,9 +381,9 @@ class IndexDirs(models.Model):
         # pylint: disable-next=import-outside-toplevel
         from frontend.utilities import SORT_MATRIX
 
-        return IndexDirs.objects.filter(
-            dir_parent_sha256=self.dir_fqpn_sha256, delete_pending=False
-        ).order_by(*SORT_MATRIX[sort])
+        return IndexDirs.objects.prefetch_related(*INDEXDIRS_PREFETCH_LIST).filter(
+            parent_directory=self.parent_directory, delete_pending=False
+        ).prefetch_related(*INDEXDIRS_PREFETCH_LIST).order_by(*SORT_MATRIX[sort])
 
     def get_view_url(self) -> str:
         """

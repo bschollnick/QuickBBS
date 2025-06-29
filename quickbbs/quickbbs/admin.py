@@ -90,8 +90,6 @@ class AdminMaster_Dirs(admin.ModelAdmin):
     readonly_fields = (
         "id",
         "dir_fqpn_sha256",
-        # "dirname_sha256",
-        "dir_parent_sha256",
         "file_links",
         "display_file_links",
     )
@@ -99,7 +97,6 @@ class AdminMaster_Dirs(admin.ModelAdmin):
         "id",
         "dir_fqpn_sha256",
         # "dirname_sha256",
-        "dir_parent_sha256",
         "fqpndirectory",
         "is_generic_icon",
         "filetype",
@@ -111,7 +108,6 @@ class AdminMaster_Dirs(admin.ModelAdmin):
         "id",
         "dir_fqpn_sha256",
         # "dirname_sha256",
-        "dir_parent_sha256",
         "fqpndirectory",
         "is_generic_icon",
         "delete_pending",
