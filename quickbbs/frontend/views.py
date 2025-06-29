@@ -101,9 +101,7 @@ def return_prev_next2(directory, sorder) -> tuple:
     nextdir = ""
     prevdir = ""
     parent_dir = directory.return_parent_directory()
-    if parent_dir:
-        parent_dir = parent_dir[0]
-    else:
+    if not parent_dir:
         return (None, None)
     directories = parent_dir.dirs_in_dir(sort=sorder)
     parent_dir_data = directories.values("fqpndirectory")
