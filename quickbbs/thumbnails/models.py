@@ -47,6 +47,8 @@ __url__ = "https://github.com/bschollnick/quickbbs"
 __license__ = "TBD"
 
 
+ThumbnailFiles_Prefetch_List = ["IndexData",]
+
 class ThumbnailFiles(models.Model):
     """
     ThumbnailFiles is the primary storage for any thumbnails that are created.
@@ -100,7 +102,7 @@ class ThumbnailFiles(models.Model):
             "large_thumb": b"",
         }
         with transaction.atomic():
-            thumbnail, created = ThumbnailFiles.objects.get_or_create(
+            thumbnail, created = ThumbnailFiles.objects.prefetch_related(*ThumbnailFiles_Prefetch_List).get_or_create(
                 sha256_hash=file_sha256, defaults=defaults
             )
 
@@ -126,15 +128,17 @@ class ThumbnailFiles(models.Model):
             )
             filename = os.path.join(index_data_item.fqpndirectory, index_data_item.name)
             filetype = index_data_item.filetype
-            thumbnail.save()
 
             if make_link:
+                thumbnail.save()
                 IndexData.objects.filter(
                     file_sha256=file_sha256,
                     new_ftnail__isnull=True,  # Only update if not already set
                 ).update(new_ftnail=thumbnail)
 
-            if not thumbnail.thumbnail_exists():
+            if thumbnail.thumbnail_exists():
+                return thumbnail
+            else:
                 if filetype.is_image:
                     # If the file is an image, we can create the thumbnail
                     thumbnails = create_thumbnails_from_path(
@@ -180,7 +184,7 @@ class ThumbnailFiles(models.Model):
         """
         Given a sha256 hash, return the thumbnail object
         """
-        return ThumbnailFiles.objects.get(sha256_hash=sha256)
+        return ThumbnailFiles.objects.prefetch_related(*ThumbnailFiles_Prefetch_List).get(sha256_hash=sha256)
 
     def thumbnail_exists(self, size="small"):
         """

@@ -1,12 +1,13 @@
 import os
-from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import partial
+from pathlib import Path
 
 import filetypes.models as filetype_models
 from django.conf import settings
 
 # from more_itertools import chunked
+
 
 def _process_item_batch(items_batch, ext_ignore, files_ignore, ignore_dots):
     """Process a batch of directory items in a separate thread"""

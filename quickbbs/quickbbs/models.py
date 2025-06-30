@@ -61,6 +61,7 @@ INDEXDIRS_PREFETCH_LIST = [
     "thumbnail",
     "filetype",
     "parent_directory",
+    "file_links",
 ]
 
 class IndexDirs(models.Model):
@@ -132,17 +133,22 @@ class IndexDirs(models.Model):
         Path = pathlib.Path(fqpn_directory)
         fqpn_directory = normalize_fqpn(str(Path.resolve()))
         parent_dir = normalize_fqpn(str(Path.parent.resolve()))
-        if fqpn_directory.lower().startswith(settings.ALBUMS_PATH.lower()):
-            found, parent_dir_link = IndexDirs.search_for_directory_by_sha(get_dir_sha(parent_dir))
-            if not found and parent_dir.lower().startswith(settings.ALBUMS_PATH.lower()):
+        if fqpn_directory.lower().startswith(os.path.join(settings.ALBUMS_PATH, "albums").lower()):
+            parent_sha = get_dir_sha(parent_dir)
+            found, parent_dir_link = IndexDirs.search_for_directory_by_sha(parent_sha)
+            print("Checked for parent directory: ", parent_dir, " Found: ", found, "sha: ", parent_sha)
+            if not found and parent_dir.lower().startswith(os.path.join(settings.ALBUMS_PATH), "albums").lower():
+                print("Trying to create parent directory: ", parent_dir)
                 # If the parent directory is not found, create it
                 parent_dir_link = IndexDirs.add_directory(parent_dir)
+            elif found:
+                pass
             else:
                 parent_dir_link = None
         else:
             parent_dir_link = None
-        print(parent_dir_link)
         # Prepare the defaults for fields that should be set on creation
+        print("Parent Directory Link: ", parent_dir_link)
         defaults = {
             "fqpndirectory": normalize_fqpn(fqpn_directory),
             "lastmod": os.path.getmtime(fqpn_directory),
@@ -261,7 +267,7 @@ class IndexDirs(models.Model):
         :return: Integer - Number of directories
         """
         return IndexDirs.objects.filter(
-            parent_directory=self.parent_directory, delete_pending=False
+            parent_directory=self.pk, delete_pending=False
         ).count()
 
     def get_count_breakdown(self) -> dict:
@@ -357,13 +363,10 @@ class IndexDirs(models.Model):
         if additional_filters is None:
             additional_filters = {}
 
-        # files = (
-        #     IndexData.objects.prefetch_related("new_ftnail", "filetype")
-        #     .filter(home_directory=self.pk, delete_pending=False, **additional_filters)
-        #     .order_by(*SORT_MATRIX[sort])
-        # )
         files = (
-            self.IndexData_entries.prefetch_related("new_ftnail")
+            self.IndexData_entries.prefetch_related("new_ftnail",    "filetype",
+                                                    "home_directory", "dir_thumbnail",
+                                                    "file_links", )
             .select_related("filetype")
             .filter(delete_pending=False, **additional_filters)
             .order_by(*SORT_MATRIX[sort])
@@ -382,7 +385,7 @@ class IndexDirs(models.Model):
         from frontend.utilities import SORT_MATRIX
 
         return IndexDirs.objects.prefetch_related(*INDEXDIRS_PREFETCH_LIST).filter(
-            parent_directory=self.parent_directory, delete_pending=False
+            parent_directory=self.pk, delete_pending=False
         ).prefetch_related(*INDEXDIRS_PREFETCH_LIST).order_by(*SORT_MATRIX[sort])
 
     def get_view_url(self) -> str:
@@ -462,6 +465,16 @@ class IndexDirs(models.Model):
     #     response["Content-Type"] = mtype
     #     response["Content-Length"] = len(self.small_thumb)
     #     return response
+
+
+INDEXDATA_PREFETCH_LIST = [
+    "filetype",
+    "new_ftnail",
+    "home_directory",
+    "IndexDirs_entries",
+    "dir_thumbnail",
+    "file_links",
+]
 
 
 class IndexData(models.Model):
@@ -588,7 +601,6 @@ class IndexData(models.Model):
         :return: Tuple (found, new_rec) where found is a boolean indicating if the record was found,
                  and new_rec is the IndexData object.
         """
-        print("Debug: ", fs_record["filetype"])
         defaults = {
             "name": fs_record["name"],
             "fqpndirectory": normalize_fqpn(fs_record["fqpndirectory"]),
@@ -601,7 +613,6 @@ class IndexData(models.Model):
             "delete_pending": bool(fs_record.get("delete_pending", False)),
             "index_image": bool(fs_record.get("index_image", False)),
             "filetype": fs_record["filetype"],
-            #            "filetype": filetypes.objects.get(fileext=fs_record["filetype"]),
             "dir_sha256": dir_sha256,
         }
 
@@ -650,7 +661,7 @@ class IndexData(models.Model):
         """
         if additional_filters is None:
             additional_filters = {}
-        return IndexData.objects.filter(delete_pending=False, **additional_filters)
+        return IndexData.objects.prefetch_related(*INDEXDATA_PREFETCH_LIST).filter(delete_pending=False, **additional_filters)
 
     @staticmethod
     def return_by_sha256_list(sha256_list, sort=0) -> "QuerySet[IndexData]":
