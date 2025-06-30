@@ -1,5 +1,10 @@
 SITE_NAME = "QuickBBS Site"
-IMAGE_SIZE = {"small": (200, 200), "medium": (740, 740), "large": (1024, 1024), "unknown": (200, 200)}
+IMAGE_SIZE = {
+    "small": (200, 200),
+    "medium": (740, 740),
+    "large": (1024, 1024),
+    "unknown": (200, 200),
+}
 
 QUICKBBS_REQUIRE_LOGIN = 0
 SITE_NAME = "The Gallery"
@@ -23,6 +28,7 @@ IMAGES_PATH = f"{RESOURCES_PATH}/images"
 JAVASCRIPT_PATH = f"{RESOURCES_PATH}/javascript"
 CSS_PATH = f"{RESOURCES_PATH}/css"
 FONTS_PATH = f"{RESOURCES_PATH}/fonts"
+ICONS_PATH = f"{RESOURCES_PATH}/images"
 
 # Used in ftypes / Filetypes, used in the refresh-filetypes command
 FTYPES = {
