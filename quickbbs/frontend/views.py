@@ -35,15 +35,11 @@ from django.http import (  # HttpResponse,
 from django.shortcuts import render
 from django.views.decorators.vary import vary_on_headers
 from django_htmx.middleware import HtmxDetails
-
-
 from filetypes.models import load_filetypes  # , filetypes
-from frontend.managers import layout_manager, build_context_info, layout_manager_cache
+from frontend.managers import build_context_info, layout_manager, layout_manager_cache
 from frontend.serve_up import static_or_resources
-from frontend.utilities import (
+from frontend.utilities import (  # MAX_THREADS,; DjangoConnectionThreadPoolExecutor,
     SORT_MATRIX,
-    #    MAX_THREADS,
-    #    DjangoConnectionThreadPoolExecutor,
     convert_to_webpath,
     ensures_endswith,
     read_from_disk,
@@ -133,6 +129,7 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: Optional[str] = None):
 
     :raises: HttpResponseBadRequest - If the uuid can not be found
     """
+
     def get_files_for_review(directory):
         """
         Get a list of files in the directory for review.
@@ -146,7 +143,6 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: Optional[str] = None):
                 additional_filters={"filetype__is_image": True}
             )
         return files_in_directory
-    
 
     try:
         directory = IndexDirs.objects.get(dir_fqpn_sha256=dir_sha256)
@@ -154,7 +150,6 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: Optional[str] = None):
         # does not exist
         print(dir_sha256, "Directory not found - No records returned.")
         return Http404
-    file_count = 0
 
     if directory.is_generic_icon or directory.thumbnail in [b"", None]:
         # If the directory is generic or has no thumbnail, force a rescan
@@ -183,7 +178,7 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: Optional[str] = None):
     if directory.thumbnail.new_ftnail is None:
         # If the IndexData record (thumbnail) is not set,
         # then process it with get_or_create_thumbnail_record
-        # to force the linkage to the thumbnail record. 
+        # to force the linkage to the thumbnail record.
         try:
             thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(
                 directory.thumbnail.file_sha256
@@ -215,7 +210,7 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
 
     thumbsize = request.GET.get("size", "small").lower()
     return thumbnail.send_thumbnail(
-        filename_override=thumbnail.IndexData.all().first().name,
+        filename_override=thumbnail.IndexData.first().name,
         fext_override=".jpg",
         size=thumbsize,
     )
@@ -294,7 +289,7 @@ def new_viewgallery(request: WSGIRequest):
         response : Django response
 
     """
-    print("NEW VIEW GALLERY")
+    print("NEW VIEW GALLERY for ", request.path)
     if (
         request.htmx.boosted
         and request.htmx.current_url is not None
@@ -389,7 +384,6 @@ def new_viewgallery(request: WSGIRequest):
     context["prev_uri"], context["next_uri"] = return_prev_next2(
         directory, sorder=context["sort"]
     )
-    print(context["prev_uri"], context["next_uri"])
     all_dirs_in_directory = directory.dirs_in_dir()
     all_files_in_directory = directory.files_in_dir()
 
@@ -538,7 +532,6 @@ def download_file(request: WSGIRequest):  # , filename=None):
     """
     # Is this from an archive?  If so, get the Page ID.
     sha_value = request.GET.get("usha", None) or request.GET.get("USHA", None)
-    print(sha_value)
 
     if sha_value in ["", None]:
         raise Http404("No Identifier provided for download.")
@@ -548,7 +541,6 @@ def download_file(request: WSGIRequest):  # , filename=None):
     if file_to_send is None:
         raise Http404("No File to Send")
     return file_to_send.inline_sendfile(request, ranged=file_to_send.filetype.is_movie)
-
 
 
 # def view_setup():

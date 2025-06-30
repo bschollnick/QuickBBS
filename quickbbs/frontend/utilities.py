@@ -17,7 +17,6 @@ from functools import lru_cache, wraps
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from thumbnails.video_thumbnails import _get_video_info
 import filetypes.models as filetype_models
 from cache_watcher.models import Cache_Storage, get_dir_sha
 from django.conf import settings
@@ -27,10 +26,11 @@ from django.db import transaction
 # from django.db.utils import IntegrityError
 # from django.utils.html import format_html
 from django_thread import ThreadPoolExecutor
+from frontend.file_listings import return_disk_listing
 from PIL import Image
+from thumbnails.video_thumbnails import _get_video_info
 
 from quickbbs.common import get_file_sha, normalize_fqpn
-from frontend.file_listings import return_disk_listing
 
 # from quickbbs.logger import log
 from quickbbs.models import IndexData, IndexDirs
@@ -303,9 +303,7 @@ def _check_file_updates(db_record: object, fs_entry: Path) -> Optional[object]:
             # Check movie duration
             if filetype.is_movie and db_record.duration is None:
                 try:
-                    video_details = _get_video_info(
-                        str(fs_entry)
-                    )
+                    video_details = _get_video_info(str(fs_entry))
                     db_record.duration = video_details.get("duration", None)
                     update_needed = True
                 except Exception as e:

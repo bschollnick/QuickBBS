@@ -1,8 +1,6 @@
 from django.contrib import admin
 
-# Register your models here.
 from thumbnails.models import ThumbnailFiles
-
 
 @admin.register(ThumbnailFiles)
 class AdminThumbnail_Files(admin.ModelAdmin):
@@ -14,11 +12,10 @@ class AdminThumbnail_Files(admin.ModelAdmin):
         "sha256_hash",
     )
 
-    search_fields = ["sha256_hash", "id"]  # "fqpn_hash",
+    search_fields = ["sha256_hash", "id"]
+    
     list_display = (
         "id",
-        # "fqpn_filename",
-        # "fqpn_hash",
         "sha256_hash",
         "sthumb",
         "mthumb",
@@ -26,8 +23,6 @@ class AdminThumbnail_Files(admin.ModelAdmin):
     )
     fields = (
         "id",
-        # "fqpn_filename",
-        # "fqpn_hash",
         "sha256_hash",
         "sthumb",
         "mthumb",
