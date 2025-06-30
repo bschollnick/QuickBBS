@@ -3,12 +3,14 @@ Utilities for QuickBBS, the python edition.
 """
 
 # from asgiref.sync import async_to_sync
+import io
 import os
 from functools import lru_cache
 
 from django.apps import AppConfig
 from django.conf import settings
 from django.db import models
+from django.http import HttpResponse, FileResponse
 
 FILETYPE_DATA = {}
 
@@ -44,12 +46,45 @@ class filetypes(models.Model):
     is_markdown = models.BooleanField(default=False, db_index=True)
     is_link = models.BooleanField(default=False, db_index=True)
 
+    thumbnail = models.BinaryField(default=b"", null=True)
+
     def __unicode__(self):
         return f"{self.fileext}"
 
     def __str__(self):
         return f"{self.fileext}"
 
+    def send_thumbnail(self):
+        """
+         Output a http response header, for an image attachment.
+
+        Args:
+
+         Returns:
+             object::
+                 The Django response object that contains the attachment and header
+
+         Raises:
+             None
+
+         Examples
+         --------
+         send_thumbnail()
+
+        """
+        filename = self.icon_filename
+        mtype = self.mimetype or "image/jpeg"
+        blob = self.thumbnail
+        response = FileResponse(
+            io.BytesIO(blob),
+            content_type=mtype,
+            as_attachment=False,
+            filename=filename,
+        )
+        response["Content-Type"] = mtype
+        response["Content-Length"] = len(blob)
+        return response
+    
     @lru_cache(maxsize=200)
     @staticmethod
     def filetype_exists_by_ext(fileext):
