@@ -151,48 +151,53 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: Optional[str] = None):
         print(dir_sha256, "Directory not found - No records returned.")
         return Http404
 
-    if directory.is_generic_icon or directory.thumbnail in [b"", None]:
-        # If the directory is generic or has no thumbnail, force a rescan
-        # to help ensure that there are files in the directory
-        # set a thumbnail if there are files in the directory
-        files_in_directory = get_files_for_review(directory)
-        directory.thumbnail = files_in_directory.first() if files_in_directory else None
-        directory.is_generic_icon = False if files_in_directory else True
-        directory.save()
-
-    if directory.thumbnail is None:
-        # If the thumbnail is still None, it means that
-        # there is no links (eg. Files) in the directory
-        files_in_directory = get_files_for_review(directory)
-        if not files_in_directory.exists():
-            if directory.is_generic_icon is False:
-                directory.is_generic_icon = True
-                directory.save()
-            return static_or_resources(
-                request,
-                settings.RESOURCES_PATH
-                + r"/images/"
-                + directory.filetype.icon_filename,
-            )  # Default icon
-
-    if directory.thumbnail.new_ftnail is None:
-        # If the IndexData record (thumbnail) is not set,
-        # then process it with get_or_create_thumbnail_record
-        # to force the linkage to the thumbnail record.
-        try:
-            thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(
-                directory.thumbnail.file_sha256
-            )
-        except ThumbnailFiles.DoesNotExist:
-            return HttpResponseBadRequest(content="Thumbnail not found.")
-
-        directory.thumbnail.new_ftnail = thumbnail
-        directory.save()
-
     if directory.thumbnail:
+        # 
         return directory.thumbnail.new_ftnail.send_thumbnail(
             fext_override=".jpg", size="small"
         )  # Send existing thumbnail
+    else:
+        files_in_directory = get_files_for_review(directory)
+            # If the directory is generic or has no thumbnail, force a rescan
+            # to help ensure that there are files in the directory
+            # set a thumbnail if there are files in the directory
+        file_count = len(files_in_directory)
+        if file_count == 0:
+            return directory.filetype.send_thumbnail()
+
+        elif file_count > 0:
+            directory.thumbnail = files_in_directory.first()
+            directory.is_generic_icon = False
+            if not directory.is_generic_icon:   # We have found a thumbnail, and set it, so save changes
+                directory.save()
+
+        if directory.thumbnail is [b"", None]:
+            # If the thumbnail is still None, it means that
+            # there is no links (eg. Files) in the directory
+            if  not files_in_directory:
+                if directory.is_generic_icon is False:
+                    directory.is_generic_icon = True
+                    directory.save()
+                return directory.filetype.send_thumbnail()
+                
+        if directory.thumbnail.new_ftnail is None:
+            # If the IndexData record (thumbnail) is not set,
+            # then process it with get_or_create_thumbnail_record
+            # to force the linkage to the thumbnail record.
+            try:
+                thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(
+                    directory.thumbnail.file_sha256
+                )
+            except ThumbnailFiles.DoesNotExist:
+                return HttpResponseBadRequest(content="Thumbnail not found.")
+
+            directory.thumbnail.new_ftnail = thumbnail
+            directory.save()
+
+        if directory.thumbnail:
+            return directory.thumbnail.new_ftnail.send_thumbnail(
+                fext_override=".jpg", size="small"
+            )  # Send existing thumbnail
 
 
 def thumbnail2_file(request: WSGIRequest, sha256: str):
@@ -207,7 +212,11 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
     except ThumbnailFiles.DoesNotExist:
         print(sha256, "File not found - No records returned.")
         return HttpResponseBadRequest(content="Thumbnail not found.")
-
+    
+    if thumbnail.IndexData.first().filetype.generic:
+        # If the filetype is a generic icon, then return the default icon
+        return thumbnail.IndexData.first().filetype.send_thumbnail()
+            
     thumbsize = request.GET.get("size", "small").lower()
     return thumbnail.send_thumbnail(
         filename_override=thumbnail.IndexData.first().name,
