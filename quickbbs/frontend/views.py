@@ -151,7 +151,7 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: Optional[str] = None):
         print(dir_sha256, "Directory not found - No records returned.")
         return Http404
 
-    if directory.thumbnail:
+    if directory.thumbnail and directory.thumbnail.new_ftnail:
         # 
         return directory.thumbnail.new_ftnail.send_thumbnail(
             fext_override=".jpg", size="small"
