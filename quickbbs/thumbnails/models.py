@@ -37,6 +37,7 @@ from django.db import transaction
 
 # from .image_utils import resize_pil_image, return_image_obj
 from .thumbnail_engine import create_thumbnails_from_path
+from frontend.serve_up import send_file_response
 
 __version__ = "4.0"
 
@@ -280,15 +281,13 @@ class ThumbnailFiles(models.Model):
                     how-can-i-find-out-whether-a-server-supports-the-range-header
 
         """
-        filename = self.IndexData.first().name
+        filename = filename_override or self.IndexData.first().name
         mtype = "image/jpeg"
         blob = self.retrieve_sized_tnail(size=size)
-        response = FileResponse(
-            io.BytesIO(blob),
-            content_type=mtype,
-            as_attachment=False,
-            filename=filename_override or filename,
-        )
-        response["Content-Type"] = mtype
-        response["Content-Length"] = len(blob)
+        return send_file_response(filename=filename,
+                           content_to_send= io.BytesIO(blob),
+                           mtype=mtype or "image/jpeg",
+                           attachment=False,
+                           last_modified=None,
+                           expiration=300)
         return response

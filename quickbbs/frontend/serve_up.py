@@ -1,15 +1,18 @@
 """
 Serve Resources, and Static documents from Django
 """
-
+from datetime import timedelta
+import io
 import os.path
 
 from django.conf import settings
 from django.contrib.staticfiles.finders import find
 from django.contrib.staticfiles.views import serve as staticfiles_serve
-from django.http import FileResponse, Http404
+from django.http import FileResponse, Http404, HttpResponseNotModified
+from django.utils import timezone
 from django.views.static import serve
 
+from ranged_fileresponse import RangedFileResponse
 
 def static_or_resources(request, pathstr=None):
     """
@@ -36,3 +39,41 @@ def static_or_resources(request, pathstr=None):
         return FileResponse(open(resource_file, "rb"))
 
     raise Http404(f"File {pathstr} not found in resources or static files")
+
+
+
+def send_file_response(filename, content_to_send, mtype, attachment, last_modified, expiration=300, request=None):
+    """
+        Output a http response header, for an image attachment.
+
+    Args:
+
+        Returns:
+            object::
+                The Django response object that contains the attachment and header
+
+        Raises:
+            None
+
+        Examples
+        --------
+        send_thumbnail()
+
+    """
+    if not request:
+        response = FileResponse(
+            content_to_send,
+            content_type=mtype,
+            as_attachment=attachment,
+            filename=filename,
+        )
+    else:
+        response = RangedFileResponse(request,
+                                      file=content_to_send,  # , buffering=1024*8),
+                                      content_type=mtype,
+                                      as_attachment=attachment,
+                                      filename=filename)
+    # response["Content-Type"] = mtype                  # set in FileResponse
+    # response["Content-Length"] = len(self.thumbnail)  # auto set from FileResponse
+    response["Cache-Control"] = f'public, max-age={expiration}'
+    return response

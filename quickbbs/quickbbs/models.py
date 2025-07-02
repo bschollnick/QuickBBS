@@ -20,8 +20,10 @@ from django.db.models.query import QuerySet
 from django.http import FileResponse, Http404, HttpResponse
 from django.urls import reverse
 from filetypes.models import filetypes, get_ftype_dict
-from ranged_fileresponse import RangedFileResponse
+
+# from ranged_fileresponse import RangedFileResponse
 from thumbnails.models import ThumbnailFiles
+from frontend.serve_up import send_file_response
 
 from quickbbs.common import get_dir_sha, normalize_fqpn
 from quickbbs.natsort_model import NaturalSortField
@@ -55,6 +57,7 @@ class Favorites(models.Model):
         default=None, null=True, editable=False, blank=True, db_index=True
     )
 
+
 INDEXDIRS_PREFETCH_LIST = [
     "IndexData_entries",
     "file_links",
@@ -63,6 +66,7 @@ INDEXDIRS_PREFETCH_LIST = [
     "parent_directory",
     "file_links",
 ]
+
 
 class IndexDirs(models.Model):
     """
@@ -82,7 +86,13 @@ class IndexDirs(models.Model):
         max_length=64,
     )  # sha of the directory fqpn
 
-    parent_directory = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, default=None, related_name="parent_dir")
+    parent_directory = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        default=None,
+        related_name="parent_dir",
+    )
     lastscan = models.FloatField(
         db_index=True, default=None
     )  # Stored as Unix TimeStamp (ms)
@@ -130,14 +140,29 @@ class IndexDirs(models.Model):
         :return: Database record
         """
         from django.conf import settings
+
         Path = pathlib.Path(fqpn_directory)
         fqpn_directory = normalize_fqpn(str(Path.resolve()))
         parent_dir = normalize_fqpn(str(Path.parent.resolve()))
-        if fqpn_directory.lower().startswith(os.path.join(settings.ALBUMS_PATH, "albums").lower()):
+        if fqpn_directory.lower().startswith(
+            os.path.join(settings.ALBUMS_PATH, "albums").lower()
+        ):
             parent_sha = get_dir_sha(parent_dir)
             found, parent_dir_link = IndexDirs.search_for_directory_by_sha(parent_sha)
-            print("Checked for parent directory: ", parent_dir, " Found: ", found, "sha: ", parent_sha)
-            if not found and parent_dir.lower().startswith(os.path.join(settings.ALBUMS_PATH), "albums").lower():
+            print(
+                "Checked for parent directory: ",
+                parent_dir,
+                " Found: ",
+                found,
+                "sha: ",
+                parent_sha,
+            )
+            if (
+                not found
+                and parent_dir.lower()
+                .startswith(os.path.join(settings.ALBUMS_PATH), "albums")
+                .lower()
+            ):
                 print("Trying to create parent directory: ", parent_dir)
                 # If the parent directory is not found, create it
                 parent_dir_link = IndexDirs.add_directory(parent_dir)
@@ -294,7 +319,9 @@ class IndexDirs(models.Model):
         Return the database object of the parent directory to the current directory
         :return: database record of parent directory
         """
-        return self.parent_directory if self.parent_directory else IndexDirs.objects.none()
+        return (
+            self.parent_directory if self.parent_directory else IndexDirs.objects.none()
+        )
 
     @lru_cache(maxsize=1000)
     @staticmethod
@@ -344,7 +371,8 @@ class IndexDirs(models.Model):
         from frontend.utilities import SORT_MATRIX
 
         dirs = (
-            IndexDirs.objects.prefetch_related(*INDEXDIRS_PREFETCH_LIST).filter(dir_fqpn_sha256__in=sha256_list)
+            IndexDirs.objects.prefetch_related(*INDEXDIRS_PREFETCH_LIST)
+            .filter(dir_fqpn_sha256__in=sha256_list)
             .filter(delete_pending=False)
             .order_by(*SORT_MATRIX[sort])
         )
@@ -364,9 +392,13 @@ class IndexDirs(models.Model):
             additional_filters = {}
 
         files = (
-            self.IndexData_entries.prefetch_related("new_ftnail",    "filetype",
-                                                    "home_directory", "dir_thumbnail",
-                                                    "file_links", )
+            self.IndexData_entries.prefetch_related(
+                "new_ftnail",
+                "filetype",
+                "home_directory",
+                "dir_thumbnail",
+                "file_links",
+            )
             .select_related("filetype")
             .filter(delete_pending=False, **additional_filters)
             .order_by(*SORT_MATRIX[sort])
@@ -384,9 +416,12 @@ class IndexDirs(models.Model):
         # pylint: disable-next=import-outside-toplevel
         from frontend.utilities import SORT_MATRIX
 
-        return IndexDirs.objects.prefetch_related(*INDEXDIRS_PREFETCH_LIST).filter(
-            parent_directory=self.pk, delete_pending=False
-        ).prefetch_related(*INDEXDIRS_PREFETCH_LIST).order_by(*SORT_MATRIX[sort])
+        return (
+            IndexDirs.objects.prefetch_related(*INDEXDIRS_PREFETCH_LIST)
+            .filter(parent_directory=self.pk, delete_pending=False)
+            .prefetch_related(*INDEXDIRS_PREFETCH_LIST)
+            .order_by(*SORT_MATRIX[sort])
+        )
 
     def get_view_url(self) -> str:
         """
@@ -429,42 +464,6 @@ class IndexDirs(models.Model):
 
         """
         return reverse(r"thumbnail2_dir", args=(self.dir_fqpn_sha256,))
-
-    # def send_thumbnail(self) -> FileResponse:
-    #     """
-    #      Output a http response header, for an image attachment.
-
-    #     Args:
-    #          filename (str): The filename to be sent with the thumbnail
-
-    #      Returns:
-    #          object::
-    #              The Django response object that contains the attachment and header
-
-    #      Raises:
-    #          None
-
-    #      Examples
-    #      --------
-    #      return_img_attach("test.png", img_data)
-
-    #      # https://stackoverflow.com/questions/36392510/django-download-a-file
-    #      # https://stackoverflow.com/questions/27712778/
-    #      #               video-plays-in-other-browsers-but-not-safari
-    #      # https://stackoverflow.com/questions/720419/
-    #      #               how-can-i-find-out-whether-a-server-supports-the-range-header
-
-    #     """
-    #     mtype = "application/octet-stream"
-    #     response = FileResponse(
-    #         io.BytesIO(self.small_thumb),
-    #         content_type=mtype,
-    #         as_attachment=False,
-    #         filename=os.path.basename(self.fqpndirectory) + ".jpg",
-    #     )
-    #     response["Content-Type"] = mtype
-    #     response["Content-Length"] = len(self.small_thumb)
-    #     return response
 
 
 INDEXDATA_PREFETCH_LIST = [
@@ -661,7 +660,9 @@ class IndexData(models.Model):
         """
         if additional_filters is None:
             additional_filters = {}
-        return IndexData.objects.prefetch_related(*INDEXDATA_PREFETCH_LIST).filter(delete_pending=False, **additional_filters)
+        return IndexData.objects.prefetch_related(*INDEXDATA_PREFETCH_LIST).filter(
+            delete_pending=False, **additional_filters
+        )
 
     @staticmethod
     def return_by_sha256_list(sha256_list, sort=0) -> "QuerySet[IndexData]":
@@ -808,50 +809,35 @@ class IndexData(models.Model):
 
     def inline_sendfile(self, request, ranged=False):
         """
-         Send an file either using an RangedFileResponse, or HTTP Respsonse
+        Helper function to send data to remote.  Unifying the send functionality in one place,
+        using stub functions for any customizations.
 
-        Args:
-             request : Dango Request Object
-             ranged (boolean): is an media file (eg Mp3, Mp4, etc) that allows ranged sending
-
-         Returns:
-             object::
-                 The Django response object that contains the attachment and header
-
-         Raises:
-             FileNotFoundError
-
-         Examples
-         --------
-         send_thumbnail("test.png")
-
+        Uses send_file_response in serve_up
         """
-        # from frontend.web import stream_video
-
         mtype = self.filetype.mimetype
         if mtype is None:
             mtype = "application/octet-stream"
         fqpn_filename = os.path.join(self.fqpndirectory, self.name)
+        file_handle = open(fqpn_filename, "rb")
         if not ranged:
-            try:
-                with open(fqpn_filename, "rb") as fh:
-                    response = HttpResponse(fh.read(), content_type=mtype)
-                    response["Content-Disposition"] = f"inline; filename={self.name}"
-            except FileNotFoundError:
-                raise Http404
+            return send_file_response(
+                filename=self.name,
+                content_to_send=file_handle,
+                mtype=mtype or "image/jpeg",
+                attachment=False,
+                last_modified=None,
+                expiration=300,
+            )
         else:
-            # open must be in the RangedFielRequest, to allow seeking
-            try:
-                response = RangedFileResponse(
-                    request,
-                    file=open(fqpn_filename, "rb"),  # , buffering=1024*8),
-                    as_attachment=False,
-                    filename=self.name,
-                )
-            except FileNotFoundError:
-                raise Http404
-        response["Content-Type"] = mtype
-        return response
+            return send_file_response(
+                request=request,
+                filename=self.name,
+                content_to_send=file_handle,
+                mtype=mtype or "image/jpeg",
+                attachment=False,
+                last_modified=None,
+                expiration=300,
+            )
 
     class Meta:
         verbose_name = "Master Files Index"
