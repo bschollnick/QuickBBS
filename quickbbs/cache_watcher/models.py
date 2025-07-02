@@ -193,21 +193,20 @@ class fs_Cache_Tracking(models.Model):
             close_old_connections()
             updates = False
             print("Removal multiple", dir_names)
-            close_old_connections()  # Ensure we have a fresh connection for the transaction
             # Convert all directory names to SHA256 hashes
             sha_list = set([get_dir_sha(dir_name) for dir_name in dir_names])
             directories = list(IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list))
-            updated_cnt = IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list).update(
-                is_generic_icon=False
-            )
+            #updated_cnt = IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list).update(
+            #    is_generic_icon=False
+            #)
 
-            dir_map = {d.dir_fqpn_sha256: d for d in directories}
+            fqpn_by_dir_sha = {d.dir_fqpn_sha256: d for d in directories}   # sha + fqpndirectory
 
             with transaction.atomic():
                 # Get all affected directories before deletion
                 # Delete the cache entries
                 update_cache_entries = fs_Cache_Tracking.objects.filter(
-                    directory_sha256__in=sha_list
+                    directory_sha256__in=sha_list, invalidated=False
                 )
                 updates = update_cache_entries.exists()
                 if updates:
@@ -216,8 +215,8 @@ class fs_Cache_Tracking(models.Model):
 
             if updates:
                 for sha in sha_list:
-                    if sha in dir_map:
-                        directory = dir_map[sha]
+                    if sha in fqpn_by_dir_sha:
+                        directory = fqpn_by_dir_sha[sha]
                         layout = layout_manager(directory=directory, sort_ordering=0)
                         for page_number in range(1, layout["total_pages"] + 1):
                             key = hashkey(

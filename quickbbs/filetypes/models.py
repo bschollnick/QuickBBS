@@ -55,36 +55,13 @@ class filetypes(models.Model):
         return f"{self.fileext}"
 
     def send_thumbnail(self):
-        """
-         Output a http response header, for an image attachment.
-
-        Args:
-
-         Returns:
-             object::
-                 The Django response object that contains the attachment and header
-
-         Raises:
-             None
-
-         Examples
-         --------
-         send_thumbnail()
-
-        """
-        filename = self.icon_filename
-        mtype = self.mimetype or "image/jpeg"
-        blob = self.thumbnail
-        response = FileResponse(
-            io.BytesIO(blob),
-            content_type=mtype,
-            as_attachment=False,
-            filename=filename,
-        )
-        response["Content-Type"] = mtype
-        response["Content-Length"] = len(blob)
-        return response
-    
+        from frontend.serve_up import send_file_response
+        return send_file_response(filename=self.icon_filename,
+                           content_to_send=io.BytesIO(self.thumbnail),
+                           mtype=self.mimetype or "image/jpeg",
+                           attachment=False,
+                           last_modified=None,
+                           expiration=300)
     @lru_cache(maxsize=200)
     @staticmethod
     def filetype_exists_by_ext(fileext):

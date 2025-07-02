@@ -1,54 +1,155 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="utf-8">
-    <meta http-equiv="content-type" content="text/html; charset=utf-8" />
-    <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-
-    <link rel="shortcut icon" type="image/png" href="/resources/images/open_folder_yellow.png" >
-
-    <script src="/resources/javascript/htmx.min.js"> </script>
-    <meta http-equiv="content-type" content="text/html; charset=utf-8" />
-    
-    <link rel="preload" href="/resources/css/bulma.min.css" as="style" defer>
-    <link rel="stylesheet" href="/resources/css/bulma.min.css">
-
-    <link rel="preload" href="/resources/css/all.min.css" as="style" defer>
-    <link rel="stylesheet" href="/resources/css/all.min.css" >
-
-    <link rel="preload" href="/resources/javascript/htmx.min.js" defer>
-    {{ django_htmx_script() }}
-   
-    <title>{% block title %} {{ gallery_name }} {% endblock %}</title>
-
-    <style>
-      #spinner {
-        display: none;
-        text-align: center;
-        margin-top: 2rem;
-      }
-    </style>
-  </head>
-
+ <meta charset="utf-8">
+ <meta http-equiv="content-type" content="text/html; charset=utf-8" />
+ <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+ <meta name="viewport" content="width=device-width, initial-scale=1">
+ <link rel="shortcut icon" type="image/png" href="/resources/images/open_folder_yellow.png" >
+ <script src="/resources/javascript/htmx.min.js"> </script>
+ <meta http-equiv="content-type" content="text/html; charset=utf-8" />
+ <link rel="preload" href="/resources/css/bulma.min.css" as="style" defer>
+ <link rel="stylesheet" href="/resources/css/bulma.min.css">
+ <link rel="preload" href="/resources/css/all.min.css" as="style" defer>
+ <link rel="stylesheet" href="/resources/css/all.min.css" >
+ <link rel="preload" href="/resources/javascript/htmx.min.js" defer>
+{{ django_htmx_script() }}
+ <title>{% block title %} {{ gallery_name }} {% endblock %}</title>
+ <style>
+ #spinner-overlay {
+   display: none;
+   position: fixed;
+   top: 0;
+   left: 0;
+   width: 100%;
+   height: 100%;
+   background-color: rgba(0, 0, 0, 0.5);
+   z-index: 9999;
+   justify-content: center;
+   align-items: center;
+ }
+ 
+ #spinner {
+   background-color: white;
+   padding: 4rem;
+   border-radius: 16px;
+   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+   text-align: center;
+   font-size: 1.5rem;
+ }
+ 
+ .spinner-icon {
+   width: 80px;
+   height: 80px;
+   border: 8px solid #f3f3f3;
+   border-top: 8px solid #3498db;
+   border-radius: 50%;
+   animation: spin 1s linear infinite;
+   margin: 0 auto 2rem auto;
+ }
+ 
+ @keyframes spin {
+   0% { transform: rotate(0deg); }
+   100% { transform: rotate(360deg); }
+ }
+ </style>
+ </head>
 <body id="entire_document">
-  <script>
-      document.title = '{{ gallery_name }}'
-  </script>
-
-  <script>
-    document.addEventListener("htmx:beforeRequest", function(evt) {
-      document.getElementById("spinner").style.display = "block";
-    });
-
-    document.addEventListener("htmx:afterRequest", function(evt) {
-      document.getElementById("spinner").style.display = "none";
-    });
-  </script>
+ <script>
+ document.title = '{{ gallery_name }}'
+ </script>
+ 
+ <script>
+ function showSpinner() {
+   // Create spinner if it doesn't exist
+   let spinnerOverlay = document.getElementById("spinner-overlay");
+   if (!spinnerOverlay) {
+     spinnerOverlay = document.createElement("div");
+     spinnerOverlay.id = "spinner-overlay";
+     spinnerOverlay.innerHTML = `
+       <div id="spinner">
+         <div class="spinner-icon"></div>
+         <div>Loading...</div>
+       </div>
+     `;
+     document.body.appendChild(spinnerOverlay);
+   }
+   spinnerOverlay.style.display = "flex";
+ }
+ 
+ function hideSpinner() {
+   const spinnerOverlay = document.getElementById("spinner-overlay");
+   if (spinnerOverlay) {
+     spinnerOverlay.style.display = "none";
+   }
+ }
+ 
+ // Wait for HTMX to be ready
+ document.addEventListener("DOMContentLoaded", function() {
+   
+   // HTMX request events
+   document.addEventListener("htmx:beforeRequest", function(evt) {
+     showSpinner();
+   });
+   
+   document.addEventListener("htmx:afterRequest", function(evt) {
+     hideSpinner();
+   });
+   
+   // Alternative HTMX events
+   document.addEventListener("htmx:beforeSwap", function(evt) {
+   });
+   
+   document.addEventListener("htmx:afterSwap", function(evt) {
+     hideSpinner();
+   });
+   
+   document.addEventListener("htmx:beforeSettle", function(evt) {
+   });
+   
+   document.addEventListener("htmx:afterSettle", function(evt) {
+     hideSpinner();
+   });
+   
+   // Handle regular link clicks (non-HTMX)
+   document.addEventListener("click", function(evt) {
+     const target = evt.target.closest('a');
+     if (target && target.href && !target.hasAttribute('hx-get') && !target.hasAttribute('hx-post')) {
+       showSpinner();
+     }
+   });
+   
+   // Handle browser back/forward navigation
+   window.addEventListener("popstate", function(evt) {
+     hideSpinner();
+   });
+   
+   // Handle page visibility changes (when user switches tabs)
+   document.addEventListener("visibilitychange", function() {
+     if (document.visibilityState === 'visible') {
+       hideSpinner();
+     }
+   });
+   
+   // Fallback: hide spinner when page loads/reloads
+   window.addEventListener("load", function() {
+     hideSpinner();
+   });
+   
+   // Additional HTMX events for better coverage
+   document.addEventListener("htmx:beforeHistoryUpdate", function(evt) {
+     hideSpinner();
+   });
+   
+   document.addEventListener("htmx:historyRestore", function(evt) {
+     hideSpinner();
+   });
+   
+ });
+ </script>
 
 {% autoescape off %}
 {% include 'frontend/gallery/gallery_listing_partial.jinja' %}
-
 {% endautoescape %}
 </body>
 </html>

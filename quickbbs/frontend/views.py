@@ -477,26 +477,6 @@ def new_viewgallery(request: WSGIRequest):
     print("Gallery View, processing time: ", time.perf_counter() - start_time)
     return response
 
-
-# def update_thumbnail(entry):
-#     fs_item = os.path.join(entry.fqpndirectory, entry.name).title().strip()
-#     if not entry.filetype.is_link:
-#         thumbnail, created = ThumbnailFiles.objects.get_or_create(
-#             sha256_hash=entry.file_sha256,
-#             # defaults={"fqpn_filename": fs_item, "sha256_hash": entry.file_sha256},
-#             defaults={"sha256_hash": entry.file_sha256},
-#         )
-#         if created:  # or not thumbnail.fqpn_filename:
-#             entry.fqpn_filename = fs_item
-
-#             # thumbnail.fqpn_filename = fs_item
-
-#         entry.new_ftnail = thumbnail
-#         entry.save()  # update_fields=["new_ftnail", "fqpn_filename"])
-#         thumbnail.image_to_thumbnail()
-#         thumbnail.save()
-
-
 @vary_on_headers("HX-Request")
 def htmx_view_item(request: HtmxHttpRequest, sha256: str):
     """
@@ -525,7 +505,7 @@ def download_file(request: WSGIRequest):  # , filename=None):
     """
     Replaces new_download.
 
-    This now takes http://<servername>/downloads/<filename>?UUID=<uuid>
+    This now takes http://<servername>/downloads/<filename>?usha=<unique_sha>
 
     This fakes the browser into displaying the filename as the title of the
     download.
@@ -539,18 +519,15 @@ def download_file(request: WSGIRequest):  # , filename=None):
         #     found during v2 development).
 
     """
-    # Is this from an archive?  If so, get the Page ID.
     sha_value = request.GET.get("usha", None) or request.GET.get("USHA", None)
 
     if sha_value in ["", None]:
         raise Http404("No Identifier provided for download.")
     sha_value = sha_value.strip().lower()
-    # try:
     file_to_send = IndexData.get_by_sha256(sha_value, unique=True)
-    if file_to_send is None:
-        raise Http404("No File to Send")
-    return file_to_send.inline_sendfile(request, ranged=file_to_send.filetype.is_movie)
-
+    if file_to_send:
+        return file_to_send.inline_sendfile(request, ranged=file_to_send.filetype.is_movie)
+    raise Http404("No File to Send")
 
 # def view_setup():
 #     """
