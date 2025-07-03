@@ -1,53 +1,121 @@
 <nav class="navbar is-light" role="navigation" aria-label="main navigation">
-    <div class="navbar-brand">
-        <a class="navbar-item" href="{{ url('home') }}">
-            <img src="https://bulma.io/images/bulma-logo.png" width="112" height="28">
-        </a>
+  <div class="navbar-brand">
+    <a class="navbar-item" href="{{ url('home') }}">
+      <img src="https://bulma.io/images/bulma-logo.png" width="112" height="28" alt="Logo">
+    </a>
+    
+    <!-- Mobile hamburger menu -->
+    <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarBasicExample">
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+    </a>
+  </div>
+
+  <div id="navbarBasicExample" class="navbar-menu">
+    <div class="navbar-start">
+      <a class="navbar-item">
+        Name
+      </a>
+      <a class="navbar-item">
+        File
+      </a>
+      <a class="navbar-item" href="javascript:window.print()">
+        Print
+      </a>
     </div>
 
-    <div class="navbar-menu">
-        <div class="navbar-start">
-            <a class="navbar-item">
-                Name
-            </a>
-            <a class="navbar-item">
-                File
-            </a>
-            <a class="navbar-item" href="javascript:window.print()">
-                Print
-            </a>
-        </div>
-
-        <div class="navbar-end">
-            <div class="navbar-item">
-                <form action='/search'>
-                    <div class="field has-addons">
-                        <div class="control">
-                            <input id="searchtext" name="searchtext" class="input" type="text" placeholder="Title">
-                        </div>
-                        <div class="control">
-                            <button type="submit" class="button is-link">Search</button>
-                        </div>
-                    </div>
-                </form>
-            </div>  <!-- Navbar Item -->
-        </div>  <!-- Navbar End -->
-        <div class="navbar-item has-dropdown is-hoverable">
-            <a class="navbar-link">
-              {% if user.username == '' %}
-                    {{ icon("users fa-2x")}}
-              {% else %}
-                    {{ user.username }}
-              {% endif %}
-            </a>
-            <div class="navbar-dropdown is-boxed is-right">
-                <a class="navbar-item" href="/Admin">Administrator Access</a>
-                <hr class="navbar-divider">
-                <a class="navbar-item" href="/Admin/password_change">Password Change</a>
-                <hr class="navbar-divider">
-                <a class="navbar-item" href="/Admin/logout">Logout</a>
+    <div class="navbar-end">
+      <!-- Search form -->
+      <div class="navbar-item">
+        <form action="{{ url('search_viewresults') }}" method="get">
+          <div class="field has-addons">
+            <div class="control">
+              <input id="searchtext" name="searchtext" class="input" type="text" 
+                     placeholder="Search titles..." value="{{ request.GET.searchtext }}">
             </div>
-        </div>
+            <div class="control">
+              <button type="submit" class="button is-link">
+                <span class="icon">
+                  <i class="fas fa-search"></i>
+                </span>
+                <span>Search</span>
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
 
-    </div> <!-- Navbar Menu -->
+      <!-- User dropdown -->
+      {% if user.is_authenticated %}
+        <div class="navbar-item has-dropdown is-hoverable">
+          <a class="navbar-link">
+            <span class="icon-text">
+              <span class="icon">
+                <i class="fas fa-user"></i>
+              </span>
+              <span>{{ user.username }}</span>
+            </span>
+          </a>
+          <div class="navbar-dropdown is-boxed is-right">
+            {% if user.is_staff %}
+              <a class="navbar-item" href="{{ url('admin:index') }}">
+                <span class="icon-text">
+                  <span class="icon">
+                    <i class="fas fa-cog"></i>
+                  </span>
+                  <span>Admin Panel</span>
+                </span>
+              </a>
+              <hr class="navbar-divider">
+            {% endif %}
+            <a class="navbar-item" href="{{ url('admin:password_change') }}">
+              <span class="icon-text">
+                <span class="icon">
+                  <i class="fas fa-key"></i>
+                </span>
+                <span>Change Password</span>
+              </span>
+            </a>
+            <hr class="navbar-divider">
+            <a class="navbar-item" href="{{ url('admin:logout') }}">
+              <span class="icon-text">
+                <span class="icon">
+                  <i class="fas fa-sign-out-alt"></i>
+                </span>
+                <span>Logout</span>
+              </span>
+            </a>
+          </div>
+        </div>
+      {% else %}
+        <div class="navbar-item">
+          <div class="buttons">
+            <a class="button is-primary" href="{{ url('admin:login') }}">
+              <strong>Login</strong>
+            </a>
+          </div>
+        </div>
+      {% endif %}
+    </div>
+  </div>
 </nav>
+
+<script>
+// Mobile navbar toggle
+document.addEventListener('DOMContentLoaded', () => {
+  const $navbarBurgers = Array.prototype.slice.call(document.querySelectorAll('.navbar-burger'), 0);
+  
+  if ($navbarBurgers.length > 0) {
+    $navbarBurgers.forEach(el => {
+      el.addEventListener('click', () => {
+        const target = el.dataset.target;
+        const $target = document.getElementById(target);
+        
+        el.classList.toggle('is-active');
+        $target.classList.toggle('is-active');
+      });
+    });
+  }
+});
+</script>

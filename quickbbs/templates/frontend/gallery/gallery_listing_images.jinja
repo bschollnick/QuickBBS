@@ -1,118 +1,296 @@
-<image_block id="image_block">
-<div class="column is-12 g-0 p-0 m-0 mt-4"> 
-    <div id="spinner" class="has-text-centered mt-4" hidden>
-        <button class="button is-loading is-light is-large">Loading…</button>
-      </div>
-  
-     <!-- Folder Navigation & Breadcrumbs -->
-    <div class="columns is-mobile is-centered is-gapless m-0 p-0">
-        <div class="column is-1"></div>
-        <div class="column is-one-half has-text-centered is-gapless m-0 p-0">
-            <nav class="breadcrumb is-small is-gapless m-0 p-0" aria-label="breadcrumbs">
+
+<style>
+/* Gallery Container */
+.gallery-container {
+    max-width: 93%;
+    margin-left: 7%;
+    margin-right: 0px;
+    margin-top: 0px;
+    padding: 0.25rem;
+}
+
+/* Navigation Header */
+.nav-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 1rem;
+    margin-bottom: .5rem;
+    gap: .5rem;
+}
+
+.nav-breadcrumb {
+    flex: 1;
+    text-align: center;
+}
+
+.nav-controls {
+    display: flex;
+    gap: 1rem;
+    min-width: 120px;
+}
+
+.nav-link {
+    font-size: 0.875rem;
+    color: #3273dc;
+    text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 150px;
+}
+
+/* Gallery Grid */
+.gallery-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1px;
+    border: 1px solid #000;
+    padding: 1px;
+}
+
+.gallery-item {
+    flex: 1 1 calc(33.333% - 2px);
+    min-width: 200px;
+    border: 1px solid #000;
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+/* Item Header */
+.item-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 0.0rem;
+    margin-top: 0.0rem;
+}
+
+.item-index {
+    font-weight: bold;
+    margin-right: 0.5rem;
+    min-width: 20px;
+}
+
+.item-title {
+    flex: 1;
+    font-size: 1.0rem;
+    line-height: 1.0;
+    word-wrap: break-word;
+    text-align: center;
+    width: 100%;
+    margin-bottom: 0.0 rem;
+}
+
+.item-title a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.film-indicator {
+    margin-left: 0.25rem;
+}
+
+/* Thumbnail Container */
+.thumbnail-container {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0.25rem 0;
+    position: relative;
+}
+
+.thumbnail {
+    max-width: 100%;
+    height: auto;
+    border-radius: 4px;
+}
+
+.external-link {
+    position: absolute;
+    top: -15px;
+    right: -5px;
+    background: transparent;
+    border-radius: 50%;
+    padding: 6px;
+    font-size: 1.25rem;
+    color: #3273dc;
+    text-decoration: none;
+}
+
+/* Metadata */
+.item-metadata {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    font-size: 1.00rem;
+    margin-top: auto;
+    width:100%;
+}
+
+.metadata-item {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    color: #000;
+}
+
+.metadata-item i {
+    width: 12px;
+    text-align: center;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .gallery-item {
+        flex: 1 1 calc(50% - 2px);
+        min-width: 150px;
+    }
+    
+    .nav-header {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    
+    .nav-controls {
+        width: 100%;
+        justify-content: space-between;
+    }
+}
+
+@media (max-width: 480px) {
+    .gallery-item {
+        flex: 1 1 100%;
+    }
+}
+</style>
+
+<div class="gallery-container">
+    <!-- Navigation Header -->
+    <nav class="nav-header">
+        <div class="nav-controls">
+            {% if prev_uri not in ["", None] %}
+                <a href="{{ prev_uri }}?sort={{sort}}" class="nav-link" hx-boost="false">
+                    <i class="fas fa-angle-left"></i>
+                    {{ prev_uri.split("/")[-1][:25] }}
+                </a>
+            {% endif %}
+        </div>
+        
+        <div class="nav-breadcrumb">
+            <nav class="breadcrumb is-small">
                 <ul>
-                {%- for name, url, link in breadcrumbs -%}
-                    <li><a href='{{url}}' hx-swap="outerHTML transition:true">{{name}}</a></li>
-                {%- endfor -%}
-                <li class="is-active"><h3>{{ gallery_name|wordwrap(width=50,break_long_words=True) -}}</h3></li>
+                    {%- for name, url, link in breadcrumbs -%}
+                        <li><a href='{{url}}' hx-swap="outerHTML transition:true">{{name}}</a></li>
+                    {%- endfor -%}
+                    <li class="is-active">
+                        <h3>{{ gallery_name|wordwrap(width=50,break_long_words=True) }}</h3>
+                    </li>
                 </ul>
             </nav>
         </div>
-        <div class="column is-one-quarter has-text-left is-gapless m-0 p-0">
-                {% if prev_uri not in ["", None] %}
-                    <font class="is-size-7">
-                    <a href="{{ prev_uri }}?sort={{sort}}" hx-boost="false" >
-                        {{- icon("angle-left fa-1x")-}}
-                        {{- prev_uri.split("/")[-1][:30]|wordwrap(width=25,break_long_words=True) -}}</a></font>
-                {% endif %}
+        
+        <div class="nav-controls">
+            {% if next_uri not in ["", None] %}
+                <a href="{{ next_uri }}?sort={{sort}}" class="nav-link" hx-boost="false">
+                    {{ next_uri.split("/")[-1][:25] }}
+                    <i class="fas fa-angle-right"></i>
+                </a>
+            {% endif %}
         </div>
-        <div class="column is-one-quarter has-text-left is-gapless m-0 p-0">
-                {% if next_uri not in ["", None] %}
-                    <font class="is-size-7">
-                    <a href="{{ next_uri }}?sort={{sort}}" hx-boost="false" >
-                    {{- icon("angle-right fa-1x")-}}
-                    {{- next_uri.split("/")[-1][:30]|wordwrap(width=25,break_long_words=True) -}}</a></font>
-                {% endif %}
-        </div>
-    </div><!-- Folder Navigation & Breadcrumbs -->
+    </nav>
 
-    <div class="columns is-mobile is-gapless is-centered has-text-centered m-0 p-0"  style="margin-bottom:1px;margin-top:1px;">
-        <div class="column is-1">
-        </div>
-        <div class="column is-11 is-narrow is-gapless" style="border:1px solid black;margin-bottom:1px;margin-top:1px;">
-            <div class="columns is-mobile  is-multiline is-gapless is-centered has-text-centered"  style="margin-bottom:1px;margin-top:1px;">
-                {%- for item in items_to_display -%}
-                    <div class="column is-one-third" style="border:1px solid black;background-color:#{{item.filetype.color}};">
-                        <b>{{ loop.index }}</b> <br>
-<!-- title -->
+    <!-- Gallery Grid -->
+    <div class="gallery-grid">
+        {%- for item in items_to_display -%}
+            <div class="gallery-item" style="background-color: #{{ item.filetype.color }};">
+                <!-- Item Header -->
+                <div class="item-header">
+                    <span class="item-index">{{ loop.index }}</span>
+                    <div class="item-title">
                         {% if item.filetype.is_link %}
-                            <font class="is-size-7"><a href="{{ item.fqpndirectory }}" style="background-color:#{{item.get_bg_color()}};" hx-swap="outerHTML transition:true" defer>
-                            {{ item.name.split("*")[0] }}</font><br>
-                            <img loading='lazy' src="{{item.get_thumbnail_url()}}" class="img-responsive" style="width:auto;max-width:100%"/>
+                            <a href="{{ item.fqpndirectory }}" hx-swap="outerHTML transition:true">
+                                {{ item.name.split("*")[0] }}
                         {% else %}
-                        <font class="is-size-7"><a href="{{item.get_view_url()}}?sort={{sort}}" class="thumbnail class="is-size-7" style="background-color:#{{item.get_bg_color()}};" hx-swap="outerHTML transition:true" defer>
-                            {{ item.name|wordwrap(width=24, break_long_words=True)}}</font>
-                            {% if item.is_animated -%} {{ icon("fa-solid fa-film") }} {% endif%}
-                            <br>
-                            <img loading='lazy' src="{{item.get_thumbnail_url()}}" class="img-responsive" style="width:auto;max-width:100%"/>
+                            <a href="{{ item.get_view_url() }}?sort={{sort}}" hx-swap="outerHTML transition:true">
+                                {{ item.name|wordwrap(width=24, break_long_words=True) }}
                         {% endif %}
-<!-- Display thumbnail  -->
-                        </a>
-
-                        <div class="cell flex-shrink">
-                            {% if item.filetype.is_link %}
-                                <a href="{{ item.fqpndirectory }}" target="_blank" style="m-0;p-0;margin-top:-20px;display: flex; justify-content: flex-end;margin-right:10px;" hx-swap="outerHTML transition:true">
-                                    {{ icon("external-link-alt fa-xl") }}
-                                </a>
-                            {% else %}
-                                <a href="{{item.get_view_url()}}?sort={{sort}}" target="_blank" style="m-0;p-0;margin-top:-20px;display: flex; justify-content: flex-end;margin-right:10px;" hx-swap="outerHTML transition:true">
-                                    {{ icon("external-link-alt fa-xl") }}
-                                </a>
-                            {% endif %}
-                            <br>
-                        </div>
-
-                        <div class="fixed-grid has-3-cols is-gapless is-column-gap-0 is-row-gap-0 m-0 p-0">
-                            <div class="grid is-gapless is-column-gap-0 is-row-gap-0 m-0 p-0">
-                                {% if item.filetype.is_dir %}
-                                <div class="cell flex-shrink">
-                                    {{ icon("fa-regular fa-folder")}}
-                                    {% set dir_counts = item.get_dir_counts() %}
-                                        {% if dir_counts not in [0, None, "", -1]  %}
-                                            <font class="is-size-6" style="color:black">{{ dir_counts | intcomma }}
-                                            </font>
-                                        {% endif %}
-                                </div>
-                                <div class="cell flex-shrink">
-                                    {{ icon("fa-regular fa-file")}}
-                                    {% set file_counts = item.get_file_counts() %}
-                                    {% if file_counts not in [0, None, "", -1]  %}
-                                        <font class="is-size-6"  style="color:black">{{ file_counts | intcomma }}
-                                        </font>
-                                    {% endif %}
-                                </div>
-                                {% endif %}
-                                <div class="cell flex-shrink">
-                                    {{ icon("fa-regular fa-calendar")}}
-                                    <b class="is-size-7"  style="color:black">{{ fromtimestamp( item.lastmod).strftime("%m/%d/%y %H:%M") }}</b>
-                                </div>
-                            <div class="cell flex-shrink">
-                                {% if item.size and not item.filetype.is_movie and not item.filetype.is_dir %}
-                                    {{ icon("fa-regular fa-ruler")}}
-                                    <b class="is-size-7  m-0 p-0" style="color:black"> {{ naturalsize(item.size, gnu=True) }}</b>
-                                {% endif %}
-                                {% if item.filetype.is_movie %}
-                                    {{ icon("fa-regular fa-clock")}}
-                                <b class="is-size-7 m-0 p-0" style="color:black"> {{ precisedelta(item.duration) }}</b>
-                                {% endif %}
-                            </div>
-                        </div>
-                        </div>
-
+                        
+                        {% if item.is_animated %}
+                            <i class="fas fa-film film-indicator"></i>
+                        {% endif %}
                     </div>
-                {% endfor %}
+                </div>
+                
+                <!-- Thumbnail Container -->
+                <div class="thumbnail-container">
+                    <img src="{{ item.get_thumbnail_url() }}" 
+                         alt="{{ item.name }}"
+                         class="thumbnail"
+                         loading="lazy">
+                </a>                    
+                    <!-- External Link -->
+                    {% if item.filetype.is_link %}
+                        <a href="{{ item.fqpndirectory }}" 
+                           target="_blank" 
+                           class="external-link"
+                           hx-swap="outerHTML transition:true">
+                            <i class="fas fa-external-link-alt"></i>
+                        </a>
+                    {% else %}
+                        <a href="{{ item.get_view_url() }}?sort={{sort}}" 
+                           target="_blank" 
+                           class="external-link"
+                           hx-swap="outerHTML transition:true">
+                            <i class="fas fa-external-link-alt"></i>
+                        </a>
+                    {% endif %}
+                </div>
+                
+                <!-- Metadata -->
+                <div class="item-metadata">
+                    {% if item.filetype.is_dir %}
+                        {% set dir_counts = item.get_dir_counts() %}
+                        {% if dir_counts not in [0, None, "", -1] %}
+                            <div class="metadata-item">
+                                <i class="far fa-folder"></i>
+                                <span>{{ dir_counts | intcomma }}</span>
+                            </div>
+                        {% endif %}
+                        
+                        {% set file_counts = item.get_file_counts() %}
+                        {% if file_counts not in [0, None, "", -1] %}
+                            <div class="metadata-item">
+                                <i class="far fa-file"></i>
+                                <span>{{ file_counts | intcomma }}</span>
+                            </div>
+                        {% endif %}
+                    {% endif %}
+                    
+                    <div class="metadata-item">
+                        <i class="far fa-calendar"></i>
+                        <span>{{ fromtimestamp(item.lastmod).strftime("%m/%d/%y %H:%M") }}</span>
+                    </div>
+                    
+                    {% if item.size and not item.filetype.is_movie and not item.filetype.is_dir %}
+                        <div class="metadata-item">
+                            <i class="far fa-ruler"></i>
+                            <span>{{ naturalsize(item.size, gnu=True) }}</span>
+                        </div>
+                    {% endif %}
+                    
+                    {% if item.filetype.is_movie %}
+                        <div class="metadata-item">
+                            <i class="far fa-clock"></i>
+                            <span>{{ precisedelta(item.duration) }}</span>
+                        </div>
+                    {% endif %}
+                </div>
             </div>
-        </div>
+        {% endfor %}
     </div>
-
 </div>
-</image_block>
