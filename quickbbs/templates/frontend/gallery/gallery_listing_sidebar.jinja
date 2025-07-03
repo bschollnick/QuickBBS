@@ -1,56 +1,234 @@
-<sidebar id="sidebar">
-<div class="container is-fluid style="margin:0px;padding:0px;">
-    <div class="columns is-mobile" style="p-0;m-0;g-0;">
-        <!--         Sidebar -->
-        <div class="column is-1 is-narrow" style="margin-top:20px;margin-left:-20px;gap:0px;padding:0px;border:2px solid black;position: fixed;g-0;p-0;m-0;" >
-           <p align=center><a hx-push-url="{{ up_uri }}?page=1&sort={{sort}}" hx-get="{{ up_uri }}?page=1&sort={{sort}}&newwin=True" hx-swap="outerHTML"  hx-target="body">{{ icon("arrow-up fa-2x")}}</a></p>
-                <hr>
-                <a href="?page=1" hx-swap="outerHTML" >
-                    <p align=center>{{ icon("angle-double-left fa-3x")}}</a></p>
-                <hr>
-                <span class="step-links">
-                    {% if current_page > 1%}
-                        <a href="?page={{ current_page-1 }}&sort={{sort}}" hx-swap="outerHTML" >
-                        <p align=center>{{ icon("angle-left fa-3x")}}</a></p>
-                    {% else %}
-                            <p align=center><img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/></p>
-                    {% endif %}
-                <hr><center>
-                    <form action="?" method="GET">
-                        <input type="hidden" id="sort" name="sort" value="{{sort}}">
-                    Page<br>
-                        <select name="page" onchange='this.form.submit()'>
-                            {% for pagecnt in page_range %}
-                                <option value="{{pagecnt}}" {% if pagecnt == current_page %}selected{% endif %}>{{pagecnt}}</option>
-                            {% endfor %}
-                        </select><br>
-                        of {{ total_pages }}.
-                    </form></center>
-                <hr>
+<!-- Optimized Django Sidebar Template -->
+<aside class="sidebar is-narrow" id="sidebar">
+  <div class="sidebar-content">
+    
+    <!-- Navigation Up Button -->
+    <div class="sidebar-section">
+      <a class="button is-ghost is-fullwidth" 
+         hx-push-url="{{ up_uri }}?page=1&sort={{sort}}" 
+         hx-get="{{ up_uri }}?page=1&sort={{sort}}&newwin=True" 
+         hx-swap="outerHTML" 
+         hx-target="body"
+         title="Go Up">
+        {{ icon("arrow-up fa-2x") }}
+      </a>
+    </div>
 
-                    {% if current_page < total_pages %}
-                        <a href="?page={{ current_page+1 }}&sort={{sort}}" hx-swap="outerHTML" >
-                        <p align=center>{{ icon("angle-right fa-3x")}}</a></p>
-                    {% else %}
-                            <img width="75%" height="75%" src="/resources/images/gtk_media_empty.png"/>
-                    {% endif %}
-                <hr>
+    <!-- Pagination Controls -->
+    <div class="sidebar-section">
+      
+      <!-- First Page -->
+      <div class="nav-button">
+        <a class="button is-ghost is-fullwidth{% if current_page <= 1 %} is-disabled{% endif %}" 
+           href="?page=1&sort={{sort}}" 
+           hx-swap="outerHTML"
+           {% if current_page <= 1 %}disabled{% endif %}
+           title="First Page">
+          {{ icon("angle-double-left fa-2x") }}
+        </a>
+      </div>
 
-                <a href="?page={{ total_pages }}&sort={{sort}}" hx-swap="outerHTML" >
-                        <p align=center>{{ icon("angle-double-right fa-3x")}}</a></p>
-                </span>
-                <hr>
-                    <form action="" method="GET">
-                        <input type="hidden" id="page" name="page" value="{{current_page}}">
-                        <select name="sort" onchange='this.form.submit()'>
-                            <option value="0" {% if sort == 0 %}selected{% endif %}>A..Z</option>
-                            <option value="1" {% if sort == 1 %}selected{% endif %}>LastM</option>
-                            <option value="2" {% if sort == 2 %}selected{% endif %}>CTime</option>
-                        </select>
-                    </form>
-                <hr>
-        </div>    <!--         Sidebar -->
+      <!-- Previous Page -->
+      <div class="nav-button">
+        {% if current_page > 1 %}
+          <a class="button is-ghost is-fullwidth" 
+             href="?page={{ current_page-1 }}&sort={{sort}}" 
+             hx-swap="outerHTML"
+             title="Previous Page">
+            {{ icon("angle-left fa-2x") }}
+          </a>
+        {% else %}
+          <span class="button is-ghost is-fullwidth is-disabled" title="Previous Page">
+            {{ icon("angle-left fa-2x") }}
+          </span>
+        {% endif %}
+      </div>
+
+      <!-- Next Page -->
+      <div class="nav-button">
+        {% if current_page < total_pages %}
+          <a class="button is-ghost is-fullwidth" 
+             href="?page={{ current_page+1 }}&sort={{sort}}" 
+             hx-swap="outerHTML"
+             title="Next Page">
+            {{ icon("angle-right fa-2x") }}
+          </a>
+        {% else %}
+          <span class="button is-ghost is-fullwidth is-disabled" title="Next Page">
+            {{ icon("angle-right fa-2x") }}
+          </span>
+        {% endif %}
+      </div>
+
+      <!-- Last Page -->
+      <div class="nav-button">
+        <a class="button is-ghost is-fullwidth{% if current_page >= total_pages %} is-disabled{% endif %}" 
+           href="?page={{ total_pages }}&sort={{sort}}" 
+           hx-swap="outerHTML"
+           {% if current_page >= total_pages %}disabled{% endif %}
+           title="Last Page">
+          {{ icon("angle-double-right fa-2x") }}
+        </a>
+      </div>
 
     </div>
-</div>
-</sidebar>
+
+    <!-- Page Selector -->
+    <div class="sidebar-section">
+      <div class="field">
+        <label class="label is-small has-text-centered">Page</label>
+        <form action="?" method="GET" class="page-form">
+          <input type="hidden" name="sort" value="{{sort}}">
+          <div class="select is-small is-fullwidth">
+            <select name="page" onchange="this.form.submit()">
+              {% for pagecnt in page_range %}
+                <option value="{{pagecnt}}" {% if pagecnt == current_page %}selected{% endif %}>
+                  {{pagecnt}}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <p class="help has-text-centered">of {{ total_pages }}</p>
+        </form>
+      </div>
+    </div>
+
+    <!-- Sort Options -->
+    <div class="sidebar-section">
+      <div class="field">
+        <label class="label is-small has-text-centered">Sort</label>
+        <form action="?" method="GET" class="sort-form">
+          <input type="hidden" name="page" value="{{current_page}}">
+          <div class="select is-small is-fullwidth">
+            <select name="sort" onchange="this.form.submit()">
+              <option value="0" {% if sort == 0 %}selected{% endif %}>A..Z</option>
+              <option value="1" {% if sort == 1 %}selected{% endif %}>Last Modified</option>
+              <option value="2" {% if sort == 2 %}selected{% endif %}>Created</option>
+            </select>
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</aside>
+
+<style>
+/* Custom CSS for the sidebar */
+.sidebar {
+  position: fixed;
+  left: 0;
+  top: 98px;
+  height: 100vh;
+  width: 7.5%;
+  background: hsl(0, 0%, 98%);
+  border-right: 1px solid hsl(0, 0%, 86%);
+  z-index: 30;
+  overflow-y: auto;
+}
+
+.sidebar-content {
+  padding: 0.5rem 0.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sidebar-section {
+  padding: 0.25rem 0;
+}
+
+.sidebar-section:not(:last-child) {
+  border-bottom: 1px solid hsl(0, 0%, 86%);
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.nav-button {
+  margin-bottom: 0.25rem;
+}
+
+.nav-button:last-child {
+  margin-bottom: 0;
+}
+
+.button.is-ghost {
+  border: 1px solid transparent;
+  padding: 0.75rem;
+  height: auto;
+  min-height: 3.5rem;
+}
+
+.button.is-ghost:hover {
+  background-color: hsl(0, 0%, 96%);
+  border-color: hsl(0, 0%, 86%);
+}
+
+.button.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.button.is-disabled:hover {
+  background-color: transparent;
+  border-color: transparent;
+}
+
+.field {
+  margin-bottom: 0.5rem;
+}
+
+.label {
+  font-size: 0.75rem;
+  margin-bottom: 0.25rem;
+  text-align: center;
+}
+
+.help {
+  font-size: 0.65rem;
+  text-align: center;
+  margin-top: 0.25rem;
+}
+
+.select.is-small select {
+  font-size: 0.75rem;
+  height: 2rem;
+}
+
+/* Mobile responsiveness */
+@media screen and (max-width: 768px) {
+  .sidebar {
+    width: 60px;
+  }
+  
+  .sidebar-content {
+    padding: 0.25rem 0.125rem;
+  }
+  
+  .label,
+  .help {
+    display: none;
+  }
+  
+  .field {
+    margin-bottom: 0.25rem;
+  }
+  
+  .button.is-ghost {
+    padding: 0.5rem;
+    min-height: 3rem;
+  }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .sidebar {
+    background: hsl(0, 0%, 14%);
+    border-right-color: hsl(0, 0%, 29%);
+  }
+  
+  .sidebar-section:not(:last-child) {
+    border-bottom-color: hsl(0, 0%, 29%);
+  }
+}
+</style>

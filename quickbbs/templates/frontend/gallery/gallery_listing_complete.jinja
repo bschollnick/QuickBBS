@@ -115,6 +115,10 @@
    document.addEventListener("click", function(evt) {
      const target = evt.target.closest('a');
      if (target && target.href && !target.hasAttribute('hx-get') && !target.hasAttribute('hx-post')) {
+       // Don't show spinner for links that open in new tab/window
+       if (target.target === '_blank' || target.target === '_new') {
+         return;
+       }
        showSpinner();
      }
    });
