@@ -30,6 +30,9 @@ CSS_PATH = f"{RESOURCES_PATH}/css"
 FONTS_PATH = f"{RESOURCES_PATH}/fonts"
 ICONS_PATH = f"{RESOURCES_PATH}/images"
 
+ALIAS_MAPPING = {r"/volumes/masters/masters/hyp-collective":r"/volumes/c-8tb/gallery/quickbbs/albums/hentai_idea/hyp-collective",
+                 r"/volumes/masters/masters":r"/volumes/c-8tb/gallery/quickbbs/albums/hentai_idea"}
+
 # Used in ftypes / Filetypes, used in the refresh-filetypes command
 FTYPES = {
     "unknown": 0,

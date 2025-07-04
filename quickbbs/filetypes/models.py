@@ -56,12 +56,16 @@ class filetypes(models.Model):
 
     def send_thumbnail(self):
         from frontend.serve_up import send_file_response
-        return send_file_response(filename=self.icon_filename,
-                           content_to_send=io.BytesIO(self.thumbnail),
-                           mtype=self.mimetype or "image/jpeg",
-                           attachment=False,
-                           last_modified=None,
-                           expiration=300)
+
+        return send_file_response(
+            filename=self.icon_filename,
+            content_to_send=io.BytesIO(self.thumbnail),
+            mtype=self.mimetype or "image/jpeg",
+            attachment=False,
+            last_modified=None,
+            expiration=300,
+        )
+
     @lru_cache(maxsize=200)
     @staticmethod
     def filetype_exists_by_ext(fileext):

@@ -48,7 +48,10 @@ __url__ = "https://github.com/bschollnick/quickbbs"
 __license__ = "TBD"
 
 
-ThumbnailFiles_Prefetch_List = ["IndexData",]
+ThumbnailFiles_Prefetch_List = [
+    "IndexData",
+]
+
 
 class ThumbnailFiles(models.Model):
     """
@@ -103,9 +106,9 @@ class ThumbnailFiles(models.Model):
             "large_thumb": b"",
         }
         with transaction.atomic():
-            thumbnail, created = ThumbnailFiles.objects.prefetch_related(*ThumbnailFiles_Prefetch_List).get_or_create(
-                sha256_hash=file_sha256, defaults=defaults
-            )
+            thumbnail, created = ThumbnailFiles.objects.prefetch_related(
+                *ThumbnailFiles_Prefetch_List
+            ).get_or_create(sha256_hash=file_sha256, defaults=defaults)
 
             if thumbnail.IndexData.all().exists():
                 # Reverse lookup to get the first IndexData model that matches this sha256
@@ -185,7 +188,9 @@ class ThumbnailFiles(models.Model):
         """
         Given a sha256 hash, return the thumbnail object
         """
-        return ThumbnailFiles.objects.prefetch_related(*ThumbnailFiles_Prefetch_List).get(sha256_hash=sha256)
+        return ThumbnailFiles.objects.prefetch_related(
+            *ThumbnailFiles_Prefetch_List
+        ).get(sha256_hash=sha256)
 
     def thumbnail_exists(self, size="small"):
         """
@@ -284,10 +289,12 @@ class ThumbnailFiles(models.Model):
         filename = filename_override or self.IndexData.first().name
         mtype = "image/jpeg"
         blob = self.retrieve_sized_tnail(size=size)
-        return send_file_response(filename=filename,
-                           content_to_send= io.BytesIO(blob),
-                           mtype=mtype or "image/jpeg",
-                           attachment=False,
-                           last_modified=None,
-                           expiration=300)
+        return send_file_response(
+            filename=filename,
+            content_to_send=io.BytesIO(blob),
+            mtype=mtype or "image/jpeg",
+            attachment=False,
+            last_modified=None,
+            expiration=300,
+        )
         return response

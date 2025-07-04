@@ -35,7 +35,6 @@ urlpatterns += [
     path("search/", frontend.views.search_viewresults, name="search_viewresults"),
     #    re_path("^download/", frontend.views.download_file, name="download"),
     # re_path("^download/", frontend.views.download_item, name="download"),
-
     re_path("^download_file/", frontend.views.download_file, name="download_file"),
     path(
         "view_item/<str:sha256>/",

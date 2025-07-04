@@ -196,11 +196,13 @@ class fs_Cache_Tracking(models.Model):
             # Convert all directory names to SHA256 hashes
             sha_list = set([get_dir_sha(dir_name) for dir_name in dir_names])
             directories = list(IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list))
-            #updated_cnt = IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list).update(
+            # updated_cnt = IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list).update(
             #    is_generic_icon=False
-            #)
+            # )
 
-            fqpn_by_dir_sha = {d.dir_fqpn_sha256: d for d in directories}   # sha + fqpndirectory
+            fqpn_by_dir_sha = {
+                d.dir_fqpn_sha256: d for d in directories
+            }  # sha + fqpndirectory
 
             with transaction.atomic():
                 # Get all affected directories before deletion
