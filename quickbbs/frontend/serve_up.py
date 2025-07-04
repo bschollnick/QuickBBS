@@ -1,6 +1,7 @@
 """
 Serve Resources, and Static documents from Django
 """
+
 from datetime import timedelta
 import io
 import os.path
@@ -13,6 +14,7 @@ from django.utils import timezone
 from django.views.static import serve
 
 from ranged_fileresponse import RangedFileResponse
+
 
 def static_or_resources(request, pathstr=None):
     """
@@ -41,8 +43,15 @@ def static_or_resources(request, pathstr=None):
     raise Http404(f"File {pathstr} not found in resources or static files")
 
 
-
-def send_file_response(filename, content_to_send, mtype, attachment, last_modified, expiration=300, request=None):
+def send_file_response(
+    filename,
+    content_to_send,
+    mtype,
+    attachment,
+    last_modified,
+    expiration=300,
+    request=None,
+):
     """
         Output a http response header, for an image attachment.
 
@@ -68,12 +77,14 @@ def send_file_response(filename, content_to_send, mtype, attachment, last_modifi
             filename=filename,
         )
     else:
-        response = RangedFileResponse(request,
-                                      file=content_to_send,  # , buffering=1024*8),
-                                      content_type=mtype,
-                                      as_attachment=attachment,
-                                      filename=filename)
+        response = RangedFileResponse(
+            request,
+            file=content_to_send,  # , buffering=1024*8),
+            content_type=mtype,
+            as_attachment=attachment,
+            filename=filename,
+        )
     # response["Content-Type"] = mtype                  # set in FileResponse
     # response["Content-Length"] = len(self.thumbnail)  # auto set from FileResponse
-    response["Cache-Control"] = f'public, max-age={expiration}'
+    response["Cache-Control"] = f"public, max-age={expiration}"
     return response

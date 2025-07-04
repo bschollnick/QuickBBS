@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from thumbnails.models import ThumbnailFiles
 
+
 @admin.register(ThumbnailFiles)
 class AdminThumbnail_Files(admin.ModelAdmin):
     readonly_fields = (
@@ -13,7 +14,7 @@ class AdminThumbnail_Files(admin.ModelAdmin):
     )
 
     search_fields = ["sha256_hash", "id"]
-    
+
     list_display = (
         "id",
         "sha256_hash",

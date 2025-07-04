@@ -11,7 +11,7 @@ except ImportError:
     from pil_thumbnails import ImageBackend
 
 
-class PDFBackend(AbstractBackend ):
+class PDFBackend(AbstractBackend):
     """PyMuPDF backend for PDF thumbnail generation."""
 
     def process_from_file(

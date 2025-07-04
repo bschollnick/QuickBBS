@@ -213,7 +213,7 @@
                     <span class="item-index">{{ loop.index }}</span>
                     <div class="item-title">
                         {% if item.filetype.is_link %}
-                            <a href="{{ item.fqpndirectory }}" hx-swap="outerHTML transition:true">
+                            <a href="{{ item.virtual_directory.get_view_url() }}" hx-swap="outerHTML transition:true">
                                 {{ item.name.split("*")[0] }}
                         {% else %}
                             <a href="{{ item.get_view_url() }}?sort={{sort}}" hx-swap="outerHTML transition:true">
@@ -234,21 +234,12 @@
                          loading="lazy">
                 </a>                    
                     <!-- External Link -->
-                    {% if item.filetype.is_link %}
-                        <a href="{{ item.fqpndirectory }}" 
-                           target="_blank" 
-                           class="external-link"
-                           hx-swap="outerHTML transition:true">
-                            <i class="fas fa-external-link-alt"></i>
-                        </a>
-                    {% else %}
-                        <a href="{{ item.get_view_url() }}?sort={{sort}}" 
-                           target="_blank" 
-                           class="external-link"
-                           hx-swap="outerHTML transition:true">
-                            <i class="fas fa-external-link-alt"></i>
-                        </a>
-                    {% endif %}
+                    <a href="{{ item.get_view_url() }}?sort={{sort}}" 
+                        target="_blank" 
+                        class="external-link"
+                        hx-swap="outerHTML transition:true">
+                        <i class="fas fa-external-link-alt"></i>
+                    </a>
                 </div>
                 
                 <!-- Metadata -->

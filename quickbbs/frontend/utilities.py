@@ -21,11 +21,12 @@ import filetypes.models as filetype_models
 from cache_watcher.models import Cache_Storage, get_dir_sha
 from django.conf import settings
 from django.db import transaction
+from django.db import connection
+
 
 # from django.db.models import Count, F, OuterRef, Subquery, Value
 # from django.db.utils import IntegrityError
 # from django.utils.html import format_html
-from django_thread import ThreadPoolExecutor
 from frontend.file_listings import return_disk_listing
 from PIL import Image
 from thumbnails.video_thumbnails import _get_video_info
@@ -44,59 +45,6 @@ logger = logging.getLogger(__name__)
 Image.MAX_IMAGE_PIXELS = None  # Disable PILLOW DecompressionBombError errors.
 
 MAX_THREADS = 20
-
-# executor = ThreadPoolExecutor(max_workers=MAX_THREADS)
-from django.db import connection
-
-
-class DjangoConnectionThreadPoolExecutor(ThreadPoolExecutor):
-    """
-    When a function is passed into the ThreadPoolExecutor via either submit() or map(),
-    this will wrap the function, and make sure that close_django_db_connection() is called
-    inside the thread when it's finished so Django doesn't leak DB connections.
-
-    Since map() calls submit(), only submit() needs to be overwritten.
-
-    Attempting to fix what appears to be a starvation of connections?
-    https://stackoverflow.com/questions/57211476/django-orm-leaks-connections-when-using-threadpoolexecutor
-
-    Not positive that this is the issue, but worth the attempt to resolve it.
-    """
-
-    def close_django_db_connection(self):
-        connection.close()
-
-    def generate_thread_closing_wrapper(self, fn):
-        @wraps(fn)
-        def new_func(*args, **kwargs):
-            try:
-                return fn(*args, **kwargs)
-            finally:
-                self.close_django_db_connection()
-
-        return new_func
-
-    def submit(*args, **kwargs):
-        """
-        I took the args filtering/unpacking logic from
-
-        https://github.com/python/cpython/blob/3.7/Lib/concurrent/futures/thread.py
-
-        so I can properly get the function object the same way it was done there.
-        """
-        if len(args) >= 2:
-            self, fn, *args = args
-            fn = self.generate_thread_closing_wrapper(fn=fn)
-        elif not args:
-            raise TypeError(
-                "descriptor 'submit' of 'ThreadPoolExecutor' object "
-                "needs an argument"
-            )
-        elif "fn" in kwargs:
-            fn = self.generate_thread_closing_wrapper(fn=kwargs.pop("fn"))
-            self, *args = args
-
-        return super(self.__class__, self).submit(fn, *args, **kwargs)
 
 
 SORT_MATRIX = {
@@ -254,6 +202,7 @@ def _sync_files(dirpath_info: object, fs_entries: Dict, bulk_size: int) -> None:
     for db_name, db_record in db_files.items():
         if db_name not in fs_file_names:
             # File exists in DB but not in filesystem
+            print("Deleting ",db_record.name)
             records_to_delete.append(db_record.id)
         else:
             # File exists in both - check for updates
@@ -308,12 +257,6 @@ def _check_file_updates(db_record: object, fs_entry: Path) -> Optional[object]:
                     update_needed = True
                 except Exception as e:
                     logger.error(f"Error getting duration for {fs_entry}: {e}")
-            #         duration = 0
-            #         if duration is not None:
-            #             db_record.duration = duration
-            #             update_needed = True
-            #     except Exception as e:
-            #         logger.error(f"Error getting duration for {fs_entry}: {e}")
 
         return db_record if update_needed else None
 
@@ -343,7 +286,6 @@ def _process_new_files(
                 if hasattr(filetype, "is_archive") and filetype.is_archive:
                     logger.info(f"Archive detected: {filedata['name']}")
                     continue
-
                 # Create record using get_or_create to handle duplicates
                 record, created = IndexData.objects.get_or_create(
                     unique_sha256=filedata.get("unique_sha256"), defaults=filedata
@@ -373,6 +315,7 @@ def _execute_batch_operations(
             # Batch delete
             if records_to_delete:
                 IndexData.objects.filter(id__in=records_to_delete).delete()
+                print(f"Deleted {len(records_to_delete)} records")
                 logger.info(f"Deleted {len(records_to_delete)} records")
 
             # Batch update
@@ -563,7 +506,8 @@ def process_filedata(
 
         # Handle link files
         filetype = record["filetype"]
-        if hasattr(filetype, "is_link") and filetype.is_link:
+        #if hasattr(filetype, "is_link") and filetype.is_link:
+        if filetype.is_link:
             if filetype.fileext == ".link":
                 try:
                     _, redirect = (
@@ -580,11 +524,15 @@ def process_filedata(
                     return None
 
             elif filetype.fileext == ".alias":
+                print("Alias File Found - ", fs_entry.name)
                 try:
                     alias_path = (
                         resolve_alias_path(str(fs_entry)).lower().rstrip(os.sep)
                         + os.sep
                     )
+                    record["file_sha256"], record["unique_sha256"] = get_file_sha(
+                    str(fs_entry)
+                )
                     print(f"Resolved alias path: {alias_path}")
 
                     # Assuming IndexDirs.search_for_directory is available
@@ -596,7 +544,7 @@ def process_filedata(
                             f"Directory {alias_path} not found in database, skipping link."
                         )
                         return None
-                    record["home_directory"] = directory_linking_to
+                    record["virtual_directory"] = directory_linking_to
 
                 except ValueError as e:
                     print(f"Error resolving alias: {e}")
@@ -684,240 +632,6 @@ def sync_database_disk(directoryname: str) -> Optional[bool]:
     print("End Sync")
 
 
-# def sync_database_disk(directoryname):
-#     """
-
-#     Parameters
-#     ----------
-#     directoryname : The "webpath", the fragment of the directory name to load, lowercased, and
-#         double '//' is replaced with '/'
-
-#     Returns
-#     -------
-#     None
-
-#     Note:
-#            * This does not currently contend with Archives.
-#            * Archive logic will need to be built-out or broken out elsewhere
-#            * This is still currently using the v2 data structures.  First test is
-#                 to ensure that the logic works as expected.  Second is to then update
-#                 to use new data structures for v3.
-#            * There's little path work done here, but look to rewrite to pass in Path from Pathlib?
-
-#     * Logic Update
-#         * If there are no database entries for the directory, the fs comparing to the database
-#     """
-#     bulk_size = 50
-#     if directoryname in [os.sep, r"/"]:
-#         directoryname = settings.ALBUMS_PATH
-#     webpath = ensures_endswith(directoryname.lower().replace("//", "/"), os.sep)
-#     dirpath = normalize_fqpn(os.path.abspath(directoryname.title().strip()))
-#     directory_sha256 = get_dir_sha(dirpath)
-#     # found, dirpath_info = IndexDirs.search_for_directory(fqpn_directory=dirpath)
-
-#     found, dirpath_info = IndexDirs.search_for_directory_by_sha(directory_sha256)
-#     records_to_update = []
-#     if found is False:
-#         found, dirpath_info = IndexDirs.add_directory(dirpath)
-#         cached = False
-#         Cache_Storage.remove_from_cache_sha(dirpath_info.dir_fqpn_sha256)
-#         # print("\tAdding ", dirpath)
-#     else:
-#         cached = Cache_Storage.sha_exists_in_cache(sha256=directory_sha256) is True
-
-#     # cached = Cache_Storage.name_exists_in_cache(DirName=dirpath) is True
-#     if cached:
-#         return None
-
-#     # It's not cached
-#     # if not cached:
-#     print(f"Not Cached! Rescanning directory: {dirpath}")
-#     # If the directory is not found in the Cache_Tracking table, then it needs to be rescanned.
-#     # Remember, directory is placed in there, when it is scanned.
-#     # If changed, then watchdog should have removed it from the path.
-#     success, fs_entries = return_disk_listing(dirpath)
-#     if not success:
-#         # File path doesn't exist
-#         # remove file path from cache
-#         # remove parent from cache
-#         # remove file path from Database
-#         # success, dirpath_info = IndexDirs.search_for_directory(dirpath)
-#         found, dirpath_info = IndexDirs.search_for_directory_by_sha(directory_sha256)
-#         parent_dir = dirpath_info.return_parent_directory()
-#         dirpath_info.delete_directory(dirpath)
-#         if parent_dir.exists():
-#             parent_dir = parent_dir[0]
-#             dirpath_info.delete_directory(parent_dir, cache_only=True)
-#         return None
-
-#     # Compare the database entries to see if they exist in the file system
-#     # If they don't, remove from cache, and delete the directory
-#     db_directories = dirpath_info.dirs_in_dir()
-#     for fqpn in db_directories.values_list("fqpndirectory", flat=True):
-#         if str(Path(fqpn).name).strip().title() not in fs_entries:
-#             # print("Database contains a **directory** not in the fs: ", fqpn)
-#             IndexDirs.delete_directory(fqpn_directory=fqpn)
-
-#     update = False
-#     db_data = (
-#         dirpath_info.files_in_dir()
-#         .annotate(FileDoesNotExist=Value(F("name") not in fs_entries))
-#         .annotate(FileExists=Value(F("name") in fs_entries))
-#     )
-
-#     # db_data = dirpath_id.files_in_dir().annotate(FileDoesNotExist=Value(F('name') not in fs_entries)).annotate(active_thumbs=Subquery(thumb_subquery))
-#     # db_data = dirpath_id.files_in_dir().annotate(FileDoesNotExist=Value(F('name') not in fs_entries)).\
-#     #     annotate(number_entries=IndexData.active_thumbs=Subquery(thumb_subquery))
-#     # if db_data.filter(FileDoesNotExist=True,).exists():
-
-#     for db_entry in db_data:
-#         if db_entry.name not in fs_entries:
-#             # print("Database contains a file not in the fs: ", db_entry.name)
-#             # The entry just is not in the file system.  Delete it.
-#             # db_entry.ignore = True
-#             db_entry.delete()
-#             continue
-#         else:
-#             # The db_entry does exist in the file system.
-#             # Does the lastmod match?
-#             # Does size match?
-#             # If directory, does the numfiles, numdirs, count_subfiles match?
-#             # update = False, unncessary, moved to above the for loop.
-#             fext = os.path.splitext(db_entry.name)[1].lower()
-#             filetype = filetype_models.filetypes.return_filetype(fileext=fext)
-#             entry = fs_entries[db_entry.name]
-#             fs_stat = entry.stat()
-#             if (
-#                 db_entry.file_sha256 in ["", None]
-#                 and fext != ""
-#                 and not filetype.is_link
-#             ):
-#                 db_entry.file_sha256, db_entry.unique_sha256 = db_entry.get_file_sha(
-#                     fqfn=os.path.join(db_entry.fqpndirectory, db_entry.name)
-#                 )
-#                 update = True
-#             if db_entry.lastmod != fs_stat[stat.ST_MTIME]:
-#                 # print("LastMod mismatch")
-#                 db_entry.lastmod = fs_stat[stat.ST_MTIME]
-#                 update = True
-#             if db_entry.size != fs_stat[stat.ST_SIZE]:
-#                 # print("Size mismatch")
-#                 db_entry.size = fs_stat[stat.ST_SIZE]
-#                 update = True
-#             if fext not in [""]:
-#                 if (
-#                     filetype.is_movie
-#                     and db_entry.duration is None
-#                 ):
-#                     duration = movie_duration(
-#                         os.path.join(db_entry.fqpndirectory, db_entry.name)
-#                     )
-#                     if duration is not None:
-#                         db_entry.duration = timedelta(duration)
-#                         update = True
-#             if update:
-#                 records_to_update.append(db_entry)
-#                 # print("Database record being updated: ", db_entry.name)
-#                 #                    db_entry.save()
-#                 update = False
-
-#     # Check for entries that are not in the database, but do exist in the file system
-#     names = (
-#         IndexData.objects.filter(home_directory=dirpath_info)
-#         .only("name")
-#         .values_list("name", flat=True)
-#     )
-#     # fetch an updated set of records, since we may have changed it from above.
-#     records_to_create = []
-#     for _, entry in fs_entries.items():
-#         test_name = entry.name.title().replace("//", "/").strip()
-#         # print(test_name, test_name in names )
-#         if test_name not in names:
-#             # The record has not been found
-#             # add it.
-#             filedata = process_filedata(entry, directory_id=dirpath_info)
-#             if filedata is None:
-#                 continue
-#             defaults = {**filedata}  # Unpack the filedata dictionary
-
-#             record, created = IndexData.objects.select_related("filetype").get_or_create(
-#                 unique_sha256=defaults["unique_sha256"], defaults=defaults
-#             )
-
-
-#             #record = process_filedata(entry, record, directory_id=dirpath_info)
-#             # if record is None:
-#             #     continue
-#             record.home_directory = dirpath_info
-#             if record.filetype.is_archive:
-#                 print("Archive detected ", record.name)
-#                 continue
-#             try:
-#                 if created:
-#                     record.save()
-#             except IntegrityError as e:
-#                 print("Integrity Error A")
-#                 print(e)
-#                 continue  # Need to rethink the link records, if a directory is deleted, and it
-#                 # contains a link record, that link record may not be deleted, thus causing
-#                 # an integrity error if it's attempted to be recreated
-#     if records_to_update:
-#         try:
-#             with transaction.atomic():
-#                 IndexData.objects.bulk_update(
-#                     records_to_update,
-#                     [
-#                         "lastmod",
-#                         "delete_pending",
-#                         "size",
-#                         "duration",
-#                         "file_sha256",
-#                         "unique_sha256",
-#                         #                        "numfiles",
-#                         #                        "numdirs",
-#                         "home_directory",
-#                     ],
-#                     bulk_size,
-#                 )
-#                 records_to_update = []
-#         except django.db.utils.IntegrityError:
-#             return None
-#     else:
-#         pass
-#         # print("No records to update")
-#     # The record is in the database, so it's already been vetted in the database comparison
-#     if records_to_create:
-#         try:
-#             with transaction.atomic():
-#                 IndexData.objects.bulk_create(records_to_create, bulk_size)
-#                 records_to_create = []
-#         except django.db.utils.IntegrityError:
-#             print("Integrity Error")
-#             return None
-#         # The record is in the database, so it's already been vetted in the database comparison
-#     else:
-#         pass
-
-#     # The path has not been seen since the Cache Tracking has been enabled
-#     # (eg Startup, or the entry has been nullified)
-#     # Add to table, and allow a rescan to occur.
-#     print(f"\nSaving, {dirpath} to cache tracking\n")
-#     Cache_Storage.add_to_cache(DirName=dirpath)
-#     # new_rec = Cache_Tracking(DirName=dirpath, lastscan=time.time())
-#     # new_rec.save()
-
-#     #
-#     #   Testing - TODO: Remove.  Only testing to see if the rescan memory leak is due to
-#     #   old connections?  But Django doesn't appear to be running out of connections to
-#     #   postgres?  So probably a red herring.
-#     #
-#     from django.db import connection, close_old_connections
-
-#     close_old_connections()
-#     # connection.connect()
-#     return None
-
-
 def read_from_disk(dir_to_scan, skippable=True):
     """
     Stub function to bridge between v2 and v3 mechanisms.
@@ -964,5 +678,11 @@ def resolve_alias_path(alias_path: str) -> str:
     )
     if error:
         raise ValueError(f"Error resolving bookmark data: {error}")
-
-    return str(resolved_url.path())
+    
+    resolved_url = str(resolved_url.path()).strip().lower()
+    album_path = f"{settings.ALBUMS_PATH}{os.sep}albums{os.sep}"
+    for disk_path, replacement_path in settings.ALIAS_MAPPING.items():
+        if resolved_url.startswith(disk_path.lower()):
+            resolved_url = resolved_url.replace(disk_path.lower(), replacement_path.lower()) + os.sep
+            return resolved_url
+    return resolved_url

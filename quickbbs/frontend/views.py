@@ -4,27 +4,31 @@ Django views for QuickBBS Gallery
 
 import datetime
 import logging
-import math
 import os
 import os.path
 import pathlib
 import time
 import warnings
-from functools import lru_cache
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# from functools import lru_cache
 from itertools import chain
-from pathlib import Path
+
+# from pathlib import Path
 from typing import Optional
 
-import markdown2
+# import markdown2
 
 # from asgiref.sync import sync_to_async
 from cache_watcher.models import Cache_Storage
-from cachetools import LRUCache, cached
+
+# from cachetools import LRUCache, cached
 from cachetools.keys import hashkey
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
-from django.db import close_old_connections, transaction  # , connections,
+from django.db import close_old_connections, transaction, connections, IntegrityError
 from django.db.utils import IntegrityError
 from django.http import (  # HttpResponse,
     Http404,
@@ -37,10 +41,11 @@ from django.views.decorators.vary import vary_on_headers
 from django_htmx.middleware import HtmxDetails
 from filetypes.models import load_filetypes  # , filetypes
 from frontend.managers import build_context_info, layout_manager, layout_manager_cache
-from frontend.serve_up import static_or_resources
+
+# from frontend.serve_up import static_or_resources
 from frontend.utilities import (  # MAX_THREADS,; DjangoConnectionThreadPoolExecutor,
     SORT_MATRIX,
-    convert_to_webpath,
+    #    convert_to_webpath,
     ensures_endswith,
     read_from_disk,
     return_breadcrumbs,
@@ -152,52 +157,53 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: Optional[str] = None):
         return Http404
 
     if directory.thumbnail and directory.thumbnail.new_ftnail:
-        # 
+        #
         return directory.thumbnail.new_ftnail.send_thumbnail(
             fext_override=".jpg", size="small"
         )  # Send existing thumbnail
-    else:
-        files_in_directory = get_files_for_review(directory)
-            # If the directory is generic or has no thumbnail, force a rescan
-            # to help ensure that there are files in the directory
-            # set a thumbnail if there are files in the directory
-        file_count = len(files_in_directory)
-        if file_count == 0:
+
+    files_in_directory = get_files_for_review(directory)
+    # If the directory is generic or has no thumbnail, force a rescan
+    # to help ensure that there are files in the directory
+    # set a thumbnail if there are files in the directory
+    file_count = len(files_in_directory)
+    if file_count == 0:
+        return directory.filetype.send_thumbnail()
+
+    directory.thumbnail = files_in_directory.first()
+    directory.is_generic_icon = False
+    if (
+        not directory.is_generic_icon
+    ):  # We have found a thumbnail, and set it, so save changes
+        directory.save()
+
+    if directory.thumbnail is [b"", None]:
+        # If the thumbnail is still None, it means that
+        # there is no links (eg. Files) in the directory
+        if not files_in_directory:
+            if directory.is_generic_icon is False:
+                directory.is_generic_icon = True
+                directory.save()
             return directory.filetype.send_thumbnail()
 
-        elif file_count > 0:
-            directory.thumbnail = files_in_directory.first()
-            directory.is_generic_icon = False
-            if not directory.is_generic_icon:   # We have found a thumbnail, and set it, so save changes
-                directory.save()
+    if directory.thumbnail.new_ftnail is None:
+        # If the IndexData record (thumbnail) is not set,
+        # then process it with get_or_create_thumbnail_record
+        # to force the linkage to the thumbnail record.
+        try:
+            thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(
+                directory.thumbnail.file_sha256
+            )
+        except ThumbnailFiles.DoesNotExist:
+            return HttpResponseBadRequest(content="Thumbnail not found.")
 
-        if directory.thumbnail is [b"", None]:
-            # If the thumbnail is still None, it means that
-            # there is no links (eg. Files) in the directory
-            if  not files_in_directory:
-                if directory.is_generic_icon is False:
-                    directory.is_generic_icon = True
-                    directory.save()
-                return directory.filetype.send_thumbnail()
-                
-        if directory.thumbnail.new_ftnail is None:
-            # If the IndexData record (thumbnail) is not set,
-            # then process it with get_or_create_thumbnail_record
-            # to force the linkage to the thumbnail record.
-            try:
-                thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(
-                    directory.thumbnail.file_sha256
-                )
-            except ThumbnailFiles.DoesNotExist:
-                return HttpResponseBadRequest(content="Thumbnail not found.")
+        directory.thumbnail.new_ftnail = thumbnail
+        directory.save()
 
-            directory.thumbnail.new_ftnail = thumbnail
-            directory.save()
-
-        if directory.thumbnail:
-            return directory.thumbnail.new_ftnail.send_thumbnail(
-                fext_override=".jpg", size="small"
-            )  # Send existing thumbnail
+    if directory.thumbnail:
+        return directory.thumbnail.new_ftnail.send_thumbnail(
+            fext_override=".jpg", size="small"
+        )  # Send existing thumbnail
 
 
 def thumbnail2_file(request: WSGIRequest, sha256: str):
@@ -212,11 +218,11 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
     except ThumbnailFiles.DoesNotExist:
         print(sha256, "File not found - No records returned.")
         return HttpResponseBadRequest(content="Thumbnail not found.")
-    
+
     if thumbnail.IndexData.first().filetype.generic:
         # If the filetype is a generic icon, then return the default icon
         return thumbnail.IndexData.first().filetype.send_thumbnail()
-            
+
     thumbsize = request.GET.get("size", "small").lower()
     return thumbnail.send_thumbnail(
         filename_override=thumbnail.IndexData.first().name,
@@ -412,7 +418,7 @@ def new_viewgallery(request: WSGIRequest):
         .filter(filetype__is_link=True)
         .order_by(*SORT_MATRIX[context["sort"]])
     )
-
+    print(links_to_display)
     context["items_to_display"] = list(
         chain(dirs_to_display, links_to_display, files_to_display)
     )
@@ -425,48 +431,18 @@ def new_viewgallery(request: WSGIRequest):
 
         batchsize = 100
         no_thumbs = layout["no_thumbnails"][0:batchsize]
-
         if no_thumbs:
-            updated_thumbnails = False
-            # with transaction.atomic():
-            for sha256 in no_thumbs:
-                try:
-                    thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(
-                        sha256, suppress_save=False
-                    )
-                    updated_thumbnails = True
-                #                        updated_thumbnails.append(thumbnail)
-                except IntegrityError as e:
-                    print(f"Error creating thumbnail for {sha256}: {e}")
-            if updated_thumbnails:
-                #     print("Start bulk update")
-                #     ThumbnailFiles.objects.bulk_create(
-                #         updated_thumbnails, update_conflicts=True, unique_fields=["sha256_hash"],update_fields=["small_thumb", "medium_thumb", "large_thumb"],batch_size=25
-                #     )
-                #     print("End bulk update")
-                # with transaction.atomic():
-                #     with DjangoConnectionThreadPoolExecutor(
-                #         max_workers=MAX_THREADS
-                #     ) as executor:
-                #         futures = []
-                #         for sha256 in no_thumbs:
-                #             futures.append(executor.submit(ThumbnailFiles.get_or_create_thumbnail_record, sha256))
-                #             #futures.append(executor.submit(update_thumbnail, db_entry))
-                #         _ = [f.result() for f in futures]
-                #         del futures
-                for page_numb in range(0, layout_settings["page_number"] + 1):
-                    key = hashkey(
-                        page_number=page_numb,
-                        directory=layout_settings["directory"],
-                        sort_ordering=layout_settings["sort_ordering"],
-                    )
-                    if key in layout_manager_cache:
-                        print("Key found in cache", key)
-                        del layout_manager_cache[key]
-        #          else:
-        #             print("Key not found in cache", key)
+            process_thumbnails_threaded(layout, batchsize=100, max_workers=6)
+            for page_numb in range(0, layout_settings["page_number"] + 1):
+                key = hashkey(
+                    page_number=page_numb,
+                    directory=layout_settings["directory"],
+                    sort_ordering=layout_settings["sort_ordering"],
+                )
+                if key in layout_manager_cache:
+                    print("Key found in cache", key)
+                    del layout_manager_cache[key]
         print("elapsed thumbnail time - ", time.time() - no_thumb_start)
-    # close_old_connections()
 
     response = render(
         request,
@@ -476,6 +452,58 @@ def new_viewgallery(request: WSGIRequest):
     )
     print("Gallery View, processing time: ", time.perf_counter() - start_time)
     return response
+
+
+def process_thumbnail(sha256):
+    """Process a single thumbnail with proper Django database handling"""
+    try:
+        # Each thread needs its own database connection
+        # Django handles this automatically when using transaction.atomic()
+        with transaction.atomic():
+            thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(
+                sha256, suppress_save=False
+            )
+        return True, sha256, thumbnail
+    except IntegrityError as e:
+        print(f"Error creating thumbnail for {sha256}: {e}")
+        return False, sha256, None
+    except Exception as e:
+        print(f"Unexpected error creating thumbnail for {sha256}: {e}")
+        return False, sha256, None
+    finally:
+        # Close the connection for this thread to prevent connection leaks
+        connections.close_all()
+
+
+def process_thumbnails_threaded(layout, batchsize=100, max_workers=4):
+    """Process thumbnails using threaded multitasking"""
+    no_thumbs = layout["no_thumbnails"][0:batchsize]
+    if not no_thumbs:
+        return False
+
+    updated_thumbnails = False
+    successful_updates = []
+
+    # Use ThreadPoolExecutor for better control over thread lifecycle
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        future_to_sha256 = {
+            executor.submit(process_thumbnail, sha256): sha256 for sha256 in no_thumbs
+        }
+
+        # Process completed tasks
+        for future in as_completed(future_to_sha256):
+            sha256 = future_to_sha256[future]
+            try:
+                success, processed_sha256, thumbnail = future.result()
+                if success:
+                    updated_thumbnails = True
+                    successful_updates.append(processed_sha256)
+            except Exception as e:
+                print(f"Thread execution error for {sha256}: {e}")
+
+    return updated_thumbnails
+
 
 @vary_on_headers("HX-Request")
 def htmx_view_item(request: HtmxHttpRequest, sha256: str):
@@ -526,8 +554,11 @@ def download_file(request: WSGIRequest):  # , filename=None):
     sha_value = sha_value.strip().lower()
     file_to_send = IndexData.get_by_sha256(sha_value, unique=True)
     if file_to_send:
-        return file_to_send.inline_sendfile(request, ranged=file_to_send.filetype.is_movie)
+        return file_to_send.inline_sendfile(
+            request, ranged=file_to_send.filetype.is_movie
+        )
     raise Http404("No File to Send")
+
 
 # def view_setup():
 #     """
