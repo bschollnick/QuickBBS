@@ -22,6 +22,7 @@ from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path, re_path
 from django.views.generic import RedirectView
+from django.conf.urls.static import static
 
 urlpatterns = []
 if settings.DEBUG_TOOLBAR:
@@ -64,4 +65,5 @@ urlpatterns += [
     path(r"", RedirectView.as_view(url="/albums"), name="home"),
 ]
 
+urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 # REGISTRATION_OPEN = True

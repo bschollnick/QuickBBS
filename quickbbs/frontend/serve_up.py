@@ -2,9 +2,9 @@
 Serve Resources, and Static documents from Django
 """
 
-from datetime import timedelta
 import io
 import os.path
+from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.staticfiles.finders import find
@@ -12,7 +12,6 @@ from django.contrib.staticfiles.views import serve as staticfiles_serve
 from django.http import FileResponse, Http404, HttpResponseNotModified
 from django.utils import timezone
 from django.views.static import serve
-
 from ranged_fileresponse import RangedFileResponse
 
 

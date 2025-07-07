@@ -10,7 +10,7 @@ from functools import lru_cache
 from django.apps import AppConfig
 from django.conf import settings
 from django.db import models
-from django.http import HttpResponse, FileResponse
+from django.http import FileResponse, HttpResponse
 
 FILETYPE_DATA = {}
 

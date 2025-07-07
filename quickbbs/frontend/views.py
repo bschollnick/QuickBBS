@@ -9,28 +9,18 @@ import os.path
 import pathlib
 import time
 import warnings
-
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
-# from functools import lru_cache
 from itertools import chain
-
-# from pathlib import Path
 from typing import Optional
 
-# import markdown2
-
-# from asgiref.sync import sync_to_async
 from cache_watcher.models import Cache_Storage
-
-# from cachetools import LRUCache, cached
 from cachetools.keys import hashkey
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
-from django.db import close_old_connections, transaction, connections, IntegrityError
+from django.db import close_old_connections, connections, transaction
 from django.db.utils import IntegrityError
-from django.http import (  # HttpResponse,
+from django.http import (
     Http404,
     HttpRequest,
     HttpResponseBadRequest,
@@ -39,20 +29,17 @@ from django.http import (  # HttpResponse,
 from django.shortcuts import render
 from django.views.decorators.vary import vary_on_headers
 from django_htmx.middleware import HtmxDetails
-from filetypes.models import load_filetypes  # , filetypes
+from filetypes.models import load_filetypes
 from frontend.managers import build_context_info, layout_manager, layout_manager_cache
-
-# from frontend.serve_up import static_or_resources
-from frontend.utilities import (  # MAX_THREADS,; DjangoConnectionThreadPoolExecutor,
+from frontend.utilities import (
     SORT_MATRIX,
-    #    convert_to_webpath,
     ensures_endswith,
     read_from_disk,
     return_breadcrumbs,
     sort_order,
     sync_database_disk,
 )
-from frontend.web import detect_mobile, g_option  # , respond_as_attachment
+from frontend.web import detect_mobile, g_option
 from PIL import Image, ImageFile
 from thumbnails.models import ThumbnailFiles
 
@@ -177,7 +164,7 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: Optional[str] = None):
     ):  # We have found a thumbnail, and set it, so save changes
         directory.save()
 
-    if directory.thumbnail is [b"", None]:
+    if directory.thumbnail in [b"", None]:
         # If the thumbnail is still None, it means that
         # there is no links (eg. Files) in the directory
         if not files_in_directory:
@@ -281,7 +268,6 @@ def search_viewresults(request: WSGIRequest):
 
     response = render(
         request,
-        # "frontend/search_listing.jinja",
         "frontend/search/gallery_listing.jinja",
         context,
         using="Jinja2",
@@ -387,7 +373,7 @@ def new_viewgallery(request: WSGIRequest):
         directory=layout_settings["directory"],
         sort_ordering=layout_settings["sort_ordering"],
     )
-    all_listings = layout["all_shas"]
+    # all_listings = layout["all_shas"]
 
     context.update(
         {
@@ -418,7 +404,6 @@ def new_viewgallery(request: WSGIRequest):
         .filter(filetype__is_link=True)
         .order_by(*SORT_MATRIX[context["sort"]])
     )
-    print(links_to_display)
     context["items_to_display"] = list(
         chain(dirs_to_display, links_to_display, files_to_display)
     )

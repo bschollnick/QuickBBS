@@ -1,5 +1,4 @@
 from django.contrib import admin
-
 from thumbnails.models import ThumbnailFiles
 
 

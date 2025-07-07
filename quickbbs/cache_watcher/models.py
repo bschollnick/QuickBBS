@@ -116,6 +116,7 @@ class fs_Cache_Tracking(models.Model):
             "directory_sha256": dir_sha,
             "lastscan": scan_time,
             "invalidated": False,
+            "DirName": DirName,
         }
 
         entry, created = fs_Cache_Tracking.objects.update_or_create(
@@ -123,9 +124,10 @@ class fs_Cache_Tracking(models.Model):
             defaults=defaults,
             create_defaults=defaults,
         )
-        entry.DirName = DirName
-        entry.lastscan = scan_time
-        entry.save()
+
+    #        entry.DirName = DirName
+    #        entry.lastscan = scan_time
+    #        entry.save()
 
     def sha_exists_in_cache(self, sha256):
         # Use filter().exists() as it's most efficient for existence checks
@@ -159,7 +161,7 @@ class fs_Cache_Tracking(models.Model):
             defaults=defaults,
             create_defaults=defaults,
         )
-        entry.save()
+        # entry.save()
 
         # Clear layout cache if needed
         if directory_found:

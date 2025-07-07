@@ -20,10 +20,10 @@ from django.db.models.query import QuerySet
 from django.http import FileResponse, Http404, HttpResponse
 from django.urls import reverse
 from filetypes.models import filetypes, get_ftype_dict
+from frontend.serve_up import send_file_response
 
 # from ranged_fileresponse import RangedFileResponse
 from thumbnails.models import ThumbnailFiles
-from frontend.serve_up import send_file_response
 
 from quickbbs.common import get_dir_sha, normalize_fqpn
 from quickbbs.natsort_model import NaturalSortField
@@ -60,10 +60,10 @@ class Favorites(models.Model):
 
 INDEXDIRS_PREFETCH_LIST = [
     "IndexData_entries",
-    "file_links",
-    "thumbnail",
+    # "file_links",
+    # "thumbnail",
     "filetype",
-    "parent_directory",
+    # "parent_directory",
     "file_links",
 ]
 
@@ -88,6 +88,7 @@ class IndexDirs(models.Model):
 
     parent_directory = models.ForeignKey(
         "self",
+        db_index=True,
         on_delete=models.SET_NULL,
         null=True,
         default=None,
@@ -149,14 +150,7 @@ class IndexDirs(models.Model):
         ):
             parent_sha = get_dir_sha(parent_dir)
             found, parent_dir_link = IndexDirs.search_for_directory_by_sha(parent_sha)
-            print(
-                "Checked for parent directory: ",
-                parent_dir,
-                " Found: ",
-                found,
-                "sha: ",
-                parent_sha,
-            )
+
             if (
                 not found
                 and parent_dir.lower()
@@ -174,6 +168,9 @@ class IndexDirs(models.Model):
             parent_dir_link = None
         # Prepare the defaults for fields that should be set on creation
         print("Parent Directory Link: ", parent_dir_link)
+        if not os.path.exists(fqpn_directory):
+            return (False, IndexDirs.objects.none)
+
         defaults = {
             "fqpndirectory": normalize_fqpn(fqpn_directory),
             "lastmod": os.path.getmtime(fqpn_directory),
@@ -270,8 +267,7 @@ class IndexDirs(models.Model):
             IndexDirs.objects.filter(dir_fqpn_sha256=dir_sha256).delete()
 
     def do_files_exist(self, additional_filters=None) -> bool:
-        if additional_filters is None:
-            additional_filters = {}
+        additional_filters = additional_filters or {}
         return self.IndexData_entries.filter(
             home_directory=self.pk, delete_pending=False, **additional_filters
         ).exists()
@@ -393,17 +389,20 @@ class IndexDirs(models.Model):
 
         files = (
             self.IndexData_entries.prefetch_related(
-                "new_ftnail",
-                "filetype",
-                "home_directory",
-                "dir_thumbnail",
+                #                "new_ftnail",
+                #                "home_directory",
+                #               "dir_thumbnail",
                 "file_links",
+                "filetype",
             )
-            .select_related("filetype")
-            .filter(delete_pending=False, **additional_filters)
-            .order_by(*SORT_MATRIX[sort])
+            #            .select_related("new_ftnail")
+            #            .select_related("home_directory")
+            #            .select_related("dir_thumbnail")
+            #            .select_related("filetype")
+            .filter(delete_pending=False, **additional_filters).order_by(
+                *SORT_MATRIX[sort]
+            )
         )
-
         return files
 
     def dirs_in_dir(self, sort=0) -> "QuerySet[IndexDirs]":
@@ -528,6 +527,13 @@ class IndexData(models.Model):
         default=None,
         related_name="IndexData_entries",
     )
+    virtual_directory = models.ForeignKey(
+        "IndexDirs",
+        on_delete=models.CASCADE,
+        null=True,
+        default=None,
+        related_name="Virtual_IndexData",
+    )
     is_animated = models.BooleanField(default=False, db_index=True)
     ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
     delete_pending = models.BooleanField(
@@ -548,14 +554,12 @@ class IndexData(models.Model):
         default=False, db_index=False
     )  # icon is a generic icon
 
-    dir_sha256 = models.CharField(
-        db_index=True,
-        blank=True,
-        unique=True,
-        null=True,
-        default=None,
-        max_length=64,
-    )
+    # dir_sha256 = models.CharField(db_index=True, blank=True,
+    #                               unique=True, null=True,
+    #                               default=None, max_length=64)
+    #
+    # Replaced By:
+    # file_links - Reverse Foreignkey from IndexDirs
 
     new_ftnail = models.ForeignKey(
         ThumbnailFiles,
