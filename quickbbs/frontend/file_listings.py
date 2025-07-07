@@ -6,6 +6,7 @@ from pathlib import Path
 import filetypes.models as filetype_models
 from django.conf import settings
 
+
 def _process_item_batch(items_batch, ext_ignore, files_ignore, ignore_dots):
     """Process a batch of directory items in a separate thread"""
     batch_data = {}
@@ -45,7 +46,7 @@ def _process_item_batch(items_batch, ext_ignore, files_ignore, ignore_dots):
 
 
 def return_disk_listing(
-    fqpn, use_threading=True, batch_size=50, max_workers=8
+    fqpn, use_threading=True, batch_size=25, max_workers=4
 ) -> tuple[bool, dict]:
     """
     This code obeys the following quickbbs_settings, settings:

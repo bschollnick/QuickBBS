@@ -6,9 +6,12 @@ from functools import lru_cache
 from itertools import chain
 from pathlib import Path
 
+import charset_normalizer
+
 import markdown2
 from cache_watcher.models import Cache_Storage
 from cachetools import LRUCache, cached
+
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import (  # HttpResponse,
@@ -18,14 +21,14 @@ from django.http import (  # HttpResponse,
     HttpResponseNotFound,
     JsonResponse,
 )
-from filetypes.models import load_filetypes  # , filetypes
+from filetypes.models import load_filetypes
 from frontend.utilities import (
     SORT_MATRIX,
     convert_to_webpath,
     return_breadcrumbs,
     sort_order,
 )
-from frontend.web import detect_mobile, g_option  # , respond_as_attachment
+from frontend.web import detect_mobile, g_option
 
 from quickbbs.models import IndexData
 
@@ -79,12 +82,22 @@ def build_context_info(request: WSGIRequest, unique_file_sha256: str):
     filename = context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
 
     if entry.filetype.is_text or entry.filetype.is_markdown:
-        with open(filename, "r", encoding="ISO-8859-1") as textfile:
+        with open(filename, 'rb') as f:
+            raw_data = f.read()
+            result = charset_normalizer.from_bytes(raw_data)
+            encoding = result.best().encoding
+# Read with detected encoding
+        with open(filename, "r", encoding=encoding) as textfile:
             context["html"] = markdown2.Markdown().convert(
                 "\n".join(textfile.readlines())
             )
     if entry.filetype.is_html:
-        with open(filename, "r", encoding="utf-8") as htmlfile:
+        with open(filename, 'rb') as f:
+            raw_data = f.read()
+            result = charset_normalizer.from_bytes(raw_data)
+            encoding = result.best().encoding
+
+        with open(filename, "r", encoding=encoding) as htmlfile:
             context["html"] = "<br>".join(htmlfile.readlines())
 
     pathmaster = Path(os.path.join(entry.fqpndirectory, entry.name))

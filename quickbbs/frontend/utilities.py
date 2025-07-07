@@ -3,12 +3,8 @@ Utilities for QuickBBS, the python edition.
 """
 
 import logging
-
-# import multiprocessing
 import os
 import os.path
-
-# import stat
 import time
 import urllib.parse
 
@@ -20,25 +16,14 @@ from typing import Any, Dict, List, Optional, Tuple
 import filetypes.models as filetype_models
 from cache_watcher.models import Cache_Storage, get_dir_sha
 from django.conf import settings
-from django.db import transaction
-from django.db import connection
-
-
-# from django.db.models import Count, F, OuterRef, Subquery, Value
-# from django.db.utils import IntegrityError
-# from django.utils.html import format_html
+from django.db import connection, transaction
+from django.db.models import BooleanField, Case, F, Value, When
 from frontend.file_listings import return_disk_listing
 from PIL import Image
 from thumbnails.video_thumbnails import _get_video_info
 
 from quickbbs.common import get_file_sha, normalize_fqpn
-
-# from quickbbs.logger import log
 from quickbbs.models import IndexData, IndexDirs
-
-# from thumbnails.image_utils import movie_duration
-# from thumbnails.models import ThumbnailFiles
-
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +79,6 @@ def _get_or_create_directory(
 ) -> Tuple[Optional[object], bool]:
     """Get or create directory record and check cache status."""
     found, dirpath_info = IndexDirs.search_for_directory_by_sha(directory_sha256)
-    print("Directory found:", found, dirpath_info)
     if not found:
         found, dirpath_info = IndexDirs.add_directory(dirpath)
         if not found:
@@ -176,50 +160,44 @@ def _sync_directories(dirpath_info: object, fs_entries: Dict) -> None:
 def _sync_files(dirpath_info: object, fs_entries: Dict, bulk_size: int) -> None:
     """Synchronize database files with filesystem."""
     # Get all database files in one optimized query
-    db_files = {
-        file_record.name: file_record
-        for file_record in dirpath_info.files_in_dir()
-        .select_related("filetype")
-        .only(
-            "name",
-            "lastmod",
-            "size",
-            "file_sha256",
-            "unique_sha256",
-            "duration",
-            "filetype",
-        )
-    }
-
-    fs_file_names = {
+    db_bulk_size = 1000
+    fs_file_names_dict = {
         name: entry for name, entry in fs_entries.items() if not entry.is_dir()
     }
+    fs_file_names = [
+        name.strip().title() for name, entry in fs_entries.items() if not entry.is_dir()
+    ]
 
-    # Process updates and deletions
+    start_time = time.perf_counter()
+
+    all_files_in_dir = dirpath_info.files_in_dir()
+    all_db_filenames = set(all_files_in_dir.values_list("name", flat=True))
     records_to_update = []
-    records_to_delete = []
+    potential_updates = all_files_in_dir.filter(name__in=fs_file_names)
+    for db_file_entry in potential_updates.iterator(chunk_size=db_bulk_size):
+        updated_record = _check_file_updates(
+            db_file_entry, fs_file_names_dict[db_file_entry.name], dirpath_info
+        )
+        if updated_record:
+            records_to_update.append(updated_record)
 
-    for db_name, db_record in db_files.items():
-        if db_name not in fs_file_names:
-            # File exists in DB but not in filesystem
-            print("Deleting ",db_record.name)
-            records_to_delete.append(db_record.id)
-        else:
-            # File exists in both - check for updates
-            updated_record = _check_file_updates(db_record, fs_file_names[db_name])
-            if updated_record:
-                records_to_update.append(updated_record)
+    records_to_delete = all_files_in_dir.all().exclude(name__in=fs_file_names)
 
-    # Process new files
-    records_to_create = _process_new_files(dirpath_info, fs_file_names, db_files)
+    fs_file_names_for_creation = set(fs_file_names) - set(all_db_filenames)
+    creation_fs_file_names_dict = {}
+    for name in fs_file_names_for_creation:
+        creation_fs_file_names_dict[name] = fs_file_names_dict[name]
 
+    records_to_create = _process_new_files(
+        dirpath_info, creation_fs_file_names_dict, all_files_in_dir
+    )
     # Execute batch operations
     _execute_batch_operations(
         records_to_update, records_to_create, records_to_delete, bulk_size
     )
 
 
-def _check_file_updates(db_record: object, fs_entry: Path) -> Optional[object]:
+def _check_file_updates(db_record: object, fs_entry: Path, home_directory: object) -> Optional[object]:
     """Check if database record needs updating based on filesystem entry."""
     try:
         fs_stat = fs_entry.stat()
@@ -238,7 +216,11 @@ def _check_file_updates(db_record: object, fs_entry: Path) -> Optional[object]:
                     update_needed = True
                 except Exception as e:
                     logger.error(f"Error calculating SHA for {fs_entry}: {e}")
-
+            
+            if db_record.home_directory != home_directory:
+                db_record.home_directory = home_directory
+                update_needed = True
+                
             # Check modification time
             if db_record.lastmod != fs_stat.st_mtime:
                 db_record.lastmod = fs_stat.st_mtime
@@ -270,34 +252,30 @@ def _process_new_files(
 ) -> List[object]:
     """Process files that exist in filesystem but not in database."""
     records_to_create = []
-
     for fs_name, fs_entry in fs_file_names.items():
-        test_name = fs_entry.name.title().replace("//", "/").strip()
-
-        if test_name not in db_files:
-            try:
-                # Process new file
-                filedata = process_filedata(fs_entry, directory_id=dirpath_info)
-                if filedata is None:
-                    continue
-
-                # Skip archives for now (as per original logic)
-                filetype = filedata.get("filetype")
-                if hasattr(filetype, "is_archive") and filetype.is_archive:
-                    logger.info(f"Archive detected: {filedata['name']}")
-                    continue
-                # Create record using get_or_create to handle duplicates
-                record, created = IndexData.objects.get_or_create(
-                    unique_sha256=filedata.get("unique_sha256"), defaults=filedata
-                )
-
-                if created:
-                    record.home_directory = dirpath_info
-                    records_to_create.append(record)
-
-            except Exception as e:
-                logger.error(f"Error processing new file {fs_entry}: {e}")
+        try:
+            # Process new file
+            filedata = process_filedata(fs_entry, directory_id=dirpath_info)
+            if filedata is None:
                 continue
+
+            # Skip archives for now (as per original logic)
+            filetype = filedata.get("filetype")
+            if hasattr(filetype, "is_archive") and filetype.is_archive:
+                logger.info(f"Archive detected: {filedata['name']}")
+                continue
+            # Create record using get_or_create to handle duplicates
+            record, created = IndexData.objects.get_or_create(
+                unique_sha256=filedata.get("unique_sha256"), defaults=filedata
+            )
+
+            if created:
+                record.home_directory = dirpath_info
+                records_to_create.append(record)
+
+        except Exception as e:
+            logger.error(f"Error processing new file {fs_entry}: {e}")
+            continue
 
     return records_to_create
 
@@ -506,7 +484,7 @@ def process_filedata(
 
         # Handle link files
         filetype = record["filetype"]
-        #if hasattr(filetype, "is_link") and filetype.is_link:
+        # if hasattr(filetype, "is_link") and filetype.is_link:
         if filetype.is_link:
             if filetype.fileext == ".link":
                 try:
@@ -524,16 +502,14 @@ def process_filedata(
                     return None
 
             elif filetype.fileext == ".alias":
-                print("Alias File Found - ", fs_entry.name)
                 try:
                     alias_path = (
                         resolve_alias_path(str(fs_entry)).lower().rstrip(os.sep)
                         + os.sep
                     )
                     record["file_sha256"], record["unique_sha256"] = get_file_sha(
-                    str(fs_entry)
-                )
-                    print(f"Resolved alias path: {alias_path}")
+                        str(fs_entry)
+                    )
 
                     # Assuming IndexDirs.search_for_directory is available
                     found, directory_linking_to = IndexDirs.search_for_directory(
@@ -587,49 +563,51 @@ def sync_database_disk(directoryname: str) -> Optional[bool]:
         None on completion, bool on early exit conditions
     """
     print("Starting ...  Syncing database with disk for directory:", directoryname)
+    start_time = time.perf_counter()
     BULK_SIZE = 100  # Increased from 50 for better batch performance
 
-    try:
-        # Normalize directory path
-        if directoryname in [os.sep, r"/"]:
-            directoryname = settings.ALBUMS_PATH
+    # try:
+    # Normalize directory path
+    if directoryname in [os.sep, r"/"]:
+        directoryname = settings.ALBUMS_PATH
 
-        dirpath = normalize_fqpn(os.path.abspath(directoryname.title().strip()))
-        directory_sha256 = get_dir_sha(dirpath)
+    dirpath = normalize_fqpn(os.path.abspath(directoryname.title().strip()))
+    directory_sha256 = get_dir_sha(dirpath)
 
-        # Find or create directory record
-        dirpath_info, is_cached = _get_or_create_directory(directory_sha256, dirpath)
-        if dirpath_info is None:
-            return False
+    # Find or create directory record
+    dirpath_info, is_cached = _get_or_create_directory(directory_sha256, dirpath)
+    if dirpath_info is None:
+        return False
 
-        # Early return if cached
-        if is_cached:
-            print(f"Directory {dirpath} is already cached, skipping sync.")
-            return None
-
-        print(f"Rescanning directory: {dirpath}")
-
-        # Get filesystem entries
-        success, fs_entries = return_disk_listing(dirpath)
-        if not success:
-            print("File path doesn't exist, removing from cache and database.")
-            return _handle_missing_directory(directory_sha256, dirpath_info)
-
-        # Batch process all operations
-        _sync_directories(dirpath_info, fs_entries)
-        _sync_files(dirpath_info, fs_entries, BULK_SIZE)
-
-        # Cache the result
-        Cache_Storage.add_to_cache(DirName=dirpath)
-        logger.info(f"Cached directory: {dirpath}")
-
+    # Early return if cached
+    if is_cached:
+        print(f"Directory {dirpath} is already cached, skipping sync.")
         return None
 
-    except Exception as e:
-        print(f"Error syncing directory {directoryname}: {e}")
-        logger.error(f"Error syncing directory {directoryname}: {e}")
-        return False
+    print(f"Rescanning directory: {dirpath}")
+
+    # Get filesystem entries
+    success, fs_entries = return_disk_listing(dirpath)
+    if not success:
+        print("File path doesn't exist, removing from cache and database.")
+        return _handle_missing_directory(directory_sha256, dirpath_info)
+
+    # Batch process all operations
+    _sync_directories(dirpath_info, fs_entries)
+    _sync_files(dirpath_info, fs_entries, BULK_SIZE)
+
+    # Cache the result
+    Cache_Storage.add_to_cache(DirName=dirpath)
+    logger.info(f"Cached directory: {dirpath}")
+
+    return None
+
+    # except Exception as e:
+    #     print(f"Error syncing directory {directoryname}: {e}")
+    #     logger.error(f"Error syncing directory {directoryname}: {e}")
+    #     return False
     print("End Sync")
+    print("Elapsed Time (Sync): ", time.perf_counter() - start_time)
 
 
 def read_from_disk(dir_to_scan, skippable=True):
@@ -678,11 +656,14 @@ def resolve_alias_path(alias_path: str) -> str:
     )
     if error:
         raise ValueError(f"Error resolving bookmark data: {error}")
-    
+
     resolved_url = str(resolved_url.path()).strip().lower()
     album_path = f"{settings.ALBUMS_PATH}{os.sep}albums{os.sep}"
     for disk_path, replacement_path in settings.ALIAS_MAPPING.items():
         if resolved_url.startswith(disk_path.lower()):
-            resolved_url = resolved_url.replace(disk_path.lower(), replacement_path.lower()) + os.sep
+            resolved_url = (
+                resolved_url.replace(disk_path.lower(), replacement_path.lower())
+                + os.sep
+            )
             return resolved_url
     return resolved_url
