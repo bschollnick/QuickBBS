@@ -15,7 +15,7 @@ def get_dir_sha(fqpn_directory) -> str:
     return hashlib.sha256(fqpn_directory.encode("utf-8")).hexdigest()
 
 
-@lru_cache(maxsize=1000)
+@lru_cache(maxsize=5000)
 def normalize_fqpn(fqpn_directory) -> str:
     """
     Normalize the directory structure fully qualified pathname
@@ -34,10 +34,16 @@ def get_file_sha(fqfn) -> tuple[Optional[str], Optional[str]]:
     """
     Return the SHA256 hash of the file as a hexdigest string
 
+    Generates a "normal" SHA256 
     Args:
         fqfn (str) : The fully qualified filename of the file to be hashed
 
-    :return: The SHA256 hash of the file + fqfn as a hexdigest string
+    :return: 
+        file_sha256: The SHA256 hash of the file + fqfn as a hexdigest string
+        unique_sha256: The SHA256 hash of the file + the fqfn title cased utf-8 string,
+                        to make the SHA dependent on the location and filename 
+                        (eg unique sha based on filedata, as well as location in the file
+                         system.)
     """
     sha256 = hashlib.sha256()
     unique_sha256 = None

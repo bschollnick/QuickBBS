@@ -9,15 +9,16 @@ import time
 import urllib.parse
 
 # from datetime import timedelta
-from functools import lru_cache, wraps
+from functools import lru_cache  # , wraps
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import filetypes.models as filetype_models
 from cache_watcher.models import Cache_Storage, get_dir_sha
 from django.conf import settings
-from django.db import connection, transaction
-from django.db.models import BooleanField, Case, F, Value, When
+from django.db import transaction  # connection
+
+# from django.db.models import Case, F, Value, When, BooleanField
 from frontend.file_listings import return_disk_listing
 from PIL import Image
 from thumbnails.video_thumbnails import _get_video_info
@@ -76,7 +77,7 @@ def sort_order(request) -> int:
 
 def _get_or_create_directory(
     directory_sha256: str, dirpath: str
-) -> Tuple[Optional[object], bool]:
+) -> tuple[Optional[object], bool]:
     """Get or create directory record and check cache status."""
     found, dirpath_info = IndexDirs.search_for_directory_by_sha(directory_sha256)
     if not found:
@@ -92,7 +93,7 @@ def _get_or_create_directory(
     return dirpath_info, is_cached
 
 
-def _handle_missing_directory(directory_sha256: str, dirpath_info: object) -> None:
+def _handle_missing_directory(dirpath_info: object) -> None:
     """Handle case where directory doesn't exist on filesystem."""
     try:
         parent_dirs = dirpath_info.return_parent_directory()
@@ -105,62 +106,89 @@ def _handle_missing_directory(directory_sha256: str, dirpath_info: object) -> No
                 parent_dir.delete_directory(parent_dir.fqpndirectory, cache_only=True)
     except Exception as e:
         logger.error(f"Error handling missing directory: {e}")
-    return None
 
 
-def _sync_directories(dirpath_info: object, fs_entries: Dict) -> None:
+def _sync_directories(dirpath_info: object, fs_entries: dict) -> None:
     """Synchronize database directories with filesystem."""
     # Get all database directories in one query
     print("Synchronizing directories...")
     logger.info("Synchronizing directories...")
-    current_path = dirpath_info.fqpndirectory
-    db_directories = set(
-        dirpath_info.dirs_in_dir().values_list("fqpndirectory", flat=True)
+    current_path = normalize_fqpn(dirpath_info.fqpndirectory)
+    all_dirs_in_database = dirpath_info.dirs_in_dir()
+
+    all_database_dir_names_set = set(
+        all_dirs_in_database.values_list("fqpndirectory", flat=True)
     )
+
     # Get filesystem directory names
-    fs_directory_names = {
-        entry.name.strip().lower() for entry in fs_entries.values() if entry.is_dir()
+    all_filesystem_dir_names = {
+        normalize_fqpn(current_path + entry.name) for entry in fs_entries.values() if entry.is_dir()
     }
 
-    # Find directories to delete (in DB but not in filesystem)
-    directories_to_delete = []
-    for fqpn in db_directories:
-        dir_name = str(Path(fqpn).name).strip().lower()
-        if dir_name not in fs_directory_names:
-            directories_to_delete.append(fqpn)
+    entries_that_dont_exist_in_fs = all_database_dir_names_set - all_filesystem_dir_names
+    entries_not_in_database = all_filesystem_dir_names - all_database_dir_names_set
 
-    # Process new directories (in filesystem but not in DB)
-    directories_to_create = []
-    for dir_name in fs_directory_names:
-        dir_name = os.path.join(current_path, dir_name) + os.sep
-        if dir_name not in db_directories:
-            directories_to_create.append(dir_name)
+    if entries_that_dont_exist_in_fs:
+        print(f"Directories to Delete: {len(entries_that_dont_exist_in_fs)}")
+        logger.info(f"Directories to Delete: {len(entries_that_dont_exist_in_fs)}")
+        all_dirs_in_database.filter(fqpndirectory__in=entries_that_dont_exist_in_fs).delete()
+        Cache_Storage.remove_from_cache_sha(dirpath_info.dir_fqpn_sha256)
 
-    # Batch delete directories
-    if directories_to_delete:
-        print(f"Directories to delete: {len(directories_to_delete)}")
-        logger.info(f"Directories to delete: {len(directories_to_delete)}")
-        for fqpn in directories_to_delete:
-            try:
-                IndexDirs.delete_directory(fqpn_directory=fqpn)
-            except Exception as e:
-                logger.error(f"Error deleting directory {fqpn}: {e}")
-
-    # Batch create directories
-    if directories_to_create:
-        print(f"Directories to create: {len(directories_to_create)}")
-        logger.info(f"Directories to create: {len(directories_to_create)}")
-        for dir_name in directories_to_create:
-            try:
-                IndexDirs.add_directory(fqpn_directory=dir_name)
-            except Exception as e:
-                logger.error(f"Error creating directory {dir_name}: {e}")
+    if entries_not_in_database:
+        print(f"Directories to Add: {len(entries_not_in_database)}")
+        logger.info(f"Directories to Add: {len(entries_not_in_database)}")
+        for dir_to_create in entries_not_in_database:
+            IndexDirs.add_directory(fqpn_directory=dir_to_create)
 
 
-def _sync_files(dirpath_info: object, fs_entries: Dict, bulk_size: int) -> None:
+
+# def _sync_directories2(dirpath_info: object, fs_entries: dict) -> None:
+#     """Synchronize database directories with filesystem."""
+
+#     # Get all database directories in one query
+#     print("Synchronizing directories...")
+#     logger.info("Synchronizing directories...")
+#     current_path = normalize_fqpn(dirpath_info.fqpndirectory)
+#     db_directories_shas = {
+#         dir_data["dir_fqpn_sha256"]: dir_data
+#         for dir_data in dirpath_info.dirs_in_dir().values("dir_fqpn_sha256","fqpndirectory")
+#     }
+#     db_directories_sha_set = set(db_directories_shas)
+
+#     fs_directory_shas = {
+#         (dir_sha := get_dir_sha(normalized_path)): {
+#             "fqpndirectory": normalized_path,
+#             "dir_fqpn_sha256": dir_sha
+#         }
+#         for entry in fs_entries.values()
+#         if entry.is_dir()
+#         for normalized_path in [normalize_fqpn(current_path + entry.name)]
+#     }
+#     fs_directory_sha_set = set(fs_directory_shas)
+
+#     entries_that_dont_exist_in_fs = db_directories_sha_set - fs_directory_sha_set
+#     create_does_not_exist_in_db = fs_directory_sha_set - db_directories_sha_set
+#     # Find directories to delete (in DB but not in filesystem)
+
+#     if entries_that_dont_exist_in_fs:
+#         print(f"Directories to delete: {len(entries_that_dont_exist_in_fs)}")
+#         logger.info(f"Directories to delete: {len(entries_that_dont_exist_in_fs)}")
+
+#         for dir_to_delete in entries_that_dont_exist_in_fs:
+#             IndexDirs.delete_directory(fqpn_directory=db_directories_shas[dir_to_delete]["fqpndirectory"])
+
+#     if create_does_not_exist_in_db:
+#         print(f"Directories to create: {len(create_does_not_exist_in_db)}")
+#         logger.info(f"Directories to create: {len(create_does_not_exist_in_db)}")
+#         for dir_to_create in create_does_not_exist_in_db:
+#             IndexDirs.add_directory(fqpn_directory=fs_directory_shas[dir_to_create]["fqpndirectory"])
+
+
+
+def _sync_files(dirpath_info: object, fs_entries: dict, bulk_size: int) -> None:
     """Synchronize database files with filesystem."""
     # Get all database files in one optimized query
-    db_bulk_size = 1000
+    # db_bulk_size = 1000
     fs_file_names_dict = {
         name: entry for name, entry in fs_entries.items() if not entry.is_dir()
     }
@@ -168,13 +196,11 @@ def _sync_files(dirpath_info: object, fs_entries: Dict, bulk_size: int) -> None:
         name.strip().title() for name, entry in fs_entries.items() if not entry.is_dir()
     ]
 
-    start_time = time.perf_counter()
-
     all_files_in_dir = dirpath_info.files_in_dir()
     all_db_filenames = set(all_files_in_dir.values_list("name", flat=True))
     records_to_update = []
     potential_updates = all_files_in_dir.filter(name__in=fs_file_names)
-    for db_file_entry in potential_updates.iterator(chunk_size=db_bulk_size):
+    for db_file_entry in potential_updates:#.iterator(chunk_size=db_bulk_size):
         updated_record = _check_file_updates(
             db_file_entry, fs_file_names_dict[db_file_entry.name], dirpath_info
         )
@@ -188,16 +214,16 @@ def _sync_files(dirpath_info: object, fs_entries: Dict, bulk_size: int) -> None:
     for name in fs_file_names_for_creation:
         creation_fs_file_names_dict[name] = fs_file_names_dict[name]
 
-    records_to_create = _process_new_files(
-        dirpath_info, creation_fs_file_names_dict, all_files_in_dir
-    )
+    records_to_create = _process_new_files(dirpath_info, creation_fs_file_names_dict)
     # Execute batch operations
     _execute_batch_operations(
         records_to_update, records_to_create, records_to_delete, bulk_size
     )
 
 
-def _check_file_updates(db_record: object, fs_entry: Path, home_directory: object) -> Optional[object]:
+def _check_file_updates(
+    db_record: object, fs_entry: Path, home_directory: object
+) -> Optional[object]:
     """Check if database record needs updating based on filesystem entry."""
     try:
         fs_stat = fs_entry.stat()
@@ -216,11 +242,11 @@ def _check_file_updates(db_record: object, fs_entry: Path, home_directory: objec
                     update_needed = True
                 except Exception as e:
                     logger.error(f"Error calculating SHA for {fs_entry}: {e}")
-            
+
             if db_record.home_directory != home_directory:
                 db_record.home_directory = home_directory
                 update_needed = True
-                
+
             # Check modification time
             if db_record.lastmod != fs_stat.st_mtime:
                 db_record.lastmod = fs_stat.st_mtime
@@ -247,12 +273,10 @@ def _check_file_updates(db_record: object, fs_entry: Path, home_directory: objec
         return None
 
 
-def _process_new_files(
-    dirpath_info: object, fs_file_names: Dict, db_files: Dict
-) -> List[object]:
+def _process_new_files(dirpath_info: object, fs_file_names: dict) -> list[object]:
     """Process files that exist in filesystem but not in database."""
     records_to_create = []
-    for fs_name, fs_entry in fs_file_names.items():
+    for _, fs_entry in fs_file_names.items():
         try:
             # Process new file
             filedata = process_filedata(fs_entry, directory_id=dirpath_info)
@@ -265,13 +289,12 @@ def _process_new_files(
                 logger.info(f"Archive detected: {filedata['name']}")
                 continue
             # Create record using get_or_create to handle duplicates
-            record, created = IndexData.objects.get_or_create(
-                unique_sha256=filedata.get("unique_sha256"), defaults=filedata
-            )
-
-            if created:
-                record.home_directory = dirpath_info
-                records_to_create.append(record)
+            record = IndexData(**filedata)
+            # record, created = IndexData.objects.get_or_create(
+            #    unique_sha256=filedata.get("unique_sha256"), defaults=filedata
+            # )
+            record.home_directory = dirpath_info
+            records_to_create.append(record)
 
         except Exception as e:
             logger.error(f"Error processing new file {fs_entry}: {e}")
@@ -281,9 +304,9 @@ def _process_new_files(
 
 
 def _execute_batch_operations(
-    records_to_update: List,
-    records_to_create: List,
-    records_to_delete: List,
+    records_to_update: list,
+    records_to_create: list,
+    records_to_delete: list,
     bulk_size: int,
 ) -> None:
     """Execute all database operations in batches with proper transaction handling."""
@@ -412,18 +435,14 @@ def fs_counts(fs_entries) -> tuple[int, int]:
     tuple - (# of files, # of dirs)
 
     """
-
-    def isfile(entry):
-        return entry.is_file()
-
-    files = len(list(filter(isfile, fs_entries.values())))
+    files = sum(1 for entry in fs_entries.values() if entry.is_file())
     dirs = len(fs_entries) - files
     return (files, dirs)
 
 
 def process_filedata(
     fs_entry: Path, directory_id: Optional[str] = None
-) -> Optional[Dict[str, Any]]:
+) -> Optional[dict[str, Any]]:
     """
     Process a file system entry and return a dictionary with file metadata.
 
@@ -450,7 +469,9 @@ def process_filedata(
         is_dir = fs_entry.is_dir()
 
         if is_dir:
-            fileext = ".dir"
+            sync_database_disk(str(fs_entry))
+            return None
+
         elif not fileext or fileext == ".":
             fileext = ".none"
 
@@ -476,11 +497,6 @@ def process_filedata(
             print(f"Error getting file stats for {fs_entry}: {e}")
             return None
 
-        # Handle directories
-        if is_dir:
-            # Assuming sync_database_disk is defined elsewhere
-            sync_database_disk(str(fs_entry))
-            return None
 
         # Handle link files
         filetype = record["filetype"]
@@ -566,7 +582,7 @@ def sync_database_disk(directoryname: str) -> Optional[bool]:
     start_time = time.perf_counter()
     BULK_SIZE = 100  # Increased from 50 for better batch performance
 
-    # try:
+#    try:
     # Normalize directory path
     if directoryname in [os.sep, r"/"]:
         directoryname = settings.ALBUMS_PATH
@@ -590,7 +606,7 @@ def sync_database_disk(directoryname: str) -> Optional[bool]:
     success, fs_entries = return_disk_listing(dirpath)
     if not success:
         print("File path doesn't exist, removing from cache and database.")
-        return _handle_missing_directory(directory_sha256, dirpath_info)
+        return _handle_missing_directory(dirpath_info)
 
     # Batch process all operations
     _sync_directories(dirpath_info, fs_entries)
@@ -599,15 +615,13 @@ def sync_database_disk(directoryname: str) -> Optional[bool]:
     # Cache the result
     Cache_Storage.add_to_cache(DirName=dirpath)
     logger.info(f"Cached directory: {dirpath}")
-
+    print("Elapsed Time (Sync Database Disk): ", time.perf_counter() - start_time)
     return None
 
     # except Exception as e:
     #     print(f"Error syncing directory {directoryname}: {e}")
     #     logger.error(f"Error syncing directory {directoryname}: {e}")
     #     return False
-    print("End Sync")
-    print("Elapsed Time (Sync): ", time.perf_counter() - start_time)
 
 
 def read_from_disk(dir_to_scan, skippable=True):
@@ -658,7 +672,7 @@ def resolve_alias_path(alias_path: str) -> str:
         raise ValueError(f"Error resolving bookmark data: {error}")
 
     resolved_url = str(resolved_url.path()).strip().lower()
-    album_path = f"{settings.ALBUMS_PATH}{os.sep}albums{os.sep}"
+    # album_path = f"{settings.ALBUMS_PATH}{os.sep}albums{os.sep}"
     for disk_path, replacement_path in settings.ALIAS_MAPPING.items():
         if resolved_url.startswith(disk_path.lower()):
             resolved_url = (

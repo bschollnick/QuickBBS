@@ -129,7 +129,8 @@ class ThumbnailFiles(models.Model):
                     file_sha256=file_sha256, new_ftnail__isnull=True
                 ).exists()
             )
-            filename = os.path.join(index_data_item.fqpndirectory, index_data_item.name)
+            # filename = os.path.join(index_data_item.fqpndirectory, index_data_item.name)
+            filename = index_data_item.full_filepathname
             filetype = index_data_item.filetype
 
             if make_link:
