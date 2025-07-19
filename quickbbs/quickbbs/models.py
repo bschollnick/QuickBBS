@@ -64,7 +64,7 @@ INDEXDIRS_PREFETCH_LIST = [
     # "thumbnail",
     "filetype",
     # "parent_directory",
-    "file_links",
+    #    "file_links",
 ]
 
 
@@ -117,7 +117,7 @@ class IndexDirs(models.Model):
     )
     thumbnail = models.ForeignKey(
         "IndexData",
-        on_delete=models.SET_NULL,
+        on_delete=models.CASCADE,
         related_name="dir_thumbnail",
         null=True,
         default=None,
@@ -154,7 +154,7 @@ class IndexDirs(models.Model):
             if (
                 not found
                 and parent_dir.lower()
-                .startswith(os.path.join(settings.ALBUMS_PATH), "albums")
+                .startswith(os.path.join(settings.ALBUMS_PATH, "albums"))
                 .lower()
             ):
                 print("Trying to create parent directory: ", parent_dir)
@@ -468,10 +468,10 @@ class IndexDirs(models.Model):
 INDEXDATA_PREFETCH_LIST = [
     "filetype",
     "new_ftnail",
-    "home_directory",
-    "IndexDirs_entries",
-    "dir_thumbnail",
-    "file_links",
+    # "home_directory",
+    # "IndexDirs_entries",
+    # "dir_thumbnail",
+    # "file_links",
 ]
 
 
@@ -585,6 +585,10 @@ class IndexData(models.Model):
     def fqpndirectory(self) -> str:
         return self.home_directory.fqpndirectory
 
+    @property
+    def full_filepathname(self) -> str:
+        return self.fqpndirectory + self.name
+    
     def update_or_create_file(self, fs_record, unique_file_sha256, dir_sha256):
         """
         Add a file to the database, or update an existing file.
@@ -821,7 +825,8 @@ class IndexData(models.Model):
         mtype = self.filetype.mimetype
         if mtype is None:
             mtype = "application/octet-stream"
-        fqpn_filename = os.path.join(self.fqpndirectory, self.name)
+        # fqpn_filename = os.path.join(self.fqpndirectory, self.name)
+        fqpn_filename = self.full_filepathname
         file_handle = open(fqpn_filename, "rb")
         if not ranged:
             return send_file_response(

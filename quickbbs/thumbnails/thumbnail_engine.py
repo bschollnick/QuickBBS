@@ -144,56 +144,6 @@ def create_thumbnails_from_bytes(
     processor = FastImageProcessor(sizes, backend)
     return processor.process_image_bytes(image_bytes, output, quality)
 
-
-# Integration with your existing code
-# def pil_to_thumbnail_optimized(self, pil_data, backend: BackendType = "auto"):
-#     """Optimized version of your pil_to_thumbnail method."""
-#     self.invalidate_thumb()
-
-#     # Create thumbnails in one pass
-#     thumbnails = create_thumbnails_from_pil(
-#         pil_data,
-#         settings.IMAGE_SIZE,  # Your existing size settings
-#         format="JPEG",
-#         quality=85,
-#         backend=backend,
-#     )
-
-#     # Set attributes
-#     for size_name, thumb_bytes in thumbnails.items():
-#         setattr(self, f"{size_name}_thumb", thumb_bytes)
-
-
-# def image_to_thumbnail_optimized(self, backend: BackendType = "auto"):
-#     """Optimized version of your image_to_thumbnail method."""
-#     if self.IndexData.all().exists():
-#         IndexData_item = self.IndexData.first()
-#     else:
-#         from quickbbs.models import IndexData
-
-#         IndexData_item = IndexData.objects.get(file_sha256=self.sha256_hash)
-
-#     filename = (
-#         os.path.join(IndexData_item.fqpndirectory, IndexData_item.name).title().strip()
-#     )
-
-#     self.invalidate_thumb()
-
-#     # Create all thumbnails in one pass - directly from file path
-#     thumbnails = create_thumbnails_from_path(
-#         filename, settings.IMAGE_SIZE, format="JPEG", quality=85, backend=backend
-#     )
-
-#     # Set attributes
-#     for size_name, thumb_bytes in thumbnails.items():
-#         setattr(self, f"{size_name}_thumb", thumb_bytes)
-
-#     self.save(update_fields=["small_thumb", "medium_thumb", "large_thumb"])
-
-
-# Usage examples
-
-
 if __name__ == "__main__":
 
     def output_disk(filename, data):
@@ -205,16 +155,6 @@ if __name__ == "__main__":
     image_filename = "image.png"
     IMAGE_SIZES = {"large": (800, 600), "medium": (400, 300), "small": (200, 150)}
 
-    # Auto-select backend (Core Image on Apple Silicon, Pillow elsewhere)
-    #    img_processor = FastImageProcessor(IMAGE_SIZES, backend="auto")
-    #    print(f"Using backend: {img_processor.current_backend}")
-
-    # Process image with auto-selected backend
-    # thumbnails = processor.process_image_file(filename)
-
-    # Force specific backend
-    # quality: int = 85,
-    # backend: BackendType = "auto",
     thumbnails_pillow = create_thumbnails_from_path(
         image_filename, IMAGE_SIZES, output="JPEG", backend="image"
     )
