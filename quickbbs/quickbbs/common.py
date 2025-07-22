@@ -34,14 +34,14 @@ def get_file_sha(fqfn) -> tuple[Optional[str], Optional[str]]:
     """
     Return the SHA256 hash of the file as a hexdigest string
 
-    Generates a "normal" SHA256 
+    Generates a "normal" SHA256
     Args:
         fqfn (str) : The fully qualified filename of the file to be hashed
 
-    :return: 
+    :return:
         file_sha256: The SHA256 hash of the file + fqfn as a hexdigest string
         unique_sha256: The SHA256 hash of the file + the fqfn title cased utf-8 string,
-                        to make the SHA dependent on the location and filename 
+                        to make the SHA dependent on the location and filename
                         (eg unique sha based on filedata, as well as location in the file
                          system.)
     """

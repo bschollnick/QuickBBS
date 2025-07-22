@@ -2,6 +2,7 @@ import datetime
 import math
 import os
 import time
+
 # from functools import lru_cache
 # from itertools import chain
 from pathlib import Path
@@ -9,26 +10,28 @@ from pathlib import Path
 import charset_normalizer
 
 import markdown2
+
 # from cache_watcher.models import Cache_Storage
 from cachetools import LRUCache, cached
 
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import (  # HttpResponse,
-#    Http404,
-#    HttpRequest,
+    #    Http404,
+    #    HttpRequest,
     HttpResponseBadRequest,
-#    HttpResponseNotFound,
-#    JsonResponse,
+    #    HttpResponseNotFound,
+    #    JsonResponse,
 )
+
 # from filetypes.models import load_filetypes
 from frontend.utilities import (
-#    SORT_MATRIX,
+    #    SORT_MATRIX,
     convert_to_webpath,
     return_breadcrumbs,
     sort_order,
 )
-from frontend.web import detect_mobile # , g_option
+from frontend.web import detect_mobile  # , g_option
 
 from quickbbs.models import IndexData
 
@@ -102,7 +105,7 @@ def build_context_info(request: WSGIRequest, unique_file_sha256: str):
         with open(filename, "r", encoding=encoding) as htmlfile:
             context["html"] = "<br>".join(htmlfile.readlines())
 
-    #pathmaster = Path(os.path.join(entry.fqpndirectory, entry.name))
+    # pathmaster = Path(os.path.join(entry.fqpndirectory, entry.name))
     pathmaster = Path(entry.full_filepathname)
     context["up_uri"] = convert_to_webpath(str(pathmaster.parent)).rstrip("/")
 

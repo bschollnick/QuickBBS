@@ -588,7 +588,7 @@ class IndexData(models.Model):
     @property
     def full_filepathname(self) -> str:
         return self.fqpndirectory + self.name
-    
+
     def update_or_create_file(self, fs_record, unique_file_sha256, dir_sha256):
         """
         Add a file to the database, or update an existing file.

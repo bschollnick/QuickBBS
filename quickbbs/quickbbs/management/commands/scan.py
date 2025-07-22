@@ -9,6 +9,7 @@ from quickbbs.models import IndexDirs, IndexData
 from frontend.utilities import sync_database_disk
 from cache_watcher.models import Cache_Storage
 
+
 def verify_directories():
     print("Checking for invalid directories in Database (eg. Deleted, Moved, etc).")
     start_count = IndexDirs.objects.count()
@@ -24,13 +25,16 @@ def verify_directories():
     end_count = IndexDirs.objects.count()
     print("Ending Count: ", end_count)
     print("Difference : ", start_count - end_count)
-    print("-"*30)
+    print("-" * 30)
     print("Checking for unlinked parents")
-    unlinked_parents = IndexDirs.objects.filter(parent_directory__isnull=True).exclude(fqpndirectory=albums_root)
+    unlinked_parents = IndexDirs.objects.filter(parent_directory__isnull=True).exclude(
+        fqpndirectory=albums_root
+    )
     # exclude the albums_root, since that is suppose to have no parent.  You can't tranverse below the albums_root
     print(f"Found {unlinked_parents.count()} directories with no parents")
     for directory in unlinked_parents:
         IndexDirs.add_directory(directory.fqpndirectory)
+
 
 def verify_files():
     print("Checking for invalid files in Database")
@@ -46,9 +50,7 @@ def verify_files():
 
 
 class Command(BaseCommand):
-    help = (
-        "Perform a Directory Validation/Integrity Scan"
-    )
+    help = "Perform a Directory Validation/Integrity Scan"
 
     def scan_directory(self, directory_paths=None):
         pass
@@ -80,7 +82,7 @@ class Command(BaseCommand):
         # )
 
     def handle(self, *args, **options):
-        #print(args)
+        # print(args)
         # print(options)
 
         if options["verify_directories"]:

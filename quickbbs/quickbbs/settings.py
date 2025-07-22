@@ -14,14 +14,10 @@ import os
 import socket
 from pathlib import Path
 
-import django_icons
 import humanize
 from django_htmx.jinja import django_htmx_script
 
-# import quickbbs.jinjaenv
 from quickbbs.quickbbs_settings import *
-
-# from .logger import LOGGING
 
 #
 #   Debug, enables the debugging mode
@@ -32,23 +28,29 @@ print(f"* Debug Mode is {DEBUG}")
 
 #   Django Debug Toolbar, is controlled separately from the debug mode,
 #   so that timings can be w/o debug mode performance penalty.
+# DEBUG_TOOLBAR = DEBUG
 # DEBUG_TOOLBAR = True
-DEBUG_TOOLBAR = DEBUG
-# DEBUG_TOOLBAR = False
+DEBUG_TOOLBAR = False
 print(f"* Debug-toolbar is {DEBUG_TOOLBAR}")
 
-SECURE_SSL_REDIRECT = False
+SECURE_SSL_REDIRECT = True
 
 # Demo mode, redirects the database to a different database container, and album path.
 # Useful for demonstrating the software without using your master database.
 #
 ALBUMS_PATH = "/Volumes/C-8TB/Gallery/quickbbs".lower()
 
+AUTORELOAD_IGNORE_PATHS = [
+    os.path.join(ALBUMS_PATH, "albums"),
+]
+# Add other paths as needed
+
 ALLOWED_HOSTS = [
     "nerv.local",
     "localhost",
     "127.0.0.1",
     "192.168.1.67",
+    "192.168.1.42",
     # "100.73.202.135"
 ]
 
@@ -67,9 +69,9 @@ if not DEBUG:
         "default": {
             "BACKEND": "django.core.cache.backends.db.DatabaseCache",
             "LOCATION": "cache_data_db_table",
-            "TIMEOUT": 300,  # 20 minutes #300, # 5 minutes
+            "TIMEOUT": 150,  # ~2.5 minutes
             "OPTIONS": {
-                "MAX_ENTRIES": 10000,
+                "MAX_ENTRIES": 15000,
                 "CULL_FREQUENCY": 3,
             },
         }
@@ -82,7 +84,6 @@ if not DEBUG:
 
 
 TEMPLATE_PATH = BASE_DIR / "templates"
-# TEMPLATE_PATH = os.path.join(BASE_DIR, 'templates')
 
 # MEDIA_ROOT = os.sep.join((str(BASE_DIR).split(os.sep)[0:-1]))
 MEDIA_ROOT = BASE_DIR.resolve().parent
@@ -134,7 +135,6 @@ INSTALLED_APPS += [
     "frontend",
     "quickbbs",
     "thumbnails",
-    "DirScanning",
     "django_htmx",
 ]
 
@@ -147,7 +147,6 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.middleware.cache.UpdateCacheMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    # "django.middleware.gzip.GZipMiddleware",
     "compression_middleware.middleware.CompressionMiddleware",
     "django.middleware.http.ConditionalGetMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -201,14 +200,13 @@ TEMPLATES = [
         "DIRS": [
             TEMPLATE_PATH,
         ],
-        "OPTIONS": {  # 'environment': "quickbbs.jinjaenv.environment",
+        "OPTIONS": {
             # Match the template names ending in .html but not the ones in the admin folder.
             "match_extension": ".jinja",
             "extensions": [
                 "jinja2.ext.do",
                 "jinja2.ext.loopcontrols",
                 "jinja2.ext.i18n",
-                #                "jinja2_humanize_extension.HumanizeExtension", # doesn't seem to work per docs?
                 "django_jinja.builtins.extensions.CsrfExtension",
                 "django_jinja.builtins.extensions.CacheExtension",
                 "django_jinja.builtins.extensions.TimezoneExtension",
@@ -248,19 +246,32 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "quickbbs.wsgi.application"
-# WSGI_APPLICATION = 'wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/1.9/ref/settings/#databases
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql_psycopg2",
+        "ENGINE": "django.db.backends.postgresql",
         "NAME": "postgres",
         "USER": "postgres",
         "PASSWORD": "hentai2020",
         "HOST": "localhost",
         "PORT": "5432",
         "CONN_MAX_AGE": 0,
+        "OPTIONS": {
+            "pool": {
+                "min_size": 1,
+                "max_size": 125,
+                "max_lifetime": 120,
+                "max_idle": 60,
+                "timeout": 130,
+                #'check': False,
+                # 'configure': None,
+                #'reset': None,
+                # 'reconnect_failed': None,
+                # 'connection_class': None,
+            },
+        },
     }
 }
 
@@ -290,12 +301,9 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 # Internationalization
-# https://docs.djangoproject.com/en/1.9/topics/i18n/
 LANGUAGE_CODE = "en-us"
-# TIME_ZONE = 'UTC'
-# TIME_ZONE = 'UTC'
 USE_I18N = True
-USE_TZ = True
+# USE_TZ = True
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/1.9/howto/static-files/
@@ -305,18 +313,17 @@ STATIC_URL = "/static/"
 STATIC_ROOT = os.path.join(BASE_DIR, "static")
 
 STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, "static", "javascript"),
-    os.path.join(BASE_DIR, "static", "css"),
-    os.path.join(BASE_DIR, "static", "fonts"),
-    #    os.path.join(BASE_DIR, "static", "thumbnails"),
+    RESOURCES_PATH,
 ]
+
+STATICFILES_STORAGE = "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"
 
 ACCOUNT_AUTHENTICATED_LOGIN_REDIRECTS = True
 ACCOUNT_LOGOUT_REDIRECT_URL = "/albums"
 LOGIN_REDIRECT_URL = "/albums"
 
 
-DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Settings for django-icons
 DJANGO_ICONS = {
@@ -355,3 +362,33 @@ if DEBUG_TOOLBAR:
         "debug_toolbar.panels.logging.LoggingPanel",
         "debug_toolbar.panels.redirects.RedirectsPanel",
     ]
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "{levelname} {asctime} {module} {process:d} {thread:d} {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "file": {
+            "level": "INFO",
+            "class": "logging.FileHandler",
+            "filename": os.path.join(BASE_DIR, "django.log"),
+            "formatter": "verbose",
+        },
+    },
+    "root": {
+        "handlers": ["file"],
+        "level": "INFO",
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["file"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}
