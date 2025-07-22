@@ -144,6 +144,7 @@ def create_thumbnails_from_bytes(
     processor = FastImageProcessor(sizes, backend)
     return processor.process_image_bytes(image_bytes, output, quality)
 
+
 if __name__ == "__main__":
 
     def output_disk(filename, data):
