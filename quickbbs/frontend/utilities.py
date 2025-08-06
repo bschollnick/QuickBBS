@@ -113,6 +113,7 @@ def _sync_directories(dirpath_info: object, fs_entries: dict) -> None:
     # Get all database directories in one query
     print("Synchronizing directories...")
     logger.info("Synchronizing directories...")
+    records_to_update = []
     current_path = normalize_fqpn(dirpath_info.fqpndirectory)
     all_dirs_in_database = dirpath_info.dirs_in_dir()
 
@@ -132,6 +133,24 @@ def _sync_directories(dirpath_info: object, fs_entries: dict) -> None:
     )
     entries_not_in_database = all_filesystem_dir_names - all_database_dir_names_set
 
+    existing_directories_in_database = all_dirs_in_database.filter(
+        fqpndirectory__in=all_database_dir_names_set
+    )
+    print(f"Existing directories in database: {len(existing_directories_in_database)}")
+    if existing_directories_in_database:
+        updated_records = _check_directory_updates(
+            fs_entries, existing_directories_in_database
+        )
+        print(f"Directories to Update: {len(updated_records)}")
+        if updated_records:
+            print(f"processing existing directory changes: {len(updated_records)}")
+            with transaction.atomic():
+                logger.info(f"Processing {len(updated_records)} directory updates")
+                # Update existing directory records
+                for db_dir_entry in updated_records:
+                    db_dir_entry.save()
+                    Cache_Storage.remove_from_cache_sha(db_dir_entry.dir_fqpn_sha256)
+
     if entries_that_dont_exist_in_fs:
         print(f"Directories to Delete: {len(entries_that_dont_exist_in_fs)}")
         logger.info(f"Directories to Delete: {len(entries_that_dont_exist_in_fs)}")
@@ -143,50 +162,42 @@ def _sync_directories(dirpath_info: object, fs_entries: dict) -> None:
     if entries_not_in_database:
         print(f"Directories to Add: {len(entries_not_in_database)}")
         logger.info(f"Directories to Add: {len(entries_not_in_database)}")
-        for dir_to_create in entries_not_in_database:
-            IndexDirs.add_directory(fqpn_directory=dir_to_create)
+        with transaction.atomic():
+            for dir_to_create in entries_not_in_database:
+                IndexDirs.add_directory(fqpn_directory=dir_to_create)
 
 
-# def _sync_directories2(dirpath_info: object, fs_entries: dict) -> None:
-#     """Synchronize database directories with filesystem."""
+def _check_directory_updates(
+    fs_entries: dict, existing_directories_in_database: object
+) -> list[object]:
+    """Check for updates in existing directories based on filesystem entries."""
+    records_to_update = []
+    for db_dir_entry in existing_directories_in_database:
+        fs_entry = fs_entries.get(db_dir_entry.fqpndirectory)
+        if fs_entry:
+            try:
+                fs_stat = fs_entry.stat()
+                update_needed = False
 
-#     # Get all database directories in one query
-#     print("Synchronizing directories...")
-#     logger.info("Synchronizing directories...")
-#     current_path = normalize_fqpn(dirpath_info.fqpndirectory)
-#     db_directories_shas = {
-#         dir_data["dir_fqpn_sha256"]: dir_data
-#         for dir_data in dirpath_info.dirs_in_dir().values("dir_fqpn_sha256","fqpndirectory")
-#     }
-#     db_directories_sha_set = set(db_directories_shas)
+                # Check modification time
+                if db_dir_entry.lastmod != fs_stat.st_mtime:
+                    db_dir_entry.lastmod = fs_stat.st_mtime
+                    update_needed = True
 
-#     fs_directory_shas = {
-#         (dir_sha := get_dir_sha(normalized_path)): {
-#             "fqpndirectory": normalized_path,
-#             "dir_fqpn_sha256": dir_sha
-#         }
-#         for entry in fs_entries.values()
-#         if entry.is_dir()
-#         for normalized_path in [normalize_fqpn(current_path + entry.name)]
-#     }
-#     fs_directory_sha_set = set(fs_directory_shas)
+                # Check directory size (if applicable)
+                if db_dir_entry.size != fs_stat.st_size:
+                    db_dir_entry.size = fs_stat.st_size
+                    update_needed = True
 
-#     entries_that_dont_exist_in_fs = db_directories_sha_set - fs_directory_sha_set
-#     create_does_not_exist_in_db = fs_directory_sha_set - db_directories_sha_set
-#     # Find directories to delete (in DB but not in filesystem)
+                if update_needed:
+                    records_to_update.append(db_dir_entry)
 
-#     if entries_that_dont_exist_in_fs:
-#         print(f"Directories to delete: {len(entries_that_dont_exist_in_fs)}")
-#         logger.info(f"Directories to delete: {len(entries_that_dont_exist_in_fs)}")
+            except (OSError, IOError) as e:
+                logger.error(
+                    f"Error checking directory {db_dir_entry.fqpndirectory}: {e}"
+                )
 
-#         for dir_to_delete in entries_that_dont_exist_in_fs:
-#             IndexDirs.delete_directory(fqpn_directory=db_directories_shas[dir_to_delete]["fqpndirectory"])
-
-#     if create_does_not_exist_in_db:
-#         print(f"Directories to create: {len(create_does_not_exist_in_db)}")
-#         logger.info(f"Directories to create: {len(create_does_not_exist_in_db)}")
-#         for dir_to_create in create_does_not_exist_in_db:
-#             IndexDirs.add_directory(fqpn_directory=fs_directory_shas[dir_to_create]["fqpndirectory"])
+    return records_to_update
 
 
 def _sync_files(dirpath_info: object, fs_entries: dict, bulk_size: int) -> None:
@@ -316,15 +327,16 @@ def _execute_batch_operations(
     """Execute all database operations in batches with proper transaction handling."""
 
     try:
-        with transaction.atomic():
-            # Batch delete
-            if records_to_delete:
+        # Batch delete
+        if records_to_delete:
+            with transaction.atomic():
                 IndexData.objects.filter(id__in=records_to_delete).delete()
                 print(f"Deleted {len(records_to_delete)} records")
                 logger.info(f"Deleted {len(records_to_delete)} records")
 
-            # Batch update
-            if records_to_update:
+        # Batch update
+        if records_to_update:
+            with transaction.atomic():
                 IndexData.objects.bulk_update(
                     records_to_update,
                     fields=[
@@ -339,11 +351,9 @@ def _execute_batch_operations(
                 )
                 logger.info(f"Updated {len(records_to_update)} records")
 
-            # Batch create
-            if records_to_create:
-                # Process in chunks to avoid memory issues
-                # for i in range(0, len(records_to_create), bulk_size):
-                #     chunk = records_to_create[i : i + bulk_size]
+        # Batch create
+        if records_to_create:
+            with transaction.atomic():
                 IndexData.objects.bulk_create(
                     records_to_create,
                     batch_size=bulk_size,

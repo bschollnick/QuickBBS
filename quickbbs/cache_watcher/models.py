@@ -36,7 +36,7 @@ event_buffer = defaultdict(int)
 event_buffer_lock = threading.Lock()
 EVENT_PROCESSING_DELAY = 5  # seconds
 # WATCHDOG_RESTART_INTERVAL = 12 * 60 * 60  # 12 hours in seconds
-WATCHDOG_RESTART_INTERVAL = 2 * 60 * 60  # 2 hours in seconds
+WATCHDOG_RESTART_INTERVAL = 0.5 * 60 * 60  # 30 minutes in seconds
 
 # Global watchdog restart timer
 watchdog_restart_timer = None
@@ -57,6 +57,7 @@ class WatchdogManager:
         """Start the watchdog with periodic restart capability"""
         with self.lock:
             if not self.is_running:
+                logger.debug("Starting watchdog...")
                 self.event_handler = CacheFileMonitorEventHandler()
                 try:
                     watchdog.startup(
@@ -66,9 +67,10 @@ class WatchdogManager:
                     self.is_running = True
                     logger.info(f"Watchdog started monitoring: {self.monitor_path}")
                     # Always schedule restart when we start successfully
+                    logger.debug("Scheduling restart timer...")
                     self._schedule_restart()
                 except Exception as e:
-                    logger.error(f"Failed to start watchdog: {e}")
+                    logger.error(f"Failed to start watchdog: {e}", exc_info=True)
                     raise
             else:
                 logger.info("Watchdog already running")
@@ -102,35 +104,58 @@ class WatchdogManager:
     def restart(self):
         """Restart the watchdog process and schedule the next restart"""
         logger.info("Performing scheduled watchdog restart")
+        restart_successful = False
+
         try:
+            logger.debug("Calling stop()...")
             self.stop()
+            logger.debug("Stop() completed, waiting 1 second...")
             time.sleep(1)  # Brief pause to ensure clean shutdown
+            logger.debug("Calling start()...")
             self.start()
+            restart_successful = True
+            logger.info("Watchdog restart completed successfully")
         except Exception as e:
-            logger.error(f"Error during watchdog restart: {e}")
-            # Even if restart failed, schedule next attempt
-            self._schedule_restart()
+            logger.error(f"Error during watchdog restart: {e}", exc_info=True)
+
+        # Always try to schedule next restart, even if this restart failed
+        if not restart_successful:
+            logger.warning("Restart failed, manually scheduling next restart attempt")
+            with self.lock:
+                self._schedule_restart()
 
     def _schedule_restart(self):
         """Schedule the next restart - must be called while holding self.lock"""
-        # Cancel existing timer if it exists
-        logger.info("Scheduling next watchdog restart")
-        if self.restart_timer:
-            self.restart_timer.cancel()
-            self.restart_timer = None
-            logger.debug("Cancelled existing restart timer")
+        try:
+            # Cancel existing timer if it exists
+            if self.restart_timer:
+                was_alive = self.restart_timer.is_alive()
+                self.restart_timer.cancel()
+                logger.debug(
+                    f"Cancelled existing restart timer (was_alive: {was_alive})"
+                )
+                self.restart_timer = None
 
-        # Create new timer
-        self.restart_timer = threading.Timer(WATCHDOG_RESTART_INTERVAL, self.restart)
-        self.restart_timer.daemon = True
-        self.restart_timer.start()
-        logger.info(
-            f"Next watchdog restart scheduled in {WATCHDOG_RESTART_INTERVAL/3600:.1f} hours"
-        )
-        logger.debug(
-            f"Timer object: {self.restart_timer}, is_alive: {self.restart_timer.is_alive()}"
-        )
-        logger.info("End schedule_restart")
+            # Create new timer
+            self.restart_timer = threading.Timer(
+                WATCHDOG_RESTART_INTERVAL, self.restart
+            )
+            self.restart_timer.daemon = True
+            self.restart_timer.start()
+
+            # Verify timer started successfully
+            if self.restart_timer.is_alive():
+                logger.info(
+                    f"✓ Next watchdog restart scheduled in {WATCHDOG_RESTART_INTERVAL/3600:.1f} hours"
+                )
+                logger.debug(
+                    f"Timer object: {self.restart_timer}, thread name: {self.restart_timer.name}"
+                )
+            else:
+                logger.error("⚠ Timer failed to start!")
+
+        except Exception as e:
+            logger.error(f"Error scheduling restart: {e}", exc_info=True)
 
 
 # Global watchdog manager instance
