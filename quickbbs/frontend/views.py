@@ -153,8 +153,8 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: Optional[str] = None):
     # If the directory is generic or has no thumbnail, force a rescan
     # to help ensure that there are files in the directory
     # set a thumbnail if there are files in the directory
-    file_count = len(files_in_directory)
-    if file_count == 0:
+    # file_count = files_in_directory.count() # len(files_in_directory)
+    if not files_in_directory.exists():
         return directory.filetype.send_thumbnail()
 
     directory.thumbnail = files_in_directory.first()
@@ -543,17 +543,3 @@ def download_file(request: WSGIRequest):  # , filename=None):
             request, ranged=file_to_send.filetype.is_movie
         )
     raise Http404("No File to Send")
-
-
-# def view_setup():
-#     """
-#     Wrapper for view startup
-
-#     """
-#     pass
-
-#    IndexData.objects.filter(delete_pending=True).delete()
-
-
-# if __name__ != "__main__":
-#    view_setup()

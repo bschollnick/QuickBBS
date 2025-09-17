@@ -213,10 +213,10 @@
                     <span class="item-index">{{ loop.index }}</span>
                     <div class="item-title">
                         {% if item.filetype.is_link %}
-                            <a href="{{ item.virtual_directory.get_view_url() }}" hx-swap="outerHTML transition:true">
+                            <a href="{{ item.virtual_directory.get_view_url() }}" hx-swap="outerHTML transition:true" style="color:black;">
                                 {{ item.name.split("*")[0] }}
                         {% else %}
-                            <a href="{{ item.get_view_url() }}?sort={{sort}}" hx-swap="outerHTML transition:true">
+                            <a href="{{ item.get_view_url() }}?sort={{sort}}" hx-swap="outerHTML transition:true" style="color: black;">
                                 {{ item.name|wordwrap(width=24, break_long_words=True) }}
                         {% endif %}
                         
