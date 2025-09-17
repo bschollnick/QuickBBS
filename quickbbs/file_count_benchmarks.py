@@ -64,6 +64,12 @@ files = len(list(filter(os.DirEntry.is_file, fs_entries.values())))
 dirs = len(fs_entries)-files
 """
 
+claude = """
+files = sum(1 for entry in fs_entries.values() if entry.is_file())
+dirs = len(fs_entries) - files
+return (files, dirs)
+"""
+
 fs_location = "/Volumes/masters/masters/instagram2/d/disharmonica"
 fs_location = "/Volumes/c-8tb/gallery/quickbbs/albums/hentai_idea/Hyp-Collective/New/Goning_South/Gonig_South"
 fs_data = {}
@@ -90,6 +96,12 @@ print(
 )
 print(
     "new2 w/filter : ",
+    timeit(
+        stmt=new_filter, setup="import os", number=1000, globals={"fs_entries": fs_data}
+    ),
+)
+print(
+    "claude : ",
     timeit(
         stmt=new_filter, setup="import os", number=1000, globals={"fs_entries": fs_data}
     ),
