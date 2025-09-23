@@ -8,7 +8,7 @@ import os
 import pathlib
 import time
 from functools import lru_cache
-from typing import Any
+from typing import Any, Union
 
 # Django imports
 from django.conf import settings
@@ -272,7 +272,7 @@ class IndexDirs(models.Model):
         if not cache_only:
             IndexDirs.objects.filter(dir_fqpn_sha256=dir_sha256).delete()
 
-    def do_files_exist(self, additional_filters: dict[str, Any] | None = None) -> bool:
+    def do_files_exist(self, additional_filters: Union[dict[str, Any], None] = None) -> bool:
         """
         Check if any files exist in the current directory with optional filters
         :param additional_filters: Additional Django ORM filters to apply (e.g., filetype, status filters)
@@ -318,7 +318,7 @@ class IndexDirs(models.Model):
         return totals
 
     @lru_cache(maxsize=100)
-    def return_parent_directory(self) -> "IndexDirs" | "QuerySet[IndexDirs]":
+    def return_parent_directory(self) -> Union["IndexDirs", "QuerySet[IndexDirs]"]:
         """
         Return the database object of the parent directory to the current directory
         :return: database record of parent directory
@@ -376,7 +376,7 @@ class IndexDirs(models.Model):
         )
         return dirs
 
-    def files_in_dir(self, sort: int = 0, additional_filters: dict[str, Any] | None = None) -> "QuerySet[IndexData]":
+    def files_in_dir(self, sort: int = 0, additional_filters: Union[dict[str, Any], None] = None) -> "QuerySet[IndexData]":
         """
         Return the files in the current directory
         :param sort: The sort order of the files (0-2)
@@ -688,7 +688,7 @@ class IndexData(models.Model):
 
     @lru_cache(maxsize=1000)
     @staticmethod
-    def get_by_filters(additional_filters: dict[str, Any] | None = None) -> "QuerySet[IndexData]":
+    def get_by_filters(additional_filters: Union[dict[str, Any], None] = None) -> "QuerySet[IndexData]":
         """
         Return the files in the current directory, filtered by additional filters
         :param additional_filters: Additional filters to apply to the query
@@ -722,7 +722,7 @@ class IndexData(models.Model):
 
     @lru_cache(maxsize=1000)
     @staticmethod
-    def get_by_sha256(sha_value: str, unique: bool = False) -> "IndexData" | None:
+    def get_by_sha256(sha_value: str, unique: bool = False) -> Union["IndexData", None]:
         """
         Return the IndexData object by SHA256
         :param sha_value: The SHA256 of the IndexData object
@@ -744,7 +744,7 @@ class IndexData(models.Model):
         except IndexData.DoesNotExist:
             return None
 
-    def get_file_sha(self, fqfn: str) -> tuple[str | None, str | None]:
+    def get_file_sha(self, fqfn: str) -> tuple[Union[str, None], Union[str, None]]:
         """
         Return the SHA256 hashes of the file as hexdigest strings
 
@@ -816,7 +816,7 @@ class IndexData(models.Model):
         # parameters = []
         return reverse("view_item", args=(self.unique_sha256,))
 
-    def get_thumbnail_url(self, size: str | None = None) -> str:
+    def get_thumbnail_url(self, size: Union[str, None] = None) -> str:
         """
         Generate the URL for the thumbnail of the current item
 
