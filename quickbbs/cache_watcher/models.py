@@ -377,9 +377,11 @@ class fs_Cache_Tracking(models.Model):
 
         # Clear layout caches for affected directories
         if update_count > 0:
-            for sha in sha_list:
-                if sha in fqpn_by_dir_sha:
-                    self._clear_layout_cache(fqpn_by_dir_sha[sha])
+            for sha in set(sha_list) & fqpn_by_dir_sha.keys():
+                self._clear_layout_cache(fqpn_by_dir_sha[sha])
+#            for sha in sha_list:
+#                if sha in fqpn_by_dir_sha:
+#                    self._clear_layout_cache(fqpn_by_dir_sha[sha])
 
             logger.info(f"Successfully invalidated {update_count} cache entries")
 

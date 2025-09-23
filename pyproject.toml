@@ -35,6 +35,7 @@ pretty = true
 color_output = true
 ignore_missing_imports = true
 plugins = ["mypy_django_plugin.main"]
+exclude = ["albums", "gallery"]
 
 [tool.django-stubs]
 django_settings_module = "quickbbs.settings"
@@ -48,7 +49,6 @@ profile = "black"
 python = "^3.12"
 aiofile = "^3.8.8"
 aiopath = "^0.7.7"
-django = "^5.2.3"
 pymupdf = "^1.24.14"
 django-icons = "^25.1"
 django-htmx = "^1.21.0"
@@ -101,9 +101,10 @@ pyobjc = "^11.0"
 pyobjc-framework-uniformtypeidentifiers = "^11.1"
 ffmpeg-python = "^0.2.0"
 charset-normalizer = "^3.4.2"
-poetry = "^2.1.4"
+poetry = "^2.2"
 pytest = "^8.4.1"
 pytest-django = "^4.11.1"
 pyscan-rs = "^0.1.8"
 pip-audit = "^2.9.0"
 pipdeptree = "^2.28.0"
+django = {version = "^6.0a1", allow-prereleases = true}
