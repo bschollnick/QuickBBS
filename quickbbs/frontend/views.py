@@ -111,9 +111,9 @@ def return_prev_next2(directory, sorder) -> tuple:
 def thumbnail2_dir(request: WSGIRequest, dir_sha256: Optional[str] = None):
     """
     The thumbnails function is used to serve the thumbnail memory image.
-    It takes a request and an optional uuid as arguments.
-    If no uuid is provided, it will return the default image for thumbnails.
-    Otherwise, it will attempt to find a matching UUID in the database and return that file's thumbnail.
+    It takes a request and an optional sha256 as arguments.
+    If no sha256 is provided, it will return the default image for thumbnails.
+    Otherwise, it will attempt to find a matching sha256 in the database and return that file's thumbnail.
 
     :param request: Django Request object
     :param dir_sha256: the sha256 of the directory
@@ -385,29 +385,48 @@ def new_viewgallery(request: WSGIRequest):
     context["prev_uri"], context["next_uri"] = return_prev_next2(
         directory, sorder=context["sort"]
     )
-    all_dirs_in_directory = directory.dirs_in_dir()
-    all_files_in_directory = directory.files_in_dir()
+    # all_dirs_in_directory = directory.dirs_in_dir()
+    # all_files_in_directory = directory.files_in_dir()
 
     data_for_current_page = layout["data"][context["current_page"] - 1]
-    dirs_to_display = all_dirs_in_directory.filter(
-        dir_fqpn_sha256__in=data_for_current_page["directories"]
-    ).order_by(*SORT_MATRIX[context["sort"]])
+    # dirs_to_display = all_dirs_in_directory.filter(
+    #     dir_fqpn_sha256__in=data_for_current_page["directories"]
+    # ).order_by(*SORT_MATRIX[context["sort"]])
 
-    files_to_display = (
-        all_files_in_directory.filter(unique_sha256__in=data_for_current_page["files"])
-        .filter(filetype__is_link=False)
-        .order_by(*SORT_MATRIX[context["sort"]])
+    # files_to_display = (
+    #     all_files_in_directory.filter(unique_sha256__in=data_for_current_page["files"])
+    #     .filter(filetype__is_link=False)
+    #     .order_by(*SORT_MATRIX[context["sort"]])
+    # )
+
+    # links_to_display = (
+    #     all_files_in_directory.filter(unique_sha256__in=data_for_current_page["files"])
+    #     .filter(filetype__is_link=True)
+    #     .order_by(*SORT_MATRIX[context["sort"]])
+    # )
+    # context["items_to_display"] = list(
+    #     chain(dirs_to_display, links_to_display, files_to_display)
+    # )
+  # Get all needed data in minimal queries with proper prefetching
+    dirs_to_display = (
+        directory.dirs_in_dir(sort=context["sort"])
+        .filter(dir_fqpn_sha256__in=data_for_current_page["directories"])
+        .select_related('filetype', 'thumbnail')
+        .prefetch_related('thumbnail__new_ftnail')
     )
 
-    links_to_display = (
-        all_files_in_directory.filter(unique_sha256__in=data_for_current_page["files"])
-        .filter(filetype__is_link=True)
-        .order_by(*SORT_MATRIX[context["sort"]])
-    )
-    context["items_to_display"] = list(
-        chain(dirs_to_display, links_to_display, files_to_display)
+    files_and_links = (
+        directory.files_in_dir(sort=context["sort"])
+        .filter(unique_sha256__in=data_for_current_page["files"])
+        .select_related('filetype', 'home_directory')
+        .prefetch_related('new_ftnail')
     )
 
+    # Separate files and links in Python (single query already executed)
+    files_list = [f for f in files_and_links if not f.filetype.is_link]
+    links_list = [f for f in files_and_links if f.filetype.is_link]
+
+    context["items_to_display"] = list(dirs_to_display) + links_list + files_list
     # print("elapsed view gallery (pre-thumb) time - ", time.time() - start_time)
     if layout["no_thumbnails"]:
         no_thumb_start = time.time()
