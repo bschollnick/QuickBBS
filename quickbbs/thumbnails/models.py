@@ -82,17 +82,14 @@ class ThumbnailFiles(models.Model):
 
     @staticmethod
     def get_or_create_thumbnail_record(
-        file_sha256, suppress_save=False
+        file_sha256: str, suppress_save: bool = False
     ) -> "ThumbnailFiles":
         """
-        Given a sha256 hash, return the thumbnail object, or create it if it
-        does not exist.
+        Get or create a thumbnail record for a file.
 
-        Args:
-            file_sha256 (str): The sha256 hash of the file to retrieve or create a thumbnail for.
-
-        Returns:
-            ThumbnailFiles: The thumbnail object, either retrieved or created.
+        :param file_sha256: The sha256 hash of the file to retrieve or create a thumbnail for
+        :param suppress_save: If True, do not save the thumbnail after creation (default: False)
+        :return: ThumbnailFiles object, either retrieved from database or newly created
         """
 
         from quickbbs.models import IndexData
@@ -175,32 +172,34 @@ class ThumbnailFiles(models.Model):
                     )
         return thumbnail
 
-    def number_of_indexdata_references(self):
+    def number_of_indexdata_references(self) -> int:
         """
-        Given a sha256 hash, return the number of IndexData references
+        Return the number of IndexData references for this thumbnail.
+
+        :return: Count of IndexData objects referencing this thumbnail
         """
         from quickbbs.models import IndexData
 
         return IndexData.objects.filter(file_sha256=self.sha256_hash).count()
 
     @lru_cache(maxsize=250)
-    def get_thumbnail_by_sha(self, sha256):
+    def get_thumbnail_by_sha(self, sha256: str) -> "ThumbnailFiles":
         """
-        Given a sha256 hash, return the thumbnail object
+        Get thumbnail object by SHA256 hash.
+
+        :param sha256: SHA256 hash of the file
+        :return: ThumbnailFiles object for the specified hash
         """
         return ThumbnailFiles.objects.prefetch_related(
             *ThumbnailFiles_Prefetch_List
         ).get(sha256_hash=sha256)
 
-    def thumbnail_exists(self, size="small"):
+    def thumbnail_exists(self, size: str = "small") -> bool:
         """
         Check if the thumbnail exists for the given size.
 
-        Args:
-            size (str): The size of the thumbnail to check for (eg. small, medium, large).
-
-        Returns:
-            bool: True if the thumbnail exists, False otherwise.
+        :param size: The size of the thumbnail to check for (small, medium, or large)
+        :return: True if the thumbnail exists, False otherwise
         """
         match size.lower():
             case "small":
@@ -211,38 +210,34 @@ class ThumbnailFiles(models.Model):
                 return self.large_thumb not in ["", b"", None]
         return False
 
-    def invalidate_thumb(self):
+    def invalidate_thumb(self) -> None:
         """
-        The invalidate_thumb function accepts a Thumbnail object and sets all of its attributes
-        to an empty byte string. It is used when the thumbnail file cannot be found on disk,
-        or when the thumbnail file has been corrupted.
+        Clear all thumbnail data for regeneration.
+
+        Sets all thumbnail binary fields (small, medium, large) to empty byte strings.
+        Does not save the object - call save() explicitly after invalidation.
+
+        :return: None
 
         Note:
-            This function does not delete the thumbnail object, it simply clears the thumbnail data.
-            This also does not save the object, so you will need to call save() after this.
-            The intention is to clear the thumbnail data, so that it can be regenerated, so
-            callling save here is potentially redundant.
+            This function does not delete the thumbnail object or save changes.
+            The intention is to clear thumbnail data for regeneration.
 
-        Args:
-            thumbnail: Store the thumbnail data
-
-        Returns:
-            ThumbnailFile: The thumbnail object
-
-
-        >>> test = quickbbs.models.IndexData()
-        >>> test.invalidate_thumb()
+        Example:
+            >>> thumbnail = ThumbnailFiles.objects.get(sha256_hash='...')
+            >>> thumbnail.invalidate_thumb()
+            >>> thumbnail.save()
         """
         self.small_thumb = b""
         self.medium_thumb = b""
         self.large_thumb = b""
 
-    def retrieve_sized_tnail(self, size="small"):
+    def retrieve_sized_tnail(self, size: str = "small") -> bytes:
         """
-        Helper to get and pick the right size for the thumbnail to be sent
-        :param size: The size string
-        :param tnail: The thumbnail record to be checked
-        :return: the blob that contains the image data
+        Get thumbnail blob of specified size.
+
+        :param size: The size string (small, medium, or large)
+        :return: Binary blob containing the image data for the specified size
         """
         blobdata = b""
         match size.lower():
@@ -254,37 +249,21 @@ class ThumbnailFiles(models.Model):
                 blobdata = self.large_thumb
         return blobdata
 
-    def send_thumbnail(self, filename_override=None, fext_override=None, size="small"):
+    def send_thumbnail(self, filename_override: str | None = None, fext_override: str | None = None, size: str = "small"):
         """
-         Output a http response header, for an image attachment.
+        Send thumbnail as HTTP response with appropriate headers.
 
-        Args:
-             filename (str): The filename to be sent with the thumbnail
-             fext_override (str): Filename extension to use instead of the original file's ext
-             size (str): The size string of the thumbnail to send (small, medium, large)
-
-         Returns:
-             object::
-                 The Django response object that contains the attachment and header
-
-         Raises:
-             None
-
-         Examples
-         --------
-         send_thumbnail("test.png")
+        :param filename_override: Optional filename to use instead of the original
+        :param fext_override: Optional file extension override (unused, kept for API compatibility)
+        :param size: The size of thumbnail to send (small, medium, or large)
+        :return: Django FileResponse containing the thumbnail with appropriate headers
 
         Note:
-            Thumbnails are stored as jpeg's, not as other types, so we'll always be sending a
-            jpeg as the thumbnail, until/unless it is stored differently (e.g. JPEG XL, PNG, etc)
+            Thumbnails are stored as JPEGs, so JPEG will always be sent regardless of
+            the original file type.
 
-        References:
-            https://stackoverflow.com/questions/36392510/django-download-a-file
-            https://stackoverflow.com/questions/27712778/
-                   video-plays-in-other-browsers-but-not-safari
-            https://stackoverflow.com/questions/720419/
-                    how-can-i-find-out-whether-a-server-supports-the-range-header
-
+        Example:
+            >>> thumbnail.send_thumbnail(filename_override="cover.jpg", size="medium")
         """
         filename = filename_override or self.IndexData.first().name
         mtype = "image/jpeg"

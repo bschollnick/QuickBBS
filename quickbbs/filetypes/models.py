@@ -48,13 +48,18 @@ class filetypes(models.Model):
 
     thumbnail = models.BinaryField(default=b"", null=True)
 
-    def __unicode__(self):
+    def __unicode__(self) -> str:
         return f"{self.fileext}"
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.fileext}"
 
     def send_thumbnail(self):
+        """
+        Send the generic icon thumbnail for this file type.
+
+        :return: FileResponse containing the generic icon image
+        """
         from frontend.serve_up import send_file_response
 
         return send_file_response(
@@ -68,7 +73,7 @@ class filetypes(models.Model):
 
     @lru_cache(maxsize=200)
     @staticmethod
-    def filetype_exists_by_ext(fileext):
+    def filetype_exists_by_ext(fileext: str) -> bool:
         """
         Check if a filetype exists by its file extension.
 
@@ -84,7 +89,7 @@ class filetypes(models.Model):
 
     @lru_cache(maxsize=200)
     @staticmethod
-    def return_any_icon_filename(fileext):
+    def return_any_icon_filename(fileext: str) -> str | None:
         """
         The return_icon_filename function takes a file extension as an argument and returns the filename of the
         icon that corresponds to that file extension.
@@ -109,9 +114,12 @@ class filetypes(models.Model):
 
     @lru_cache(maxsize=200)
     @staticmethod
-    def return_filetype(fileext):
+    def return_filetype(fileext: str) -> "filetypes":
         """
-        fileext = gif, jpg, mp4 (lower case, and without prefix .)
+        Return filetype object for the given file extension.
+
+        :param fileext: File extension (e.g., 'gif', 'jpg', '.mp4'). Will be normalized to lowercase with dot prefix
+        :return: filetypes object for the specified extension
         """
         fileext = fileext.lower().strip()
         if fileext in ["", None, "unknown"]:
@@ -127,33 +135,49 @@ class filetypes(models.Model):
 
 
 @lru_cache(maxsize=200)
-def get_ftype_dict():
+def get_ftype_dict() -> dict:
     """
-    Return filetypes information (from table) in an dictionary form.
+    Return filetypes information from database as a dictionary.
+
+    :return: Dictionary of all filetype objects keyed by their primary key
     """
     # https://stackoverflow.com/questions/21925671/
     # from django.forms.models import model_to_dict
     return filetypes.objects.all().in_bulk()
 
 
-def return_identifier(ext):
+def return_identifier(ext: str) -> str:
     """
-    Return the extension portion of the filename (minus the .)
+    Return the extension portion of the filename.
+
+    :param ext: File extension to process
+    :return: Lowercase, stripped extension
     """
     ext = ext.lower().strip()
     return ext
 
 
 @lru_cache(maxsize=200)
-def map_ext_to_id(ext):
+def map_ext_to_id(ext: str) -> str:
     """
-    Return the extension portion of the filename (minus the .)
-    Why is this duplicated?
+    Map file extension to identifier.
+
+    :param ext: File extension to map
+    :return: Identifier string for the extension
+
+    Note:
+        This is a legacy wrapper for return_identifier() - consider consolidating.
     """
     return return_identifier(ext)
 
 
-def load_filetypes(force=False):
+def load_filetypes(force: bool = False) -> dict:
+    """
+    Load file type data from database into global cache.
+
+    :param force: If True, force reload from database even if already cached
+    :return: Dictionary of filetype data
+    """
     global FILETYPE_DATA
     if not FILETYPE_DATA or force:
         try:

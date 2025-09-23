@@ -77,8 +77,15 @@ def sort_order(request) -> int:
 
 def _get_or_create_directory(
     directory_sha256: str, dirpath: str
-) -> tuple[Optional[object], bool]:
-    """Get or create directory record and check cache status."""
+) -> tuple[object | None, bool]:
+    """
+    Get or create directory record and check cache status.
+
+    :param directory_sha256: SHA256 hash of the directory path
+    :param dirpath: Fully qualified directory path
+    :return: Tuple of (directory object, is_cached) where is_cached indicates
+             if the directory is already in cache
+    """
     found, dirpath_info = IndexDirs.search_for_directory_by_sha(directory_sha256)
     if not found:
         found, dirpath_info = IndexDirs.add_directory(dirpath)
@@ -94,7 +101,14 @@ def _get_or_create_directory(
 
 
 def _handle_missing_directory(dirpath_info: object) -> None:
-    """Handle case where directory doesn't exist on filesystem."""
+    """
+    Handle case where directory doesn't exist on filesystem.
+
+    Deletes the directory record and cleans up parent directory cache.
+
+    :param dirpath_info: IndexDirs object for the missing directory
+    :return: None
+    """
     try:
         parent_dirs = dirpath_info.return_parent_directory()
         dirpath_info.delete_directory(dirpath_info.fqpndirectory)
@@ -109,7 +123,16 @@ def _handle_missing_directory(dirpath_info: object) -> None:
 
 
 def _sync_directories(dirpath_info: object, fs_entries: dict) -> None:
-    """Synchronize database directories with filesystem."""
+    """
+    Synchronize database directories with filesystem.
+
+    Compares directories in database with filesystem entries and updates,
+    creates, or deletes records as needed.
+
+    :param dirpath_info: IndexDirs object for the parent directory
+    :param fs_entries: Dictionary of filesystem entries
+    :return: None
+    """
     # Get all database directories in one query
     print("Synchronizing directories...")
     logger.info("Synchronizing directories...")
@@ -170,7 +193,13 @@ def _sync_directories(dirpath_info: object, fs_entries: dict) -> None:
 def _check_directory_updates(
     fs_entries: dict, existing_directories_in_database: object
 ) -> list[object]:
-    """Check for updates in existing directories based on filesystem entries."""
+    """
+    Check for updates in existing directories based on filesystem entries.
+
+    :param fs_entries: Dictionary of filesystem entries
+    :param existing_directories_in_database: QuerySet of existing directory records
+    :return: List of directory records that need updating
+    """
     records_to_update = []
     for db_dir_entry in existing_directories_in_database:
         fs_entry = fs_entries.get(db_dir_entry.fqpndirectory)
@@ -201,7 +230,17 @@ def _check_directory_updates(
 
 
 def _sync_files(dirpath_info: object, fs_entries: dict, bulk_size: int) -> None:
-    """Synchronize database files with filesystem."""
+    """
+    Synchronize database files with filesystem.
+
+    Compares files in database with filesystem entries and performs batch
+    updates, creates, or deletes as needed.
+
+    :param dirpath_info: IndexDirs object for the parent directory
+    :param fs_entries: Dictionary of filesystem entries
+    :param bulk_size: Size of batches for bulk operations
+    :return: None
+    """
     # Get all database files in one optimized query
     # db_bulk_size = 1000
     fs_file_names_dict = {
@@ -225,9 +264,7 @@ def _sync_files(dirpath_info: object, fs_entries: dict, bulk_size: int) -> None:
     records_to_delete = all_files_in_dir.all().exclude(name__in=fs_file_names)
 
     fs_file_names_for_creation = set(fs_file_names) - set(all_db_filenames)
-    creation_fs_file_names_dict = {}
-    for name in fs_file_names_for_creation:
-        creation_fs_file_names_dict[name] = fs_file_names_dict[name]
+    creation_fs_file_names_dict = {name: fs_file_names_dict[name] for name in fs_file_names_for_creation}
 
     records_to_create = _process_new_files(dirpath_info, creation_fs_file_names_dict)
     # Execute batch operations
@@ -238,8 +275,18 @@ def _sync_files(dirpath_info: object, fs_entries: dict, bulk_size: int) -> None:
 
 def _check_file_updates(
     db_record: object, fs_entry: Path, home_directory: object
-) -> Optional[object]:
-    """Check if database record needs updating based on filesystem entry."""
+) -> object | None:
+    """
+    Check if database record needs updating based on filesystem entry.
+
+    Compares modification time, size, SHA256, and other attributes between
+    database record and filesystem entry.
+
+    :param db_record: IndexData database record
+    :param fs_entry: Path object for filesystem entry
+    :param home_directory: IndexDirs object for the parent directory
+    :return: Updated database record if changes detected, None otherwise
+    """
     try:
         fs_stat = fs_entry.stat()
         update_needed = False
@@ -289,7 +336,16 @@ def _check_file_updates(
 
 
 def _process_new_files(dirpath_info: object, fs_file_names: dict) -> list[object]:
-    """Process files that exist in filesystem but not in database."""
+    """
+    Process files that exist in filesystem but not in database.
+
+    Creates new IndexData records for files found on filesystem that don't
+    have corresponding database entries.
+
+    :param dirpath_info: IndexDirs object for the parent directory
+    :param fs_file_names: Dictionary of filesystem file entries
+    :return: List of new IndexData records to create
+    """
     records_to_create = []
     for _, fs_entry in fs_file_names.items():
         try:
@@ -324,7 +380,18 @@ def _execute_batch_operations(
     records_to_delete: list,
     bulk_size: int,
 ) -> None:
-    """Execute all database operations in batches with proper transaction handling."""
+    """
+    Execute all database operations in batches with proper transaction handling.
+
+    Performs bulk delete, update, and create operations in separate transactions.
+
+    :param records_to_update: List of records to update
+    :param records_to_create: List of records to create
+    :param records_to_delete: List of records to delete
+    :param bulk_size: Size of batches for bulk operations
+    :return: None
+    :raises Exception: If any database operation fails
+    """
 
     try:
         # Batch delete
@@ -366,7 +433,7 @@ def _execute_batch_operations(
         raise
 
 
-def break_down_urls(uri_path) -> list[str]:
+def break_down_urls(uri_path: str) -> list[str]:
     """
     Split URL into it's component parts
 
@@ -435,7 +502,7 @@ def return_breadcrumbs(uri_path="") -> list[str]:
     return data
 
 
-def fs_counts(fs_entries) -> tuple[int, int]:
+def fs_counts(fs_entries: dict) -> tuple[int, int]:
     """
     Quickly count the files vs directories in a list of scandir entries
     Used primary by sync_database_disk to count a path's files & directories
@@ -455,8 +522,8 @@ def fs_counts(fs_entries) -> tuple[int, int]:
 
 
 def process_filedata(
-    fs_entry: Path, directory_id: Optional[str] = None
-) -> Optional[dict[str, Any]]:
+    fs_entry: Path, directory_id: str | None = None
+) -> dict[str, Any] | None:
     """
     Process a file system entry and return a dictionary with file metadata.
 
@@ -581,7 +648,7 @@ def process_filedata(
         return None
 
 
-def sync_database_disk(directoryname: str) -> Optional[bool]:
+def sync_database_disk(directoryname: str) -> bool | None:
     """
     Synchronize database entries with filesystem for a given directory.
 
@@ -637,19 +704,18 @@ def sync_database_disk(directoryname: str) -> Optional[bool]:
     #     return False
 
 
-def read_from_disk(dir_to_scan, skippable=True):
+def read_from_disk(dir_to_scan: str, skippable: bool = True) -> None:
     """
-    Stub function to bridge between v2 and v3 mechanisms.
-    This is just a temporary bridge to prevent the need for a rewrite on
-    functions that read_from_disk.
+    Bridge function to sync database with disk.
 
-    This just redirects the read_from_disk call -> sync_database_disk.
+    Legacy interface that redirects to sync_database_disk for backward compatibility.
 
-    Parameters
-    ----------
-    dir_to_scan (str): The Fully Qualified pathname of the directory to scan
-    skippable (bool): Is this allowed to skip, depreciated for v3.
+    :param dir_to_scan: Fully qualified pathname of the directory to scan
+    :param skippable: Legacy parameter, deprecated and unused
+    :return: None
 
+    Note:
+        This is a compatibility shim. New code should use sync_database_disk directly.
     """
     if not os.path.exists(dir_to_scan):
         if dir_to_scan.startswith("/"):
@@ -669,7 +735,16 @@ from Foundation import (  # NSData,; NSError,
 
 
 def resolve_alias_path(alias_path: str) -> str:
-    """Given a path to a macOS alias file, return the resolved path to the original file"""
+    """
+    Resolve a macOS alias file to its target path.
+
+    Uses macOS Foundation framework to resolve alias files and applies
+    path mappings from settings.ALIAS_MAPPING.
+
+    :param alias_path: Path to the macOS alias file
+    :return: Resolved path to the target file/directory
+    :raises ValueError: If bookmark data cannot be created or resolved
+    """
     options = NSURLBookmarkResolutionWithoutUI | NSURLBookmarkResolutionWithoutMounting
     alias_url = NSURL.fileURLWithPath_(alias_path)
     bookmark, error = NSURL.bookmarkDataWithContentsOfURL_error_(alias_url, None)

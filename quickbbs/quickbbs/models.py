@@ -62,6 +62,7 @@ INDEXDIRS_PREFETCH_LIST = [
     "filetype",
     # "parent_directory",
     #    "file_links",
+    # "home_directory",
 ]
 
 
@@ -139,6 +140,7 @@ class IndexDirs(models.Model):
         verbose_name_plural = "Master Directory Index"
         indexes = [
             models.Index(fields=["parent_directory", "delete_pending"]),
+            models.Index(fields=["dir_fqpn_sha256", "delete_pending"]),
         ]
 
     @staticmethod
@@ -162,9 +164,9 @@ class IndexDirs(models.Model):
 
             if (
                 not found
-                and parent_dir.lower()
-                .startswith(os.path.join(settings.ALBUMS_PATH, "albums"))
-                .lower()
+                and parent_dir.lower().startswith(
+                    os.path.join(settings.ALBUMS_PATH, "albums").lower()
+                )
             ):
                 print("Trying to create parent directory: ", parent_dir)
                 # If the parent directory is not found, create it
@@ -312,7 +314,14 @@ class IndexDirs(models.Model):
         """
         filetypes_dict = get_ftype_dict()
         d_files = self.files_in_dir()
-        totals = {key[1:]: d_files.filter(filetype__fileext=key).count() for key in filetypes_dict.keys()}
+
+        counts = d_files.values("filetype__fileext").annotate(count=Count("id"))
+        totals = {item["filetype__fileext"][1:]: item["count"] for item in counts}
+
+        for key in filetypes_dict.keys():
+            if key[1:] not in totals:
+                totals[key[1:]] = 0
+
         totals["dir"] = self.get_dir_counts()
         totals["all_files"] = self.get_file_counts()
         return totals
@@ -474,7 +483,7 @@ class IndexDirs(models.Model):
 INDEXDATA_PREFETCH_LIST = [
     "filetype",
     "new_ftnail",
-    # "home_directory",
+    "home_directory",
     # "IndexDirs_entries",
     # "dir_thumbnail",
     # "file_links",
@@ -678,7 +687,7 @@ class IndexData(models.Model):
         return dupes
 
     @staticmethod
-    def get_identical_file_entries_by_sha(sha: str):
+    def get_identical_file_entries_by_sha(sha: str) -> "QuerySet[dict[str, Any]]":
         """
         Get file entries for identical files based on SHA256 hash
         :param sha: The SHA256 hash of the file to search for
@@ -883,5 +892,6 @@ class IndexData(models.Model):
         indexes = [
             models.Index(fields=["home_directory", "delete_pending"]),
             models.Index(fields=["file_sha256", "delete_pending"]),
+            models.Index(fields=["unique_sha256", "delete_pending"]),
             models.Index(fields=["name"], name="quickbbs_indexdata_name_idx"),
         ]
