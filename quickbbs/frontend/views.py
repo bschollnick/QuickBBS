@@ -29,7 +29,7 @@ from django.http import (
 from django.shortcuts import render
 from django.views.decorators.vary import vary_on_headers
 from django_htmx.middleware import HtmxDetails
-from filetypes.models import load_filetypes
+# from filetypes.models import load_filetypes  # Now loaded via middleware
 from frontend.managers import build_context_info, layout_manager, layout_manager_cache
 from frontend.utilities import (
     SORT_MATRIX,
@@ -71,7 +71,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 #     )
 
 
-def return_prev_next2(directory, sorder) -> tuple:
+def return_prev_next2(directory, sorder: int) -> tuple[str | None, str | None]:
     """
     The return_prev_next function takes a fully qualified pathname,
     and the current path as parameters. It returns the previous and next paths in a tuple.
@@ -108,7 +108,7 @@ def return_prev_next2(directory, sorder) -> tuple:
     return (prevdir, nextdir)
 
 
-def thumbnail2_dir(request: WSGIRequest, dir_sha256: Optional[str] = None):
+def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):
     """
     The thumbnails function is used to serve the thumbnail memory image.
     It takes a request and an optional sha256 as arguments.
@@ -123,6 +123,12 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: Optional[str] = None):
     """
 
     def get_files_for_review(directory):
+        """
+        Get a list of image files in the directory for thumbnail generation.
+
+        :param directory: IndexDirs object representing the directory
+        :return: QuerySet of image files in the directory
+        """
         """
         Get a list of files in the directory for review.
         """
@@ -302,7 +308,7 @@ def new_viewgallery(request: WSGIRequest):
         print("full")
         template_name = "frontend/gallery/gallery_listing_complete.jinja"
 
-    load_filetypes()
+    # load_filetypes() - Now loaded via middleware, no per-request overhead
 
     start_time = time.perf_counter()  # time.time()
     request.path = request.path.lower().replace(os.sep, r"/")
@@ -458,8 +464,14 @@ def new_viewgallery(request: WSGIRequest):
     return response
 
 
-def process_thumbnail(sha256):
-    """Process a single thumbnail with proper Django database handling"""
+def process_thumbnail(sha256: str) -> tuple[bool, str, any]:
+    """
+    Process a single thumbnail with proper Django database handling.
+
+    :param sha256: SHA256 hash of the file to create thumbnail for
+    :return: Tuple of (success, sha256, thumbnail) where success is bool,
+             sha256 is the file hash, and thumbnail is the ThumbnailFiles object or None
+    """
     try:
         # Each thread needs its own database connection
         # Django handles this automatically when using transaction.atomic()
@@ -479,8 +491,15 @@ def process_thumbnail(sha256):
         connections.close_all()
 
 
-def process_thumbnails_threaded(layout, batchsize=100, max_workers=4):
-    """Process thumbnails using threaded multitasking"""
+def process_thumbnails_threaded(layout: dict, batchsize: int = 100, max_workers: int = 4) -> bool:
+    """
+    Process thumbnails using threaded multitasking for improved performance.
+
+    :param layout: Layout dictionary containing thumbnail information
+    :param batchsize: Number of thumbnails to process in batch (default: 100)
+    :param max_workers: Maximum number of worker threads (default: 4)
+    :return: True if any thumbnails were successfully updated, False otherwise
+    """
     no_thumbs = layout["no_thumbnails"][0:batchsize]
     if not no_thumbs:
         return False

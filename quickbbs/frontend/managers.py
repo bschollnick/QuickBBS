@@ -40,7 +40,13 @@ layout_manager_cache = LRUCache(maxsize=500)
 build_context_info_cache = LRUCache(maxsize=500)
 
 
-def get_file_text_encoding(filename):
+def get_file_text_encoding(filename: str) -> str:
+    """
+    Detect the text encoding of a file.
+
+    :param filename: Path to the file to analyze
+    :return: Detected encoding string, defaults to 'utf-8' if detection fails
+    """
     with open(filename, "rb") as f:
         raw_data = f.read()
         result = charset_normalizer.from_bytes(raw_data)
@@ -50,19 +56,16 @@ def get_file_text_encoding(filename):
 
 
 @cached(build_context_info_cache)
-def build_context_info(request: WSGIRequest, unique_file_sha256: str):
+def build_context_info(request: WSGIRequest, unique_file_sha256: str) -> dict | HttpResponseBadRequest:
     """
-    Create the JSON package for item view.  All Json *item* requests come here to
-    get their data.
+    Build context information for item view.
 
-    Parameters
-    ----------
-    request : Django requests object
-    file_sha256 : The SHA256 hash of the item to get the information on.
+    All item view requests use this function to gather file metadata,
+    navigation information, and rendering context.
 
-    Returns
-    -------
-    JsonResponse : The Json response from the web query.
+    :param request: Django WSGIRequest object
+    :param unique_file_sha256: The unique SHA256 hash of the item
+    :return: Dictionary containing context data or HttpResponseBadRequest on error
     """
     if not unique_file_sha256:
         return HttpResponseBadRequest(content="No SHA256 provided.")
@@ -170,10 +173,19 @@ def build_context_info(request: WSGIRequest, unique_file_sha256: str):
 
 
 @cached(layout_manager_cache)
-def layout_manager(page_number=0, directory=None, sort_ordering=None):
+def layout_manager(page_number: int = 0, directory=None, sort_ordering: int | None = None) -> dict:
     """
-    Optimized layout manager with better performance and readability.
-    Used by the new_viewgallery function to manage pagination and data retrieval.
+    Manage gallery layout with pagination and data retrieval.
+
+    Optimized layout manager that handles directory and file pagination,
+    calculating which items appear on each page.
+
+    :param page_number: Current page number (0-indexed)
+    :param directory: IndexDirs object representing the directory to layout
+    :param sort_ordering: Sort order to apply (0-2)
+    :return: Dictionary containing pagination data, file/directory lists per page,
+             and thumbnails needing generation
+    :raises ValueError: If directory parameter is None
     """
     start_time = time.perf_counter()
     if directory is None:

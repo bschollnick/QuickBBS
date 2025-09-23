@@ -41,11 +41,14 @@
                   {% endif %}
                 </a>
                 <div class="navbar-dropdown is-boxed is-right">
-                    <a class="navbar-item" href="/Admin">Administrator Access</a>
+                    <a class="navbar-item" href="/Admin" hx-boost="false">Administrator Access</a>
                     <hr class="navbar-divider">
-                    <a class="navbar-item" href="/Admin/password_change">Password Change</a>
+                    <a class="navbar-item" href="/Admin/password_change" hx-boost="false">Password Change</a>
                     <hr class="navbar-divider">
-                    <a class="navbar-item" href="/Admin/logout">Logout</a>
+                    <form method="post" action="/Admin/logout/" style="margin: 0;" hx-boost="false">
+                      {% csrf_token %}
+                      <button type="submit" class="navbar-item" style="width: 100%; text-align: left; background: none; border: none; cursor: pointer; padding: 0.5rem 1rem;">Logout</button>
+                    </form>
                 </div>
             </div>
     

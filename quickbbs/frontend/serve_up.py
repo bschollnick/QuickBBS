@@ -15,12 +15,17 @@ from django.views.static import serve
 from ranged_fileresponse import RangedFileResponse
 
 
-def static_or_resources(request, pathstr=None):
+def static_or_resources(request, pathstr: str | None = None):
     """
-    Alternative approach better suited for development environments.
+    Serve static or resource files from configured directories.
 
     Uses Django's staticfiles finders which can locate files from multiple
     static directories (including app-specific static folders).
+
+    :param request: Django request object
+    :param pathstr: Path to the static or resource file
+    :return: FileResponse containing the requested file
+    :raises Http404: If the file is not found in static or resources directories
     """
     if pathstr is None:
         raise Http404("No path specified")
@@ -43,30 +48,29 @@ def static_or_resources(request, pathstr=None):
 
 
 def send_file_response(
-    filename,
+    filename: str,
     content_to_send,
-    mtype,
-    attachment,
+    mtype: str,
+    attachment: bool,
     last_modified,
-    expiration=300,
+    expiration: int = 300,
     request=None,
 ):
     """
-        Output a http response header, for an image attachment.
+    Send a file response with appropriate headers and caching.
 
-    Args:
+    :param filename: Name of the file to send
+    :param content_to_send: File handle or bytes-like object to send
+    :param mtype: MIME type of the file
+    :param attachment: Whether to send as attachment (download) or inline
+    :param last_modified: Last modified timestamp for the file
+    :param expiration: Cache expiration time in seconds (default: 300)
+    :param request: Optional Django request object for range requests
+    :return: FileResponse or RangedFileResponse with the file content
 
-        Returns:
-            object::
-                The Django response object that contains the attachment and header
-
-        Raises:
-            None
-
-        Examples
-        --------
-        send_thumbnail()
-
+    Note:
+        The file handle passed in content_to_send will be closed automatically
+        by the response object. Do not use context managers for file handles.
     """
     if not request:
         response = FileResponse(

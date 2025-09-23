@@ -49,13 +49,26 @@ class watchdog_monitor:
     a rescan is performed.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
+        """Initialize the watchdog monitor."""
         pass
 
-    def on_event(self, event):
+    def on_event(self, event) -> None:
+        """Handle filesystem events.
+
+        :param event: Filesystem event to process
+        :return: None
+        """
         pass
 
-    def startup(self, monitor_path, event_handler=None):
+    def startup(self, monitor_path: str, event_handler=None) -> None:
+        """
+        Start the watchdog observer to monitor filesystem changes.
+
+        :param monitor_path: Path to monitor for filesystem changes
+        :param event_handler: Event handler to process filesystem events
+        :return: None
+        """
         logger.info(f"Monitoring : {monitor_path}")
         self.my_event_handler = event_handler
         go_recursively = True
@@ -65,7 +78,13 @@ class watchdog_monitor:
         )
         self.my_observer.start()
 
-    def shutdown(self, *args):
+    def shutdown(self, *args) -> None:
+        """
+        Shutdown the watchdog observer.
+
+        :param args: Variable arguments for shutdown handling
+        :return: None
+        """
         if os.environ.get("RUN_MAIN") == "true":
             logger.info("Shutting down")
             self.my_observer.stop()

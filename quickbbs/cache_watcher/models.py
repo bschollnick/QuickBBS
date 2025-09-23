@@ -1,9 +1,15 @@
-"""
-Models for the Cache Watchers for QuickBBS, optimized for performance.
-This is a simple cache watcher that will monitor the directories and files
-in the albums directory and all subdirectories for changes. When a change is detected,
-the directory will be removed from the Cache_Storage table, which will cause it to be rescanned
-if that directory is accessed.
+"""Cache Watcher Models for QuickBBS.
+
+Provides filesystem monitoring and cache invalidation for the QuickBBS gallery application.
+Uses Watchdog to monitor the albums directory for changes and automatically invalidates
+affected cache entries to ensure data consistency.
+
+Key Components:
+    - WatchdogManager: Manages the watchdog process with automatic restarts every 4 hours
+    - CacheFileMonitorEventHandler: Batches filesystem events for efficient processing
+    - fs_Cache_Tracking: Database model for tracking cache invalidation state
+
+The system buffers events for 5 seconds before processing to handle bulk operations efficiently.
 """
 
 import hashlib
@@ -15,6 +21,9 @@ import threading
 import time
 from collections import defaultdict
 from functools import lru_cache
+from typing import Any, Optional
+
+from watchdog.events import FileSystemEvent
 
 from cache_watcher.watchdogmon import watchdog
 from cachetools.keys import hashkey
@@ -35,8 +44,7 @@ Cache_Storage = None
 event_buffer = defaultdict(int)
 event_buffer_lock = threading.Lock()
 EVENT_PROCESSING_DELAY = 5  # seconds
-# WATCHDOG_RESTART_INTERVAL = 12 * 60 * 60  # 12 hours in seconds
-WATCHDOG_RESTART_INTERVAL = 0.5 * 60 * 60  # 30 minutes in seconds
+WATCHDOG_RESTART_INTERVAL = 4 * 60 * 60  # 4 hours in seconds
 
 # Global watchdog restart timer
 watchdog_restart_timer = None
@@ -46,15 +54,15 @@ watchdog_restart_lock = threading.Lock()
 class WatchdogManager:
     """Manages periodic restart of the watchdog process"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.restart_timer = None
         self.lock = threading.Lock()
         self.monitor_path = os.path.join(settings.ALBUMS_PATH, "albums")
         self.event_handler = None
         self.is_running = False
 
-    def start(self):
-        """Start the watchdog with periodic restart capability"""
+    def start(self) -> None:
+        """Start the watchdog with periodic restart capability."""
         with self.lock:
             if not self.is_running:
                 logger.debug("Starting watchdog...")
@@ -75,8 +83,8 @@ class WatchdogManager:
             else:
                 logger.info("Watchdog already running")
 
-    def stop(self):
-        """Stop the watchdog but don't cancel restart timer during restart process"""
+    def stop(self) -> None:
+        """Stop the watchdog but don't cancel restart timer during restart process."""
         with self.lock:
             if self.is_running:
                 try:
@@ -86,8 +94,8 @@ class WatchdogManager:
                 except Exception as e:
                     logger.error(f"Error stopping watchdog: {e}")
 
-    def shutdown(self):
-        """Complete shutdown - stop watchdog and cancel restart timer"""
+    def shutdown(self) -> None:
+        """Complete shutdown - stop watchdog and cancel restart timer."""
         with self.lock:
             if self.restart_timer:
                 self.restart_timer.cancel()
@@ -101,8 +109,8 @@ class WatchdogManager:
                 except Exception as e:
                     logger.error(f"Error stopping watchdog: {e}")
 
-    def restart(self):
-        """Restart the watchdog process and schedule the next restart"""
+    def restart(self) -> None:
+        """Restart the watchdog process and schedule the next restart."""
         logger.info("Performing scheduled watchdog restart")
         restart_successful = False
 
@@ -124,8 +132,8 @@ class WatchdogManager:
             with self.lock:
                 self._schedule_restart()
 
-    def _schedule_restart(self):
-        """Schedule the next restart - must be called while holding self.lock"""
+    def _schedule_restart(self) -> None:
+        """Schedule the next restart - must be called while holding self.lock."""
         try:
             # Cancel existing timer if it exists
             if self.restart_timer:
@@ -167,25 +175,29 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
     Event Handler for the Watchdog Monitor for QuickBBS, optimized to batch process events.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.event_timer = None
         self.timer_lock = threading.Lock()
 
-    def on_created(self, event):
+    def on_created(self, event: FileSystemEvent) -> None:
+        """Handle file/directory creation events."""
         self._buffer_event(event)
 
-    def on_deleted(self, event):
+    def on_deleted(self, event: FileSystemEvent) -> None:
+        """Handle file/directory deletion events."""
         self._buffer_event(event)
 
-    def on_modified(self, event):
+    def on_modified(self, event: FileSystemEvent) -> None:
+        """Handle file/directory modification events."""
         self._buffer_event(event)
 
-    def on_moved(self, event):
+    def on_moved(self, event: FileSystemEvent) -> None:
+        """Handle file/directory move events."""
         self._buffer_event(event)
 
-    def _buffer_event(self, event):
-        """Buffer events to process them in batches"""
+    def _buffer_event(self, event: FileSystemEvent) -> None:
+        """Buffer events to process them in batches."""
         try:
             if event.is_directory:
                 dirpath = os.path.normpath(event.src_path)
@@ -209,8 +221,8 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
         except Exception as e:
             logger.error(f"Error buffering event {event.src_path}: {e}")
 
-    def _process_buffered_events(self):
-        """Process all buffered events at once"""
+    def _process_buffered_events(self) -> None:
+        """Process all buffered events at once."""
         paths_to_process = []
 
         #       try:
@@ -255,8 +267,11 @@ class fs_Cache_Tracking(models.Model):
         ]
 
     @staticmethod
-    def clear_all_records():
-        """Mark all records as invalidated"""
+    def clear_all_records() -> int:
+        """Mark all records as invalidated.
+
+        :return: Number of records invalidated
+        """
         try:
             updated_count = fs_Cache_Tracking.objects.all().update(invalidated=True)
             logger.info(f"Invalidated {updated_count} cache records")
@@ -265,8 +280,12 @@ class fs_Cache_Tracking(models.Model):
             logger.error(f"Error clearing all cache records: {e}")
             return 0
 
-    def add_to_cache(self, DirName):
-        """Add or update a directory in the cache"""
+    def add_to_cache(self, DirName: str) -> Optional["fs_Cache_Tracking"]:
+        """Add or update a directory in the cache.
+
+        :param DirName: The fully qualified pathname of the directory
+        :return: The cache tracking entry or None if error occurred
+        """
         try:
             dir_sha = get_dir_sha(DirName)
             scan_time = time.time()
@@ -289,8 +308,12 @@ class fs_Cache_Tracking(models.Model):
             logger.error(f"Error adding {DirName} to cache: {e}")
             return None
 
-    def sha_exists_in_cache(self, sha256):
-        """Check if a directory SHA exists in cache and is not invalidated"""
+    def sha_exists_in_cache(self, sha256: str) -> bool:
+        """Check if a directory SHA exists in cache and is not invalidated.
+
+        :param sha256: The SHA256 hash of the directory
+        :return: True if SHA exists and is not invalidated, False otherwise
+        """
         try:
             return fs_Cache_Tracking.objects.filter(
                 directory_sha256=sha256, invalidated=False
@@ -299,8 +322,12 @@ class fs_Cache_Tracking(models.Model):
             logger.error(f"Error checking SHA existence in cache: {e}")
             return False
 
-    def remove_from_cache_sha(self, sha256):
-        """Remove a directory from cache by SHA256"""
+    def remove_from_cache_sha(self, sha256: str) -> bool:
+        """Remove a directory from cache by SHA256.
+
+        :param sha256: The SHA256 hash of the directory
+        :return: True if successfully removed, False otherwise
+        """
         try:
             from frontend.views import layout_manager, layout_manager_cache
             from quickbbs.models import IndexDirs
@@ -338,8 +365,12 @@ class fs_Cache_Tracking(models.Model):
             logger.error(f"Error removing SHA {sha256} from cache: {e}")
             return False
 
-    def remove_from_cache_name(self, DirName):
-        """Remove a directory from cache by name"""
+    def remove_from_cache_name(self, DirName: str) -> bool:
+        """Remove a directory from cache by name.
+
+        :param DirName: The fully qualified pathname of the directory
+        :return: True if successfully removed, False otherwise
+        """
         try:
             sha256 = get_dir_sha(DirName)
             return self.remove_from_cache_sha(sha256)
@@ -347,8 +378,12 @@ class fs_Cache_Tracking(models.Model):
             logger.error(f"Error removing {DirName} from cache: {e}")
             return False
 
-    def remove_multiple_from_cache(self, dir_names):
-        """Remove multiple directories from cache in a single transaction"""
+    def remove_multiple_from_cache(self, dir_names: list[str]) -> bool:
+        """Remove multiple directories from cache in a single transaction.
+
+        :param dir_names: List of directory paths to remove from cache
+        :return: True if any entries were invalidated, False otherwise
+        """
         if not dir_names:
             return False
         #
@@ -356,17 +391,20 @@ class fs_Cache_Tracking(models.Model):
         from frontend.views import layout_manager, layout_manager_cache
         from quickbbs.models import IndexDirs
 
-        close_old_connections()
-        # Convert all directory names to SHA256 hashes
-        sha_list = list(set([get_dir_sha(dir_name) for dir_name in dir_names]))
+        # Convert all directory names to SHA256 hashes (deduplicate first for efficiency)
+        sha_list = [get_dir_sha(path) for path in set(dir_names)]
 
         if not sha_list:
             return False
 
         logger.info(f"Removing {len(sha_list)} directories from cache")
 
-        # Get affected directories
-        directories = list(IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list))
+        # Get affected directories (only load fields needed for cache clearing)
+        directories = list(
+            IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list).only(
+                "dir_fqpn_sha256", "id", "fqpndirectory"
+            )
+        )
         fqpn_by_dir_sha = {d.dir_fqpn_sha256: d for d in directories}
 
         # Update cache entries in a single transaction
@@ -379,22 +417,16 @@ class fs_Cache_Tracking(models.Model):
         if update_count > 0:
             for sha in set(sha_list) & fqpn_by_dir_sha.keys():
                 self._clear_layout_cache(fqpn_by_dir_sha[sha])
-#            for sha in sha_list:
-#                if sha in fqpn_by_dir_sha:
-#                    self._clear_layout_cache(fqpn_by_dir_sha[sha])
 
             logger.info(f"Successfully invalidated {update_count} cache entries")
 
         return update_count > 0
 
-        # except Exception as e:
-        #     logger.error(f"Error in remove_multiple_from_cache: {e}")
-        #     return False
-        #       finally:
-        close_old_connections()
+    def _clear_layout_cache(self, directory: Any) -> None:
+        """Clear layout cache for a specific directory.
 
-    def _clear_layout_cache(self, directory):
-        """Clear layout cache for a specific directory"""
+        :param directory: The IndexDirs object for the directory
+        """
         try:
             from frontend.views import layout_manager, layout_manager_cache
 
@@ -412,30 +444,14 @@ class fs_Cache_Tracking(models.Model):
             logger.error(f"Error clearing layout cache for directory: {e}")
 
 
-# Application startup/shutdown hooks
-class CacheWatcherConfig(AppConfig):
-    """Django app configuration for cache watcher"""
-
-    default_auto_field = "django.db.models.BigAutoField"
-    name = "cache_watcher"
-
-    def ready(self):
-        """Start watchdog when Django app is ready"""
-        try:
-            watchdog_manager.start()
-        except Exception as e:
-            logger.error(f"Failed to start watchdog manager: {e}")
+# Application startup/shutdown hooks removed - handled in apps.py
 
 
-def shutdown_watchdog():
-    """Graceful shutdown function - call this when the application shuts down"""
+def shutdown_watchdog() -> None:
+    """Graceful shutdown function - call this when the application shuts down."""
     logger.info("Shutting down watchdog manager...")
     watchdog_manager.stop()
 
 
-# Initialize watchdog (kept for backward compatibility)
-# Consider removing this in favor of the app config approach
-try:
-    watchdog_manager.start()
-except Exception as e:
-    logger.error(f"Failed to initialize watchdog: {e}")
+# Watchdog initialization removed - now handled exclusively by apps.py
+# This prevents duplicate startup attempts

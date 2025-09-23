@@ -13,7 +13,11 @@ except ImportError:
 
 
 class VideoBackend(AbstractBackend):
-    """FFMPEG backend for cross-platform image processing."""
+    """FFMPEG backend for video thumbnail generation.
+
+    Uses ffmpeg-python to extract frames from video files and processes
+    them using the PIL backend for thumbnail generation.
+    """
 
     def process_from_file(
         self,
@@ -22,6 +26,15 @@ class VideoBackend(AbstractBackend):
         output_format: str,
         quality: int,
     ) -> dict[str, bytes]:
+        """
+        Process video file and generate thumbnails.
+
+        :param file_path: Path to video file
+        :param sizes: Dictionary mapping size names to (width, height) tuples
+        :param output_format: Output format (JPEG, PNG, WEBP)
+        :param quality: Image quality (1-100)
+        :return: Dictionary with 'duration', 'format', and size-keyed thumbnail bytes
+        """
         output = {}
         video_data = _get_video_info(file_path)
         output["duration"] = video_data["duration"]
@@ -45,6 +58,15 @@ class VideoBackend(AbstractBackend):
         output_format: str,
         quality: int,
     ) -> dict[str, bytes]:
+        """
+        Process image from memory and generate thumbnails.
+
+        :param image_bytes: Image data as bytes
+        :param sizes: Dictionary mapping size names to (width, height) tuples
+        :param output_format: Output format (JPEG, PNG, WEBP)
+        :param quality: Image quality (1-100)
+        :return: Dictionary mapping size names to thumbnail bytes
+        """
         with Image.open(io.BytesIO(image_bytes)) as img:
             return self._process_pil_image(img, sizes, output_format, quality)
 
@@ -55,24 +77,32 @@ class VideoBackend(AbstractBackend):
         output_format: str,
         quality: int,
     ) -> dict[str, bytes]:
+        """
+        Process PIL Image object and generate thumbnails.
+
+        :param pil_image: PIL Image object to process
+        :param sizes: Dictionary mapping size names to (width, height) tuples
+        :param output_format: Output format (JPEG, PNG, WEBP)
+        :param quality: Image quality (1-100)
+        :return: Dictionary mapping size names to thumbnail bytes
+        """
         img_copy = pil_image.copy()
         return self._process_pil_image(img_copy, sizes, output_format, quality)
 
 
 def _generate_thumbnail_to_pil(
-    video_path, time_offset="00:00:10", width=320, height=240
-):
+    video_path: str, time_offset: str | int = "00:00:10", width: int = 320, height: int = 240
+) -> Image.Image:
     """
     Generate a thumbnail from a video file and return it as a PIL Image.
 
-    Args:
-        video_path (str): Path to the input video file
-        time_offset (str): Time position to capture thumbnail (format: HH:MM:SS)
-        width (int): Thumbnail width in pixels
-        height (int): Thumbnail height in pixels
-
-    Returns:
-        PIL.Image: PIL Image object
+    :param video_path: Path to the input video file
+    :param time_offset: Time position to capture thumbnail (format: HH:MM:SS or seconds as int)
+    :param width: Thumbnail width in pixels
+    :param height: Thumbnail height in pixels
+    :return: PIL Image object of the video frame
+    :raises FileNotFoundError: If video file doesn't exist
+    :raises Exception: If ffmpeg processing fails
     """
     video_path = Path(video_path)
 
@@ -152,15 +182,13 @@ def _generate_thumbnail_to_pil(
 #     return thumbnails
 
 
-def _get_video_info(video_path):
+def _get_video_info(video_path: str) -> dict[str, any]:
     """
     Get basic information about a video file.
 
-    Args:
-        video_path (str): Path to the video file
-
-    Returns:
-        dict: Video information
+    :param video_path: Path to the video file
+    :return: Dictionary containing video metadata (duration, width, height, fps, codec, format)
+    :raises Exception: If ffmpeg probe fails
     """
     try:
         probe = ffmpeg.probe(str(video_path))
@@ -187,17 +215,15 @@ def _get_video_info(video_path):
         raise Exception(f"Error getting video info: {e}")
 
 
-def _pil_to_binary(image, format="JPEG", quality=85):
+def _pil_to_binary(image: Image.Image, format: str = "JPEG", quality: int = 85) -> bytes:
     """
-    Convert PIL Image to binary data when needed.
+    Convert PIL Image to binary data.
 
-    Args:
-        image (PIL.Image): PIL Image object
-        format (str): Output format ('JPEG', 'PNG', 'WEBP')
-        quality (int): Quality for JPEG/WEBP (1-100)
-
-    Returns:
-        bytes: Binary image data
+    :param image: PIL Image object to convert
+    :param format: Output format (JPEG, PNG, or WEBP)
+    :param quality: Quality for JPEG/WEBP (1-100)
+    :return: Binary image data as bytes
+    :raises ValueError: If unsupported format is specified
     """
     output_buffer = io.BytesIO()
 

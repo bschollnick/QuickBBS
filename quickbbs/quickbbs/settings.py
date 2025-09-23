@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/1.9/ref/settings/
 """
 
+import logging
 import os
 import socket
 from pathlib import Path
@@ -17,13 +18,16 @@ from pathlib import Path
 import humanize
 from django_htmx.jinja import django_htmx_script
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 from quickbbs.quickbbs_settings import *
 
 #
 #   Debug, enables the debugging mode
 #
 DEBUG = False
-DEBUG = not DEBUG
+# DEBUG = not DEBUG
 print(f"* Debug Mode is {DEBUG}")
 
 #   Django Debug Toolbar, is controlled separately from the debug mode,
@@ -33,7 +37,7 @@ print(f"* Debug Mode is {DEBUG}")
 DEBUG_TOOLBAR = False
 print(f"* Debug-toolbar is {DEBUG_TOOLBAR}")
 
-SECURE_SSL_REDIRECT = True
+SECURE_SSL_REDIRECT = False  # Temporarily disabled to debug static file loading
 
 # Demo mode, redirects the database to a different database container, and album path.
 # Useful for demonstrating the software without using your master database.
@@ -145,15 +149,16 @@ SESSION_ENGINE = "django.contrib.sessions.backends.cached_db"
 MIDDLEWARE = [
     "allauth.account.middleware.AccountMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "filetypes.middleware.FiletypeLoaderMiddleware",  # Load filetypes once per worker
     "django.middleware.cache.UpdateCacheMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "compression_middleware.middleware.CompressionMiddleware",
     "django.middleware.http.ConditionalGetMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.cache.FetchFromCacheMiddleware",
-    "django.middleware.csrf.CsrfViewMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "django_user_agents.middleware.UserAgentMiddleware",
     "django_htmx.middleware.HtmxMiddleware",
@@ -257,21 +262,21 @@ DATABASES = {
         "PASSWORD": "hentai2020",
         "HOST": "localhost",
         "PORT": "5432",
-        "CONN_MAX_AGE": 0,
-        "OPTIONS": {
-            "pool": {
-                "min_size": 1,
-                "max_size": 125,
-                "max_lifetime": 120,
-                "max_idle": 60,
-                "timeout": 130,
-                #'check': False,
-                # 'configure': None,
-                #'reset': None,
-                # 'reconnect_failed': None,
-                # 'connection_class': None,
-            },
-        },
+        "CONN_MAX_AGE": 60,  # Keep connections alive for 60 seconds
+        # "OPTIONS": {
+        #     "pool": {
+        #         "min_size": 1,
+        #         "max_size": 125,
+        #         "max_lifetime": 120,
+        #         "max_idle": 60,
+        #         "timeout": 130,
+        #         #'check': False,
+        #         # 'configure': None,
+        #         #'reset': None,
+        #         # 'reconnect_failed': None,
+        #         # 'connection_class': None,
+        #     },
+        # },
     }
 }
 
@@ -316,7 +321,9 @@ STATICFILES_DIRS = [
     RESOURCES_PATH,
 ]
 
-STATICFILES_STORAGE = "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"
+# STATICFILES_STORAGE = "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"
+# Using default StaticFilesStorage to avoid manifest issues
+# STATICFILES_STORAGE = "django.contrib.staticfiles.storage.StaticFilesStorage"
 
 ACCOUNT_AUTHENTICATED_LOGIN_REDIRECTS = True
 ACCOUNT_LOGOUT_REDIRECT_URL = "/albums"
@@ -371,22 +378,45 @@ LOGGING = {
             "format": "{levelname} {asctime} {module} {process:d} {thread:d} {message}",
             "style": "{",
         },
+        "simple": {
+            "format": "{levelname} {asctime} {message}",
+            "style": "{",
+        },
     },
     "handlers": {
-        "file": {
+        "rotating_file": {
             "level": "INFO",
-            "class": "logging.FileHandler",
-            "filename": os.path.join(BASE_DIR, "django.log"),
+            "class": "logging.handlers.TimedRotatingFileHandler",
+            "filename": os.path.join(BASE_DIR, "logs", "django.log"),
+            "when": "midnight",
+            "interval": 1,
+            "backupCount": 30,
             "formatter": "verbose",
+            "encoding": "utf-8",
+        },
+        "console": {
+            "level": "INFO",
+            "class": "logging.StreamHandler",
+            "formatter": "simple",
         },
     },
     "root": {
-        "handlers": ["file"],
+        "handlers": ["rotating_file", "console"],
         "level": "INFO",
     },
     "loggers": {
         "django": {
-            "handlers": ["file"],
+            "handlers": ["rotating_file", "console"],  # Both handlers
+            "level": "INFO",
+            "propagate": False,
+        },
+        "django.request": {
+            "handlers": ["rotating_file", "console"],  # Both handlers
+            "level": "WARNING",
+            "propagate": False,
+        },
+        "myapp": {
+            "handlers": ["rotating_file", "console"],  # Both handlers
             "level": "INFO",
             "propagate": False,
         },
