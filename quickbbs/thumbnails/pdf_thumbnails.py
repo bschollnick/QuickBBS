@@ -12,7 +12,11 @@ except ImportError:
 
 
 class PDFBackend(AbstractBackend):
-    """PyMuPDF backend for PDF thumbnail generation."""
+    """PyMuPDF backend for PDF thumbnail generation.
+
+    Uses PyMuPDF (fitz) to render PDF pages as images, then processes
+    them using the PIL backend for thumbnail generation.
+    """
 
     def process_from_file(
         self,
@@ -82,13 +86,13 @@ class PDFBackend(AbstractBackend):
         """
         Process PDF bytes and generate thumbnails.
 
-        Args:
-            pdf_bytes: PDF file as bytes
-            sizes: Dictionary of size names to (width, height) tuples
-            output_format: Output format (JPEG, PNG, WEBP)
-            quality: Image quality (1-100)
-            page_num: Page number to use for thumbnail (0-indexed)
-            zoom: Zoom level for rendering (higher = better quality)
+        :param pdf_bytes: PDF file as bytes
+        :param sizes: Dictionary of size names to (width, height) tuples
+        :param output_format: Output format (JPEG, PNG, WEBP)
+        :param quality: Image quality (1-100)
+        :param page_num: Page number to use for thumbnail (0-indexed, default: 0)
+        :param zoom: Zoom level for rendering (higher = better quality, default: 2.0)
+        :return: Dictionary mapping size names to thumbnail bytes
         """
         try:
             pdf_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -130,11 +134,11 @@ class PDFBackend(AbstractBackend):
         """
         Process a PIL Image and generate thumbnails.
 
-        Args:
-            pil_image: PIL Image object
-            sizes: Dictionary of size names to (width, height) tuples
-            output_format: Output format (JPEG, PNG, WEBP)
-            quality: Image quality (1-100)
+        :param pil_image: PIL Image object
+        :param sizes: Dictionary of size names to (width, height) tuples
+        :param output_format: Output format (JPEG, PNG, WEBP)
+        :param quality: Image quality (1-100)
+        :raises NotImplementedError: PDF processing from PIL Image is not supported
         """
         raise NotImplementedError("PDF processing from PIL Image is not implemented.")
 

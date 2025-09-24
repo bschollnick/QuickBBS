@@ -9,7 +9,11 @@ except ImportError:
 
 
 class ImageBackend(AbstractBackend):
-    """PIL/Pillow backend for cross-platform image processing."""
+    """PIL/Pillow backend for cross-platform image processing.
+
+    Provides image thumbnail generation using the PIL/Pillow library,
+    supporting multiple output formats and sizes.
+    """
 
     def process_from_file(
         self,
@@ -18,6 +22,15 @@ class ImageBackend(AbstractBackend):
         output_format: str,
         quality: int,
     ) -> dict[str, bytes]:
+        """
+        Process image file and generate thumbnails.
+
+        :param file_path: Path to the image file
+        :param sizes: Dictionary mapping size names to (width, height) tuples
+        :param output_format: Output format (JPEG, PNG, WEBP)
+        :param quality: Image quality (1-100)
+        :return: Dictionary mapping size names to thumbnail bytes
+        """
         with Image.open(file_path) as img:
             return self._process_pil_image(img, sizes, output_format, quality)
 
@@ -28,6 +41,15 @@ class ImageBackend(AbstractBackend):
         output_format: str,
         quality: int,
     ) -> dict[str, bytes]:
+        """
+        Process image from memory and generate thumbnails.
+
+        :param image_bytes: Image data as bytes
+        :param sizes: Dictionary mapping size names to (width, height) tuples
+        :param output_format: Output format (JPEG, PNG, WEBP)
+        :param quality: Image quality (1-100)
+        :return: Dictionary mapping size names to thumbnail bytes
+        """
         with Image.open(io.BytesIO(image_bytes)) as img:
             return self._process_pil_image(img, sizes, output_format, quality)
 
@@ -38,6 +60,15 @@ class ImageBackend(AbstractBackend):
         output_format: str,
         quality: int,
     ) -> dict[str, bytes]:
+        """
+        Process PIL Image object and generate thumbnails.
+
+        :param pil_image: PIL Image object to process
+        :param sizes: Dictionary mapping size names to (width, height) tuples
+        :param output_format: Output format (JPEG, PNG, WEBP)
+        :param quality: Image quality (1-100)
+        :return: Dictionary mapping size names to thumbnail bytes
+        """
         img_copy = pil_image.copy()
         return self._process_pil_image(img_copy, sizes, output_format, quality)
 
@@ -48,6 +79,18 @@ class ImageBackend(AbstractBackend):
         output_format: str,
         quality: int,
     ) -> dict[str, bytes]:
+        """
+        Internal method to process PIL image and generate thumbnails.
+
+        Handles color space conversion, EXIF orientation, and creates
+        thumbnails in multiple sizes with appropriate compression.
+
+        :param img: PIL Image object to process
+        :param sizes: Dictionary mapping size names to (width, height) tuples
+        :param output_format: Output format (JPEG, PNG, WEBP)
+        :param quality: Image quality (1-100)
+        :return: Dictionary mapping size names to thumbnail bytes
+        """
         results = {}
 
         # Convert to RGB if necessary

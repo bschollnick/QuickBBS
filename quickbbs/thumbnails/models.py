@@ -48,7 +48,7 @@ __license__ = "TBD"
 
 
 ThumbnailFiles_Prefetch_List = [
-    "IndexData",
+    "IndexData__filetype",
 ]
 
 
@@ -87,14 +87,15 @@ class ThumbnailFiles(models.Model):
         """
         Get or create a thumbnail record for a file.
 
-        :param file_sha256: The sha256 hash of the file to retrieve or create a thumbnail for
-        :param suppress_save: If True, do not save the thumbnail after creation (default: False)
+        :Args:
+            file_sha256: The sha256 hash of the file to retrieve or create a thumbnail for
+            suppress_save: If True, do not save the thumbnail after creation (default: False)
+
         :return: ThumbnailFiles object, either retrieved from database or newly created
         """
 
         from quickbbs.models import IndexData
 
-        make_link = False
         defaults = {
             "sha256_hash": file_sha256,
             "small_thumb": b"",
@@ -106,27 +107,20 @@ class ThumbnailFiles(models.Model):
                 *ThumbnailFiles_Prefetch_List
             ).get_or_create(sha256_hash=file_sha256, defaults=defaults)
 
-            if thumbnail.IndexData.all().exists():
-                # Reverse lookup to get the first IndexData model that matches this sha256
-                #           print("Found IndexData item for sha256:")
-                index_data_item = thumbnail.IndexData.first()
+            # Use prefetched data to avoid additional queries
+            prefetched_indexdata = list(thumbnail.IndexData.all())
+
+            if prefetched_indexdata:
+                index_data_item = prefetched_indexdata[0]
+                make_link = any(item.new_ftnail_id is None for item in prefetched_indexdata)
             else:
-                # Go the long way around to get the IndexData item, presumably there are no
-                # active IndexData items that match this sha256, so we will just get the first one
-                #            print("No active IndexData items found, Going the long way around:")
-                index_data_item = IndexData.objects.filter(
+                index_data_item = IndexData.objects.select_related('filetype').filter(
                     file_sha256=file_sha256
                 ).first()
                 make_link = True
 
-            make_link = (
-                make_link
-                or created
-                or IndexData.objects.filter(
-                    file_sha256=file_sha256, new_ftnail__isnull=True
-                ).exists()
-            )
-            # filename = os.path.join(index_data_item.fqpndirectory, index_data_item.name)
+            make_link = make_link or created
+
             filename = index_data_item.full_filepathname
             filetype = index_data_item.filetype
 
@@ -134,14 +128,13 @@ class ThumbnailFiles(models.Model):
                 thumbnail.save()
                 IndexData.objects.filter(
                     file_sha256=file_sha256,
-                    new_ftnail__isnull=True,  # Only update if not already set
+                    new_ftnail__isnull=True,
                 ).update(new_ftnail=thumbnail)
 
             if thumbnail.thumbnail_exists():
                 return thumbnail
             else:
                 if filetype.is_image:
-                    # If the file is an image, we can create the thumbnail
                     thumbnails = create_thumbnails_from_path(
                         filename, settings.IMAGE_SIZE, output="JPEG", backend="image"
                     )
@@ -155,7 +148,6 @@ class ThumbnailFiles(models.Model):
                     )
                 else:
                     print("Unable to create thumbnails for this file type.")
-                    # If the file is not an image, movie, or pdf, we cannot create a thumbnail
                     thumbnails = {
                         "small": b"",
                         "medium": b"",
@@ -164,9 +156,7 @@ class ThumbnailFiles(models.Model):
                 thumbnail.small_thumb = thumbnails["small"]
                 thumbnail.medium_thumb = thumbnails["medium"]
                 thumbnail.large_thumb = thumbnails["large"]
-                if suppress_save:
-                    pass
-                else:
+                if not suppress_save:
                     thumbnail.save(
                         update_fields=["small_thumb", "medium_thumb", "large_thumb"]
                     )
