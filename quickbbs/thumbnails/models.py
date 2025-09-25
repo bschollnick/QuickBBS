@@ -96,13 +96,14 @@ class ThumbnailFiles(models.Model):
 
         from quickbbs.models import IndexData
 
-        defaults = {
-            "sha256_hash": file_sha256,
-            "small_thumb": b"",
-            "medium_thumb": b"",
-            "large_thumb": b"",
-        }
+        # Phase 1: Database operations only (inside transaction)
         with transaction.atomic():
+            defaults = {
+                "sha256_hash": file_sha256,
+                "small_thumb": b"",
+                "medium_thumb": b"",
+                "large_thumb": b"",
+            }
             thumbnail, created = ThumbnailFiles.objects.prefetch_related(
                 *ThumbnailFiles_Prefetch_List
             ).get_or_create(sha256_hash=file_sha256, defaults=defaults)
@@ -121,9 +122,6 @@ class ThumbnailFiles(models.Model):
 
             make_link = make_link or created
 
-            filename = index_data_item.full_filepathname
-            filetype = index_data_item.filetype
-
             if make_link:
                 thumbnail.save()
                 IndexData.objects.filter(
@@ -131,35 +129,42 @@ class ThumbnailFiles(models.Model):
                     new_ftnail__isnull=True,
                 ).update(new_ftnail=thumbnail)
 
-            if thumbnail.thumbnail_exists():
-                return thumbnail
-            else:
-                if filetype.is_image:
-                    thumbnails = create_thumbnails_from_path(
-                        filename, settings.IMAGE_SIZE, output="JPEG", backend="image"
-                    )
-                elif filetype.is_movie:
-                    thumbnails = create_thumbnails_from_path(
-                        filename, settings.IMAGE_SIZE, output="JPEG", backend="video"
-                    )
-                elif filetype.is_pdf:
-                    thumbnails = create_thumbnails_from_path(
-                        filename, settings.IMAGE_SIZE, output="JPEG", backend="pdf"
-                    )
-                else:
-                    print("Unable to create thumbnails for this file type.")
-                    thumbnails = {
-                        "small": b"",
-                        "medium": b"",
-                        "large": b"",
-                    }
-                thumbnail.small_thumb = thumbnails["small"]
-                thumbnail.medium_thumb = thumbnails["medium"]
-                thumbnail.large_thumb = thumbnails["large"]
-                if not suppress_save:
-                    thumbnail.save(
-                        update_fields=["small_thumb", "medium_thumb", "large_thumb"]
-                    )
+        # Phase 2: File I/O operations (outside transaction)
+        if thumbnail.thumbnail_exists():
+            return thumbnail
+
+        filename = index_data_item.full_filepathname
+        filetype = index_data_item.filetype
+
+        if filetype.is_image:
+            thumbnails = create_thumbnails_from_path(
+                filename, settings.IMAGE_SIZE, output="JPEG", backend="image"
+            )
+        elif filetype.is_movie:
+            thumbnails = create_thumbnails_from_path(
+                filename, settings.IMAGE_SIZE, output="JPEG", backend="video"
+            )
+        elif filetype.is_pdf:
+            thumbnails = create_thumbnails_from_path(
+                filename, settings.IMAGE_SIZE, output="JPEG", backend="pdf"
+            )
+        else:
+            print("Unable to create thumbnails for this file type.")
+            thumbnails = {
+                "small": b"",
+                "medium": b"",
+                "large": b"",
+            }
+
+        thumbnail.small_thumb = thumbnails["small"]
+        thumbnail.medium_thumb = thumbnails["medium"]
+        thumbnail.large_thumb = thumbnails["large"]
+
+        if not suppress_save:
+            thumbnail.save(
+                update_fields=["small_thumb", "medium_thumb", "large_thumb"]
+            )
+
         return thumbnail
 
     def number_of_indexdata_references(self) -> int:
