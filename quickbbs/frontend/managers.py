@@ -39,6 +39,9 @@ layout_manager_cache = LRUCache(maxsize=500)
 
 build_context_info_cache = LRUCache(maxsize=500)
 
+# File size limit for text file processing (1MB)
+MAX_TEXT_FILE_SIZE = 1024 * 1024
+
 
 def get_file_text_encoding(filename: str) -> str:
     """
@@ -47,12 +50,26 @@ def get_file_text_encoding(filename: str) -> str:
     :param filename: Path to the file to analyze
     :return: Detected encoding string, defaults to 'utf-8' if detection fails
     """
-    with open(filename, "rb") as f:
-        raw_data = f.read()
-        result = charset_normalizer.from_bytes(raw_data)
-        encoding = result.best().encoding
-        return encoding
-    return "utf-8"
+    try:
+        with open(filename, "rb") as f:
+            raw_data = f.read()
+            result = charset_normalizer.from_bytes(raw_data)
+            encoding = result.best().encoding
+            return encoding if encoding else "utf-8"
+    except (OSError, IOError):
+        return "utf-8"
+
+
+@cached(LRUCache(maxsize=1000))
+def get_file_text_encoding_cached(filename: str, file_mtime: float) -> str:
+    """
+    Cache text encoding detection based on filename and modification time.
+
+    :param filename: Path to the file to analyze
+    :param file_mtime: File modification time for cache invalidation
+    :return: Detected encoding string, defaults to 'utf-8' if detection fails
+    """
+    return get_file_text_encoding(filename)
 
 
 @cached(build_context_info_cache)
@@ -90,23 +107,45 @@ def build_context_info(request: WSGIRequest, unique_file_sha256: str) -> dict | 
     directory_entry = entry.home_directory
 
     breadcrumbs = return_breadcrumbs(context["webpath"])
+    # Optimize breadcrumb building with list comprehension and join
+    breadcrumb_parts = []
+    breadcrumbs_list = []
     for bcrumb in breadcrumbs:
-        context["breadcrumbs"] += f"<li>{bcrumb[2]}</li>"
-        context["breadcrumbs_list"].append(bcrumb[2])
+        breadcrumb_parts.append(f"<li>{bcrumb[2]}</li>")
+        breadcrumbs_list.append(bcrumb[2])
+
+    context["breadcrumbs"] = "".join(breadcrumb_parts)
+    context["breadcrumbs_list"] = breadcrumbs_list
 
     filename = context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
 
     if entry.filetype.is_text or entry.filetype.is_markdown:
-        encoding = get_file_text_encoding(filename)
-        # Read with detected encoding
-        with open(filename, "r", encoding=encoding) as textfile:
-            context["html"] = markdown2.Markdown().convert(
-                "\n".join(textfile.readlines())
-            )
+        try:
+            file_size = os.path.getsize(filename)
+            if file_size > MAX_TEXT_FILE_SIZE:
+                context["html"] = f"<p><em>File too large to display ({file_size:,} bytes). Maximum size: {MAX_TEXT_FILE_SIZE:,} bytes.</em></p>"
+            else:
+                file_mtime = os.path.getmtime(filename)
+                encoding = get_file_text_encoding_cached(filename, file_mtime)
+                # Read with detected encoding - optimized to read entire file at once
+                with open(filename, "r", encoding=encoding) as textfile:
+                    context["html"] = markdown2.Markdown().convert(textfile.read())
+        except (OSError, IOError) as e:
+            context["html"] = f"<p><em>Error reading file: {str(e)}</em></p>"
+
     if entry.filetype.is_html:
-        encoding = get_file_text_encoding(filename)
-        with open(filename, "r", encoding=encoding) as htmlfile:
-            context["html"] = "<br>".join(htmlfile.readlines())
+        try:
+            file_size = os.path.getsize(filename)
+            if file_size > MAX_TEXT_FILE_SIZE:
+                context["html"] = f"<p><em>File too large to display ({file_size:,} bytes). Maximum size: {MAX_TEXT_FILE_SIZE:,} bytes.</em></p>"
+            else:
+                file_mtime = os.path.getmtime(filename)
+                encoding = get_file_text_encoding_cached(filename, file_mtime)
+                # Read with detected encoding - optimized to read entire file at once
+                with open(filename, "r", encoding=encoding) as htmlfile:
+                    context["html"] = htmlfile.read().replace("\n", "<br>")
+        except (OSError, IOError) as e:
+            context["html"] = f"<p><em>Error reading file: {str(e)}</em></p>"
 
     # pathmaster = Path(os.path.join(entry.fqpndirectory, entry.name))
     pathmaster = Path(entry.full_filepathname)
@@ -114,7 +153,6 @@ def build_context_info(request: WSGIRequest, unique_file_sha256: str) -> dict | 
 
     all_shas = list(
         directory_entry.files_in_dir(sort=context["sort"])
-        .only("unique_sha256")
         .values_list("unique_sha256", flat=True)
     )
     if context["mobile"]:
@@ -127,22 +165,24 @@ def build_context_info(request: WSGIRequest, unique_file_sha256: str) -> dict | 
     except ValueError:
         current_page = 1
 
+    # Cache expensive calculations
+    all_shas_count = len(all_shas)
+    lastmod_timestamp = entry.lastmod
+
     context.update(
         {
             "filetype": entry.filetype.__dict__,
             "page": current_page,
             "first_sha": all_shas[0],
-            "last_sha": all_shas[len(all_shas) - 1],
-            "pagecount": len(
-                all_shas
-            ),  # item_list.count,  # Switch this to math only, no paginator?
+            "last_sha": all_shas[all_shas_count - 1],
+            "pagecount": all_shas_count,
             "sha": entry.unique_sha256,
             "filename": entry.name,
             "filesize": entry.size,
             "duration": entry.duration,
             "is_animated": entry.is_animated,
-            "lastmod": entry.lastmod,
-            "lastmod_ds": datetime.datetime.fromtimestamp(entry.lastmod).strftime(
+            "lastmod": lastmod_timestamp,
+            "lastmod_ds": datetime.datetime.fromtimestamp(lastmod_timestamp).strftime(
                 "%m/%d/%y %H:%M:%S"
             ),
             "ft_filename": entry.filetype.icon_filename,
@@ -156,8 +196,8 @@ def build_context_info(request: WSGIRequest, unique_file_sha256: str) -> dict | 
     context["page_locale"] = int(context["page"] / settings.GALLERY_ITEMS_PER_PAGE) + 1
     # up_uri uses this to return you to the same page offset you were viewing
 
-    # generate next sha pointers, switch this away from paginator?
-    if current_page < len(all_shas):
+    # generate next sha pointers using cached count
+    if current_page < all_shas_count:
         context["next_sha"] = all_shas[
             current_page
         ]  # current_page is 1-indexed, so this gives us next
@@ -193,10 +233,10 @@ def layout_manager(page_number: int = 0, directory=None, sort_ordering: int | No
 
     chunk_size = settings.GALLERY_ITEMS_PER_PAGE
 
-    # Optimize database queries with select_related/prefetch_related if needed
+    # Optimize database queries with select_related/prefetch_related
     # and only fetch what we need
-    directories_queryset = directory.dirs_in_dir(sort=sort_ordering)
-    files_queryset = directory.files_in_dir(sort=sort_ordering)
+    directories_queryset = directory.dirs_in_dir(sort=sort_ordering).select_related('filetype', 'parent_directory')
+    files_queryset = directory.files_in_dir(sort=sort_ordering).select_related('filetype', 'home_directory')
 
     # Get SHA256s in batches instead of loading everything at once
     directories = list(directories_queryset.values_list("dir_fqpn_sha256", flat=True))

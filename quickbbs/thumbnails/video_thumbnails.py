@@ -29,10 +29,12 @@ class VideoBackend(AbstractBackend):
         """
         Process video file and generate thumbnails.
 
-        :param file_path: Path to video file
-        :param sizes: Dictionary mapping size names to (width, height) tuples
-        :param output_format: Output format (JPEG, PNG, WEBP)
-        :param quality: Image quality (1-100)
+        :Args:
+            file_path: Path to video file
+            sizes: Dictionary mapping size names to (width, height) tuples
+            output_format: Output format (JPEG, PNG, WEBP)
+            quality: Image quality (1-100)
+
         :return: Dictionary with 'duration', 'format', and size-keyed thumbnail bytes
         """
         output = {}
@@ -61,10 +63,12 @@ class VideoBackend(AbstractBackend):
         """
         Process image from memory and generate thumbnails.
 
-        :param image_bytes: Image data as bytes
-        :param sizes: Dictionary mapping size names to (width, height) tuples
-        :param output_format: Output format (JPEG, PNG, WEBP)
-        :param quality: Image quality (1-100)
+        :Args:
+            image_bytes: Image data as bytes
+            sizes: Dictionary mapping size names to (width, height) tuples
+            output_format: Output format (JPEG, PNG, WEBP)
+            quality: Image quality (1-100)
+
         :return: Dictionary mapping size names to thumbnail bytes
         """
         with Image.open(io.BytesIO(image_bytes)) as img:
@@ -80,10 +84,12 @@ class VideoBackend(AbstractBackend):
         """
         Process PIL Image object and generate thumbnails.
 
-        :param pil_image: PIL Image object to process
-        :param sizes: Dictionary mapping size names to (width, height) tuples
-        :param output_format: Output format (JPEG, PNG, WEBP)
-        :param quality: Image quality (1-100)
+        :Args:
+            pil_image: PIL Image object to process
+            sizes: Dictionary mapping size names to (width, height) tuples
+            output_format: Output format (JPEG, PNG, WEBP)
+            quality: Image quality (1-100)
+
         :return: Dictionary mapping size names to thumbnail bytes
         """
         img_copy = pil_image.copy()
@@ -96,10 +102,12 @@ def _generate_thumbnail_to_pil(
     """
     Generate a thumbnail from a video file and return it as a PIL Image.
 
-    :param video_path: Path to the input video file
-    :param time_offset: Time position to capture thumbnail (format: HH:MM:SS or seconds as int)
-    :param width: Thumbnail width in pixels
-    :param height: Thumbnail height in pixels
+    :Args:
+        video_path: Path to the input video file
+        time_offset: Time position to capture thumbnail (format: HH:MM:SS or seconds as int)
+        width: Thumbnail width in pixels
+        height: Thumbnail height in pixels
+
     :return: PIL Image object of the video frame
     :raises FileNotFoundError: If video file doesn't exist
     :raises Exception: If ffmpeg processing fails
@@ -110,10 +118,12 @@ def _generate_thumbnail_to_pil(
         raise FileNotFoundError(f"Video file not found: {video_path}")
 
     try:
-        # Use ffmpeg to extract frame to stdout as PNG data
+        # Use ffmpeg with hardware-accelerated scaling to extract frame at target size
         process = (
             ffmpeg.input(str(video_path), ss=time_offset)
-            .output("pipe:", vframes=1, format="image2", vcodec="png")
+            .filter('scale', width, height, force_original_aspect_ratio='decrease')
+            .filter('pad', width, height, -1, -1, 'black')
+            .output("pipe:", vframes=1, format="image2", vcodec="mjpeg", qscale=2)
             .run_async(pipe_stdout=True, pipe_stderr=True, quiet=True)
         )
 
@@ -123,12 +133,8 @@ def _generate_thumbnail_to_pil(
         if process.returncode != 0:
             raise Exception(f"FFmpeg error: {stderr.decode()}")
 
-        # Create PIL Image from raw data
+        # Create PIL Image from JPEG data
         image = Image.open(io.BytesIO(raw_data))
-
-        # Resize if needed
-        if image.size != (width, height):
-            image = image.resize((width, height), Image.Resampling.LANCZOS)
 
         return image
 
@@ -186,10 +192,14 @@ def _get_video_info(video_path: str) -> dict[str, any]:
     """
     Get basic information about a video file.
 
-    :param video_path: Path to the video file
+    :Args:
+        video_path: Path to the video file
+
     :return: Dictionary containing video metadata (duration, width, height, fps, codec, format)
     :raises Exception: If ffmpeg probe fails
     """
+    from fractions import Fraction
+
     try:
         probe = ffmpeg.probe(str(video_path))
         video_stream = next(
@@ -200,11 +210,13 @@ def _get_video_info(video_path: str) -> dict[str, any]:
         if video_stream is None:
             raise Exception("No video stream found")
 
+        fps_fraction = Fraction(video_stream["r_frame_rate"])
+
         info = {
             "duration": float(probe["format"]["duration"]),
             "width": int(video_stream["width"]),
             "height": int(video_stream["height"]),
-            "fps": eval(video_stream["r_frame_rate"]),
+            "fps": float(fps_fraction),
             "codec": video_stream["codec_name"],
             "format": probe["format"]["format_name"],
         }
@@ -219,9 +231,11 @@ def _pil_to_binary(image: Image.Image, format: str = "JPEG", quality: int = 85) 
     """
     Convert PIL Image to binary data.
 
-    :param image: PIL Image object to convert
-    :param format: Output format (JPEG, PNG, or WEBP)
-    :param quality: Quality for JPEG/WEBP (1-100)
+    :Args:
+        image: PIL Image object to convert
+        format: Output format (JPEG, PNG, or WEBP)
+        quality: Quality for JPEG/WEBP (1-100)
+
     :return: Binary image data as bytes
     :raises ValueError: If unsupported format is specified
     """

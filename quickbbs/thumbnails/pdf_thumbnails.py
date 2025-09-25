@@ -18,6 +18,28 @@ class PDFBackend(AbstractBackend):
     them using the PIL backend for thumbnail generation.
     """
 
+    @staticmethod
+    def _calculate_optimal_zoom(page: fitz.Page, target_size: tuple[int, int]) -> float:
+        """
+        Calculate optimal zoom level to render PDF slightly larger than target size.
+
+        :Args:
+            page: PyMuPDF Page object
+            target_size: Target (width, height) tuple
+
+        :return: Optimal zoom factor with 10% quality buffer
+        """
+        rect = page.rect
+        page_width, page_height = rect.width, rect.height
+        target_width, target_height = target_size
+
+        # Calculate zoom for each dimension (fit within target bounds)
+        zoom_x = target_width / page_width
+        zoom_y = target_height / page_height
+
+        # Use smaller zoom to fit, add 10% buffer for quality
+        return min(zoom_x, zoom_y) * 1.1
+
     def process_from_file(
         self,
         file_path: str,
@@ -28,22 +50,26 @@ class PDFBackend(AbstractBackend):
         """
         Process a PDF file and generate thumbnails.
 
-        Args:
+        :Args:
             file_path: Path to PDF file
             sizes: Dictionary of size names to (width, height) tuples
             output_format: Output format (JPEG, PNG, WEBP)
             quality: Image quality (1-100)
+
+        :return: Dictionary with 'format' key and size-keyed thumbnail bytes
         """
-        page_num = 0  # Page number to use for thumbnail (0-indexed)
-        zoom = 2.0  # Zoom level for rendering (higher = better quality)
+        page_num = 0
         try:
             pdf_doc = fitz.open(file_path)
 
-            # Get the specified page (default first page)
             if page_num >= len(pdf_doc):
                 page_num = 0
 
             page = pdf_doc[page_num]
+
+            # Calculate optimal zoom for largest requested size
+            largest_size = max(sizes.values(), key=lambda s: s[0] * s[1])
+            zoom = self._calculate_optimal_zoom(page, largest_size)
 
             # Create matrix for rendering
             mat = fitz.Matrix(zoom, zoom)
@@ -51,12 +77,11 @@ class PDFBackend(AbstractBackend):
             # Render page to pixmap
             pix = page.get_pixmap(matrix=mat)
 
-            # Convert to PIL Image
-            img_data = pix.tobytes("png")
-            img = Image.open(io.BytesIO(img_data))
+            # Convert directly to PIL Image from raw pixel data (no PNG encoding)
+            mode = "RGBA" if pix.alpha else "RGB"
+            img = Image.frombytes(mode, (pix.width, pix.height), pix.samples)
 
             # Process the image
-            #            results = self._process_pil_image(img, sizes, output_format, quality)
             output = {}
             converter = ImageBackend()
             pillow_output = converter._process_pil_image(
@@ -68,7 +93,6 @@ class PDFBackend(AbstractBackend):
             # Clean up
             pdf_doc.close()
 
-            # return results
             return output
 
         except Exception as e:
@@ -81,27 +105,30 @@ class PDFBackend(AbstractBackend):
         output_format: str,
         quality: int,
         page_num: int = 0,
-        zoom: float = 2.0,
     ) -> dict[str, bytes]:
         """
         Process PDF bytes and generate thumbnails.
 
-        :param pdf_bytes: PDF file as bytes
-        :param sizes: Dictionary of size names to (width, height) tuples
-        :param output_format: Output format (JPEG, PNG, WEBP)
-        :param quality: Image quality (1-100)
-        :param page_num: Page number to use for thumbnail (0-indexed, default: 0)
-        :param zoom: Zoom level for rendering (higher = better quality, default: 2.0)
-        :return: Dictionary mapping size names to thumbnail bytes
+        :Args:
+            pdf_bytes: PDF file as bytes
+            sizes: Dictionary of size names to (width, height) tuples
+            output_format: Output format (JPEG, PNG, WEBP)
+            quality: Image quality (1-100)
+            page_num: Page number to use for thumbnail (0-indexed, default: 0)
+
+        :return: Dictionary with 'format' key and size-keyed thumbnail bytes
         """
         try:
             pdf_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
 
-            # Get the specified page (default first page)
             if page_num >= len(pdf_doc):
                 page_num = 0
 
             page = pdf_doc[page_num]
+
+            # Calculate optimal zoom for largest requested size
+            largest_size = max(sizes.values(), key=lambda s: s[0] * s[1])
+            zoom = self._calculate_optimal_zoom(page, largest_size)
 
             # Create matrix for rendering
             mat = fitz.Matrix(zoom, zoom)
@@ -109,17 +136,23 @@ class PDFBackend(AbstractBackend):
             # Render page to pixmap
             pix = page.get_pixmap(matrix=mat)
 
-            # Convert to PIL Image
-            img_data = pix.tobytes(output_format)
-            img = Image.open(io.BytesIO(img_data))
+            # Convert directly to PIL Image from raw pixel data
+            mode = "RGBA" if pix.alpha else "RGB"
+            img = Image.frombytes(mode, (pix.width, pix.height), pix.samples)
 
             # Process the image
-            results = self._process_pil_image(img, sizes, output_format, quality)
+            output = {}
+            converter = ImageBackend()
+            pillow_output = converter._process_pil_image(
+                img, sizes, output_format, quality
+            )
+            output["format"] = output_format
+            output.update(pillow_output)
 
             # Clean up
             pdf_doc.close()
 
-            return results
+            return output
 
         except Exception as e:
             raise Exception(f"Error processing PDF bytes: {e}")
@@ -134,10 +167,12 @@ class PDFBackend(AbstractBackend):
         """
         Process a PIL Image and generate thumbnails.
 
-        :param pil_image: PIL Image object
-        :param sizes: Dictionary of size names to (width, height) tuples
-        :param output_format: Output format (JPEG, PNG, WEBP)
-        :param quality: Image quality (1-100)
+        :Args:
+            pil_image: PIL Image object
+            sizes: Dictionary of size names to (width, height) tuples
+            output_format: Output format (JPEG, PNG, WEBP)
+            quality: Image quality (1-100)
+
         :raises NotImplementedError: PDF processing from PIL Image is not supported
         """
         raise NotImplementedError("PDF processing from PIL Image is not implemented.")
