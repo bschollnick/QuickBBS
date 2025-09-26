@@ -1,0 +1,279 @@
+<!-- Search Results Sidebar Template -->
+<aside class="sidebar is-narrow" id="sidebar">
+  <div class="sidebar-content">
+
+    <!-- Back to originator -->
+    <div class="sidebar-section">
+      <a class="button is-ghost is-fullwidth"
+         href="{{ originator }}"
+         title="Back to {{ originator.split('/')[-1] if originator else 'Gallery' }}">
+        {{ icon("arrow-left fa-2x") }}
+      </a>
+    </div>
+
+    <!-- Search Info -->
+    <div class="sidebar-section">
+      <div class="has-text-centered">
+        <p class="is-size-7 has-text-weight-bold">Search Results</p>
+        <p class="is-size-7">"{{ searchtext }}"</p>
+        {% if pagelist %}
+        <p class="is-size-7">{{ pagelist.paginator.count }} results</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Pagination Controls -->
+    <div class="sidebar-section">
+
+      <!-- First Page -->
+      <div class="nav-button">
+        <a class="button is-ghost is-fullwidth{% if current_page <= 1 %} is-disabled{% endif %}"
+           href="?searchtext={{ searchtext }}&page=1&sort={{sort}}"
+           hx-swap="outerHTML"
+           {% if current_page <= 1 %}disabled{% endif %}
+           title="First Page">
+          {{ icon("angle-double-left fa-2x") }}
+        </a>
+      </div>
+
+      <!-- Previous Page -->
+      <div class="nav-button">
+        {% if current_page > 1 %}
+          <a class="button is-ghost is-fullwidth"
+             href="?searchtext={{ searchtext }}&page={{ current_page-1 }}&sort={{sort}}"
+             hx-swap="outerHTML"
+             title="Previous Page">
+            {{ icon("angle-left fa-2x") }}
+          </a>
+        {% else %}
+          <span class="button is-ghost is-fullwidth is-disabled" title="Previous Page">
+            {{ icon("angle-left fa-2x") }}
+          </span>
+        {% endif %}
+      </div>
+
+      <!-- Next Page -->
+      <div class="nav-button">
+        {% if current_page < total_pages %}
+          <a class="button is-ghost is-fullwidth"
+             href="?searchtext={{ searchtext }}&page={{ current_page+1 }}&sort={{sort}}"
+             hx-swap="outerHTML"
+             title="Next Page">
+            {{ icon("angle-right fa-2x") }}
+          </a>
+        {% else %}
+          <span class="button is-ghost is-fullwidth is-disabled" title="Next Page">
+            {{ icon("angle-right fa-2x") }}
+          </span>
+        {% endif %}
+      </div>
+
+      <!-- Last Page -->
+      <div class="nav-button">
+        <a class="button is-ghost is-fullwidth{% if current_page >= total_pages %} is-disabled{% endif %}"
+           href="?searchtext={{ searchtext }}&page={{ total_pages }}&sort={{sort}}"
+           hx-swap="outerHTML"
+           {% if current_page >= total_pages %}disabled{% endif %}
+           title="Last Page">
+          {{ icon("angle-double-right fa-2x") }}
+        </a>
+      </div>
+
+    </div>
+
+    <!-- Page Selector -->
+    <div class="sidebar-section">
+      <div class="field">
+        <label class="label is-small has-text-centered">Page</label>
+        <form action="?" method="GET" class="page-form">
+          <input type="hidden" name="searchtext" value="{{ searchtext }}">
+          <input type="hidden" name="sort" value="{{sort}}">
+          <div class="select is-small is-fullwidth">
+            <select name="page" onchange="this.form.submit()">
+              {% if total_pages <= 20 %}
+                {# Show all pages for small search results #}
+                {% for pagecnt in range(1, total_pages + 1) %}
+                  <option value="{{pagecnt}}" {% if pagecnt == current_page %}selected{% endif %}>
+                    {{pagecnt}}
+                  </option>
+                {% endfor %}
+              {% else %}
+                {# Smart pagination for large search results - show nearby pages #}
+                {% if current_page - 10 > 1 %}
+                  {% set start_page = current_page - 10 %}
+                {% else %}
+                  {% set start_page = 1 %}
+                {% endif %}
+
+                {% if current_page + 10 < total_pages %}
+                  {% set end_page = current_page + 10 %}
+                {% else %}
+                  {% set end_page = total_pages %}
+                {% endif %}
+
+                {# Always show page 1 #}
+                {% if start_page > 1 %}
+                  <option value="1" {% if current_page == 1 %}selected{% endif %}>1</option>
+                  {% if start_page > 2 %}<option disabled>...</option>{% endif %}
+                {% endif %}
+
+                {# Show range around current page #}
+                {% for pagecnt in range(start_page, end_page + 1) %}
+                  <option value="{{pagecnt}}" {% if pagecnt == current_page %}selected{% endif %}>
+                    {{pagecnt}}
+                  </option>
+                {% endfor %}
+
+                {# Always show last page #}
+                {% if end_page < total_pages %}
+                  {% if end_page < total_pages - 1 %}<option disabled>...</option>{% endif %}
+                  <option value="{{total_pages}}" {% if current_page == total_pages %}selected{% endif %}>{{total_pages}}</option>
+                {% endif %}
+              {% endif %}
+            </select>
+          </div>
+          <p class="help has-text-centered">of {{ total_pages }}</p>
+        </form>
+      </div>
+    </div>
+
+    <!-- Sort Options -->
+    <div class="sidebar-section">
+      <div class="field">
+        <label class="label is-small has-text-centered">Sort</label>
+        <form action="?" method="GET" class="sort-form">
+          <input type="hidden" name="searchtext" value="{{ searchtext }}">
+          <input type="hidden" name="page" value="{{current_page}}">
+          <div class="select is-small is-fullwidth">
+            <select name="sort" onchange="this.form.submit()">
+              <option value="0" {% if sort == 0 %}selected{% endif %}>A..Z</option>
+              <option value="1" {% if sort == 1 %}selected{% endif %}>Last Modified</option>
+              <option value="2" {% if sort == 2 %}selected{% endif %}>Created</option>
+            </select>
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</aside>
+
+<style>
+/* Custom CSS for the sidebar */
+.sidebar {
+  position: fixed;
+  left: 0;
+  top: 98px;
+  height: 100vh;
+  width: 7.5%;
+  background: hsl(0, 0%, 98%);
+  border-right: 1px solid hsl(0, 0%, 86%);
+  z-index: 30;
+  overflow-y: auto;
+}
+
+.sidebar-content {
+  padding: 0.5rem 0.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sidebar-section {
+  padding: 0.25rem 0;
+}
+
+.sidebar-section:not(:last-child) {
+  border-bottom: 1px solid hsl(0, 0%, 86%);
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.nav-button {
+  margin-bottom: 0.25rem;
+}
+
+.nav-button:last-child {
+  margin-bottom: 0;
+}
+
+.button.is-ghost {
+  border: 1px solid transparent;
+  padding: 0.75rem;
+  height: auto;
+  min-height: 3.5rem;
+}
+
+.button.is-ghost:hover {
+  background-color: hsl(0, 0%, 96%);
+  border-color: hsl(0, 0%, 86%);
+}
+
+.button.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.button.is-disabled:hover {
+  background-color: transparent;
+  border-color: transparent;
+}
+
+.field {
+  margin-bottom: 0.5rem;
+}
+
+.label {
+  font-size: 0.75rem;
+  margin-bottom: 0.25rem;
+  text-align: center;
+}
+
+.help {
+  font-size: 0.65rem;
+  text-align: center;
+  margin-top: 0.25rem;
+}
+
+.select.is-small select {
+  font-size: 0.75rem;
+  height: 2rem;
+}
+
+/* Mobile responsiveness */
+@media screen and (max-width: 768px) {
+  .sidebar {
+    width: 60px;
+  }
+
+  .sidebar-content {
+    padding: 0.25rem 0.125rem;
+  }
+
+  .label,
+  .help {
+    display: none;
+  }
+
+  .field {
+    margin-bottom: 0.25rem;
+  }
+
+  .button.is-ghost {
+    padding: 0.5rem;
+    min-height: 3rem;
+  }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .sidebar {
+    background: hsl(0, 0%, 14%);
+    border-right-color: hsl(0, 0%, 29%);
+  }
+
+  .sidebar-section:not(:last-child) {
+    border-bottom-color: hsl(0, 0%, 29%);
+  }
+}
+</style>

@@ -5,20 +5,14 @@
     <meta http-equiv="content-type" content="text/html; charset=utf-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="preload" href="{{bulma_uri}}" as="style" >
-    <link rel="preload" href="{{fontawesome_uri}}" as="style">
 
-    <link rel="stylesheet" href="{{bulma_uri}}" defer>
-    <link rel="stylesheet" href="{{fontawesome_uri}}" defer>
-    
-    <script src="{{django_htmx_uri}}"> </script>
-    {{ django_htmx_script() }}
-    
     <title>{% block title %} {{ gallery_name }} {% endblock %}</title>
 </head>
-<body>
+<body hx-boost="true" style="g-0;m-0;p-0;">
 {% autoescape off %}
-{% include 'frontend/gallery/gallery_listing_partial.jinja' %}
+{% include 'frontend/search/search_listings_menu.jinja' %}
+{% include 'frontend/search/search_listings_sidebar.jinja' %}
+{% include 'frontend/search/search_listings_images.jinja' %}
 
 {% endautoescape %}
 
