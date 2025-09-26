@@ -1,0 +1,179 @@
+/* QuickBBS Optimized Styles */
+
+/* Spinner Overlay */
+#spinner-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 9999;
+    justify-content: center;
+    align-items: center;
+}
+
+#spinner {
+    background-color: white;
+    padding: 4rem;
+    border-radius: 16px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    text-align: center;
+    font-size: 1.5rem;
+}
+
+.spinner-icon {
+    width: 80px;
+    height: 80px;
+    border: 8px solid #f3f3f3;
+    border-top: 8px solid #3498db;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 2rem auto;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* HTMX Indicator */
+.htmx-indicator {
+    opacity: 0;
+    transition: opacity 100ms ease-in;
+}
+
+.htmx-request .htmx-indicator {
+    opacity: 1;
+}
+
+/* Title and Text Styles */
+#title, .title, h1, h2, h3, h4, h5, h6 {
+    color: black !important;
+}
+
+/* Gallery Container */
+.gallery-container {
+    max-width: 93%;
+    margin-left: 7%;
+    margin-right: 0px;
+    margin-top: 0px;
+    padding: 0.25rem;
+}
+
+/* Navigation Header */
+.nav-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 1rem;
+    margin-bottom: .5rem;
+    gap: .5rem;
+}
+
+.nav-breadcrumb {
+    flex: 1;
+    text-align: center;
+}
+
+.nav-controls {
+    display: flex;
+    gap: 1rem;
+    min-width: 120px;
+}
+
+.nav-link {
+    font-size: 0.875rem;
+    color: #3273dc;
+    text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 150px;
+}
+
+/* Gallery Grid */
+.gallery-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1px;
+    border: 1px solid #000;
+    padding: 1px;
+}
+
+/* Breadcrumb Optimization */
+.breadcrumb li a, .breadcrumb li {
+    word-wrap: break-word !important;
+    word-break: break-word !important;
+    overflow-wrap: break-word !important;
+    white-space: normal !important;
+    display: inline-block !important;
+}
+
+/* Dynamic Filetype Colors - CSS Custom Properties */
+:root {
+    --filetype-color: #ffffff;
+}
+
+.filetype-bg {
+    background-color: var(--filetype-color);
+}
+
+/* Image Optimization */
+.lazy-image {
+    loading: lazy;
+    transition: opacity 0.3s ease-in-out;
+}
+
+.lazy-image[data-loaded="false"] {
+    opacity: 0.5;
+}
+
+.lazy-image[data-loaded="true"] {
+    opacity: 1;
+}
+
+/* Performance Optimizations */
+.gallery-item {
+    will-change: transform;
+    backface-visibility: hidden;
+}
+
+/* Responsive Optimizations */
+@media (max-width: 768px) {
+    .gallery-container {
+        max-width: 100%;
+        margin-left: 0;
+        padding: 0.125rem;
+    }
+
+    .nav-header {
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .nav-controls {
+        min-width: auto;
+        justify-content: center;
+    }
+}
+
+/* Accessibility */
+@media (prefers-reduced-motion: reduce) {
+    .spinner-icon {
+        animation: none;
+    }
+
+    .lazy-image {
+        transition: none;
+    }
+}
+
+/* High DPI Display Optimization */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+    .gallery-grid {
+        image-rendering: -webkit-optimize-contrast;
+        image-rendering: crisp-edges;
+    }
+}

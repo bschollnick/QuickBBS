@@ -1,39 +1,8 @@
 {% autoescape off %}
-    <div class="column is-10 is-gapless is-centered" style="margin-bottom:1px;margin-top:10px;margin-left:90px;margin-right:0px;padding-right:0px;padding-left:0px;!important;background-color:#{{filetype.color}}">
-            <nav hx-boost="true" class="breadcrumb is-small" aria-label="breadcrumbs" style="margin:0px; overflow-wrap: break-word;">
-                <ul style="word-wrap: break-word; word-break: break-word; overflow-wrap: break-word;">
-                {{ breadcrumbs }}
-                </ul>
-            </nav>
-            <style>
-            .breadcrumb li a, .breadcrumb li {
-                word-wrap: break-word !important;
-                word-break: break-word !important;
-                overflow-wrap: break-word !important;
-                white-space: normal !important;
-                display: inline-block !important;
-            }
-            </style>
-            <div style="text-align: center; margin: 5px 0;">
-                <font size=+1>
-                    <b id="title" style="color: black !important;
-                                       max-width: 60vw;
-                                       display: inline-block;
-                                       word-wrap: break-word;
-                                       word-break: break-word;
-                                       overflow-wrap: break-word;
-                                       white-space: normal;
-                                       hyphens: auto;
-                                       line-height: 1.2;
-                                       text-align: center;">
-                       {{filename}}
-                    </b>
-                </font>
-            </div>
-            <div class="container" width="98%" style="margin-left: 1px;margin-right:1px;border: 1px solid;left-pad:2px;right-pad:2px;">
-            <div hx-boost="true">
+{% set title_text = filename %}
+{% set content %}
                 {% if any([filetype.is_html, filetype.is_text, filetype.is_markdown]) %}
-                <div class="has-text-left" id="text_frame" style="text-align:left;!important;background-color:#{{filetype.color}}">
+                <div class="has-text-left filetype-bg" id="text_frame" style="text-align:left;!important;">
                     </center>
                     <p class="has-text-left" style="text-align:left !important;" id="text_frame" defer>
                         {{html}}
@@ -41,32 +10,32 @@
                     <center>
                 {% endif %}
                 {% if any([filetype.is_image, filetype.is_dir, filetype.is_link, filetype.is_archive]) %}
-                <div class="thumbnail" id="thumbnail_frame" style="background-color:#{{filetype.color}};">
+                <div class="thumbnail filetype-bg" id="thumbnail_frame">
                     <center>
                         <a href="{{ download_uri }}" hx-boost="false" id="image_link">
                             {% if not is_animated %}
-                                <img id="display_image" class="lazy flex-grow" src="{{thumbnail_uri}}" style="object-fit:cover;"/>
+                                <img id="display_image" class="lazy-image" data-src="{{thumbnail_uri}}" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3C/svg%3E" style="object-fit:cover;" loading="lazy" data-loaded="false"/>
                             {% else %}
-                                <img id="display_image" class="lazy flex-grow" src="{{download_uri}}" hx-boost="false" style="object-fit:cover;"/>
+                                <img id="display_image" class="lazy-image" src="{{download_uri}}" hx-boost="false" style="object-fit:cover;" loading="lazy"/>
                             {% endif %}
                         </a>
                     </center>
                 {% elif filetype.is_pdf %}
-                <div class="thumbnail" id="thumbnail_frame" style="background-color:#{{filetype.color}};">
+                <div class="thumbnail filetype-bg" id="thumbnail_frame">
                     <center>
                         <a href="/resources/javascript/pdfjs/web/viewer.html?file={{ download_uri }}" hx-boost="false" id="image_link">
-                            <img id="display_image" class="lazy flex-grow" src="{{thumbnail_uri}}" style="object-fit:cover;"/>
+                            <img id="display_image" class="lazy-image" data-src="{{thumbnail_uri}}" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3C/svg%3E" style="object-fit:cover;" loading="lazy" data-loaded="false"/>
                         </a>
                     </center>
 
                 {% elif filetype.is_movie %}
-                <div class="thumbnail" id="movie_frame" hx-boost="false" style="background-color:#{{filetype.color}};">
+                <div class="thumbnail filetype-bg" id="movie_frame" hx-boost="false">
                     <center>
-                        <video width="auto" height="auto" controls poster="{{ thumbnail_uri }}" preload="auto" hx-boost="false">
+                        <video width="auto" height="auto" controls poster="{{ thumbnail_uri }}" preload="metadata" hx-boost="false">
                             <source src="{{ download_uri }}" type="video/mp4" />
                           Your browser does not support the video tag.
                         </video>
-                        
+
                     </center>
                 {% endif %}
                     <div class="columns is-multiline" style="padding:0px;margin-left:2px;margin-top:0px;margin-bottom:0px;">
@@ -85,13 +54,7 @@
             </div>
             </center>
         </div>
+{% endset %}
 
-    </div>
-{% if request.htmx %}
-    <script>
-    document.title = '{{ filename }}'
-    </script>
-{% endif %}
-
-</div>
+{% include 'components/filetype_container.jinja' %}
 {% endautoescape %}

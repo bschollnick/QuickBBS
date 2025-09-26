@@ -1,0 +1,24 @@
+{% autoescape off %}
+<div class="column is-10 is-gapless is-centered filetype-bg"
+     style="margin-bottom:1px;margin-top:10px;margin-left:90px;margin-right:0px;padding-right:0px;padding-left:0px;!important;">
+
+    {% include 'components/breadcrumb.jinja' %}
+
+    {% include 'components/title_display.jinja' %}
+
+    <div class="container" width="98%" style="margin-left: 1px;margin-right:1px;border: 1px solid;left-pad:2px;right-pad:2px;">
+        <div hx-boost="true">
+            {{ content }}
+        </div>
+    </div>
+</div>
+
+<script data-title-update>
+    // Update CSS custom property for filetype color
+    if (window.QuickBBSUtils && '{{ filetype.color }}') {
+        window.QuickBBSUtils.updateFiletypeColor('{{ filetype.color }}');
+    }
+    // Update document title
+    document.title = '{{ title_text }}';
+</script>
+{% endautoescape %}

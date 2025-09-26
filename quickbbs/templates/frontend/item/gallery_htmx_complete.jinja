@@ -1,38 +1,7 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta http-equiv="content-type" content="text/html; charset=utf-8" />
-    <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="shortcut icon" type="image/png" href="/resources/images/open_folder_yellow.png" >
+{% extends 'base.jinja' %}
 
-    <link rel="preload" href="/resources/css/bulma.min.css" as="style">
-    <link rel="stylesheet" href="/resources/css/bulma.min.css">
+{% block title %}{{ filename }}{% endblock %}
 
-    <link rel="preload" href="/resources/css/all.min.css" as="style">
-    <link rel="stylesheet" href="/resources/css/all.min.css">
-
-    <style>
-        .htmx-indicator {
-            opacity: 0;
-            transition: opacity 100ms ease-in;
-        }
-
-        /* Ensure all titles are black */
-        #title, .title, h1, h2, h3, h4, h5, h6 {
-            color: black !important;
-        }
-    </style>
-
-    <script src="/resources/javascript/htmx.min.js" defer></script>
-
-    {{ django_htmx_script() }}
-    
-    <title hx-boost="true">{% block title %} {{ filename }} {% endblock %}</title>
-</head>
-<body>
-
-    {% include 'frontend/item/gallery_htmx_partial.jinja' %}    
-</body>
-</html>
+{% block content %}
+    {% include 'frontend/item/gallery_htmx_partial.jinja' %}
+{% endblock %}
