@@ -1,11 +1,35 @@
 {% autoescape off %}
-    <div class="column is-10 is-gapless is-centered" style="margin-bottom:1px;margin-top:1px;margin-left:90px;margin-right:0px;padding-right:0px;padding-left:0px;!important;background-color:#{{filetype.color}}">
-            <nav hx-boost="true" class="breadcrumb is-small" aria-label="breadcrumbs" style="margin:0px;">
-                <ul>
-                {{ breadcrumbs }} 
-                <li class="is-active"><font size=+1><b id="title">{{filename}}</b></font></li>
+    <div class="column is-10 is-gapless is-centered" style="margin-bottom:1px;margin-top:10px;margin-left:90px;margin-right:0px;padding-right:0px;padding-left:0px;!important;background-color:#{{filetype.color}}">
+            <nav hx-boost="true" class="breadcrumb is-small" aria-label="breadcrumbs" style="margin:0px; overflow-wrap: break-word;">
+                <ul style="word-wrap: break-word; word-break: break-word; overflow-wrap: break-word;">
+                {{ breadcrumbs }}
                 </ul>
             </nav>
+            <style>
+            .breadcrumb li a, .breadcrumb li {
+                word-wrap: break-word !important;
+                word-break: break-word !important;
+                overflow-wrap: break-word !important;
+                white-space: normal !important;
+                display: inline-block !important;
+            }
+            </style>
+            <div style="text-align: center; margin: 5px 0;">
+                <font size=+1>
+                    <b id="title" style="color: black !important;
+                                       max-width: 60vw;
+                                       display: inline-block;
+                                       word-wrap: break-word;
+                                       word-break: break-word;
+                                       overflow-wrap: break-word;
+                                       white-space: normal;
+                                       hyphens: auto;
+                                       line-height: 1.2;
+                                       text-align: center;">
+                       {{filename}}
+                    </b>
+                </font>
+            </div>
             <div class="container" width="98%" style="margin-left: 1px;margin-right:1px;border: 1px solid;left-pad:2px;right-pad:2px;">
             <div hx-boost="true">
                 {% if any([filetype.is_html, filetype.is_text, filetype.is_markdown]) %}

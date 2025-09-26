@@ -35,19 +35,34 @@
                         <b>{{ loop.index }}</b> <br>
 <!-- title -->
                         {% if item.filetype.is_link %}
-                            <span class="is-size-7"><a href="{{ item.fqpndirectory if item.fqpndirectory is defined else '#' }}" style="background-color:#{{item_bg_color}};" defer>
-                            {{ item.name.split("*")[0] }}</span><br>
+                            <span class="is-size-7"><a href="{{ item.fqpndirectory if item.fqpndirectory is defined else '#' }}"
+                                                        style="background-color:#{{item_bg_color}}; color: black !important;"
+                                                        hx-get="{{ item.fqpndirectory if item.fqpndirectory is defined else '#' }}"
+                                                        hx-push-url="true"
+                                                        hx-target="body"
+                                                        hx-swap="outerHTML transition:true">
+                            {{ item.name.split("*")[0] }}</a></span><br>
                             <img loading='lazy' src="{{item_thumbnail_url}}" class="img-responsive" style="width:auto;max-width:100%"/>
                         {% elif item.fqpndirectory is defined %}
                             <!-- This is a directory (IndexDirs) -->
-                            <span class="is-size-7"><a href="{{item_view_url}}?sort={{sort}}" style="background-color:#{{item_bg_color}};" defer>
-                            {{ item.name|wordwrap(width=24, break_long_words=True)}}</span>
+                            <span class="is-size-7"><a href="{{item_view_url}}?sort={{sort}}"
+                                                        style="background-color:#{{item_bg_color}}; color: black !important;"
+                                                        hx-get="{{item_view_url}}?sort={{sort}}"
+                                                        hx-push-url="true"
+                                                        hx-target="body"
+                                                        hx-swap="outerHTML transition:true">
+                            {{ item.name|wordwrap(width=24, break_long_words=True)}}</a></span>
                             <br>
                             <img loading='lazy' src="{{item_thumbnail_url}}" class="img-responsive" style="width:auto;max-width:100%"/>
                         {% else %}
                             <!-- This is a file (IndexData) -->
-                            <span class="is-size-7"><a href="{{item_view_url}}?sort={{sort}}" style="background-color:#{{item_bg_color}};" defer>
-                            {{ item.name|wordwrap(width=24, break_long_words=True)}}</span>
+                            <span class="is-size-7"><a href="{{item_view_url}}?sort={{sort}}"
+                                                        style="background-color:#{{item_bg_color}}; color: black !important;"
+                                                        hx-get="{{item_view_url}}?sort={{sort}}"
+                                                        hx-push-url="true"
+                                                        hx-target="body"
+                                                        hx-swap="outerHTML transition:true">
+                            {{ item.name|wordwrap(width=24, break_long_words=True)}}</a></span>
                             {% if item.is_animated -%} {{ icon("fa-solid fa-film") }} {% endif%}
                             <br>
                             <img loading='lazy' src="{{item_thumbnail_url}}" class="img-responsive" style="width:auto;max-width:100%"/>
