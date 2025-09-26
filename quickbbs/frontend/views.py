@@ -11,6 +11,8 @@ import time
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import chain
+from django.db.models import Q, Prefetch, Count, Case, When, IntegerField
+import re
 from typing import Optional
 
 from cache_watcher.models import Cache_Storage
@@ -224,6 +226,7 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
     )
 
 
+@vary_on_headers("HX-Request")
 def search_viewresults(request: WSGIRequest):
     """
     View the search results Gallery page
@@ -232,49 +235,242 @@ def search_viewresults(request: WSGIRequest):
         request : Django Request object
 
     Returns:
-        respons : Django response
+        response : Django response
 
     """
     print("NEW search GALLERY")
-    start_time = time.perf_counter()  # time.time()
+
+    # HTMX template selection
+    if (
+        request.htmx.boosted
+        and request.htmx.current_url is not None
+        and not request.GET.get("newwin", False)
+    ):
+        print("partial")
+        template_name = "frontend/search/search_listings_partial.jinja"
+    else:
+        print("full")
+        template_name = "frontend/search/search_listings_complete.jinja"
+
+    start_time = time.perf_counter()
+    searchtext = request.GET.get("searchtext", default=None)
+    current_page = int(request.GET.get("page", 1))
+    sort_order_value = sort_order(request)
+
+    # Create regex pattern for separator-agnostic search (optimized approach)
+    def create_search_regex_pattern(text):
+        """
+        Create a regex pattern for separator-agnostic search.
+        This is more efficient than multiple OR conditions.
+
+        Examples:
+            'Mary Jane Watson' -> 'Mary[\\s_-]+Jane[\\s_-]+Watson'
+            'spider_man' -> 'spider[\\s_-]+man'
+            'single' -> 'single'
+
+        Args:
+            text: The search text to create regex pattern for
+
+        Returns:
+            Regex pattern string for case-insensitive matching, or empty string if invalid
+        """
+        if not text or not text.strip():
+            return ''
+
+        # Clean and normalize the input
+        cleaned_text = text.strip()
+
+        # Escape special regex characters to prevent regex injection
+        try:
+            escaped = re.escape(cleaned_text)
+        except Exception:
+            # If escaping fails for some reason, return empty to avoid errors
+            return ''
+
+        # Replace escaped separators with flexible pattern
+        # [\s_-]+ matches one or more: spaces, underscores, or dashes
+        pattern = (escaped
+                   .replace(r'\ ', r'[\s_-]+')     # spaces to flexible separator
+                   .replace(r'\_', r'[\s_-]+')     # underscores to flexible separator
+                   .replace(r'\-', r'[\s_-]+'))    # dashes to flexible separator
+
+        # Validate the pattern is reasonable (not too complex)
+        if len(pattern) > 500:  # Prevent extremely long patterns
+            return ''
+
+        return pattern
+
+    def fallback_search_query(searchtext, model_class, field_name):
+        """
+        Fallback search method using icontains if regex fails.
+        Used as backup when regex pattern is invalid or causes database errors.
+
+        Args:
+            searchtext: Original search text
+            model_class: Model to search (IndexData or IndexDirs)
+            field_name: Field to search ('name' or 'fqpndirectory')
+
+        Returns:
+            QuerySet with fallback search results
+        """
+        if not searchtext or not searchtext.strip():
+            return model_class.objects.none()
+
+        return (model_class.objects
+                .filter(**{f'{field_name}__icontains': searchtext.strip()})
+                .filter(delete_pending=False))
+
     context = {
+        "debug": settings.DEBUG,
         "small": g_option(request, "size", settings.IMAGE_SIZE["small"]),
         "medium": g_option(request, "size", settings.IMAGE_SIZE["medium"]),
         "large": g_option(request, "size", settings.IMAGE_SIZE["large"]),
         "user": request.user,
         "mobile": detect_mobile(request),
-        "sort": sort_order(request),
+        "sort": sort_order_value,
         "fromtimestamp": datetime.datetime.fromtimestamp,
-        "searchtext": request.GET.get("searchtext", default=None),
-        "current_page": request.GET.get("page", 1),
+        "searchtext": searchtext,
+        "current_page": current_page,
         "originator": request.headers.get("referer"),
+        "gallery_name": f"Searching for {searchtext}",
+        "search": True,
         "prev_uri": "",
         "next_uri": "",
+        "breadcrumbs": [{"name": "Search Results", "url": request.path}],
+        "webpath": "/search/",
+        "up_uri": "/albums/",
+        "missing": [],
+        "items_to_display": [],
+        "no_thumbnails": [],
     }
 
-    index = IndexData.objects.filter(name__icontains=context["searchtext"]).order_by(
-        *SORT_MATRIX[context["sort"]]
-    )
+    # Search both files and directories with separator-agnostic matching (optimized)
+    search_regex_pattern = create_search_regex_pattern(searchtext)
+    print(f"Search text: '{searchtext}' -> Regex pattern: '{search_regex_pattern}'")
+
+    # Directory search results (search directory paths for folder names)
+    # Optimize with precomputed counts to avoid N+1 queries in template
+    if search_regex_pattern:
+        try:
+            dirs = (
+                IndexDirs.objects
+                .filter(fqpndirectory__iregex=search_regex_pattern, delete_pending=False)
+                .select_related('filetype')
+                .annotate(
+                    # Precompute file count (used by get_file_counts in template)
+                    file_count_cached=Count('IndexData_entries',
+                                          filter=Q(IndexData_entries__delete_pending=False)),
+                    # Precompute directory count (used by get_dir_counts in template)
+                    dir_count_cached=Count('parent_dir',
+                                          filter=Q(parent_dir__delete_pending=False))
+                )
+                .prefetch_related('IndexData_entries__filetype')  # Still need files for other operations
+                .order_by(*SORT_MATRIX[sort_order_value])
+            )
+        except Exception as e:
+            # Fallback to simple icontains search if regex fails
+            print(f"Regex search failed for directories, using fallback: {e}")
+            dirs = (
+                fallback_search_query(searchtext, IndexDirs, 'fqpndirectory')
+                .select_related('filetype')
+                .annotate(
+                    file_count_cached=Count('IndexData_entries',
+                                          filter=Q(IndexData_entries__delete_pending=False)),
+                    dir_count_cached=Count('parent_dir',
+                                          filter=Q(parent_dir__delete_pending=False))
+                )
+                .prefetch_related('IndexData_entries__filetype')
+                .order_by(*SORT_MATRIX[sort_order_value])
+            )
+    else:
+        dirs = IndexDirs.objects.none()
+
+    # File search results (search filenames)
+    if search_regex_pattern:
+        try:
+            files = (
+                IndexData.objects
+                .filter(name__iregex=search_regex_pattern, delete_pending=False)
+                .select_related('filetype', 'home_directory')
+                .prefetch_related('new_ftnail')
+                .order_by(*SORT_MATRIX[sort_order_value])
+            )
+        except Exception as e:
+            # Fallback to simple icontains search if regex fails
+            print(f"Regex search failed for files, using fallback: {e}")
+            files = (
+                fallback_search_query(searchtext, IndexData, 'name')
+                .select_related('filetype', 'home_directory')
+                .prefetch_related('new_ftnail')
+                .order_by(*SORT_MATRIX[sort_order_value])
+            )
+    else:
+        files = IndexData.objects.none()
+
+    # Combine results with directories/links first, then files
+    # Convert to lists to allow sorting by type priority
+    # Limit results to prevent performance issues with very large result sets
+    MAX_SEARCH_RESULTS = 10000  # Reasonable limit for search results
+
+    dir_list = list(dirs[:MAX_SEARCH_RESULTS//2])  # Limit directories
+    file_list = list(files[:MAX_SEARCH_RESULTS//2])  # Limit files
+
+    # Create combined list with directories first, then files
+    combined_results = dir_list + file_list
+
+    if len(combined_results) >= MAX_SEARCH_RESULTS:
+        print(f"Search results limited to {MAX_SEARCH_RESULTS} items for performance")
+
+    # Create a combined queryset-like object for pagination
+    from django.core.paginator import Paginator
+    index = combined_results
 
     chk_list = Paginator(index, per_page=30, orphans=3)
     context["page_cnt"] = list(range(1, chk_list.num_pages + 1))
+    context["total_pages"] = chk_list.num_pages
 
-    if "/search/" in context["originator"] or context["originator"] is None:
+    # Handle originator URL
+    if "/search/" in str(context["originator"]) or context["originator"] is None:
         context["originator"] = request.GET.get("originator", "/albums")
-        context["search"] = True
 
-    context["gallery_name"] = f"Searching for {context['searchtext']}"
+    # Get paginated results
     try:
-        context["pagelist"] = chk_list.page(context["current_page"])
+        pagelist = chk_list.page(current_page)
+        context["pagelist"] = pagelist
+        context["has_previous"] = pagelist.has_previous()
+        context["has_next"] = pagelist.has_next()
     except PageNotAnInteger:
-        context["pagelist"] = chk_list.page(1)
+        pagelist = chk_list.page(1)
+        context["pagelist"] = pagelist
         context["current_page"] = 1
+        context["has_previous"] = False
+        context["has_next"] = pagelist.has_next()
     except EmptyPage:
-        context["pagelist"] = chk_list.page(chk_list.num_pages)
+        pagelist = chk_list.page(chk_list.num_pages)
+        context["pagelist"] = pagelist
+        context["current_page"] = chk_list.num_pages
+        context["has_previous"] = pagelist.has_previous()
+        context["has_next"] = False
+
+    # Set items to display from paginated results
+    context["items_to_display"] = list(context["pagelist"].object_list)
+
+    # Check for missing thumbnails and process if needed (only for files, not directories)
+    files_needing_thumbnails = [
+        item.file_sha256 for item in context["items_to_display"]
+        if hasattr(item, 'file_sha256') and hasattr(item, 'new_ftnail') and item.new_ftnail is None and item.filetype.is_image
+    ]
+
+    if files_needing_thumbnails:
+        print(f"{len(files_needing_thumbnails)} search results need thumbnails")
+        context["no_thumbnails"] = files_needing_thumbnails
+
+        # Note: Thumbnail generation is handled by the template system
+        # Search results will show generic thumbnails for missing thumbnails
 
     response = render(
         request,
-        "frontend/search/gallery_listing.jinja",
+        template_name,
         context,
         using="Jinja2",
     )
@@ -420,6 +616,14 @@ def new_viewgallery(request: WSGIRequest):
         .filter(dir_fqpn_sha256__in=data_for_current_page["directories"])
         .select_related('filetype', 'thumbnail')
         .prefetch_related('thumbnail__new_ftnail')
+        .annotate(
+            # Precompute file count (used by get_file_counts in template)
+            file_count_cached=Count('IndexData_entries',
+                                  filter=Q(IndexData_entries__delete_pending=False)),
+            # Precompute directory count (used by get_dir_counts in template)
+            dir_count_cached=Count('parent_dir',
+                                 filter=Q(parent_dir__delete_pending=False))
+        )
     )
 
     files_and_links = (

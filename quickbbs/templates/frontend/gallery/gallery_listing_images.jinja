@@ -245,7 +245,7 @@
                 <!-- Metadata -->
                 <div class="item-metadata">
                     {% if item.filetype.is_dir %}
-                        {% set dir_counts = item.get_dir_counts() %}
+                        {% set dir_counts = item.dir_count_cached if item.dir_count_cached is defined else item.get_dir_counts() %}
                         {% if dir_counts not in [0, None, "", -1] %}
                             <div class="metadata-item">
                                 <i class="far fa-folder"></i>
@@ -253,7 +253,7 @@
                             </div>
                         {% endif %}
                         
-                        {% set file_counts = item.get_file_counts() %}
+                        {% set file_counts = item.file_count_cached if item.file_count_cached is defined else item.get_file_counts() %}
                         {% if file_counts not in [0, None, "", -1] %}
                             <div class="metadata-item">
                                 <i class="far fa-file"></i>
