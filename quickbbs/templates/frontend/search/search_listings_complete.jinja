@@ -2,17 +2,16 @@
 <html>
 <head>
  <meta charset="utf-8">
- <meta http-equiv="content-type" content="text/html; charset=utf-8" />
  <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
  <meta name="viewport" content="width=device-width, initial-scale=1">
  <link rel="shortcut icon" type="image/png" href="/resources/images/open_folder_yellow.png" >
- <script src="/resources/javascript/htmx.min.js"> </script>
- <meta http-equiv="content-type" content="text/html; charset=utf-8" />
- <link rel="preload" href="/resources/css/bulma.min.css" as="style" defer>
+
+ <link rel="preload" href="/resources/css/bulma.min.css" as="style">
  <link rel="stylesheet" href="/resources/css/bulma.min.css">
- <link rel="preload" href="/resources/css/all.min.css" as="style" defer>
- <link rel="stylesheet" href="/resources/css/all.min.css" >
- <link rel="preload" href="/resources/javascript/htmx.min.js" defer>
+ <link rel="preload" href="/resources/css/all.min.css" as="style">
+ <link rel="stylesheet" href="/resources/css/all.min.css">
+
+ <script src="/resources/javascript/htmx.min.js" defer></script>
 {{ django_htmx_script() }}
  <title>{% block title %} {{ gallery_name }} {% endblock %}</title>
  <style>
@@ -60,95 +59,69 @@
  </script>
 
  <script>
- function showSpinner() {
-   // Create spinner if it doesn't exist
-   let spinnerOverlay = document.getElementById("spinner-overlay");
-   if (!spinnerOverlay) {
-     spinnerOverlay = document.createElement("div");
-     spinnerOverlay.id = "spinner-overlay";
-     spinnerOverlay.innerHTML = `
-       <div id="spinner">
-         <div class="spinner-icon"></div>
-         <div>Loading...</div>
-       </div>
-     `;
-     document.body.appendChild(spinnerOverlay);
-   }
-   spinnerOverlay.style.display = "flex";
- }
-
- function hideSpinner() {
-   const spinnerOverlay = document.getElementById("spinner-overlay");
-   if (spinnerOverlay) {
-     spinnerOverlay.style.display = "none";
-   }
- }
-
- // Wait for HTMX to be ready
+ // Optimized spinner management with debouncing
  document.addEventListener("DOMContentLoaded", function() {
+   let spinnerTimeout;
+   let spinner = null;
 
-   // HTMX request events
-   document.addEventListener("htmx:beforeRequest", function(evt) {
-     showSpinner();
-   });
+   function getSpinner() {
+     if (!spinner) {
+       spinner = document.getElementById("spinner-overlay");
+       if (!spinner) {
+         spinner = document.createElement("div");
+         spinner.id = "spinner-overlay";
+         spinner.innerHTML = `
+           <div id="spinner">
+             <div class="spinner-icon"></div>
+             <div>Loading...</div>
+           </div>
+         `;
+         document.body.appendChild(spinner);
+       }
+     }
+     return spinner;
+   }
 
-   document.addEventListener("htmx:afterRequest", function(evt) {
-     hideSpinner();
-   });
+   function showSpinner() {
+     clearTimeout(spinnerTimeout);
+     const spinnerElement = getSpinner();
+     if (spinnerElement) {
+       spinnerElement.style.display = "flex";
+     }
+   }
 
-   // Alternative HTMX events
-   document.addEventListener("htmx:beforeSwap", function(evt) {
-   });
+   function hideSpinner() {
+     clearTimeout(spinnerTimeout);
+     spinnerTimeout = setTimeout(() => {
+       const spinnerElement = getSpinner();
+       if (spinnerElement) {
+         spinnerElement.style.display = "none";
+       }
+     }, 100); // Debounce rapid hide calls
+   }
 
-   document.addEventListener("htmx:afterSwap", function(evt) {
-     hideSpinner();
-   });
-
-   document.addEventListener("htmx:beforeSettle", function(evt) {
-   });
-
-   document.addEventListener("htmx:afterSettle", function(evt) {
-     hideSpinner();
-   });
+   // Consolidated HTMX event handling
+   document.addEventListener("htmx:beforeRequest", showSpinner);
+   document.addEventListener("htmx:afterRequest", hideSpinner);
+   document.addEventListener("htmx:afterSettle", hideSpinner);
 
    // Handle regular link clicks (non-HTMX)
    document.addEventListener("click", function(evt) {
      const target = evt.target.closest('a');
      if (target && target.href && !target.hasAttribute('hx-get') && !target.hasAttribute('hx-post')) {
-       // Don't show spinner for links that open in new tab/window
-       if (target.target === '_blank' || target.target === '_new') {
-         return;
+       if (target.target !== '_blank' && target.target !== '_new') {
+         showSpinner();
        }
-       showSpinner();
      }
    });
 
-   // Handle browser back/forward navigation
-   window.addEventListener("popstate", function(evt) {
-     hideSpinner();
-   });
-
-   // Handle page visibility changes (when user switches tabs)
+   // Cleanup events
+   window.addEventListener("load", hideSpinner);
    document.addEventListener("visibilitychange", function() {
      if (document.visibilityState === 'visible') {
        hideSpinner();
      }
    });
-
-   // Fallback: hide spinner when page loads/reloads
-   window.addEventListener("load", function() {
-     hideSpinner();
-   });
-
-   // Additional HTMX events for better coverage
-   document.addEventListener("htmx:beforeHistoryUpdate", function(evt) {
-     hideSpinner();
-   });
-
-   document.addEventListener("htmx:historyRestore", function(evt) {
-     hideSpinner();
-   });
-
  });
  </script>
 

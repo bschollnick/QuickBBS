@@ -7,21 +7,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="shortcut icon" type="image/png" href="/resources/images/open_folder_yellow.png" >
 
-    <link rel="preload" href="/resources/css/bulma.min.css" as="style" >
-    <link rel="stylesheet" href="/resources/css/bulma.min.css" defer>
+    <link rel="preload" href="/resources/css/bulma.min.css" as="style">
+    <link rel="stylesheet" href="/resources/css/bulma.min.css">
 
     <link rel="preload" href="/resources/css/all.min.css" as="style">
-    <link rel="stylesheet" href="/resources/css/all.min.css" defer>
-    
+    <link rel="stylesheet" href="/resources/css/all.min.css">
+
     <style>
         .htmx-indicator {
             opacity: 0;
             transition: opacity 100ms ease-in;
         }
+
+        /* Ensure all titles are black */
+        #title, .title, h1, h2, h3, h4, h5, h6 {
+            color: black !important;
+        }
     </style>
 
-    <link href="/resources/javascript/htmx.min.js" defer>
-    <script src="/resources/javascript/htmx.min.js"> </script>
+    <script src="/resources/javascript/htmx.min.js" defer></script>
 
     {{ django_htmx_script() }}
     
