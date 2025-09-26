@@ -20,6 +20,7 @@ import sys
 import threading
 import time
 from collections import defaultdict
+import collections
 from functools import lru_cache
 from typing import Any, Optional
 
@@ -40,9 +41,66 @@ logger = logging.getLogger(__name__)
 
 Cache_Storage = None
 
-# Global event buffer for batch processing
-event_buffer = defaultdict(int)
-event_buffer_lock = threading.Lock()
+
+class LockFreeEventBuffer:
+    """
+    Thread-safe event buffer for file system events with automatic deduplication.
+
+    Replaces global defaultdict with lock to reduce contention during high file activity.
+    """
+
+    def __init__(self, max_size: int = 1000):
+        """
+        Args:
+            max_size: Maximum number of events to buffer before auto-cleanup
+        """
+        # Thread-safe deque for event paths
+        self._events = collections.deque()
+        # RLock allows recursive locking if needed
+        self._lock = threading.RLock()
+        self._max_size = max_size
+
+    def add_event(self, dirpath: str) -> None:
+        """
+        Add directory path to event buffer.
+
+        Args:
+            dirpath: Directory path that had file system changes
+        """
+        with self._lock:
+            self._events.append(dirpath)
+
+            # Prevent buffer from growing too large to avoid memory issues
+            if len(self._events) > self._max_size:
+                # Remove oldest events to prevent memory buildup
+                cleanup_target = int(self._max_size * 0.8)  # Remove 20% of max size
+                while len(self._events) > cleanup_target:
+                    self._events.popleft()
+
+    def get_events_to_process(self) -> set[str]:
+        """
+        Get unique directory paths and clear buffer.
+
+        Returns:
+            Set of unique directory paths that need cache invalidation
+        """
+        with self._lock:
+            if not self._events:
+                return set()
+
+            # Convert to set for automatic deduplication
+            unique_paths = set(self._events)
+            self._events.clear()
+            return unique_paths
+
+    def size(self) -> int:
+        """Get current buffer size."""
+        with self._lock:
+            return len(self._events)
+
+
+# Global event buffer for batch processing (optimized lock-free version)
+optimized_event_buffer = LockFreeEventBuffer()
 EVENT_PROCESSING_DELAY = 5  # seconds
 WATCHDOG_RESTART_INTERVAL = 4 * 60 * 60  # 4 hours in seconds
 
@@ -204,42 +262,38 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
             else:
                 dirpath = str(pathlib.Path(os.path.normpath(event.src_path)).parent)
 
-            with event_buffer_lock:
-                event_buffer[dirpath] += 1
+            # Add event to lock-free buffer
+            optimized_event_buffer.add_event(dirpath)
 
-                # Reset or create timer with thread safety
-                with self.timer_lock:
-                    if self.event_timer is not None:
-                        self.event_timer.cancel()
+            # Reset or create timer with thread safety
+            with self.timer_lock:
+                if self.event_timer is not None:
+                    self.event_timer.cancel()
 
-                    self.event_timer = threading.Timer(
-                        EVENT_PROCESSING_DELAY, self._process_buffered_events
-                    )
-                    self.event_timer.daemon = True
-                    self.event_timer.start()
+                self.event_timer = threading.Timer(
+                    EVENT_PROCESSING_DELAY, self._process_buffered_events
+                )
+                self.event_timer.daemon = True
+                self.event_timer.start()
 
         except Exception as e:
             logger.error(f"Error buffering event {event.src_path}: {e}")
 
     def _process_buffered_events(self) -> None:
         """Process all buffered events at once."""
-        paths_to_process = []
+        try:
+            # Get unique paths from lock-free buffer (automatic deduplication)
+            paths_to_process = optimized_event_buffer.get_events_to_process()
 
-        #       try:
-        with event_buffer_lock:
-            if event_buffer:  # Only process if there are events
-                paths_to_process = list(event_buffer.keys())
-                event_buffer.clear()
+            if paths_to_process:
+                logger.info(
+                    f"Processing {len(paths_to_process)} buffered directory changes"
+                )
+                # Convert set to list for cache removal function
+                Cache_Storage.remove_multiple_from_cache(list(paths_to_process))
 
-        if paths_to_process:
-            logger.info(
-                f"Processing {len(paths_to_process)} buffered directory changes"
-            )
-            Cache_Storage.remove_multiple_from_cache(paths_to_process)
-
-
-#        except Exception as e:
-#            logger.error(f"Error processing buffered events: {e}")
+        except Exception as e:
+            logger.error(f"Error processing buffered events: {e}")
 
 
 class fs_Cache_Tracking(models.Model):

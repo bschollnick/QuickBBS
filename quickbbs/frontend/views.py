@@ -384,7 +384,7 @@ def new_viewgallery(request: WSGIRequest):
     context.update(
         {
             "total_pages": layout["total_pages"],
-            "page_range": list(range(1, layout["total_pages"] + 1)),
+            # Removed page_range generation for memory optimization
         }
     )
 
@@ -394,7 +394,8 @@ def new_viewgallery(request: WSGIRequest):
     # all_dirs_in_directory = directory.dirs_in_dir()
     # all_files_in_directory = directory.files_in_dir()
 
-    data_for_current_page = layout["data"][context["current_page"] - 1]
+    # New layout_manager returns single page data directly
+    data_for_current_page = layout["data"]
     # dirs_to_display = all_dirs_in_directory.filter(
     #     dir_fqpn_sha256__in=data_for_current_page["directories"]
     # ).order_by(*SORT_MATRIX[context["sort"]])

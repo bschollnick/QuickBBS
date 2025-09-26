@@ -81,11 +81,46 @@
           <input type="hidden" name="sort" value="{{sort}}">
           <div class="select is-small is-fullwidth">
             <select name="page" onchange="this.form.submit()">
-              {% for pagecnt in page_range %}
-                <option value="{{pagecnt}}" {% if pagecnt == current_page %}selected{% endif %}>
-                  {{pagecnt}}
-                </option>
-              {% endfor %}
+              {% if total_pages <= 20 %}
+                {# Show all pages for small directories #}
+                {% for pagecnt in range(1, total_pages + 1) %}
+                  <option value="{{pagecnt}}" {% if pagecnt == current_page %}selected{% endif %}>
+                    {{pagecnt}}
+                  </option>
+                {% endfor %}
+              {% else %}
+                {# Smart pagination for large directories - show nearby pages #}
+                {% if current_page - 10 > 1 %}
+                  {% set start_page = current_page - 10 %}
+                {% else %}
+                  {% set start_page = 1 %}
+                {% endif %}
+
+                {% if current_page + 10 < total_pages %}
+                  {% set end_page = current_page + 10 %}
+                {% else %}
+                  {% set end_page = total_pages %}
+                {% endif %}
+
+                {# Always show page 1 #}
+                {% if start_page > 1 %}
+                  <option value="1" {% if current_page == 1 %}selected{% endif %}>1</option>
+                  {% if start_page > 2 %}<option disabled>...</option>{% endif %}
+                {% endif %}
+
+                {# Show range around current page #}
+                {% for pagecnt in range(start_page, end_page + 1) %}
+                  <option value="{{pagecnt}}" {% if pagecnt == current_page %}selected{% endif %}>
+                    {{pagecnt}}
+                  </option>
+                {% endfor %}
+
+                {# Always show last page #}
+                {% if end_page < total_pages %}
+                  {% if end_page < total_pages - 1 %}<option disabled>...</option>{% endif %}
+                  <option value="{{total_pages}}" {% if current_page == total_pages %}selected{% endif %}>{{total_pages}}</option>
+                {% endif %}
+              {% endif %}
             </select>
           </div>
           <p class="help has-text-centered">of {{ total_pages }}</p>
