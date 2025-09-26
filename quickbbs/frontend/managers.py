@@ -212,20 +212,65 @@ def build_context_info(request: WSGIRequest, unique_file_sha256: str) -> dict | 
     return context
 
 
-@cached(layout_manager_cache)
-def layout_manager(page_number: int = 0, directory=None, sort_ordering: int | None = None) -> dict:
+def calculate_page_bounds(page_number: int, chunk_size: int, dirs_count: int, files_count: int) -> dict:
     """
-    Manage gallery layout with pagination and data retrieval.
+    Calculate what directories and files belong on this page.
 
-    Optimized layout manager that handles directory and file pagination,
-    calculating which items appear on each page.
+    Args:
+        page_number: Current page number (1-indexed)
+        chunk_size: Items per page
+        dirs_count: Total directory count
+        files_count: Total file count
 
-    :param page_number: Current page number (0-indexed)
-    :param directory: IndexDirs object representing the directory to layout
-    :param sort_ordering: Sort order to apply (0-2)
-    :return: Dictionary containing pagination data, file/directory lists per page,
-             and thumbnails needing generation
-    :raises ValueError: If directory parameter is None
+    Returns:
+        Dictionary with slice boundaries for directories and files
+    """
+    start_idx = (page_number - 1) * chunk_size
+    end_idx = start_idx + chunk_size
+
+    if start_idx < dirs_count:
+        # Page starts with directories
+        dirs_start = start_idx
+        dirs_end = min(end_idx, dirs_count)
+        dirs_on_page = dirs_end - dirs_start
+
+        # Remaining space for files
+        files_space = chunk_size - dirs_on_page
+        files_start = 0
+        files_end = files_space
+    else:
+        # Page is all files
+        dirs_start = dirs_end = 0
+        dirs_on_page = 0
+
+        files_start = start_idx - dirs_count
+        files_end = files_start + chunk_size
+
+    return {
+        'dirs_slice': (dirs_start, dirs_end) if dirs_on_page > 0 else None,
+        'files_slice': (files_start, files_end) if files_end > files_start else None,
+        'dirs_on_page': dirs_on_page
+    }
+
+
+@cached(layout_manager_cache)
+def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | None = None) -> dict:
+    """
+    Manage gallery layout with optimized database-level pagination.
+
+    Uses database LIMIT/OFFSET for efficient pagination instead of loading
+    all items into memory. Only fetches data for the requested page.
+
+    Args:
+        page_number: Current page number (1-indexed)
+        directory: IndexDirs object representing the directory to layout
+        sort_ordering: Sort order to apply (0-2)
+
+    Returns:
+        Dictionary containing pagination data and current page items
+
+    Raises:
+        ValueError: If directory parameter is None
     """
     start_time = time.perf_counter()
     if directory is None:
@@ -233,28 +278,47 @@ def layout_manager(page_number: int = 0, directory=None, sort_ordering: int | No
 
     chunk_size = settings.GALLERY_ITEMS_PER_PAGE
 
-    # Optimize database queries with select_related/prefetch_related
-    # and only fetch what we need
-    directories_queryset = directory.dirs_in_dir(sort=sort_ordering).select_related('filetype', 'parent_directory')
-    files_queryset = directory.files_in_dir(sort=sort_ordering).select_related('filetype', 'home_directory')
+    # Get base querysets (no data loaded yet)
+    directories_qs = directory.dirs_in_dir(sort=sort_ordering)
+    files_qs = directory.files_in_dir(sort=sort_ordering)
 
-    # Get SHA256s in batches instead of loading everything at once
-    directories = list(directories_queryset.values_list("dir_fqpn_sha256", flat=True))
-    files = list(files_queryset.values_list("unique_sha256", flat=True))
+    # Get counts efficiently without loading data
+    dirs_count = directories_qs.count()
+    files_count = files_qs.count()
+    total_items = dirs_count + files_count
 
-    # Get counts once and cache them
-    dirs_count = len(directories)
-    files_count = len(files)
-    # total_items = dirs_count + files_count
+    # Calculate pagination
+    total_pages = max(1, math.ceil(total_items / chunk_size))
+    bounds = calculate_page_bounds(page_number, chunk_size, dirs_count, files_count)
 
-    # Calculate pagination info
-    # total_pages = (total_items + chunk_size - 1) // chunk_size  # Ceiling division
-    total_pages = max(1, math.ceil((dirs_count + files_count) / chunk_size))
-    # Build base output structure
+    # Fetch ONLY current page data using database slicing
+    page_data = {}
+
+    if bounds['dirs_slice']:
+        start, end = bounds['dirs_slice']
+        page_directories = list(directories_qs[start:end].values_list("dir_fqpn_sha256", flat=True))
+        page_data['directories'] = page_directories
+        page_data['cnt_dirs'] = len(page_directories)
+    else:
+        page_data['directories'] = []
+        page_data['cnt_dirs'] = 0
+
+    if bounds['files_slice']:
+        start, end = bounds['files_slice']
+        page_files = list(files_qs[start:end].values_list("unique_sha256", flat=True))
+        page_data['files'] = page_files
+        page_data['cnt_files'] = len(page_files)
+    else:
+        page_data['files'] = []
+        page_data['cnt_files'] = 0
+
+    page_data['total_cnt'] = page_data['cnt_dirs'] + page_data['cnt_files']
+    page_data['page'] = page_number
+
+    # Build optimized output structure - only current page data
     output = {
-        "data": {},
+        "data": page_data,  # Single page data instead of all pages
         "page_number": page_number,
-        "page_range": list(range(1, total_pages + 1)),
         "dirs_count": dirs_count,
         "chunk_size": chunk_size,
         "files_count": files_count,
@@ -263,45 +327,15 @@ def layout_manager(page_number: int = 0, directory=None, sort_ordering: int | No
         "numb_of_files_on_dir_lastpage": chunk_size - (dirs_count % chunk_size),
     }
 
-    # Process pages more efficiently
-    file_offset = 0
-    for page_cnt in range(total_pages):
-        start_idx = chunk_size * page_cnt
-        end_idx = chunk_size * (page_cnt + 1)
+    # Generate all_shas for current page only (much smaller)
+    output["all_shas"] = page_data['directories'] + page_data['files']
 
-        # Get directories for this page
-        page_directories = directories[start_idx:end_idx]
-        dirs_on_page = len(page_directories)
-
-        # Calculate remaining space for files
-        files_space = chunk_size - dirs_on_page
-        page_files = (
-            files[file_offset : file_offset + files_space] if files_space > 0 else []
-        )
-        files_on_page = len(page_files)
-
-        # Build page data
-        output["data"][page_cnt] = {
-            "page": page_cnt,
-            "directories": page_directories,
-            "cnt_dirs": dirs_on_page,
-            "files": page_files,
-            "cnt_files": files_on_page,
-            "total_cnt": dirs_on_page + files_on_page,
-        }
-
-        file_offset += files_on_page
-
-    # Add remaining data
-
-    output["all_shas"] = (
-        directories + files
-    )  # More efficient than itertools.chain for lists
     # Optimize the no_thumbnails query - only fetch SHA256
     output["no_thumbnails"] = list(
         directory.files_in_dir(
             sort=sort_ordering, additional_filters={"new_ftnail__isnull": True}
         ).values_list("file_sha256", flat=True)
     )
-    print(f"Layout manager completed in {time.perf_counter() - start_time} seconds")
+
+    print(f"Optimized layout manager completed in {time.perf_counter() - start_time} seconds")
     return output
