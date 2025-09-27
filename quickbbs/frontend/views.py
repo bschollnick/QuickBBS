@@ -11,7 +11,7 @@ import time
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import chain
-from django.db.models import Q, Prefetch, Count, Case, When, IntegerField
+from django.db.models import Q, Prefetch, Count, Case, When, IntegerField, Subquery, OuterRef
 import re
 from typing import Optional
 
@@ -359,10 +359,7 @@ def search_viewresults(request: WSGIRequest):
                 .annotate(
                     # Precompute file count (used by get_file_counts in template)
                     file_count_cached=Count('IndexData_entries',
-                                          filter=Q(IndexData_entries__delete_pending=False)),
-                    # Precompute directory count (used by get_dir_counts in template)
-                    dir_count_cached=Count('parent_dir',
-                                          filter=Q(parent_dir__delete_pending=False))
+                                          filter=Q(IndexData_entries__delete_pending=False))
                 )
                 .prefetch_related('IndexData_entries__filetype')  # Still need files for other operations
                 .order_by(*SORT_MATRIX[sort_order_value])
@@ -376,8 +373,6 @@ def search_viewresults(request: WSGIRequest):
                 .annotate(
                     file_count_cached=Count('IndexData_entries',
                                           filter=Q(IndexData_entries__delete_pending=False)),
-                    dir_count_cached=Count('parent_dir',
-                                          filter=Q(parent_dir__delete_pending=False))
                 )
                 .prefetch_related('IndexData_entries__filetype')
                 .order_by(*SORT_MATRIX[sort_order_value])
@@ -619,10 +614,7 @@ def new_viewgallery(request: WSGIRequest):
         .annotate(
             # Precompute file count (used by get_file_counts in template)
             file_count_cached=Count('IndexData_entries',
-                                  filter=Q(IndexData_entries__delete_pending=False)),
-            # Precompute directory count (used by get_dir_counts in template)
-            dir_count_cached=Count('parent_dir',
-                                 filter=Q(parent_dir__delete_pending=False))
+                                  filter=Q(IndexData_entries__delete_pending=False))
         )
     )
 
