@@ -13,25 +13,29 @@
         CACHE_DURATION: 300000 // 5 minutes
     };
 
-    // Spinner Management with Performance Optimizations
+    // Spinner Management with HTMX Content Replacement Handling
     class SpinnerManager {
         constructor() {
             this.spinnerTimeout = null;
-            this.spinner = null;
             this.requestCount = 0;
         }
 
         getSpinner() {
-            if (!this.spinner) {
-                this.spinner = document.getElementById("spinner-overlay");
-                if (!this.spinner) {
-                    this.spinner = this.createSpinner();
-                }
+            // Always check if spinner exists in DOM (HTMX may have removed it)
+            let spinner = document.getElementById("spinner-overlay");
+            if (!spinner) {
+                spinner = this.createSpinner();
             }
-            return this.spinner;
+            return spinner;
         }
 
         createSpinner() {
+            // Remove any existing spinner first
+            const existingSpinner = document.getElementById("spinner-overlay");
+            if (existingSpinner) {
+                existingSpinner.remove();
+            }
+
             const spinner = document.createElement("div");
             spinner.id = "spinner-overlay";
             spinner.innerHTML = `
@@ -40,6 +44,7 @@
                     <div>Loading...</div>
                 </div>
             `;
+            // Append to body, not to content that gets replaced
             document.body.appendChild(spinner);
             return spinner;
         }
@@ -59,11 +64,21 @@
 
             clearTimeout(this.spinnerTimeout);
             this.spinnerTimeout = setTimeout(() => {
-                const spinnerElement = this.getSpinner();
+                const spinnerElement = document.getElementById("spinner-overlay");
                 if (spinnerElement && this.requestCount === 0) {
                     spinnerElement.style.display = "none";
                 }
             }, CONFIG.SPINNER_DELAY);
+        }
+
+        forceHide() {
+            // Force hide spinner and reset state (for navigation events)
+            this.requestCount = 0;
+            clearTimeout(this.spinnerTimeout);
+            const spinnerElement = document.getElementById("spinner-overlay");
+            if (spinnerElement) {
+                spinnerElement.style.display = "none";
+            }
         }
     }
 
@@ -202,14 +217,29 @@
         }
 
         setupEventListeners() {
-            // HTMX Events
+            // HTMX Events - Handle both real requests and cached responses
             document.addEventListener("htmx:beforeRequest", (evt) => {
                 evt.detail.requestConfig.startTime = this.performance.startRequest();
                 this.spinner.show();
             });
 
+            // Also show spinner on any HTMX trigger (including cached responses)
+            document.addEventListener("htmx:trigger", (evt) => {
+                this.spinner.show();
+            });
+
+            // Show spinner on any element with HTMX attribute clicked
+            document.addEventListener("click", (evt) => {
+                const target = evt.target.closest('[hx-get], [hx-post], [hx-put], [hx-delete], [hx-patch]');
+                if (target) {
+                    this.spinner.show();
+                }
+            });
+
             document.addEventListener("htmx:afterRequest", (evt) => {
-                this.performance.endRequest(evt.detail.requestConfig.startTime);
+                if (evt.detail.requestConfig.startTime) {
+                    this.performance.endRequest(evt.detail.requestConfig.startTime);
+                }
                 this.spinner.hide();
             });
 
@@ -235,6 +265,28 @@
                     this.spinner.hide();
                 }
             });
+
+            // Browser navigation events (back/forward button)
+            window.addEventListener("pageshow", (evt) => {
+                this.spinner.forceHide();
+            });
+
+            window.addEventListener("pagehide", () => {
+                this.spinner.forceHide();
+            });
+
+            // HTMX history events
+            document.addEventListener("htmx:historyRestore", () => {
+                this.spinner.forceHide();
+            });
+
+            // Additional safety net - check for stuck spinners periodically
+            setInterval(() => {
+                const spinnerElement = document.getElementById("spinner-overlay");
+                if (spinnerElement && spinnerElement.style.display === "flex" && this.spinner.requestCount === 0) {
+                    this.spinner.forceHide();
+                }
+            }, 5000); // Check every 5 seconds
 
             // Error handling
             document.addEventListener("htmx:responseError", (evt) => {

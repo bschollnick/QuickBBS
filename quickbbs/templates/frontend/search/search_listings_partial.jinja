@@ -1,14 +1,5 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta http-equiv="content-type" content="text/html; charset=utf-8" />
-    <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-
-    <title>{% block title %} {{ gallery_name }} {% endblock %}</title>
-</head>
-<body hx-boost="true" style="g-0;m-0;p-0;">
+<!-- Search Listings Partial - HTMX Content Only -->
+<div hx-boost="true" style="g-0;m-0;p-0;">
 {% autoescape off %}
 {% include 'frontend/search/search_listings_menu.jinja' %}
 {% include 'frontend/search/search_listings_sidebar.jinja' %}
@@ -16,5 +7,4 @@
 
 {% endautoescape %}
 
-</body>
-</html>
+</div>
