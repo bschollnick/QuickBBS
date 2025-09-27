@@ -17,7 +17,12 @@ class VideoBackend(AbstractBackend):
 
     Uses ffmpeg-python to extract frames from video files and processes
     them using the PIL backend for thumbnail generation.
+    Includes optimization for backend reuse.
     """
+
+    def __init__(self):
+        # Cache ImageBackend instance for reuse
+        self._image_backend = ImageBackend()
 
     def process_from_file(
         self,
@@ -45,8 +50,7 @@ class VideoBackend(AbstractBackend):
         thumbnail = _generate_thumbnail_to_pil(
             file_path, time_offset=capture_time, width=width, height=height
         )
-        converter = ImageBackend()
-        pillow_output = converter._process_pil_image(
+        pillow_output = self._image_backend._process_pil_image(
             thumbnail, sizes, output_format, quality
         )
         output["format"] = output_format

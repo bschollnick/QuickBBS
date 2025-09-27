@@ -23,7 +23,10 @@ BackendType = Literal["image", "coreimage", "auto", "video"]
 
 
 class FastImageProcessor:
-    """Multi-backend image processor with automatic backend selection."""
+    """Multi-backend image processor with automatic backend selection and caching."""
+
+    # Class-level backend cache to reuse backend instances
+    _backend_cache = {}
 
     def __init__(
         self, image_sizes: dict[str, tuple[int, int]], backend: BackendType = "auto"
@@ -35,7 +38,13 @@ class FastImageProcessor:
         """
         self.image_sizes = image_sizes
         self.backend_type = backend.lower()
-        self._backend = self._create_backend()
+        self._backend = self._get_cached_backend()
+
+    def _get_cached_backend(self) -> AbstractBackend:
+        """Get or create cached backend instance for reuse."""
+        if self.backend_type not in self._backend_cache:
+            self._backend_cache[self.backend_type] = self._create_backend()
+        return self._backend_cache[self.backend_type]
 
     def _create_backend(self) -> AbstractBackend:
         """Create appropriate backend based on system and preference."""
@@ -108,6 +117,16 @@ class FastImageProcessor:
         )
 
 
+# Global processor cache for common size configurations
+_processor_cache = {}
+
+def _get_cached_processor(sizes: dict[str, tuple[int, int]], backend: BackendType) -> FastImageProcessor:
+    """Get or create cached processor for common configurations."""
+    cache_key = (tuple(sorted(sizes.items())), backend)
+    if cache_key not in _processor_cache:
+        _processor_cache[cache_key] = FastImageProcessor(sizes, backend)
+    return _processor_cache[cache_key]
+
 # Simplified interface functions
 def create_thumbnails_from_path(
     file_path: str,
@@ -116,8 +135,8 @@ def create_thumbnails_from_path(
     quality: int = 85,
     backend: BackendType = "auto",
 ) -> dict[str, bytes]:
-    """Create thumbnails from file path."""
-    processor = FastImageProcessor(sizes, backend)
+    """Create thumbnails from file path with processor caching."""
+    processor = _get_cached_processor(sizes, backend)
     return processor.process_image_file(file_path, output, quality)
 
 
@@ -128,8 +147,8 @@ def create_thumbnails_from_pil(
     quality: int = 85,
     backend: BackendType = "auto",
 ) -> dict[str, bytes]:
-    """Create thumbnails from PIL Image."""
-    processor = FastImageProcessor(sizes, backend)
+    """Create thumbnails from PIL Image with processor caching."""
+    processor = _get_cached_processor(sizes, backend)
     return processor.process_pil_image(pil_image, output, quality)
 
 
@@ -140,8 +159,8 @@ def create_thumbnails_from_bytes(
     quality: int = 85,
     backend: BackendType = "auto",
 ) -> dict[str, bytes]:
-    """Create thumbnails from image bytes."""
-    processor = FastImageProcessor(sizes, backend)
+    """Create thumbnails from image bytes with processor caching."""
+    processor = _get_cached_processor(sizes, backend)
     return processor.process_image_bytes(image_bytes, output, quality)
 
 

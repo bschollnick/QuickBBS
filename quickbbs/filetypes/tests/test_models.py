@@ -10,7 +10,6 @@ from filetypes.models import (
     filetypes,
     get_ftype_dict,
     return_identifier,
-    map_ext_to_id,
     load_filetypes,
     FILETYPE_DATA
 )
@@ -424,24 +423,6 @@ class TestReturnIdentifier:
         assert result == ""
 
 
-class TestMapExtToId:
-    """Test map_ext_to_id function"""
-
-    def setup_method(self):
-        """Set up test fixtures"""
-        map_ext_to_id.cache_clear()
-
-    def test_map_ext_to_id_calls_return_identifier(self):
-        """Test map_ext_to_id calls return_identifier"""
-        result = map_ext_to_id("JPG")
-        assert result == "jpg"
-
-    def test_map_ext_to_id_caching(self):
-        """Test map_ext_to_id uses caching"""
-        result1 = map_ext_to_id("jpg")
-        result2 = map_ext_to_id("jpg")
-
-        assert result1 == result2
 
 
 @pytest.mark.django_db

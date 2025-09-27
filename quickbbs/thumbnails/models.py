@@ -49,6 +49,13 @@ __license__ = "TBD"
 
 ThumbnailFiles_Prefetch_List = [
     "IndexData__filetype",
+    "IndexData__home_directory",
+]
+
+# Optimized prefetch for bulk operations
+ThumbnailFiles_Bulk_Prefetch_List = [
+    "IndexData__filetype",
+    "IndexData__home_directory",
 ]
 
 
@@ -79,6 +86,32 @@ class ThumbnailFiles(models.Model):
     class Meta:
         verbose_name = "Image File Thumbnails Cache"
         verbose_name_plural = "Image File Thumbnails Cache"
+        indexes = [
+            # Optimize SHA256 lookups with partial index
+            models.Index(
+                fields=['sha256_hash'],
+                name='thumbnails_sha256_lookup_idx',
+                condition=models.Q(sha256_hash__isnull=False)
+            ),
+            # Optimize thumbnail existence checks
+            models.Index(
+                fields=['sha256_hash'],
+                name='thumbnails_has_small_idx',
+                condition=models.Q(small_thumb__isnull=False) & ~models.Q(small_thumb=b'')
+            ),
+            models.Index(
+                fields=['sha256_hash'],
+                name='thumbnails_has_medium_idx',
+                condition=models.Q(medium_thumb__isnull=False) & ~models.Q(medium_thumb=b'')
+            ),
+            models.Index(
+                fields=['sha256_hash'],
+                name='thumbnails_has_large_idx',
+                condition=models.Q(large_thumb__isnull=False) & ~models.Q(large_thumb=b'')
+            ),
+        ]
+        # Note: Constraints can be added later after cleaning up existing data
+        # constraints = []
 
     @staticmethod
     def get_or_create_thumbnail_record(
@@ -115,7 +148,7 @@ class ThumbnailFiles(models.Model):
                 index_data_item = prefetched_indexdata[0]
                 make_link = any(item.new_ftnail_id is None for item in prefetched_indexdata)
             else:
-                index_data_item = IndexData.objects.select_related('filetype').filter(
+                index_data_item = IndexData.objects.prefetch_related('filetype').filter(
                     file_sha256=file_sha256
                 ).first()
                 make_link = True
@@ -177,17 +210,36 @@ class ThumbnailFiles(models.Model):
 
         return IndexData.objects.filter(file_sha256=self.sha256_hash).count()
 
-    @lru_cache(maxsize=250)
-    def get_thumbnail_by_sha(self, sha256: str) -> "ThumbnailFiles":
+    @classmethod
+    @lru_cache(maxsize=1000)
+    def get_thumbnail_by_sha(cls, sha256: str) -> "ThumbnailFiles":
         """
-        Get thumbnail object by SHA256 hash.
+        Get thumbnail object by SHA256 hash with optimized caching.
 
-        :param sha256: SHA256 hash of the file
+        :Args:
+            sha256: SHA256 hash of the file
+
         :return: ThumbnailFiles object for the specified hash
         """
-        return ThumbnailFiles.objects.prefetch_related(
+        return cls.objects.prefetch_related(
             *ThumbnailFiles_Prefetch_List
         ).get(sha256_hash=sha256)
+
+    @classmethod
+    def get_thumbnails_by_sha_list(cls, sha256_list: list[str]) -> dict[str, "ThumbnailFiles"]:
+        """
+        Get multiple thumbnails by SHA256 hash list to avoid N+1 queries.
+
+        :Args:
+            sha256_list: List of SHA256 hashes
+
+        :return: Dictionary mapping SHA256 hash to ThumbnailFiles object
+        """
+        thumbnails = cls.objects.prefetch_related(
+            *ThumbnailFiles_Bulk_Prefetch_List
+        ).filter(sha256_hash__in=sha256_list)
+
+        return {thumb.sha256_hash: thumb for thumb in thumbnails}
 
     def thumbnail_exists(self, size: str = "small") -> bool:
         """
@@ -244,13 +296,16 @@ class ThumbnailFiles(models.Model):
                 blobdata = self.large_thumb
         return blobdata
 
-    def send_thumbnail(self, filename_override: str | None = None, fext_override: str | None = None, size: str = "small"):
+    def send_thumbnail(self, filename_override: str | None = None, fext_override: str | None = None, size: str = "small", index_data_item=None):
         """
         Send thumbnail as HTTP response with appropriate headers.
 
-        :param filename_override: Optional filename to use instead of the original
-        :param fext_override: Optional file extension override (unused, kept for API compatibility)
-        :param size: The size of thumbnail to send (small, medium, or large)
+        :Args:
+            filename_override: Optional filename to use instead of the original
+            fext_override: Optional file extension override (unused, kept for API compatibility)
+            size: The size of thumbnail to send (small, medium, or large)
+            index_data_item: Pre-fetched IndexData to avoid additional query
+
         :return: Django FileResponse containing the thumbnail with appropriate headers
 
         Note:
@@ -260,7 +315,20 @@ class ThumbnailFiles(models.Model):
         Example:
             >>> thumbnail.send_thumbnail(filename_override="cover.jpg", size="medium")
         """
-        filename = filename_override or self.IndexData.first().name
+        # Use provided index_data_item to avoid N+1 query
+        if index_data_item:
+            filename = filename_override or index_data_item.name
+        else:
+            # Fallback to database query (try to use prefetched data first)
+            try:
+                index_data_list = list(self.IndexData.all())
+                if index_data_list:
+                    filename = filename_override or index_data_list[0].name
+                else:
+                    filename = filename_override or "thumbnail"
+            except:
+                filename = filename_override or "thumbnail"
+
         mtype = "image/jpeg"
         blob = self.retrieve_sized_tnail(size=size)
         return send_file_response(
@@ -271,4 +339,3 @@ class ThumbnailFiles(models.Model):
             last_modified=None,
             expiration=300,
         )
-        return response

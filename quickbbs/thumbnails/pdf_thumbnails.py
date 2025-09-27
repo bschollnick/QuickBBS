@@ -1,4 +1,5 @@
 import io
+from functools import lru_cache
 
 import fitz  # PyMuPDF
 from PIL import Image
@@ -16,23 +17,28 @@ class PDFBackend(AbstractBackend):
 
     Uses PyMuPDF (fitz) to render PDF pages as images, then processes
     them using the PIL backend for thumbnail generation.
+    Includes optimization for zoom calculation caching and backend reuse.
     """
 
+    def __init__(self):
+        # Cache ImageBackend instance for reuse
+        self._image_backend = ImageBackend()
+
     @staticmethod
-    def _calculate_optimal_zoom(page: fitz.Page, target_size: tuple[int, int]) -> float:
+    @lru_cache(maxsize=500)
+    def _calculate_optimal_zoom(page_width: float, page_height: float, target_width: int, target_height: int) -> float:
         """
         Calculate optimal zoom level to render PDF slightly larger than target size.
+        Cached to avoid redundant calculations for similar page dimensions.
 
         :Args:
-            page: PyMuPDF Page object
-            target_size: Target (width, height) tuple
+            page_width: PDF page width
+            page_height: PDF page height
+            target_width: Target width
+            target_height: Target height
 
         :return: Optimal zoom factor with 10% quality buffer
         """
-        rect = page.rect
-        page_width, page_height = rect.width, rect.height
-        target_width, target_height = target_size
-
         # Calculate zoom for each dimension (fit within target bounds)
         zoom_x = target_width / page_width
         zoom_y = target_height / page_height
@@ -67,9 +73,10 @@ class PDFBackend(AbstractBackend):
 
             page = pdf_doc[page_num]
 
-            # Calculate optimal zoom for largest requested size
+            # Calculate optimal zoom for largest requested size using cached method
             largest_size = max(sizes.values(), key=lambda s: s[0] * s[1])
-            zoom = self._calculate_optimal_zoom(page, largest_size)
+            rect = page.rect
+            zoom = self._calculate_optimal_zoom(rect.width, rect.height, largest_size[0], largest_size[1])
 
             # Create matrix for rendering
             mat = fitz.Matrix(zoom, zoom)
@@ -81,10 +88,9 @@ class PDFBackend(AbstractBackend):
             mode = "RGBA" if pix.alpha else "RGB"
             img = Image.frombytes(mode, (pix.width, pix.height), pix.samples)
 
-            # Process the image
+            # Process the image using cached backend
             output = {}
-            converter = ImageBackend()
-            pillow_output = converter._process_pil_image(
+            pillow_output = self._image_backend._process_pil_image(
                 img, sizes, output_format, quality
             )
             output["format"] = output_format
@@ -126,9 +132,10 @@ class PDFBackend(AbstractBackend):
 
             page = pdf_doc[page_num]
 
-            # Calculate optimal zoom for largest requested size
+            # Calculate optimal zoom for largest requested size using cached method
             largest_size = max(sizes.values(), key=lambda s: s[0] * s[1])
-            zoom = self._calculate_optimal_zoom(page, largest_size)
+            rect = page.rect
+            zoom = self._calculate_optimal_zoom(rect.width, rect.height, largest_size[0], largest_size[1])
 
             # Create matrix for rendering
             mat = fitz.Matrix(zoom, zoom)
@@ -140,10 +147,9 @@ class PDFBackend(AbstractBackend):
             mode = "RGBA" if pix.alpha else "RGB"
             img = Image.frombytes(mode, (pix.width, pix.height), pix.samples)
 
-            # Process the image
+            # Process the image using cached backend
             output = {}
-            converter = ImageBackend()
-            pillow_output = converter._process_pil_image(
+            pillow_output = self._image_backend._process_pil_image(
                 img, sizes, output_format, quality
             )
             output["format"] = output_format

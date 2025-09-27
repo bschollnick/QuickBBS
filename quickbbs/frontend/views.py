@@ -152,7 +152,7 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):
     if directory.thumbnail and directory.thumbnail.new_ftnail:
         #
         return directory.thumbnail.new_ftnail.send_thumbnail(
-            fext_override=".jpg", size="small"
+            fext_override=".jpg", size="small", index_data_item=directory.thumbnail
         )  # Send existing thumbnail
 
     files_in_directory = get_files_for_review(directory)
@@ -195,7 +195,7 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):
 
     if directory.thumbnail:
         return directory.thumbnail.new_ftnail.send_thumbnail(
-            fext_override=".jpg", size="small"
+            fext_override=".jpg", size="small", index_data_item=directory.thumbnail
         )  # Send existing thumbnail
 
 
@@ -212,15 +212,26 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
         print(sha256, "File not found - No records returned.")
         return HttpResponseBadRequest(content="Thumbnail not found.")
 
-    if thumbnail.IndexData.first().filetype.generic:
+    # Get prefetched IndexData to avoid N+1 query
+    try:
+        index_data_list = list(thumbnail.IndexData.all())
+        if index_data_list:
+            index_data_item = index_data_list[0]
+        else:
+            return HttpResponseBadRequest(content="No associated file data found.")
+    except:
+        return HttpResponseBadRequest(content="Error accessing file data.")
+
+    if index_data_item.filetype.generic:
         # If the filetype is a generic icon, then return the default icon
-        return thumbnail.IndexData.first().filetype.send_thumbnail()
+        return index_data_item.filetype.send_thumbnail()
 
     thumbsize = request.GET.get("size", "small").lower()
     return thumbnail.send_thumbnail(
-        filename_override=thumbnail.IndexData.first().name,
+        filename_override=index_data_item.name,
         fext_override=".jpg",
         size=thumbsize,
+        index_data_item=index_data_item
     )
 
 
@@ -353,7 +364,7 @@ def search_viewresults(request: WSGIRequest):
             dirs = (
                 IndexDirs.objects
                 .filter(fqpndirectory__iregex=search_regex_pattern, delete_pending=False)
-                .select_related('filetype')
+                .prefetch_related('filetype')
                 .annotate(
                     # Precompute file count (used by get_file_counts in template)
                     file_count_cached=Count('IndexData_entries',
@@ -367,7 +378,7 @@ def search_viewresults(request: WSGIRequest):
             print(f"Regex search failed for directories, using fallback: {e}")
             dirs = (
                 fallback_search_query(searchtext, IndexDirs, 'fqpndirectory')
-                .select_related('filetype')
+                .prefetch_related('filetype')
                 .annotate(
                     file_count_cached=Count('IndexData_entries',
                                           filter=Q(IndexData_entries__delete_pending=False)),
@@ -384,7 +395,7 @@ def search_viewresults(request: WSGIRequest):
             files = (
                 IndexData.objects
                 .filter(name__iregex=search_regex_pattern, delete_pending=False)
-                .select_related('filetype', 'home_directory')
+                .prefetch_related('filetype', 'home_directory')
                 .prefetch_related('new_ftnail')
                 .order_by(*SORT_MATRIX[sort_order_value])
             )
@@ -393,7 +404,7 @@ def search_viewresults(request: WSGIRequest):
             print(f"Regex search failed for files, using fallback: {e}")
             files = (
                 fallback_search_query(searchtext, IndexData, 'name')
-                .select_related('filetype', 'home_directory')
+                .prefetch_related('filetype', 'home_directory')
                 .prefetch_related('new_ftnail')
                 .order_by(*SORT_MATRIX[sort_order_value])
             )
@@ -607,7 +618,7 @@ def new_viewgallery(request: WSGIRequest):
     dirs_to_display = (
         directory.dirs_in_dir(sort=context["sort"])
         .filter(dir_fqpn_sha256__in=data_for_current_page["directories"])
-        .select_related('filetype', 'thumbnail')
+        .prefetch_related('filetype', 'thumbnail')
         .prefetch_related('thumbnail__new_ftnail')
         .annotate(
             # Precompute file count (used by get_file_counts in template)
@@ -619,7 +630,7 @@ def new_viewgallery(request: WSGIRequest):
     files_and_links = (
         directory.files_in_dir(sort=context["sort"])
         .filter(unique_sha256__in=data_for_current_page["files"])
-        .select_related('filetype', 'home_directory')
+        .prefetch_related('filetype', 'home_directory')
         .prefetch_related('new_ftnail')
     )
 
