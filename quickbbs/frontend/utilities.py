@@ -11,7 +11,7 @@ import urllib.parse
 # from datetime import timedelta
 from functools import lru_cache  # , wraps
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import filetypes.models as filetype_models
 from cache_watcher.models import Cache_Storage, get_dir_sha
@@ -136,7 +136,6 @@ def _sync_directories(dirpath_info: object, fs_entries: dict) -> None:
     # Get all database directories in one query
     print("Synchronizing directories...")
     logger.info("Synchronizing directories...")
-    records_to_update = []
     current_path = normalize_fqpn(dirpath_info.fqpndirectory)
     all_dirs_in_database = dirpath_info.dirs_in_dir()
 

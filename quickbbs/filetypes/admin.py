@@ -1,7 +1,7 @@
 from django.contrib import admin
 
 # Register your models here.
-from filetypes.models import *
+from filetypes.models import filetypes
 
 
 @admin.register(filetypes)
