@@ -11,6 +11,9 @@ from django.apps import AppConfig
 from django.conf import settings
 from django.db import models
 from django.http import FileResponse, HttpResponse
+from django.utils.functional import cached_property
+
+from frontend.serve_up import send_file_response
 
 FILETYPE_DATA = {}
 
@@ -54,24 +57,48 @@ class filetypes(models.Model):
     def __str__(self) -> str:
         return f"{self.fileext}"
 
+    @cached_property
+    def thumbnail_stream(self) -> io.BytesIO:
+        """
+        Get cached BytesIO stream for thumbnail data.
+
+        :return: BytesIO object containing thumbnail binary data
+        """
+        return io.BytesIO(self.thumbnail)
+
     def send_thumbnail(self):
         """
         Send the generic icon thumbnail for this file type.
 
         :return: FileResponse containing the generic icon image
         """
-        from frontend.serve_up import send_file_response
-
+        # Reset stream position for reuse
+        self.thumbnail_stream.seek(0)
         return send_file_response(
             filename=self.icon_filename,
-            content_to_send=io.BytesIO(self.thumbnail),
+            content_to_send=self.thumbnail_stream,
             mtype=self.mimetype or "image/jpeg",
             attachment=False,
             last_modified=None,
             expiration=300,
         )
 
-    @lru_cache(maxsize=200)
+    @staticmethod
+    def _normalize_extension(fileext: str) -> str:
+        """
+        Normalize file extension to consistent format.
+
+        :param fileext: File extension to normalize
+        :return: Normalized extension (lowercase, stripped, with dot prefix)
+        """
+        fileext = fileext.lower().strip()
+        if fileext in ["", None, "unknown"]:
+            fileext = ".none"
+        if not fileext.startswith("."):
+            fileext = "." + fileext
+        return fileext
+
+    @lru_cache(maxsize=1000)
     @staticmethod
     def filetype_exists_by_ext(fileext: str) -> bool:
         """
@@ -80,14 +107,12 @@ class filetypes(models.Model):
         :param fileext: The file extension to check, lower case, and includes the DOT (e.g. .html, not html)
         :return: True if the filetype exists, False otherwise.
         """
-        fileext = fileext.lower().strip()
-        if fileext in ["", None, "unknown"]:
+        fileext = filetypes._normalize_extension(fileext)
+        if fileext == ".none":
             return False
-        if not fileext.startswith("."):
-            fileext = "." + fileext
         return filetypes.objects.filter(fileext=fileext).exists()
 
-    @lru_cache(maxsize=200)
+    @lru_cache(maxsize=500)
     @staticmethod
     def return_any_icon_filename(fileext: str) -> str | None:
         """
@@ -101,18 +126,13 @@ class filetypes(models.Model):
         :return: The icon filename for the given file extension (IMAGES_PATH + filename), or NONE if not found or
             the filename for the fileext is blank (e.g. JPEG, since JPEG will always be created based off the file)
         """
-        fileext = fileext.lower().strip()
-        if fileext in ["", None, "unknown"]:
-            fileext = ".none"
-        if not fileext.startswith("."):
-            fileext = "." + fileext
-        # data = filetypes.objects.filter(fileext=fileext)
+        fileext = filetypes._normalize_extension(fileext)
         data = filetypes.return_filetype(fileext)
         if data and data.icon_filename != "":
             return os.path.join(settings.IMAGES_PATH, data.icon_filename)
         return None
 
-    @lru_cache(maxsize=200)
+    @lru_cache(maxsize=5000)
     @staticmethod
     def return_filetype(fileext: str) -> "filetypes":
         """
@@ -121,12 +141,7 @@ class filetypes(models.Model):
         :param fileext: File extension (e.g., 'gif', 'jpg', '.mp4'). Will be normalized to lowercase with dot prefix
         :return: filetypes object for the specified extension
         """
-        fileext = fileext.lower().strip()
-        if fileext in ["", None, "unknown"]:
-            fileext = ".none"
-        if not fileext.startswith("."):
-            fileext = "." + fileext
-
+        fileext = filetypes._normalize_extension(fileext)
         return filetypes.objects.get(fileext=fileext)
 
     class Meta:
@@ -134,7 +149,7 @@ class filetypes(models.Model):
         verbose_name_plural = "File Types"
 
 
-@lru_cache(maxsize=200)
+@lru_cache(maxsize=50)
 def get_ftype_dict() -> dict:
     """
     Return filetypes information from database as a dictionary.
@@ -157,18 +172,6 @@ def return_identifier(ext: str) -> str:
     return ext
 
 
-@lru_cache(maxsize=200)
-def map_ext_to_id(ext: str) -> str:
-    """
-    Map file extension to identifier.
-
-    :param ext: File extension to map
-    :return: Identifier string for the extension
-
-    Note:
-        This is a legacy wrapper for return_identifier() - consider consolidating.
-    """
-    return return_identifier(ext)
 
 
 def load_filetypes(force: bool = False) -> dict:
@@ -178,14 +181,21 @@ def load_filetypes(force: bool = False) -> dict:
     :param force: If True, force reload from database even if already cached
     :return: Dictionary of filetype data
     """
+    from django.db import DatabaseError, connections
+
     global FILETYPE_DATA
     if not FILETYPE_DATA or force:
         try:
             print("Loading FileType data from database...")
             FILETYPE_DATA = get_ftype_dict()
-        except:
-            print("Unable to validate or create FileType database table.")
+        except DatabaseError as e:
+            print(f"Database error while loading FileType data: {e}")
             print("\nPlease use manage.py --refresh-filetypes\n")
             print("This will rebuild and/or update the FileType table.")
+            connections.close_all()
+        except Exception as e:
+            print(f"Unexpected error while loading FileType data: {e}")
+            print("\nPlease use manage.py --refresh-filetypes\n")
+            print("This will rebuild and/or update the FileType table.")
+            connections.close_all()
     return FILETYPE_DATA
-    #   sys.exit()

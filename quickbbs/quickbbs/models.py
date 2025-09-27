@@ -723,7 +723,7 @@ class IndexData(models.Model):
 
         files = (
             IndexData.objects.prefetch_related("new_ftnail")
-            .select_related("filetype")
+            .prefetch_related("filetype")
             .filter(file_sha256__in=sha256_list, delete_pending=False)
             .order_by(*SORT_MATRIX[sort])
         )
@@ -742,12 +742,12 @@ class IndexData(models.Model):
             if unique:
                 return (
                     IndexData.objects.prefetch_related("new_ftnail")
-                    .select_related("filetype")
+                    .prefetch_related("filetype")
                     .get(unique_sha256=sha_value, delete_pending=False)
                 )
             return (
                 IndexData.objects.prefetch_related("new_ftnail")
-                .select_related("filetype")
+                .prefetch_related("filetype")
                 .get(file_sha256=sha_value, delete_pending=False)
             )
         except IndexData.DoesNotExist:

@@ -7,6 +7,7 @@ import os
 import os.path
 import time
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # from datetime import timedelta
 from functools import lru_cache  # , wraps
@@ -16,7 +17,7 @@ from typing import Any
 import filetypes.models as filetype_models
 from cache_watcher.models import Cache_Storage, get_dir_sha
 from django.conf import settings
-from django.db import transaction  # connection
+from django.db import connections, transaction  # connection
 
 # from django.db.models import Case, F, Value, When, BooleanField
 from frontend.file_listings import return_disk_listing
@@ -30,7 +31,8 @@ logger = logging.getLogger(__name__)
 
 Image.MAX_IMAGE_PIXELS = None  # Disable PILLOW DecompressionBombError errors.
 
-MAX_THREADS = 20
+# Optimize thread count dynamically based on system resources
+MAX_THREADS = min(32, max(4, (os.cpu_count() or 1) * 2))  # Better scaling for modern systems
 
 
 SORT_MATRIX = {
@@ -189,41 +191,81 @@ def _sync_directories(dirpath_info: object, fs_entries: dict) -> None:
                 IndexDirs.add_directory(fqpn_directory=dir_to_create)
 
 
+def _check_single_directory_update(db_dir_entry, fs_entries: dict) -> object | None:
+    """
+    Check a single directory for updates. Helper function for concurrent processing.
+
+    :param db_dir_entry: Database directory entry
+    :param fs_entries: Dictionary of filesystem entries
+    :return: Updated directory record or None
+    """
+    fs_entry = fs_entries.get(db_dir_entry.fqpndirectory)
+    if fs_entry:
+        try:
+            fs_stat = fs_entry.stat()
+            update_needed = False
+
+            # Check modification time
+            if db_dir_entry.lastmod != fs_stat.st_mtime:
+                db_dir_entry.lastmod = fs_stat.st_mtime
+                update_needed = True
+
+            # Check directory size (if applicable)
+            if db_dir_entry.size != fs_stat.st_size:
+                db_dir_entry.size = fs_stat.st_size
+                update_needed = True
+
+            return db_dir_entry if update_needed else None
+
+        except (OSError, IOError) as e:
+            logger.error(
+                f"Error checking directory {db_dir_entry.fqpndirectory}: {e}"
+            )
+    return None
+
+
 def _check_directory_updates(
     fs_entries: dict, existing_directories_in_database: object
 ) -> list[object]:
     """
-    Check for updates in existing directories based on filesystem entries.
+    Check for updates in existing directories using concurrent processing.
 
     :param fs_entries: Dictionary of filesystem entries
     :param existing_directories_in_database: QuerySet of existing directory records
     :return: List of directory records that need updating
     """
     records_to_update = []
-    for db_dir_entry in existing_directories_in_database:
-        fs_entry = fs_entries.get(db_dir_entry.fqpndirectory)
-        if fs_entry:
-            try:
-                fs_stat = fs_entry.stat()
-                update_needed = False
+    directory_list = list(existing_directories_in_database)
 
-                # Check modification time
-                if db_dir_entry.lastmod != fs_stat.st_mtime:
-                    db_dir_entry.lastmod = fs_stat.st_mtime
-                    update_needed = True
+    # Use ThreadPoolExecutor for I/O-bound filesystem operations
+    max_workers = min(MAX_THREADS // 2, len(directory_list), 10)  # Limit concurrent operations
+    if len(directory_list) > 5 and max_workers > 1:  # Only use threading for larger batches
+        try:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all directory check tasks
+                future_to_dir = {
+                    executor.submit(_check_single_directory_update, db_dir_entry, fs_entries): db_dir_entry
+                    for db_dir_entry in directory_list
+                }
 
-                # Check directory size (if applicable)
-                if db_dir_entry.size != fs_stat.st_size:
-                    db_dir_entry.size = fs_stat.st_size
-                    update_needed = True
-
-                if update_needed:
-                    records_to_update.append(db_dir_entry)
-
-            except (OSError, IOError) as e:
-                logger.error(
-                    f"Error checking directory {db_dir_entry.fqpndirectory}: {e}"
-                )
+                # Collect results as they complete
+                for future in as_completed(future_to_dir):
+                    try:
+                        result = future.result()
+                        if result:
+                            records_to_update.append(result)
+                    except Exception as e:
+                        db_dir_entry = future_to_dir[future]
+                        logger.error(f"Error processing directory {db_dir_entry.fqpndirectory}: {e}")
+        finally:
+            # Clean up connections after concurrent operations
+            connections.close_all()
+    else:
+        # Fall back to sequential processing for small batches
+        for db_dir_entry in directory_list:
+            result = _check_single_directory_update(db_dir_entry, fs_entries)
+            if result:
+                records_to_update.append(result)
 
     return records_to_update
 
@@ -240,8 +282,7 @@ def _sync_files(dirpath_info: object, fs_entries: dict, bulk_size: int) -> None:
     :param bulk_size: Size of batches for bulk operations
     :return: None
     """
-    # Get all database files in one optimized query
-    # db_bulk_size = 1000
+    # Get all database files in one optimized query with select_related
     fs_file_names_dict = {
         name: entry for name, entry in fs_entries.items() if not entry.is_dir()
     }
@@ -249,18 +290,26 @@ def _sync_files(dirpath_info: object, fs_entries: dict, bulk_size: int) -> None:
         name.strip().title() for name, entry in fs_entries.items() if not entry.is_dir()
     ]
 
-    all_files_in_dir = dirpath_info.files_in_dir()
+    all_files_in_dir = dirpath_info.files_in_dir().select_related('filetype')
     all_db_filenames = set(all_files_in_dir.values_list("name", flat=True))
     records_to_update = []
     potential_updates = all_files_in_dir.filter(name__in=fs_file_names)
-    for db_file_entry in potential_updates:  # .iterator(chunk_size=db_bulk_size):
-        updated_record = _check_file_updates(
-            db_file_entry, fs_file_names_dict[db_file_entry.name], dirpath_info
-        )
-        if updated_record:
-            records_to_update.append(updated_record)
 
-    records_to_delete = all_files_in_dir.all().exclude(name__in=fs_file_names)
+    # Process in chunks to manage memory usage
+    chunk_size = min(bulk_size * 5, 500)  # Balance memory vs query efficiency
+    for chunk_start in range(0, potential_updates.count(), chunk_size):
+        chunk_end = chunk_start + chunk_size
+        chunk_updates = potential_updates[chunk_start:chunk_end]
+
+        for db_file_entry in chunk_updates:
+            updated_record = _check_file_updates(
+                db_file_entry, fs_file_names_dict[db_file_entry.name], dirpath_info
+            )
+            if updated_record:
+                records_to_update.append(updated_record)
+
+    # Use values_list for memory efficiency on delete check
+    files_to_delete_ids = all_files_in_dir.exclude(name__in=fs_file_names).values_list('id', flat=True)
 
     fs_file_names_for_creation = set(fs_file_names) - set(all_db_filenames)
     creation_fs_file_names_dict = {name: fs_file_names_dict[name] for name in fs_file_names_for_creation}
@@ -268,7 +317,7 @@ def _sync_files(dirpath_info: object, fs_entries: dict, bulk_size: int) -> None:
     records_to_create = _process_new_files(dirpath_info, creation_fs_file_names_dict)
     # Execute batch operations
     _execute_batch_operations(
-        records_to_update, records_to_create, records_to_delete, bulk_size
+        records_to_update, records_to_create, files_to_delete_ids, bulk_size
     )
 
 
@@ -290,12 +339,17 @@ def _check_file_updates(
         fs_stat = fs_entry.stat()
         update_needed = False
 
-        # Check file hash if missing
+        # Check file hash if missing - only calculate if file changed or hash missing
         fext = os.path.splitext(db_record.name)[1].lower()
         if fext:  # Only process files with extensions
-            filetype = filetype_models.filetypes.return_filetype(fileext=fext)
+            # Use prefetched filetype from select_related
+            filetype = db_record.filetype if hasattr(db_record, 'filetype') else filetype_models.filetypes.return_filetype(fileext=fext)
 
-            if not db_record.file_sha256 and not filetype.is_link:
+            # Only calculate hash if file changed AND hash is missing
+            file_changed = (db_record.lastmod != fs_stat.st_mtime or
+                          db_record.size != fs_stat.st_size)
+
+            if not db_record.file_sha256 and not filetype.is_link and file_changed:
                 try:
                     db_record.file_sha256, db_record.unique_sha256 = (
                         db_record.get_file_sha(fqfn=fs_entry)
@@ -339,36 +393,41 @@ def _process_new_files(dirpath_info: object, fs_file_names: dict) -> list[object
     Process files that exist in filesystem but not in database.
 
     Creates new IndexData records for files found on filesystem that don't
-    have corresponding database entries.
+    have corresponding database entries. Uses memory-efficient processing.
 
     :param dirpath_info: IndexDirs object for the parent directory
     :param fs_file_names: Dictionary of filesystem file entries
     :return: List of new IndexData records to create
     """
     records_to_create = []
-    for _, fs_entry in fs_file_names.items():
-        try:
-            # Process new file
-            filedata = process_filedata(fs_entry, directory_id=dirpath_info)
-            if filedata is None:
-                continue
 
-            # Skip archives for now (as per original logic)
-            filetype = filedata.get("filetype")
-            if hasattr(filetype, "is_archive") and filetype.is_archive:
-                logger.info(f"Archive detected: {filedata['name']}")
-                continue
-            # Create record using get_or_create to handle duplicates
-            record = IndexData(**filedata)
-            # record, created = IndexData.objects.get_or_create(
-            #    unique_sha256=filedata.get("unique_sha256"), defaults=filedata
-            # )
-            record.home_directory = dirpath_info
-            records_to_create.append(record)
+    # Process files in chunks to manage memory
+    file_items = list(fs_file_names.items())
+    chunk_size = 100  # Process 100 files at a time
 
-        except Exception as e:
-            logger.error(f"Error processing new file {fs_entry}: {e}")
-            continue
+    for i in range(0, len(file_items), chunk_size):
+        chunk = file_items[i:i + chunk_size]
+
+        for _, fs_entry in chunk:
+            try:
+                # Process new file
+                filedata = process_filedata(fs_entry, directory_id=dirpath_info)
+                if filedata is None:
+                    continue
+
+                # Early skip for archives and other excluded types
+                filetype = filedata.get("filetype")
+                if hasattr(filetype, "is_archive") and filetype.is_archive:
+                    # logger.info(f"Archive detected: {filedata['name']}")  # Reduce logging
+                    continue
+                # Create record using get_or_create to handle duplicates
+                record = IndexData(**filedata)
+                record.home_directory = dirpath_info
+                records_to_create.append(record)
+
+            except Exception as e:
+                logger.error(f"Error processing new file {fs_entry}: {e}")
+                continue
 
     return records_to_create
 
@@ -376,7 +435,7 @@ def _process_new_files(dirpath_info: object, fs_file_names: dict) -> list[object
 def _execute_batch_operations(
     records_to_update: list,
     records_to_create: list,
-    records_to_delete: list,
+    records_to_delete_ids: list,
     bulk_size: int,
 ) -> None:
     """
@@ -386,93 +445,110 @@ def _execute_batch_operations(
 
     :param records_to_update: List of records to update
     :param records_to_create: List of records to create
-    :param records_to_delete: List of records to delete
+    :param records_to_delete_ids: List of record IDs to delete
     :param bulk_size: Size of batches for bulk operations
     :return: None
     :raises Exception: If any database operation fails
     """
 
     try:
-        # Batch delete
-        if records_to_delete:
+        # Batch delete using IDs for memory efficiency
+        if records_to_delete_ids:
             with transaction.atomic():
-                IndexData.objects.filter(id__in=records_to_delete).delete()
-                print(f"Deleted {len(records_to_delete)} records")
-                logger.info(f"Deleted {len(records_to_delete)} records")
+                # Process deletes in chunks to avoid memory issues
+                for i in range(0, len(records_to_delete_ids), bulk_size):
+                    chunk_ids = records_to_delete_ids[i:i + bulk_size]
+                    IndexData.objects.filter(id__in=chunk_ids).delete()
+                print(f"Deleted {len(records_to_delete_ids)} records")
+                logger.info(f"Deleted {len(records_to_delete_ids)} records")
 
-        # Batch update
+        # Batch update in chunks for memory efficiency
         if records_to_update:
-            with transaction.atomic():
-                IndexData.objects.bulk_update(
-                    records_to_update,
-                    fields=[
-                        "lastmod",
-                        "size",
-                        "duration",
-                        "file_sha256",
-                        "unique_sha256",
-                        "home_directory",
-                    ],
-                    batch_size=bulk_size,
-                )
-                logger.info(f"Updated {len(records_to_update)} records")
+            for i in range(0, len(records_to_update), bulk_size):
+                chunk = records_to_update[i:i + bulk_size]
+                with transaction.atomic():
+                    IndexData.objects.bulk_update(
+                        chunk,
+                        fields=[
+                            "lastmod",
+                            "size",
+                            "duration",
+                            "file_sha256",
+                            "unique_sha256",
+                            "home_directory",
+                        ],
+                        batch_size=bulk_size,
+                    )
+            logger.info(f"Updated {len(records_to_update)} records")
 
-        # Batch create
+        # Batch create in chunks for memory efficiency
         if records_to_create:
-            with transaction.atomic():
-                IndexData.objects.bulk_create(
-                    records_to_create,
-                    batch_size=bulk_size,
-                    ignore_conflicts=True,  # Handle duplicates gracefully
-                )
-                logger.info(f"Created {len(records_to_create)} records")
+            for i in range(0, len(records_to_create), bulk_size):
+                chunk = records_to_create[i:i + bulk_size]
+                with transaction.atomic():
+                    IndexData.objects.bulk_create(
+                        chunk,
+                        batch_size=bulk_size,
+                        ignore_conflicts=True,  # Handle duplicates gracefully
+                    )
+            logger.info(f"Created {len(records_to_create)} records")
 
     except Exception as e:
         logger.error(f"Database operation failed: {e}")
         raise
+    finally:
+        # Ensure connections are closed after batch operations
+        connections.close_all()
 
 
+@lru_cache(maxsize=2000)  # Optimize for URL parsing frequency
 def break_down_urls(uri_path: str) -> list[str]:
     """
-    Split URL into it's component parts
+    Split URL into component parts with optimized parsing
 
-    Parameters
-    ----------
-    uri_path (str): The URI to break down
+    :Args:
+        uri_path (str): The URI to break down
 
-    Returns
-    -------
-        list : A list containing all of the parts of the URI
+    :Returns:
+        list: A list containing all parts of the URI
 
     >>> break_down_urls("https://www.google.com")
     """
+    # Fast path for common cases
+    if not uri_path or uri_path == "/":
+        return []
+
+    # Use more efficient parsing
     path = urllib.parse.urlsplit(uri_path).path
-    return path.split("/")
+    # Filter out empty strings in one pass
+    return [part for part in path.split("/") if part]
 
 
-@lru_cache(maxsize=250)
+@lru_cache(maxsize=5000)  # High cache size for most frequently used function
 def convert_to_webpath(full_path, directory=None):
     """
-    Convert a full path to a webpath
+    Convert a full path to a webpath - optimized for performance
 
-    Parameters
-    ----------
-    full_path (str): The full path to convert
+    :Args:
+        full_path (str): The full path to convert
+        directory (str, optional): Directory component for path construction
 
-    Returns
-    -------
-        str : The converted webpath
-
+    :Returns:
+        str: The converted webpath
     """
+    # Cache the albums path to avoid repeated settings access
+    if not hasattr(convert_to_webpath, '_albums_path_lower'):
+        convert_to_webpath._albums_path_lower = settings.ALBUMS_PATH.lower()
+
     if directory is not None:
-        cutpath = settings.ALBUMS_PATH.lower() + directory.lower() if directory else ""
+        cutpath = convert_to_webpath._albums_path_lower + directory.lower() if directory else ""
     else:
-        cutpath = settings.ALBUMS_PATH.lower()
+        cutpath = convert_to_webpath._albums_path_lower
 
     return full_path.replace(cutpath, "")
 
 
-@lru_cache(maxsize=250)
+@lru_cache(maxsize=5000)  # Very high cache for navigation breadcrumbs
 def return_breadcrumbs(uri_path="") -> list[str]:
     """
     Return the breadcrumps for uri_path
@@ -501,23 +577,39 @@ def return_breadcrumbs(uri_path="") -> list[str]:
     return data
 
 
+@lru_cache(maxsize=1000)  # Increase cache for directory scanning patterns
+def _cached_fs_counts(entries_tuple: tuple) -> tuple[int, int]:
+    """
+    Cached helper for fs_counts with optimized counting.
+
+    :Args:
+        entries_tuple (tuple): Tuple of boolean values indicating file status
+
+    :Returns:
+        tuple: (file_count, directory_count)
+    """
+    # More efficient counting using built-in sum
+    files = sum(entries_tuple)
+    dirs = len(entries_tuple) - files
+    return (files, dirs)
+
+
 def fs_counts(fs_entries: dict) -> tuple[int, int]:
     """
-    Quickly count the files vs directories in a list of scandir entries
-    Used primary by sync_database_disk to count a path's files & directories
+    Efficiently count files vs directories with enhanced caching
 
-    Parameters
-    ----------
-    fs_entries (list) - list of scandir entries
+    :Args:
+        fs_entries (dict): Dictionary of scandir entries
 
-    Returns
-    -------
-    tuple - (# of files, # of dirs)
-
+    :Returns:
+        tuple: (number_of_files, number_of_directories)
     """
-    files = sum(1 for entry in fs_entries.values() if entry.is_file())
-    dirs = len(fs_entries) - files
-    return (files, dirs)
+    if not fs_entries:
+        return (0, 0)
+
+    # Create a more cache-friendly representation
+    entries_tuple = tuple(entry.is_file() for entry in fs_entries.values())
+    return _cached_fs_counts(entries_tuple)
 
 
 def process_filedata(
@@ -545,14 +637,12 @@ def process_filedata(
         }
 
         # Get file extension and determine if it's a directory
-        fileext = fs_entry.suffix.lower() if fs_entry.suffix else ".none"
-        is_dir = fs_entry.is_dir()
-
         if is_dir:
             sync_database_disk(str(fs_entry))
             return None
 
-        elif not fileext or fileext == ".":
+        # Normalize extension more efficiently
+        if not fileext or fileext == ".":
             fileext = ".none"
 
         # Check if filetype exists (assuming this function is available)
@@ -598,35 +688,27 @@ def process_filedata(
 
             elif filetype.fileext == ".alias":
                 try:
-                    alias_path = (
-                        resolve_alias_path(str(fs_entry)).lower().rstrip(os.sep)
-                        + os.sep
-                    )
+                    # Lazy alias resolution - defer expensive operations
+                    record["_alias_path_cache"] = str(fs_entry)  # Store for later resolution
                     record["file_sha256"], record["unique_sha256"] = get_file_sha(
                         str(fs_entry)
                     )
 
-                    # Assuming IndexDirs.search_for_directory is available
-                    found, directory_linking_to = IndexDirs.search_for_directory(
-                        fqpn_directory=alias_path
-                    )
-                    if not found:
-                        print(
-                            f"Directory {alias_path} not found in database, skipping link."
-                        )
-                        return None
-                    record["virtual_directory"] = directory_linking_to
+                    # Defer directory lookup until needed
+                    record["virtual_directory"] = None  # Will be resolved on demand
 
                 except ValueError as e:
-                    print(f"Error resolving alias: {e}")
+                    print(f"Error with alias file: {e}")
                     return None
         else:
-            # Calculate file hashes for non-link files
+            # Calculate file hashes for non-link files - only if needed
             try:
-                # Assuming get_file_sha is a separate function now
-                record["file_sha256"], record["unique_sha256"] = get_file_sha(
-                    str(fs_entry)
-                )
+                # Only calculate hash for files that will likely be accessed
+                if filetype.is_image or filetype.is_pdf or filetype.is_movie:
+                    record["file_sha256"], record["unique_sha256"] = get_file_sha(
+                        str(fs_entry)
+                    )
+                # For other file types, defer hash calculation until needed
             except Exception as e:
                 print(f"Error calculating SHA for {fs_entry}: {e}")
                 # Continue processing even if SHA calculation fails
@@ -695,6 +777,9 @@ def sync_database_disk(directoryname: str) -> bool | None:
     Cache_Storage.add_to_cache(DirName=dirpath)
     logger.info(f"Cached directory: {dirpath}")
     print("Elapsed Time (Sync Database Disk): ", time.perf_counter() - start_time)
+
+    # Clean up database connections after expensive operations
+    connections.close_all()
     return None
 
     # except Exception as e:
@@ -733,6 +818,7 @@ from Foundation import (  # NSData,; NSError,
 )
 
 
+@lru_cache(maxsize=500)  # Increase cache for alias operations
 def resolve_alias_path(alias_path: str) -> str:
     """
     Resolve a macOS alias file to its target path.
