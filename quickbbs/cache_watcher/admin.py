@@ -1,5 +1,5 @@
 # Register your models here.
-from cache_watcher.models import *
+from cache_watcher.models import fs_Cache_Tracking
 from django.contrib import admin
 
 

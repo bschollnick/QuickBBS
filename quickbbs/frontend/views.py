@@ -10,16 +10,14 @@ import pathlib
 import time
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from itertools import chain
-from django.db.models import Q, Prefetch, Count, Case, When, IntegerField, Subquery, OuterRef
+from django.db.models import Q, Count
 import re
-from typing import Optional
 
 from cache_watcher.models import Cache_Storage
 from cachetools.keys import hashkey
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
-from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
+from django.core.paginator import EmptyPage, PageNotAnInteger
 from django.db import close_old_connections, connections, transaction
 from django.db.utils import IntegrityError
 from django.http import (

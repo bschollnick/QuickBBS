@@ -3,7 +3,7 @@ from mimetypes import guess_type
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
-from filetypes.models import *
+from filetypes.models import filetypes
 
 
 class Command(BaseCommand):
