@@ -1,4 +1,31 @@
+"""
+QuickBBS Frontend Managers Module.
+
+This module provides optimized management functions for the QuickBBS gallery application,
+including context building, layout management, and file processing utilities.
+
+Key Components:
+- Context building for item views with optimized single-pass dictionary creation
+- Layout management with database-level pagination for efficient gallery rendering
+- Text file processing with encoding detection and size limits
+- Path normalization utilities for consistent file system operations
+- Cached query functions for improved performance
+
+Performance Features:
+- LRU caching for expensive operations (directory queries, context building)
+- Streamlined data flow with minimal memory allocations
+- Database query optimization with queryset reuse
+- Cached Markdown processor for text file rendering
+
+Architecture:
+- Follows Django ORM best practices with efficient query patterns
+- Uses in-place dictionary population to minimize memory overhead
+- Implements proper separation between database operations and file I/O
+- Provides reusable pagination utilities for list-based navigation
+"""
+
 import datetime
+import logging
 import math
 import os
 import time
@@ -39,15 +66,45 @@ layout_manager_cache = LRUCache(maxsize=500)
 
 build_context_info_cache = LRUCache(maxsize=500)
 
+# Cache for expensive all_shas queries - cache by directory and sort
+all_shas_cache = LRUCache(maxsize=200)
+
 # File size limit for text file processing (1MB)
 MAX_TEXT_FILE_SIZE = 1024 * 1024
+
+# Cached Markdown processor instance
+_markdown_processor = markdown2.Markdown()
+
+
+def _normalize_webpath(path: str) -> str:
+    """
+    Normalize web path by cleaning up double slashes and ensuring consistent format.
+
+    :Args:
+        path: Raw path string to normalize
+    :return: Normalized path string
+    """
+    return path.lower().replace("//", "/")
+
+
+def _webpath_to_filepath(webpath: str, filename: str) -> str:
+    """
+    Convert webpath and filename to filesystem path.
+
+    :Args:
+        webpath: Normalized web path
+        filename: File name to append
+    :return: Full filesystem path
+    """
+    return os.path.join(webpath.replace("/", os.sep), filename)
 
 
 def get_file_text_encoding(filename: str) -> str:
     """
     Detect the text encoding of a file.
 
-    :param filename: Path to the file to analyze
+    :Args:
+        filename: Path to the file to analyze
     :return: Detected encoding string, defaults to 'utf-8' if detection fails
     """
     try:
@@ -65,23 +122,77 @@ def get_file_text_encoding_cached(filename: str, file_mtime: float) -> str:
     """
     Cache text encoding detection based on filename and modification time.
 
-    :param filename: Path to the file to analyze
-    :param file_mtime: File modification time for cache invalidation
+    :Args:
+        filename: Path to the file to analyze
+        file_mtime: File modification time for cache invalidation
     :return: Detected encoding string, defaults to 'utf-8' if detection fails
     """
     return get_file_text_encoding(filename)
 
 
-@cached(build_context_info_cache)
-def build_context_info(request: WSGIRequest, unique_file_sha256: str) -> dict | HttpResponseBadRequest:
+def _process_text_file(filename: str, is_markdown: bool = False) -> str:
     """
-    Build context information for item view.
+    Process text or HTML files with size limits and encoding detection.
+
+    :Args:
+        filename: Path to the file to process
+        is_markdown: Whether to process as markdown (True) or HTML (False)
+    :return: Processed HTML content or error message
+    """
+    try:
+        file_size = os.path.getsize(filename)
+        if file_size > MAX_TEXT_FILE_SIZE:
+            return (
+                f"<p><em>File too large to display ({file_size:,} bytes). "
+                f"Maximum size: {MAX_TEXT_FILE_SIZE:,} bytes.</em></p>"
+            )
+
+        file_mtime = os.path.getmtime(filename)
+        encoding = get_file_text_encoding_cached(filename, file_mtime)
+
+        with open(filename, "r", encoding=encoding) as f:
+            content = f.read()
+            if is_markdown:
+                return _markdown_processor.convert(content)
+            return content.replace("\n", "<br>")
+    except (OSError, IOError) as e:
+        return f"<p><em>Error reading file: {str(e)}</em></p>"
+
+
+@cached(all_shas_cache)
+def _get_all_shas_cached(directory_id: str, sort_ordering: int) -> list[str]:
+    """
+    Cache expensive all_shas query by directory and sort order.
+
+    :Args:
+        directory_id: Directory identifier for caching
+        sort_ordering: Sort order to apply
+    :return: List of SHA256 hashes in sorted order
+    """
+    # Import locally to avoid circular imports
+    from quickbbs.models import IndexDirs  # pylint: disable=import-outside-toplevel
+    directory = IndexDirs.objects.get(pk=directory_id)
+    return list(
+        directory.files_in_dir(sort=sort_ordering)
+        .values_list("unique_sha256", flat=True)
+    )
+
+
+@cached(build_context_info_cache)
+def build_context_info(
+    request: WSGIRequest, unique_file_sha256: str
+) -> dict | HttpResponseBadRequest:
+    """
+    Build context information for item view using optimized single-pass dictionary creation.
 
     All item view requests use this function to gather file metadata,
-    navigation information, and rendering context.
+    navigation information, and rendering context. This function uses an optimized
+    approach that builds the entire context dictionary in a single operation,
+    eliminating multiple dictionary updates and function call overhead.
 
-    :param request: Django WSGIRequest object
-    :param unique_file_sha256: The unique SHA256 hash of the item
+    :Args:
+        request: Django WSGIRequest object
+        unique_file_sha256: The unique SHA256 hash of the item
     :return: Dictionary containing context data or HttpResponseBadRequest on error
     """
     if not unique_file_sha256:
@@ -93,137 +204,142 @@ def build_context_info(request: WSGIRequest, unique_file_sha256: str) -> dict | 
     except IndexData.DoesNotExist:
         return HttpResponseBadRequest(content="No entry found.")
 
-    context = {
-        "start_time": time.perf_counter(),
-        "unique_file_sha256": unique_file_sha256,
-        "file_sha256": entry.file_sha256,
-        "sort": sort_order(request) if request else 0,
-        "html": "",
-        "breadcrumbs": "",
-        "breadcrumbs_list": [],
-        "webpath": entry.fqpndirectory.lower().replace("//", "/"),
-        "mobile": detect_mobile(request) if request else False,
-    }
+    start_time = time.perf_counter()
+    sort_order_value = sort_order(request) if request else 0
+    mobile = detect_mobile(request) if request else False
+    webpath = _normalize_webpath(entry.fqpndirectory)
     directory_entry = entry.home_directory
 
-    breadcrumbs = return_breadcrumbs(context["webpath"])
-    # Optimize breadcrumb building with list comprehension and join
-    breadcrumb_parts = []
-    breadcrumbs_list = []
-    for bcrumb in breadcrumbs:
-        breadcrumb_parts.append(f"<li>{bcrumb[2]}</li>")
-        breadcrumbs_list.append(bcrumb[2])
-
-    context["breadcrumbs"] = "".join(breadcrumb_parts)
-    context["breadcrumbs_list"] = breadcrumbs_list
-
-    filename = context["webpath"].replace("/", os.sep).replace("//", "/") + entry.name
-
-    if entry.filetype.is_text or entry.filetype.is_markdown:
-        try:
-            file_size = os.path.getsize(filename)
-            if file_size > MAX_TEXT_FILE_SIZE:
-                context["html"] = f"<p><em>File too large to display ({file_size:,} bytes). Maximum size: {MAX_TEXT_FILE_SIZE:,} bytes.</em></p>"
-            else:
-                file_mtime = os.path.getmtime(filename)
-                encoding = get_file_text_encoding_cached(filename, file_mtime)
-                # Read with detected encoding - optimized to read entire file at once
-                with open(filename, "r", encoding=encoding) as textfile:
-                    context["html"] = markdown2.Markdown().convert(textfile.read())
-        except (OSError, IOError) as e:
-            context["html"] = f"<p><em>Error reading file: {str(e)}</em></p>"
-
-    if entry.filetype.is_html:
-        try:
-            file_size = os.path.getsize(filename)
-            if file_size > MAX_TEXT_FILE_SIZE:
-                context["html"] = f"<p><em>File too large to display ({file_size:,} bytes). Maximum size: {MAX_TEXT_FILE_SIZE:,} bytes.</em></p>"
-            else:
-                file_mtime = os.path.getmtime(filename)
-                encoding = get_file_text_encoding_cached(filename, file_mtime)
-                # Read with detected encoding - optimized to read entire file at once
-                with open(filename, "r", encoding=encoding) as htmlfile:
-                    context["html"] = htmlfile.read().replace("\n", "<br>")
-        except (OSError, IOError) as e:
-            context["html"] = f"<p><em>Error reading file: {str(e)}</em></p>"
-
-    # pathmaster = Path(os.path.join(entry.fqpndirectory, entry.name))
+    # Build entire context in single operation for optimal performance
+    breadcrumbs = return_breadcrumbs(webpath)
     pathmaster = Path(entry.full_filepathname)
-    context["up_uri"] = convert_to_webpath(str(pathmaster.parent)).rstrip("/")
+    size = "medium" if mobile else "large"
+    lastmod_timestamp = entry.lastmod
+    all_shas = _get_all_shas_cached(directory_entry.pk, sort_order_value)
 
-    all_shas = list(
-        directory_entry.files_in_dir(sort=context["sort"])
-        .values_list("unique_sha256", flat=True)
-    )
-    if context["mobile"]:
-        context["size"] = "medium"
-    else:
-        context["size"] = "large"
-
+    # Get pagination data inline
     try:
         current_page = all_shas.index(unique_file_sha256) + 1
     except ValueError:
         current_page = 1
 
-    # Cache expensive calculations
     all_shas_count = len(all_shas)
-    lastmod_timestamp = entry.lastmod
+    next_sha = all_shas[current_page] if current_page < all_shas_count else ""
+    previous_sha = all_shas[current_page - 2] if current_page > 1 else ""
 
-    context.update(
-        {
-            "filetype": entry.filetype.__dict__,
-            "page": current_page,
-            "first_sha": all_shas[0],
-            "last_sha": all_shas[all_shas_count - 1],
-            "pagecount": all_shas_count,
-            "sha": entry.unique_sha256,
-            "filename": entry.name,
-            "filesize": entry.size,
-            "duration": entry.duration,
-            "is_animated": entry.is_animated,
-            "lastmod": lastmod_timestamp,
-            "lastmod_ds": datetime.datetime.fromtimestamp(lastmod_timestamp).strftime(
-                "%m/%d/%y %H:%M:%S"
-            ),
-            "ft_filename": entry.filetype.icon_filename,
-            "download_uri": entry.get_download_url(),
-            "next_sha": "",
-            "previous_sha": "",
-            "dir_link": f'{context["webpath"]}{entry.name}?sort={context["sort"]}',
-            "thumbnail_uri": entry.get_thumbnail_url(size=context["size"]),
-        }
-    )
-    context["page_locale"] = int(context["page"] / settings.GALLERY_ITEMS_PER_PAGE) + 1
-    # up_uri uses this to return you to the same page offset you were viewing
+    # Single comprehensive dictionary creation
+    context = {
+        # Core data
+        "unique_file_sha256": unique_file_sha256,
+        "file_sha256": entry.file_sha256,
+        "sort": sort_order_value,
+        "mobile": mobile,
+        "html": _process_file_content(entry, webpath),
 
-    # generate next sha pointers using cached count
-    if current_page < all_shas_count:
-        context["next_sha"] = all_shas[
-            current_page
-        ]  # current_page is 1-indexed, so this gives us next
-    else:
-        context["next_sha"] = ""
+        # Navigation (inline breadcrumb processing)
+        "breadcrumbs": "".join(f"<li>{bcrumb[2]}</li>" for bcrumb in breadcrumbs),
+        "breadcrumbs_list": [bcrumb[2] for bcrumb in breadcrumbs],
+        "up_uri": convert_to_webpath(str(pathmaster.parent)).rstrip("/"),
+        "webpath": webpath,
 
-    if current_page > 1:
-        context["previous_sha"] = all_shas[current_page - 2]  # Get the previous item
-    else:
-        context["previous_sha"] = ""
-    print(f"Context built in {time.perf_counter() - context['start_time']} seconds")
+        # File context (inline)
+        "filetype": entry.filetype.__dict__,
+        "sha": entry.unique_sha256,
+        "filename": entry.name,
+        "filesize": entry.size,
+        "duration": entry.duration,
+        "is_animated": entry.is_animated,
+        "lastmod": lastmod_timestamp,
+        "lastmod_ds": datetime.datetime.fromtimestamp(lastmod_timestamp).strftime(
+            "%m/%d/%y %H:%M:%S"
+        ),
+        "ft_filename": entry.filetype.icon_filename,
+        "download_uri": entry.get_download_url(),
+        "thumbnail_uri": entry.get_thumbnail_url(size=size),
+        "size": size,
+
+        # Pagination (computed inline)
+        "page": current_page,
+        "pagecount": all_shas_count,
+        "first_sha": all_shas[0] if all_shas else "",
+        "last_sha": all_shas[all_shas_count - 1] if all_shas else "",
+        "next_sha": next_sha,
+        "previous_sha": previous_sha,
+        "page_locale": int(current_page / settings.GALLERY_ITEMS_PER_PAGE) + 1,
+        "dir_link": f"{webpath}{entry.name}?sort={sort_order_value}",
+    }
+
+    build_time = time.perf_counter() - start_time
+    logging.debug("Context built in %.4f seconds", build_time)
     return context
 
 
-def calculate_page_bounds(page_number: int, chunk_size: int, dirs_count: int, files_count: int) -> dict:
+def _process_file_content(entry: IndexData, webpath: str) -> str:
+    """
+    Process file content based on file type.
+
+    :Args:
+        entry: IndexData object for the current file
+        webpath: Web path for constructing file path
+    :return: Processed HTML content or empty string
+    """
+    if not (entry.filetype.is_text or entry.filetype.is_markdown or entry.filetype.is_html):
+        return ""
+
+    # Optimize path construction
+    filename = _webpath_to_filepath(webpath, entry.name)
+
+    if entry.filetype.is_text or entry.filetype.is_markdown:
+        return _process_text_file(filename, is_markdown=True)
+    if entry.filetype.is_html:
+        return _process_text_file(filename, is_markdown=False)
+
+    return ""
+
+
+def _get_directory_counts(directory) -> dict:
+    """
+    Get directory and file counts efficiently using optimized queries.
+
+    :Args:
+        directory: IndexDirs object
+    :return: Dictionary with dirs_count and files_count
+    """
+    # Use values() with count to reduce query overhead
+    dirs_count = directory.dirs_in_dir().values('pk').count()
+    files_count = directory.files_in_dir().values('pk').count()
+
+    return {
+        'dirs_count': dirs_count,
+        'files_count': files_count
+    }
+
+
+def _get_no_thumbnails(directory, sort_ordering: int) -> list[str]:
+    """
+    Get list of file SHA256s that don't have thumbnails.
+
+    :Args:
+        directory: IndexDirs object
+        sort_ordering: Sort order to apply
+    :return: List of file SHA256 hashes without thumbnails
+    """
+    return list(
+        directory.files_in_dir(
+            sort=sort_ordering, additional_filters={"new_ftnail__isnull": True}
+        ).values_list("file_sha256", flat=True)
+    )
+
+
+def calculate_page_bounds(page_number: int, chunk_size: int, dirs_count: int) -> dict:
     """
     Calculate what directories and files belong on this page.
 
-    Args:
+    :Args:
         page_number: Current page number (1-indexed)
         chunk_size: Items per page
         dirs_count: Total directory count
-        files_count: Total file count
-
-    Returns:
-        Dictionary with slice boundaries for directories and files
+    :return: Dictionary with slice boundaries for directories and files
     """
     start_idx = (page_number - 1) * chunk_size
     end_idx = start_idx + chunk_size
@@ -260,17 +376,14 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
 
     Uses database LIMIT/OFFSET for efficient pagination instead of loading
     all items into memory. Only fetches data for the requested page.
+    Optimized to reuse querysets for both counting and data fetching.
 
-    Args:
+    :Args:
         page_number: Current page number (1-indexed)
         directory: IndexDirs object representing the directory to layout
         sort_ordering: Sort order to apply (0-2)
-
-    Returns:
-        Dictionary containing pagination data and current page items
-
-    Raises:
-        ValueError: If directory parameter is None
+    :return: Dictionary containing pagination data and current page items
+    :raises: ValueError if directory parameter is None
     """
     start_time = time.perf_counter()
     if directory is None:
@@ -278,18 +391,18 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
 
     chunk_size = settings.GALLERY_ITEMS_PER_PAGE
 
-    # Get base querysets (no data loaded yet)
+    # Get base querysets first (more efficient for subsequent operations)
     directories_qs = directory.dirs_in_dir(sort=sort_ordering)
     files_qs = directory.files_in_dir(sort=sort_ordering)
 
-    # Get counts efficiently without loading data
+    # Get counts from existing querysets to avoid duplicate query construction
     dirs_count = directories_qs.count()
     files_count = files_qs.count()
     total_items = dirs_count + files_count
 
     # Calculate pagination
     total_pages = max(1, math.ceil(total_items / chunk_size))
-    bounds = calculate_page_bounds(page_number, chunk_size, dirs_count, files_count)
+    bounds = calculate_page_bounds(page_number, chunk_size, dirs_count)
 
     # Fetch ONLY current page data using database slicing
     page_data = {}
@@ -330,12 +443,9 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
     # Generate all_shas for current page only (much smaller)
     output["all_shas"] = page_data['directories'] + page_data['files']
 
-    # Optimize the no_thumbnails query - only fetch SHA256
-    output["no_thumbnails"] = list(
-        directory.files_in_dir(
-            sort=sort_ordering, additional_filters={"new_ftnail__isnull": True}
-        ).values_list("file_sha256", flat=True)
-    )
+    # Get no_thumbnails data efficiently
+    output["no_thumbnails"] = _get_no_thumbnails(directory, sort_ordering)
 
-    print(f"Optimized layout manager completed in {time.perf_counter() - start_time} seconds")
+    build_time = time.perf_counter() - start_time
+    logging.debug("Optimized layout manager completed in %.4f seconds", build_time)
     return output
