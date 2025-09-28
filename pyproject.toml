@@ -108,3 +108,6 @@ pyscan-rs = "^0.1.8"
 pip-audit = "^2.9.0"
 pipdeptree = "^2.28.0"
 django = {version = "^6.0a1", allow-prereleases = true}
+autoflake = "^2.3.1"
+unidecode = "^1.4.0"
+osxmetadata = {version = ">=1.4.0", python = ">=3.12,<3.14"}
