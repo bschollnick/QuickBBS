@@ -8,6 +8,7 @@ import os
 import os.path
 import pathlib
 import time
+import urllib.parse
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from django.db.models import Q, Count
@@ -511,7 +512,16 @@ def new_viewgallery(request: WSGIRequest):
     # load_filetypes() - Now loaded via middleware, no per-request overhead
 
     start_time = time.perf_counter()  # time.time()
-    request.path = request.path.lower().replace(os.sep, r"/")
+
+    # Properly decode URL before processing to handle special characters like #
+    try:
+        decoded_path = urllib.parse.unquote(request.path)
+        request.path = decoded_path.lower().replace(os.sep, r"/")
+    except (ValueError, UnicodeDecodeError) as e:
+        logger.warning("Failed to decode URL path '%s': %s", request.path, e)
+        # Fallback to original behavior for malformed URLs
+        request.path = request.path.lower().replace(os.sep, r"/")
+
     paths = {
         "webpath": request.path,
         "album_viewing": settings.ALBUMS_PATH + request.path,
@@ -519,16 +529,20 @@ def new_viewgallery(request: WSGIRequest):
             request.path.replace(r"/albums/", r"/thumbnails/"), "/"
         ),
     }
-    found, directory = IndexDirs.search_for_directory(paths["album_viewing"])
-    if not found:
-        sync_database_disk(paths["album_viewing"])
+    try:
         found, directory = IndexDirs.search_for_directory(paths["album_viewing"])
-
         if not found:
-            logger.info(f"Directory not found: {paths['album_viewing']}")
-            return HttpResponseNotFound("<h1>gallery not found</h1>")
+            sync_database_disk(paths["album_viewing"])
+            found, directory = IndexDirs.search_for_directory(paths["album_viewing"])
 
-    logger.info(f"Viewing: {paths['album_viewing']}")
+            if not found:
+                logger.info("Directory not found: %s", paths['album_viewing'])
+                return HttpResponseNotFound("<h1>gallery not found</h1>")
+    except Exception as e:
+        logger.error("Error searching for directory '%s': %s", paths['album_viewing'], e)
+        return HttpResponseBadRequest("<h1>Invalid path specified</h1>")
+
+    logger.info("Viewing: %s", paths['album_viewing'])
 
     if not os.path.exists(paths["album_viewing"]):
         if found:
