@@ -89,25 +89,28 @@ class ThumbnailFiles(models.Model):
         indexes = [
             # Optimize SHA256 lookups with partial index
             models.Index(
-                fields=['sha256_hash'],
-                name='thumbnails_sha256_lookup_idx',
-                condition=models.Q(sha256_hash__isnull=False)
+                fields=["sha256_hash"],
+                name="thumbnails_sha256_lookup_idx",
+                condition=models.Q(sha256_hash__isnull=False),
             ),
             # Optimize thumbnail existence checks
             models.Index(
-                fields=['sha256_hash'],
-                name='thumbnails_has_small_idx',
-                condition=models.Q(small_thumb__isnull=False) & ~models.Q(small_thumb=b'')
+                fields=["sha256_hash"],
+                name="thumbnails_has_small_idx",
+                condition=models.Q(small_thumb__isnull=False)
+                & ~models.Q(small_thumb=b""),
             ),
             models.Index(
-                fields=['sha256_hash'],
-                name='thumbnails_has_medium_idx',
-                condition=models.Q(medium_thumb__isnull=False) & ~models.Q(medium_thumb=b'')
+                fields=["sha256_hash"],
+                name="thumbnails_has_medium_idx",
+                condition=models.Q(medium_thumb__isnull=False)
+                & ~models.Q(medium_thumb=b""),
             ),
             models.Index(
-                fields=['sha256_hash'],
-                name='thumbnails_has_large_idx',
-                condition=models.Q(large_thumb__isnull=False) & ~models.Q(large_thumb=b'')
+                fields=["sha256_hash"],
+                name="thumbnails_has_large_idx",
+                condition=models.Q(large_thumb__isnull=False)
+                & ~models.Q(large_thumb=b""),
             ),
         ]
         # Note: Constraints can be added later after cleaning up existing data
@@ -146,11 +149,15 @@ class ThumbnailFiles(models.Model):
 
             if prefetched_indexdata:
                 index_data_item = prefetched_indexdata[0]
-                make_link = any(item.new_ftnail_id is None for item in prefetched_indexdata)
+                make_link = any(
+                    item.new_ftnail_id is None for item in prefetched_indexdata
+                )
             else:
-                index_data_item = IndexData.objects.prefetch_related('filetype').filter(
-                    file_sha256=file_sha256
-                ).first()
+                index_data_item = (
+                    IndexData.objects.prefetch_related("filetype")
+                    .filter(file_sha256=file_sha256)
+                    .first()
+                )
                 make_link = True
 
             make_link = make_link or created
@@ -194,9 +201,7 @@ class ThumbnailFiles(models.Model):
         thumbnail.large_thumb = thumbnails["large"]
 
         if not suppress_save:
-            thumbnail.save(
-                update_fields=["small_thumb", "medium_thumb", "large_thumb"]
-            )
+            thumbnail.save(update_fields=["small_thumb", "medium_thumb", "large_thumb"])
 
         return thumbnail
 
@@ -221,12 +226,14 @@ class ThumbnailFiles(models.Model):
 
         :return: ThumbnailFiles object for the specified hash
         """
-        return cls.objects.prefetch_related(
-            *ThumbnailFiles_Prefetch_List
-        ).get(sha256_hash=sha256)
+        return cls.objects.prefetch_related(*ThumbnailFiles_Prefetch_List).get(
+            sha256_hash=sha256
+        )
 
     @classmethod
-    def get_thumbnails_by_sha_list(cls, sha256_list: list[str]) -> dict[str, "ThumbnailFiles"]:
+    def get_thumbnails_by_sha_list(
+        cls, sha256_list: list[str]
+    ) -> dict[str, "ThumbnailFiles"]:
         """
         Get multiple thumbnails by SHA256 hash list to avoid N+1 queries.
 
@@ -296,7 +303,13 @@ class ThumbnailFiles(models.Model):
                 blobdata = self.large_thumb
         return blobdata
 
-    def send_thumbnail(self, filename_override: str | None = None, fext_override: str | None = None, size: str = "small", index_data_item=None):
+    def send_thumbnail(
+        self,
+        filename_override: str | None = None,
+        fext_override: str | None = None,
+        size: str = "small",
+        index_data_item=None,
+    ):
         """
         Send thumbnail as HTTP response with appropriate headers.
 

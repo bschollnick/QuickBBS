@@ -32,7 +32,9 @@ logger = logging.getLogger(__name__)
 Image.MAX_IMAGE_PIXELS = None  # Disable PILLOW DecompressionBombError errors.
 
 # Optimize thread count dynamically based on system resources
-MAX_THREADS = min(32, max(4, (os.cpu_count() or 1) * 2))  # Better scaling for modern systems
+MAX_THREADS = min(
+    32, max(4, (os.cpu_count() or 1) * 2)
+)  # Better scaling for modern systems
 
 # Filesystem operation caching - use regular dict since os.stat_result objects work better with regular dict
 _fs_stat_cache = {}  # Cache file stats with timestamp tuples
@@ -42,6 +44,7 @@ _cache_timeout = 30  # Cache timeout in seconds
 # Memory pooling for object creation
 _record_pool = []  # Pool of reusable record dictionaries
 _max_pool_size = 100  # Maximum number of pooled objects
+
 
 # Intelligent batch sizing based on system resources
 def _calculate_optimal_batch_size(operation_type: str, data_size: int) -> int:
@@ -60,10 +63,10 @@ def _calculate_optimal_batch_size(operation_type: str, data_size: int) -> int:
 
     # Base batch sizes optimized for different operations
     base_sizes = {
-        'db_read': min(1000, max(100, cpu_count * 50)),
-        'db_write': min(500, max(50, cpu_count * 25)),
-        'file_io': min(200, max(20, cpu_count * 10)),
-        'concurrent': min(100, max(10, cpu_count * 5))
+        "db_read": min(1000, max(100, cpu_count * 50)),
+        "db_write": min(500, max(50, cpu_count * 25)),
+        "file_io": min(200, max(20, cpu_count * 10)),
+        "concurrent": min(100, max(10, cpu_count * 5)),
     }
 
     base_size = base_sizes.get(operation_type, 100)
@@ -222,9 +225,9 @@ def _sync_directories(dirpath_info: object, fs_entries: dict) -> None:
                 # Use select_for_update inside transaction to avoid deadlocks
                 for db_dir_entry in updated_records:
                     # Refresh from database with lock to ensure consistency
-                    locked_entry = IndexDirs.objects.select_for_update(skip_locked=True).get(
-                        id=db_dir_entry.id
-                    )
+                    locked_entry = IndexDirs.objects.select_for_update(
+                        skip_locked=True
+                    ).get(id=db_dir_entry.id)
                     # Copy updated values to locked entry
                     locked_entry.lastmod = db_dir_entry.lastmod
                     locked_entry.size = db_dir_entry.size
@@ -329,9 +332,7 @@ def _check_single_directory_update(db_dir_entry, fs_entries: dict) -> object | N
             return db_dir_entry if update_needed else None
 
         except (OSError, IOError) as e:
-            logger.error(
-                f"Error checking directory {db_dir_entry.fqpndirectory}: {e}"
-            )
+            logger.error(f"Error checking directory {db_dir_entry.fqpndirectory}: {e}")
     return None
 
 
@@ -349,14 +350,22 @@ def _check_directory_updates(
     directory_list = list(existing_directories_in_database)
 
     # Use intelligent worker sizing based on directory count and system resources
-    optimal_batch_size = _calculate_optimal_batch_size('concurrent', len(directory_list))
-    max_workers = min(MAX_THREADS // 2, optimal_batch_size, 10)  # Limit concurrent operations
-    if len(directory_list) > 5 and max_workers > 1:  # Only use threading for larger batches
+    optimal_batch_size = _calculate_optimal_batch_size(
+        "concurrent", len(directory_list)
+    )
+    max_workers = min(
+        MAX_THREADS // 2, optimal_batch_size, 10
+    )  # Limit concurrent operations
+    if (
+        len(directory_list) > 5 and max_workers > 1
+    ):  # Only use threading for larger batches
         try:
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 # Submit all directory check tasks
                 future_to_dir = {
-                    executor.submit(_check_single_directory_update, db_dir_entry, fs_entries): db_dir_entry
+                    executor.submit(
+                        _check_single_directory_update, db_dir_entry, fs_entries
+                    ): db_dir_entry
                     for db_dir_entry in directory_list
                 }
 
@@ -368,7 +377,9 @@ def _check_directory_updates(
                             records_to_update.append(result)
                     except Exception as e:
                         db_dir_entry = future_to_dir[future]
-                        logger.error(f"Error processing directory {db_dir_entry.fqpndirectory}: {e}")
+                        logger.error(
+                            f"Error processing directory {db_dir_entry.fqpndirectory}: {e}"
+                        )
         finally:
             # Clean up connections after concurrent operations
             connections.close_all()
@@ -404,10 +415,20 @@ def _sync_files(dirpath_info: object, fs_entries: dict, bulk_size: int) -> None:
             fs_file_names.append(name.strip().title())
 
     # Optimize file query field loading - only load essential fields
-    all_files_in_dir = dirpath_info.files_in_dir().only(
-        'id', 'name', 'lastmod', 'size', 'file_sha256', 'unique_sha256',
-        'home_directory', 'duration'
-    ).prefetch_related('filetype')
+    all_files_in_dir = (
+        dirpath_info.files_in_dir()
+        .only(
+            "id",
+            "name",
+            "lastmod",
+            "size",
+            "file_sha256",
+            "unique_sha256",
+            "home_directory",
+            "duration",
+        )
+        .prefetch_related("filetype")
+    )
 
     # Batch fetch all filenames in one query
     all_db_filenames = set(all_files_in_dir.values_list("name", flat=True))
@@ -416,30 +437,45 @@ def _sync_files(dirpath_info: object, fs_entries: dict, bulk_size: int) -> None:
     potential_updates = all_files_in_dir.filter(name__in=fs_file_names)
 
     # Use intelligent chunk sizing based on data size
-    total_files = potential_updates.count() if hasattr(potential_updates, 'count') else len(potential_updates)
-    chunk_size = max(1, _calculate_optimal_batch_size('db_read', total_files))  # Ensure minimum of 1
+    total_files = (
+        potential_updates.count()
+        if hasattr(potential_updates, "count")
+        else len(potential_updates)
+    )
+    chunk_size = max(
+        1, _calculate_optimal_batch_size("db_read", total_files)
+    )  # Ensure minimum of 1
     for chunk_start in range(0, potential_updates.count(), chunk_size):
         chunk_end = chunk_start + chunk_size
         chunk_updates = potential_updates[chunk_start:chunk_end]
 
         # Check for movie filetypes in this chunk for smart field detection
-        has_movies = any(hasattr(db_file_entry, 'filetype') and
-                        hasattr(db_file_entry.filetype, 'is_movie') and
-                        db_file_entry.filetype.is_movie
-                        for db_file_entry in chunk_updates)
+        has_movies = any(
+            hasattr(db_file_entry, "filetype")
+            and hasattr(db_file_entry.filetype, "is_movie")
+            and db_file_entry.filetype.is_movie
+            for db_file_entry in chunk_updates
+        )
 
         for db_file_entry in chunk_updates:
             updated_record = _check_file_updates(
-                db_file_entry, fs_file_names_dict[db_file_entry.name], dirpath_info, has_movies
+                db_file_entry,
+                fs_file_names_dict[db_file_entry.name],
+                dirpath_info,
+                has_movies,
             )
             if updated_record:
                 records_to_update.append(updated_record)
 
     # Use values_list for memory efficiency on delete check
-    files_to_delete_ids = all_files_in_dir.exclude(name__in=fs_file_names).values_list('id', flat=True)
+    files_to_delete_ids = all_files_in_dir.exclude(name__in=fs_file_names).values_list(
+        "id", flat=True
+    )
 
     fs_file_names_for_creation = set(fs_file_names) - set(all_db_filenames)
-    creation_fs_file_names_dict = {name: fs_file_names_dict[name] for name in fs_file_names_for_creation}
+    creation_fs_file_names_dict = {
+        name: fs_file_names_dict[name] for name in fs_file_names_for_creation
+    }
 
     records_to_create = _process_new_files(dirpath_info, creation_fs_file_names_dict)
     # Execute batch operations
@@ -468,15 +504,23 @@ def _check_file_updates(
 
         # Optimize file extension extraction
         record_name = db_record.name
-        dot_index = record_name.rfind('.')  # More efficient than splitext for just extension
+        dot_index = record_name.rfind(
+            "."
+        )  # More efficient than splitext for just extension
         fext = record_name[dot_index:].lower() if dot_index != -1 else ""
         if fext:  # Only process files with extensions
             # Use prefetched filetype from select_related
-            filetype = db_record.filetype if hasattr(db_record, 'filetype') else filetype_models.filetypes.return_filetype(fileext=fext)
+            filetype = (
+                db_record.filetype
+                if hasattr(db_record, "filetype")
+                else filetype_models.filetypes.return_filetype(fileext=fext)
+            )
 
             # Only calculate hash if file changed AND hash is missing
-            file_changed = (db_record.lastmod != fs_stat.st_mtime or
-                          db_record.size != fs_stat.st_size)
+            file_changed = (
+                db_record.lastmod != fs_stat.st_mtime
+                or db_record.size != fs_stat.st_size
+            )
 
             if not db_record.file_sha256 and not filetype.is_link and file_changed:
                 try:
@@ -532,10 +576,10 @@ def _process_new_files(dirpath_info: object, fs_file_names: dict) -> list[object
 
     # Use intelligent chunking for file processing
     file_items = list(fs_file_names.items())
-    chunk_size = _calculate_optimal_batch_size('file_io', len(file_items))
+    chunk_size = _calculate_optimal_batch_size("file_io", len(file_items))
 
     for i in range(0, len(file_items), chunk_size):
-        chunk = file_items[i:i + chunk_size]
+        chunk = file_items[i : i + chunk_size]
 
         for _, fs_entry in chunk:
             try:
@@ -589,7 +633,7 @@ def _execute_batch_operations(
             with transaction.atomic():
                 # Process deletes in optimally-sized chunks
                 for i in range(0, len(delete_ids_list), bulk_size):
-                    chunk_ids = delete_ids_list[i:i + bulk_size]
+                    chunk_ids = delete_ids_list[i : i + bulk_size]
                     # Use bulk delete with specific field for index usage
                     IndexData.objects.filter(id__in=chunk_ids).delete()
                 print(f"Deleted {len(records_to_delete_ids)} records")
@@ -598,23 +642,28 @@ def _execute_batch_operations(
         # Batch update in chunks for memory efficiency
         if records_to_update:
             for i in range(0, len(records_to_update), bulk_size):
-                chunk = records_to_update[i:i + bulk_size]
+                chunk = records_to_update[i : i + bulk_size]
                 with transaction.atomic():
                     # Dynamic update field selection - only update fields that have changed
                     update_fields = ["lastmod", "size", "home_directory"]
 
                     # Check if any records have movies for duration field
-                    has_movies = any(hasattr(record, 'filetype') and
-                                   hasattr(record.filetype, 'is_movie') and
-                                   record.filetype.is_movie and
-                                   hasattr(record, 'duration') and record.duration is not None
-                                   for record in chunk)
+                    has_movies = any(
+                        hasattr(record, "filetype")
+                        and hasattr(record.filetype, "is_movie")
+                        and record.filetype.is_movie
+                        and hasattr(record, "duration")
+                        and record.duration is not None
+                        for record in chunk
+                    )
                     if has_movies:
                         update_fields.append("duration")
 
                     # Add hash fields only if they exist in the records
-                    has_hashes = any(hasattr(record, 'file_sha256') and record.file_sha256
-                                   for record in chunk)
+                    has_hashes = any(
+                        hasattr(record, "file_sha256") and record.file_sha256
+                        for record in chunk
+                    )
                     if has_hashes:
                         update_fields.extend(["file_sha256", "unique_sha256"])
 
@@ -628,7 +677,7 @@ def _execute_batch_operations(
         # Batch create in chunks for memory efficiency
         if records_to_create:
             for i in range(0, len(records_to_create), bulk_size):
-                chunk = records_to_create[i:i + bulk_size]
+                chunk = records_to_create[i : i + bulk_size]
                 with transaction.atomic():
                     IndexData.objects.bulk_create(
                         chunk,
@@ -681,11 +730,15 @@ def convert_to_webpath(full_path, directory=None):
         str: The converted webpath
     """
     # Cache the albums path to avoid repeated settings access
-    if not hasattr(convert_to_webpath, '_albums_path_lower'):
+    if not hasattr(convert_to_webpath, "_albums_path_lower"):
         convert_to_webpath._albums_path_lower = settings.ALBUMS_PATH.lower()
 
     if directory is not None:
-        cutpath = convert_to_webpath._albums_path_lower + directory.lower() if directory else ""
+        cutpath = (
+            convert_to_webpath._albums_path_lower + directory.lower()
+            if directory
+            else ""
+        )
     else:
         cutpath = convert_to_webpath._albums_path_lower
 
@@ -834,7 +887,7 @@ def process_filedata(
                     if star_index == -1:
                         raise ValueError("Invalid link format - no '*' found")
 
-                    redirect = name_lower[star_index + 1:]
+                    redirect = name_lower[star_index + 1 :]
                     # Chain replacements more efficiently
                     redirect = redirect.replace("'", "").replace("__", "/")
                     dot_index = redirect.rfind(".")
@@ -848,7 +901,9 @@ def process_filedata(
             elif filetype.fileext == ".alias":
                 try:
                     # Lazy alias resolution - defer expensive operations
-                    record["_alias_path_cache"] = str(fs_entry)  # Store for later resolution
+                    record["_alias_path_cache"] = str(
+                        fs_entry
+                    )  # Store for later resolution
                     record["file_sha256"], record["unique_sha256"] = get_file_sha(
                         str(fs_entry)
                     )
@@ -901,7 +956,7 @@ def sync_database_disk(directoryname: str) -> bool | None:
     print("Starting ...  Syncing database with disk for directory:", directoryname)
     start_time = time.perf_counter()
     # Use intelligent batch sizing
-    BULK_SIZE = _calculate_optimal_batch_size('db_write', 1000)
+    BULK_SIZE = _calculate_optimal_batch_size("db_write", 1000)
 
     #    try:
     # Normalize directory path
