@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
+
 # from django.core.paginator import EmptyPage, PageNotAnInteger  # Unused after optimization
 from django.db import close_old_connections, connections, transaction
 from django.db.models import Count, Q
@@ -47,6 +48,7 @@ from thumbnails.models import ThumbnailFiles
 
 class HtmxHttpRequest(HttpRequest):
     """HttpRequest class with HTMX details."""
+
     htmx: HtmxDetails
 
 
@@ -94,25 +96,28 @@ def create_search_regex_pattern(text: str) -> str:
         Regex pattern string for case-insensitive matching, or empty string if invalid
     """
     if not text or not text.strip():
-        return ''
+        return ""
 
     cleaned_text = text.strip()
 
     try:
         escaped = re.escape(cleaned_text)
     except (TypeError, ValueError):
-        return ''
+        return ""
 
     # Replace escaped separators with flexible pattern
-    pattern = (escaped
-               .replace(r'\ ', r'[\s_-]+')     # spaces to flexible separator
-               .replace(r'\_', r'[\s_-]+')     # underscores to flexible separator
-               .replace(r'\-', r'[\s_-]+'))    # dashes to flexible separator
+    pattern = (
+        escaped.replace(r"\ ", r"[\s_-]+")  # spaces to flexible separator
+        .replace(r"\_", r"[\s_-]+")  # underscores to flexible separator
+        .replace(r"\-", r"[\s_-]+")
+    )  # dashes to flexible separator
 
-    return pattern if len(pattern) <= 500 else ''
+    return pattern if len(pattern) <= 500 else ""
 
 
-def get_search_results(searchtext: str, search_regex_pattern: str, sort_order_value: int) -> tuple:
+def get_search_results(
+    searchtext: str, search_regex_pattern: str, sort_order_value: int
+) -> tuple:
     """
     Get both directory and file search results with optimized queries.
 
@@ -122,32 +127,38 @@ def get_search_results(searchtext: str, search_regex_pattern: str, sort_order_va
     if not search_regex_pattern:
         return IndexDirs.objects.none(), IndexData.objects.none()
 
-    base_filters = {'delete_pending': False}
+    base_filters = {"delete_pending": False}
     order_by = SORT_MATRIX[sort_order_value]
 
     # Directory search with optimized prefetching
     try:
         dirs = (
-            IndexDirs.objects
-            .filter(fqpndirectory__iregex=search_regex_pattern, **base_filters)
-            .select_related('filetype')
-            .prefetch_related('IndexData_entries__filetype')
+            IndexDirs.objects.filter(
+                fqpndirectory__iregex=search_regex_pattern, **base_filters
+            )
+            .select_related("filetype")
+            .prefetch_related("IndexData_entries__filetype")
             .annotate(
-                file_count_cached=Count('IndexData_entries',
-                                      filter=Q(IndexData_entries__delete_pending=False))
+                file_count_cached=Count(
+                    "IndexData_entries",
+                    filter=Q(IndexData_entries__delete_pending=False),
+                )
             )
             .order_by(*order_by)
         )
     except (DatabaseError, OperationalError) as e:
         print(f"Regex search failed for directories, using fallback: {e}")
         dirs = (
-            IndexDirs.objects
-            .filter(fqpndirectory__icontains=searchtext.strip(), **base_filters)
-            .select_related('filetype')
-            .prefetch_related('IndexData_entries__filetype')
+            IndexDirs.objects.filter(
+                fqpndirectory__icontains=searchtext.strip(), **base_filters
+            )
+            .select_related("filetype")
+            .prefetch_related("IndexData_entries__filetype")
             .annotate(
-                file_count_cached=Count('IndexData_entries',
-                                      filter=Q(IndexData_entries__delete_pending=False))
+                file_count_cached=Count(
+                    "IndexData_entries",
+                    filter=Q(IndexData_entries__delete_pending=False),
+                )
             )
             .order_by(*order_by)
         )
@@ -155,17 +166,15 @@ def get_search_results(searchtext: str, search_regex_pattern: str, sort_order_va
     # File search with optimized prefetching
     try:
         files = (
-            IndexData.objects
-            .filter(name__iregex=search_regex_pattern, **base_filters)
-            .select_related('filetype', 'home_directory', 'new_ftnail')
+            IndexData.objects.filter(name__iregex=search_regex_pattern, **base_filters)
+            .select_related("filetype", "home_directory", "new_ftnail")
             .order_by(*order_by)
         )
     except (DatabaseError, OperationalError) as e:
         print(f"Regex search failed for files, using fallback: {e}")
         files = (
-            IndexData.objects
-            .filter(name__icontains=searchtext.strip(), **base_filters)
-            .select_related('filetype', 'home_directory', 'new_ftnail')
+            IndexData.objects.filter(name__icontains=searchtext.strip(), **base_filters)
+            .select_related("filetype", "home_directory", "new_ftnail")
             .order_by(*order_by)
         )
 
@@ -224,7 +233,9 @@ def return_prev_next2(directory, sorder: int) -> tuple[str | None, str | None]:
     return (prevdir, nextdir)
 
 
-def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pylint: disable=unused-argument
+def thumbnail2_dir(
+    request: WSGIRequest, dir_sha256: str | None = None
+):  # pylint: disable=unused-argument
     """
     Serve directory thumbnail by finding the first image in the directory.
 
@@ -324,7 +335,7 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
         filename_override=index_data_item.name,
         fext_override=".jpg",
         size=thumbsize,
-        index_data_item=index_data_item
+        index_data_item=index_data_item,
     )
 
 
@@ -354,19 +365,22 @@ def search_viewresults(request: WSGIRequest):
 
     # Add search-specific context
     from frontend.web import g_option
-    context.update({
-        "medium": g_option(request, "size", settings.IMAGE_SIZE["medium"]),
-        "large": g_option(request, "size", settings.IMAGE_SIZE["large"]),
-        "searchtext": searchtext,
-        "originator": request.headers.get("referer"),
-        "gallery_name": f"Searching for {searchtext}",
-        "search": True,
-        "prev_uri": "",
-        "next_uri": "",
-        "breadcrumbs": [{"name": "Search Results", "url": request.path}],
-        "webpath": "/search/",
-        "up_uri": "/albums/",
-    })
+
+    context.update(
+        {
+            "medium": g_option(request, "size", settings.IMAGE_SIZE["medium"]),
+            "large": g_option(request, "size", settings.IMAGE_SIZE["large"]),
+            "searchtext": searchtext,
+            "originator": request.headers.get("referer"),
+            "gallery_name": f"Searching for {searchtext}",
+            "search": True,
+            "prev_uri": "",
+            "next_uri": "",
+            "breadcrumbs": [{"name": "Search Results", "url": request.path}],
+            "webpath": "/search/",
+            "up_uri": "/albums/",
+        }
+    )
 
     # Perform search using shared functions
     search_regex_pattern = create_search_regex_pattern(searchtext)
@@ -376,8 +390,8 @@ def search_viewresults(request: WSGIRequest):
 
     # Combine and limit results
     max_search_results = 10000
-    dir_list = list(dirs[:max_search_results//2])
-    file_list = list(files[:max_search_results//2])
+    dir_list = list(dirs[: max_search_results // 2])
+    file_list = list(files[: max_search_results // 2])
     combined_results = dir_list + file_list
 
     if len(combined_results) >= max_search_results:
@@ -394,15 +408,17 @@ def search_viewresults(request: WSGIRequest):
     page_items = combined_results[start_idx:end_idx]
 
     # Update context with pagination data
-    context.update({
-        "page_cnt": list(range(1, total_pages + 1)),
-        "total_pages": total_pages,
-        "current_page": current_page,
-        "has_previous": current_page > 1,
-        "has_next": current_page < total_pages,
-        "items_to_display": page_items,
-        "pagelist": {"object_list": page_items}
-    })
+    context.update(
+        {
+            "page_cnt": list(range(1, total_pages + 1)),
+            "total_pages": total_pages,
+            "current_page": current_page,
+            "has_previous": current_page > 1,
+            "has_next": current_page < total_pages,
+            "items_to_display": page_items,
+            "pagelist": {"object_list": page_items},
+        }
+    )
 
     # Handle originator URL
     if "/search/" in str(context["originator"]) or context["originator"] is None:
@@ -410,8 +426,12 @@ def search_viewresults(request: WSGIRequest):
 
     # Check for missing thumbnails
     files_needing_thumbnails = [
-        item.file_sha256 for item in page_items
-        if hasattr(item, 'file_sha256') and hasattr(item, 'new_ftnail') and item.new_ftnail is None and item.filetype.is_image
+        item.file_sha256
+        for item in page_items
+        if hasattr(item, "file_sha256")
+        and hasattr(item, "new_ftnail")
+        and item.new_ftnail is None
+        and item.filetype.is_image
     ]
 
     if files_needing_thumbnails:
@@ -442,16 +462,16 @@ def _determine_template(request: WSGIRequest, template_type: str = "gallery") ->
     template_map = {
         "gallery": {
             "partial": "frontend/gallery/gallery_listing_partial.jinja",
-            "complete": "frontend/gallery/gallery_listing_complete.jinja"
+            "complete": "frontend/gallery/gallery_listing_complete.jinja",
         },
         "search": {
             "partial": "frontend/search/search_listings_partial.jinja",
-            "complete": "frontend/search/search_listings_complete.jinja"
+            "complete": "frontend/search/search_listings_complete.jinja",
         },
         "item": {
             "partial": "frontend/item/gallery_htmx_partial.jinja",
-            "complete": "frontend/item/gallery_htmx_complete.jinja"
-        }
+            "complete": "frontend/item/gallery_htmx_complete.jinja",
+        },
     }
 
     template_set = template_map.get(template_type, template_map["gallery"])
@@ -499,13 +519,15 @@ def _find_directory(paths: dict):
             found, directory = IndexDirs.search_for_directory(paths["album_viewing"])
 
             if not found:
-                logger.info("Directory not found: %s", paths['album_viewing'])
+                logger.info("Directory not found: %s", paths["album_viewing"])
                 return HttpResponseNotFound("<h1>gallery not found</h1>")
     except Exception as e:
-        logger.error("Error searching for directory '%s': %s", paths['album_viewing'], e)
+        logger.error(
+            "Error searching for directory '%s': %s", paths["album_viewing"], e
+        )
         return HttpResponseBadRequest("<h1>Invalid path specified</h1>")
 
-    logger.info("Viewing: %s", paths['album_viewing'])
+    logger.info("Viewing: %s", paths["album_viewing"])
 
     # Check if physical directory exists
     if not os.path.exists(paths["album_viewing"]):
@@ -522,7 +544,9 @@ def _find_directory(paths: dict):
     return found, directory
 
 
-def _build_gallery_context(request: WSGIRequest, paths: dict, directory) -> dict:  # pylint: disable=unused-argument
+def _build_gallery_context(
+    request: WSGIRequest, paths: dict, directory
+) -> dict:  # pylint: disable=unused-argument
     """
     Build gallery-specific context using shared base context.
 
@@ -536,17 +560,19 @@ def _build_gallery_context(request: WSGIRequest, paths: dict, directory) -> dict
     context = _create_base_context(request)
 
     # Add gallery-specific context
-    context.update({
-        "webpath": ensures_endswith(paths["webpath"], os.sep),
-        "breadcrumbs": return_breadcrumbs(paths["webpath"])[:-1],
-        "thumbpath": paths["thumbpath"],
-        "gallery_name": pathlib.Path(paths["webpath"]).name,
-        "up_uri": "/".join(request.build_absolute_uri().split("/")[0:-1]),
-        "search": False,
-        "prev_uri": None,
-        "next_uri": None,
-        "pagelist": [],
-    })
+    context.update(
+        {
+            "webpath": ensures_endswith(paths["webpath"], os.sep),
+            "breadcrumbs": return_breadcrumbs(paths["webpath"])[:-1],
+            "thumbpath": paths["thumbpath"],
+            "gallery_name": pathlib.Path(paths["webpath"]).name,
+            "up_uri": "/".join(request.build_absolute_uri().split("/")[0:-1]),
+            "search": False,
+            "prev_uri": None,
+            "next_uri": None,
+            "pagelist": [],
+        }
+    )
 
     return context
 
@@ -589,10 +615,12 @@ def new_viewgallery(request: WSGIRequest):
     )
 
     # Update context with layout data efficiently
-    context.update({
-        "total_pages": layout["total_pages"],
-        "page_cnt": list(range(1, layout["total_pages"] + 1))
-    })
+    context.update(
+        {
+            "total_pages": layout["total_pages"],
+            "page_cnt": list(range(1, layout["total_pages"] + 1)),
+        }
+    )
 
     # Set navigation URIs
     context["prev_uri"], context["next_uri"] = return_prev_next2(
@@ -607,10 +635,12 @@ def new_viewgallery(request: WSGIRequest):
         dirs_to_display = (
             directory.dirs_in_dir(sort=context["sort"])
             .filter(dir_fqpn_sha256__in=data_for_current_page["directories"])
-            .select_related('filetype', 'thumbnail__new_ftnail')
+            .select_related("filetype", "thumbnail__new_ftnail")
             .annotate(
-                file_count_cached=Count('IndexData_entries',
-                                      filter=Q(IndexData_entries__delete_pending=False))
+                file_count_cached=Count(
+                    "IndexData_entries",
+                    filter=Q(IndexData_entries__delete_pending=False),
+                )
             )
         )
     else:
@@ -621,7 +651,7 @@ def new_viewgallery(request: WSGIRequest):
         files_and_links = (
             directory.files_in_dir(sort=context["sort"])
             .filter(unique_sha256__in=data_for_current_page["files"])
-            .select_related('filetype', 'home_directory', 'new_ftnail')
+            .select_related("filetype", "home_directory", "new_ftnail")
         )
 
         # Separate files and links in Python (single query already executed)
@@ -691,7 +721,9 @@ def process_thumbnail(sha256: str) -> tuple[bool, str, any]:
         connections.close_all()
 
 
-def process_thumbnails_threaded(layout: dict, batchsize: int = 100, max_workers: int = 4) -> bool:
+def process_thumbnails_threaded(
+    layout: dict, batchsize: int = 100, max_workers: int = 4
+) -> bool:
     """
     Process thumbnails using threaded multitasking for improved performance.
 
@@ -711,8 +743,7 @@ def process_thumbnails_threaded(layout: dict, batchsize: int = 100, max_workers:
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks
         future_to_sha256 = {
-            executor.submit(process_thumbnail, sha256): sha256
-            for sha256 in no_thumbs
+            executor.submit(process_thumbnail, sha256): sha256 for sha256 in no_thumbs
         }
 
         # Process completed tasks with simplified logic

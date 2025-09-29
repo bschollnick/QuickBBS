@@ -172,8 +172,6 @@ def return_identifier(ext: str) -> str:
     return ext
 
 
-
-
 def load_filetypes(force: bool = False) -> dict:
     """
     Load file type data from database into global cache.

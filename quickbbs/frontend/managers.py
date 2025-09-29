@@ -171,10 +171,12 @@ def _get_all_shas_cached(directory_id: str, sort_ordering: int) -> list[str]:
     """
     # Import locally to avoid circular imports
     from quickbbs.models import IndexDirs  # pylint: disable=import-outside-toplevel
+
     directory = IndexDirs.objects.get(pk=directory_id)
     return list(
-        directory.files_in_dir(sort=sort_ordering)
-        .values_list("unique_sha256", flat=True)
+        directory.files_in_dir(sort=sort_ordering).values_list(
+            "unique_sha256", flat=True
+        )
     )
 
 
@@ -235,13 +237,11 @@ def build_context_info(
         "sort": sort_order_value,
         "mobile": mobile,
         "html": _process_file_content(entry, webpath),
-
         # Navigation (inline breadcrumb processing)
         "breadcrumbs": "".join(f"<li>{bcrumb[2]}</li>" for bcrumb in breadcrumbs),
         "breadcrumbs_list": [bcrumb[2] for bcrumb in breadcrumbs],
         "up_uri": convert_to_webpath(str(pathmaster.parent)).rstrip("/"),
         "webpath": webpath,
-
         # File context (inline)
         "filetype": entry.filetype.__dict__,
         "sha": entry.unique_sha256,
@@ -257,7 +257,6 @@ def build_context_info(
         "download_uri": entry.get_download_url(),
         "thumbnail_uri": entry.get_thumbnail_url(size=size),
         "size": size,
-
         # Pagination (computed inline)
         "page": current_page,
         "pagecount": all_shas_count,
@@ -283,7 +282,9 @@ def _process_file_content(entry: IndexData, webpath: str) -> str:
         webpath: Web path for constructing file path
     :return: Processed HTML content or empty string
     """
-    if not (entry.filetype.is_text or entry.filetype.is_markdown or entry.filetype.is_html):
+    if not (
+        entry.filetype.is_text or entry.filetype.is_markdown or entry.filetype.is_html
+    ):
         return ""
 
     # Optimize path construction
@@ -306,13 +307,10 @@ def _get_directory_counts(directory) -> dict:
     :return: Dictionary with dirs_count and files_count
     """
     # Use values() with count to reduce query overhead
-    dirs_count = directory.dirs_in_dir().values('pk').count()
-    files_count = directory.files_in_dir().values('pk').count()
+    dirs_count = directory.dirs_in_dir().values("pk").count()
+    files_count = directory.files_in_dir().values("pk").count()
 
-    return {
-        'dirs_count': dirs_count,
-        'files_count': files_count
-    }
+    return {"dirs_count": dirs_count, "files_count": files_count}
 
 
 def _get_no_thumbnails(directory, sort_ordering: int) -> list[str]:
@@ -363,14 +361,16 @@ def calculate_page_bounds(page_number: int, chunk_size: int, dirs_count: int) ->
         files_end = files_start + chunk_size
 
     return {
-        'dirs_slice': (dirs_start, dirs_end) if dirs_on_page > 0 else None,
-        'files_slice': (files_start, files_end) if files_end > files_start else None,
-        'dirs_on_page': dirs_on_page
+        "dirs_slice": (dirs_start, dirs_end) if dirs_on_page > 0 else None,
+        "files_slice": (files_start, files_end) if files_end > files_start else None,
+        "dirs_on_page": dirs_on_page,
     }
 
 
 @cached(layout_manager_cache)
-def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | None = None) -> dict:
+def layout_manager(
+    page_number: int = 1, directory=None, sort_ordering: int | None = None
+) -> dict:
     """
     Manage gallery layout with optimized database-level pagination.
 
@@ -407,26 +407,28 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
     # Fetch ONLY current page data using database slicing
     page_data = {}
 
-    if bounds['dirs_slice']:
-        start, end = bounds['dirs_slice']
-        page_directories = list(directories_qs[start:end].values_list("dir_fqpn_sha256", flat=True))
-        page_data['directories'] = page_directories
-        page_data['cnt_dirs'] = len(page_directories)
+    if bounds["dirs_slice"]:
+        start, end = bounds["dirs_slice"]
+        page_directories = list(
+            directories_qs[start:end].values_list("dir_fqpn_sha256", flat=True)
+        )
+        page_data["directories"] = page_directories
+        page_data["cnt_dirs"] = len(page_directories)
     else:
-        page_data['directories'] = []
-        page_data['cnt_dirs'] = 0
+        page_data["directories"] = []
+        page_data["cnt_dirs"] = 0
 
-    if bounds['files_slice']:
-        start, end = bounds['files_slice']
+    if bounds["files_slice"]:
+        start, end = bounds["files_slice"]
         page_files = list(files_qs[start:end].values_list("unique_sha256", flat=True))
-        page_data['files'] = page_files
-        page_data['cnt_files'] = len(page_files)
+        page_data["files"] = page_files
+        page_data["cnt_files"] = len(page_files)
     else:
-        page_data['files'] = []
-        page_data['cnt_files'] = 0
+        page_data["files"] = []
+        page_data["cnt_files"] = 0
 
-    page_data['total_cnt'] = page_data['cnt_dirs'] + page_data['cnt_files']
-    page_data['page'] = page_number
+    page_data["total_cnt"] = page_data["cnt_dirs"] + page_data["cnt_files"]
+    page_data["page"] = page_number
 
     # Build optimized output structure - only current page data
     output = {
@@ -441,7 +443,7 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
     }
 
     # Generate all_shas for current page only (much smaller)
-    output["all_shas"] = page_data['directories'] + page_data['files']
+    output["all_shas"] = page_data["directories"] + page_data["files"]
 
     # Get no_thumbnails data efficiently
     output["no_thumbnails"] = _get_no_thumbnails(directory, sort_ordering)

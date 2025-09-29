@@ -26,7 +26,9 @@ class PDFBackend(AbstractBackend):
 
     @staticmethod
     @lru_cache(maxsize=500)
-    def _calculate_optimal_zoom(page_width: float, page_height: float, target_width: int, target_height: int) -> float:
+    def _calculate_optimal_zoom(
+        page_width: float, page_height: float, target_width: int, target_height: int
+    ) -> float:
         """
         Calculate optimal zoom level to render PDF slightly larger than target size.
         Cached to avoid redundant calculations for similar page dimensions.
@@ -76,7 +78,9 @@ class PDFBackend(AbstractBackend):
             # Calculate optimal zoom for largest requested size using cached method
             largest_size = max(sizes.values(), key=lambda s: s[0] * s[1])
             rect = page.rect
-            zoom = self._calculate_optimal_zoom(rect.width, rect.height, largest_size[0], largest_size[1])
+            zoom = self._calculate_optimal_zoom(
+                rect.width, rect.height, largest_size[0], largest_size[1]
+            )
 
             # Create matrix for rendering
             mat = fitz.Matrix(zoom, zoom)
@@ -135,7 +139,9 @@ class PDFBackend(AbstractBackend):
             # Calculate optimal zoom for largest requested size using cached method
             largest_size = max(sizes.values(), key=lambda s: s[0] * s[1])
             rect = page.rect
-            zoom = self._calculate_optimal_zoom(rect.width, rect.height, largest_size[0], largest_size[1])
+            zoom = self._calculate_optimal_zoom(
+                rect.width, rect.height, largest_size[0], largest_size[1]
+            )
 
             # Create matrix for rendering
             mat = fitz.Matrix(zoom, zoom)

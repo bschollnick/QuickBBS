@@ -49,7 +49,7 @@ def calculate_sha224(filepath: str) -> str:
             return None
 
         hasher = sha224()
-        with open(filepath, 'rb') as f:
+        with open(filepath, "rb") as f:
             while chunk := f.read(65536):  # 64KB chunks
                 hasher.update(chunk)
         return hasher.hexdigest()
@@ -93,6 +93,7 @@ def scan_destination_directory(dst_dir: str, use_shas: bool) -> dict[str, str]:
         pass  # Return empty dict if directory can't be read
 
     return file_map
+
 
 class ProcessingStats:
     """Simple statistics tracking without thread-local complexity."""
@@ -149,6 +150,7 @@ class ProcessingStats:
         if duration > 0 and self.total_files_scanned > 0:
             scan_rate = self.total_files_scanned / duration
             print(f"\nPerformance: {scan_rate:.1f} files/second")
+
 
 # Global statistics tracker
 stats = ProcessingStats()
@@ -215,7 +217,7 @@ def process_folder(src_dir, dst_dir, files, config):
     os.makedirs(dst_dir, exist_ok=True)
 
     # Scan destination directory for existing files (per-directory scope)
-    existing_file_map = scan_destination_directory(dst_dir, config['use_shas'])
+    existing_file_map = scan_destination_directory(dst_dir, config["use_shas"])
 
     stats.total_files_scanned += len(files)
 
@@ -245,7 +247,7 @@ def process_folder(src_dir, dst_dir, files, config):
 
         # Check SHA if enabled
         src_sha = None
-        if config['use_shas']:
+        if config["use_shas"]:
             try:
                 src_sha = calculate_sha224(src_file)
                 if src_sha and src_sha in existing_file_map.values():
@@ -254,16 +256,15 @@ def process_folder(src_dir, dst_dir, files, config):
             except (OSError, IOError, PermissionError):
                 src_sha = None
 
-
         # Perform file operation
         try:
-            if config['operation'] == "copy":
+            if config["operation"] == "copy":
                 shutil.copy2(src_file, dst_file)
-            elif config['operation'] == "move":
+            elif config["operation"] == "move":
                 shutil.move(src_file, dst_file)
 
             # Update local tracking for this directory (no persistent cache needed)
-            existing_file_map[dst_filename] = src_sha if config['use_shas'] else None
+            existing_file_map[dst_filename] = src_sha if config["use_shas"] else None
 
             stats.files_actually_processed += 1
 
@@ -278,9 +279,9 @@ def main(args):
     :Args:
         args: Parsed command line arguments
     """
-    use_shas = getattr(args, 'use_shas', False)
-    operation = getattr(args, 'operation', 'copy')
-    max_threads = getattr(args, 'threads', MAX_THREADS)
+    use_shas = getattr(args, "use_shas", False)
+    operation = getattr(args, "operation", "copy")
+    max_threads = getattr(args, "threads", MAX_THREADS)
 
     root_src_dir = Path(args.source).resolve()
     root_target_dir = Path(args.target).resolve()
@@ -308,7 +309,7 @@ def main(args):
     print("Processing directories...")
 
     # Create config dictionary to reduce function arguments
-    config = {'use_shas': use_shas, 'operation': operation}
+    config = {"use_shas": use_shas, "operation": operation}
 
     def process_wrapper(folder_info):
         """Process a single directory with error handling.
@@ -335,7 +336,9 @@ def main(args):
         """
         for src_dir, _, files in os.walk(str(root_src_dir)):
             if files:  # Only yield directories with files
-                dst_dir = Path(src_dir.replace(str(root_src_dir), str(root_target_dir))).resolve()
+                dst_dir = Path(
+                    src_dir.replace(str(root_src_dir), str(root_target_dir))
+                ).resolve()
                 dst_dir = dst_dir.parent / dst_dir.name.title().replace(" ", "_")
                 yield (src_dir, str(dst_dir), files)
 
@@ -347,16 +350,30 @@ def main(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Copy or move files with macOS Finder color labels")
+    parser = argparse.ArgumentParser(
+        description="Copy or move files with macOS Finder color labels"
+    )
 
     parser.add_argument("source", help="Source directory path")
     parser.add_argument("target", help="Target directory path")
-    parser.add_argument("--operation", choices=["copy", "move"], default="copy",
-                       help="Operation to perform (default: copy)")
-    parser.add_argument("--use-shas", action="store_true",
-                       help="Use SHA224 hashing for duplicate detection")
-    parser.add_argument("--threads", "-t", type=int, default=MAX_THREADS,
-                       help=f"Number of worker threads (default: {MAX_THREADS})")
+    parser.add_argument(
+        "--operation",
+        choices=["copy", "move"],
+        default="copy",
+        help="Operation to perform (default: copy)",
+    )
+    parser.add_argument(
+        "--use-shas",
+        action="store_true",
+        help="Use SHA224 hashing for duplicate detection",
+    )
+    parser.add_argument(
+        "--threads",
+        "-t",
+        type=int,
+        default=MAX_THREADS,
+        help=f"Number of worker threads (default: {MAX_THREADS})",
+    )
 
     print("QuickBBS File Mover v3.0 - Performance Optimized")
     print("=" * 45)

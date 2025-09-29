@@ -144,7 +144,9 @@ class IndexDirs(models.Model):
         ]
 
     @staticmethod
-    def add_directory(fqpn_directory: str, thumbnail: bytes = b"") -> tuple[bool, "IndexDirs"]:
+    def add_directory(
+        fqpn_directory: str, thumbnail: bytes = b""
+    ) -> tuple[bool, "IndexDirs"]:
         """
         Create a new directory entry or get existing one
         :param fqpn_directory: The fully qualified pathname for the directory
@@ -162,11 +164,8 @@ class IndexDirs(models.Model):
             parent_sha = get_dir_sha(parent_dir)
             found, parent_dir_link = IndexDirs.search_for_directory_by_sha(parent_sha)
 
-            if (
-                not found
-                and parent_dir.lower().startswith(
-                    os.path.join(settings.ALBUMS_PATH, "albums").lower()
-                )
+            if not found and parent_dir.lower().startswith(
+                os.path.join(settings.ALBUMS_PATH, "albums").lower()
             ):
                 print("Trying to create parent directory: ", parent_dir)
                 # If the parent directory is not found, create it
@@ -274,7 +273,9 @@ class IndexDirs(models.Model):
         if not cache_only:
             IndexDirs.objects.filter(dir_fqpn_sha256=dir_sha256).delete()
 
-    def do_files_exist(self, additional_filters: Union[dict[str, Any], None] = None) -> bool:
+    def do_files_exist(
+        self, additional_filters: Union[dict[str, Any], None] = None
+    ) -> bool:
         """
         Check if any files exist in the current directory with optional filters
         :param additional_filters: Additional Django ORM filters to apply (e.g., filetype, status filters)
@@ -366,7 +367,9 @@ class IndexDirs(models.Model):
         return IndexDirs.search_for_directory_by_sha(sha_256)
 
     @staticmethod
-    def return_by_sha256_list(sha256_list: list[str], sort: int = 0) -> "QuerySet[IndexDirs]":
+    def return_by_sha256_list(
+        sha256_list: list[str], sort: int = 0
+    ) -> "QuerySet[IndexDirs]":
         """
         Return directories matching the provided SHA256 list
         :param sha256_list: List of directory SHA256 hashes to filter by
@@ -385,7 +388,9 @@ class IndexDirs(models.Model):
         )
         return dirs
 
-    def files_in_dir(self, sort: int = 0, additional_filters: Union[dict[str, Any], None] = None) -> "QuerySet[IndexData]":
+    def files_in_dir(
+        self, sort: int = 0, additional_filters: Union[dict[str, Any], None] = None
+    ) -> "QuerySet[IndexData]":
         """
         Return the files in the current directory
         :param sort: The sort order of the files (0-2)
@@ -612,7 +617,9 @@ class IndexData(models.Model):
         """
         return self.fqpndirectory + self.name
 
-    def update_or_create_file(self, fs_record: dict[str, Any], unique_file_sha256: str, dir_sha256: str) -> tuple[bool, "IndexData"]:
+    def update_or_create_file(
+        self, fs_record: dict[str, Any], unique_file_sha256: str, dir_sha256: str
+    ) -> tuple[bool, "IndexData"]:
         """
         Add a file to the database, or update an existing file.
         :param fs_record: Dictionary with file information, including:
@@ -697,7 +704,9 @@ class IndexData(models.Model):
 
     @lru_cache(maxsize=1000)
     @staticmethod
-    def get_by_filters(additional_filters: Union[dict[str, Any], None] = None) -> "QuerySet[IndexData]":
+    def get_by_filters(
+        additional_filters: Union[dict[str, Any], None] = None,
+    ) -> "QuerySet[IndexData]":
         """
         Return the files in the current directory, filtered by additional filters
         :param additional_filters: Additional filters to apply to the query
@@ -710,7 +719,9 @@ class IndexData(models.Model):
         )
 
     @staticmethod
-    def return_by_sha256_list(sha256_list: list[str], sort: int = 0) -> "QuerySet[IndexData]":
+    def return_by_sha256_list(
+        sha256_list: list[str], sort: int = 0
+    ) -> "QuerySet[IndexData]":
         """
         Return files matching the provided SHA256 list
         :param sha256_list: List of file SHA256 hashes to filter by
@@ -782,9 +793,7 @@ class IndexData(models.Model):
         Convert the fqpndirectory to an web path
         :return:
         """
-        return self.fqpndirectory.removeprefix(
-            IndexDirs.get_albums_prefix()
-        )
+        return self.fqpndirectory.removeprefix(IndexDirs.get_albums_prefix())
 
     def get_file_counts(self) -> None:
         """

@@ -101,7 +101,10 @@ class VideoBackend(AbstractBackend):
 
 
 def _generate_thumbnail_to_pil(
-    video_path: str, time_offset: str | int = "00:00:10", width: int = 320, height: int = 240
+    video_path: str,
+    time_offset: str | int = "00:00:10",
+    width: int = 320,
+    height: int = 240,
 ) -> Image.Image:
     """
     Generate a thumbnail from a video file and return it as a PIL Image.
@@ -125,8 +128,8 @@ def _generate_thumbnail_to_pil(
         # Use ffmpeg with hardware-accelerated scaling to extract frame at target size
         process = (
             ffmpeg.input(str(video_path), ss=time_offset)
-            .filter('scale', width, height, force_original_aspect_ratio='decrease')
-            .filter('pad', width, height, -1, -1, 'black')
+            .filter("scale", width, height, force_original_aspect_ratio="decrease")
+            .filter("pad", width, height, -1, -1, "black")
             .output("pipe:", vframes=1, format="image2", vcodec="mjpeg", qscale=2)
             .run_async(pipe_stdout=True, pipe_stderr=True, quiet=True)
         )
@@ -231,7 +234,9 @@ def _get_video_info(video_path: str) -> dict[str, any]:
         raise Exception(f"Error getting video info: {e}")
 
 
-def _pil_to_binary(image: Image.Image, format: str = "JPEG", quality: int = 85) -> bytes:
+def _pil_to_binary(
+    image: Image.Image, format: str = "JPEG", quality: int = 85
+) -> bytes:
     """
     Convert PIL Image to binary data.
 

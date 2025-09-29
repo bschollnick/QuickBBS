@@ -120,12 +120,16 @@ class FastImageProcessor:
 # Global processor cache for common size configurations
 _processor_cache = {}
 
-def _get_cached_processor(sizes: dict[str, tuple[int, int]], backend: BackendType) -> FastImageProcessor:
+
+def _get_cached_processor(
+    sizes: dict[str, tuple[int, int]], backend: BackendType
+) -> FastImageProcessor:
     """Get or create cached processor for common configurations."""
     cache_key = (tuple(sorted(sizes.items())), backend)
     if cache_key not in _processor_cache:
         _processor_cache[cache_key] = FastImageProcessor(sizes, backend)
     return _processor_cache[cache_key]
+
 
 # Simplified interface functions
 def create_thumbnails_from_path(
