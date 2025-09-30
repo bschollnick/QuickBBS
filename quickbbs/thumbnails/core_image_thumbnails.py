@@ -1,20 +1,4 @@
 # Core Image imports (macOS only)
-# try:
-#     import objc
-#     from Foundation import NSURL, NSData
-#     from UniformTypeIdentifiers import UTType
-#     objc.loadBundle('CoreImage', globals(), '/System/Library/Frameworks/CoreImage.framework')
-#     objc.loadBundle('CoreGraphics', globals(), '/System/Library/Frameworks/CoreGraphics.framework')
-#     from Quartz import (
-#         CGColorSpaceCreateDeviceRGB,
-#         CGImageDestinationCreateWithData,
-#         CGImageDestinationAddImage,
-#         CGImageDestinationFinalize,
-#         kCGImageDestinationLossyCompressionQuality,
-#         kCGColorSpaceSRGB,
-#         kCIContextWorkingColorSpace,    )
-#     CORE_IMAGE_AVAILABLE = True
-# except ImportError:
 
 
 class CoreImageBackend(ImageBackend):

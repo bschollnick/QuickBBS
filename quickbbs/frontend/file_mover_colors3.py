@@ -213,11 +213,8 @@ def process_folder(src_dir, dst_dir, files, config):
         files: List of filenames to process
         config: Dictionary with 'use_shas' and 'operation' keys
     """
-    # Ensure destination directory exists
-    os.makedirs(dst_dir, exist_ok=True)
-
-    # Scan destination directory for existing files (per-directory scope)
-    existing_file_map = scan_destination_directory(dst_dir, config["use_shas"])
+    # Scan destination directory for existing files (per-directory scope) - only if it exists
+    existing_file_map = scan_destination_directory(dst_dir, config["use_shas"]) if os.path.exists(dst_dir) else {}
 
     stats.total_files_scanned += len(files)
 
@@ -235,6 +232,9 @@ def process_folder(src_dir, dst_dir, files, config):
             continue
 
         stats.files_with_color_tags += 1
+
+        # Ensure destination directory exists (only when we have files with color labels)
+        os.makedirs(dst_dir, exist_ok=True)
 
         # Sanitize destination filename
         dst_filename = multiple_replace(replacements, file_).replace(" ", "_")
@@ -302,7 +302,7 @@ def main(args):
         print(f"Error: Source path '{root_src_dir}' is not a directory.")
         sys.exit(1)
 
-    root_target_dir.mkdir(parents=True, exist_ok=True)
+#    root_target_dir.mkdir(parents=True, exist_ok=True)
 
     # No persistent cache needed - using per-directory processing
 
