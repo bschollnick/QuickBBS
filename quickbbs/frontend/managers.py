@@ -72,7 +72,7 @@ layout_manager_cache = LRUCache(maxsize=500)
 build_context_info_cache = LRUCache(maxsize=500)
 
 # Cache for expensive all_shas queries - cache by directory and sort
-all_shas_cache = LRUCache(maxsize=200)
+all_shas_cache = LRUCache(maxsize=500)
 
 # File size limit for text file processing (1MB)
 MAX_TEXT_FILE_SIZE = 1024 * 1024
@@ -280,7 +280,6 @@ def build_context_info(
     directory_entry = entry.home_directory
 
     # Build entire context in single operation for optimal performance
-    breadcrumbs = return_breadcrumbs(webpath)
     pathmaster = Path(entry.full_filepathname)
     size = "medium" if mobile else "large"
     lastmod_timestamp = entry.lastmod
