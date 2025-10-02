@@ -236,8 +236,8 @@ def file_iterator(file_path, chunk_size=8192, offset=0, length=None):
 def stream_video(request, fqpn, content_type="video/mp4"):
     """
     https://www.djangotricks.com/tricks/Jw4jNwFziSXD/
-    :param request:
-    :return:
+        request:
+    Returns:
     """
     # path = str(settings.BASE_DIR / "data" / "earth.mp4")
     # content_type = "video/mp4"

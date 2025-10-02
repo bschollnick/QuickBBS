@@ -7,23 +7,30 @@ import hashlib
 import os
 import pathlib
 import time
-from functools import lru_cache
 from typing import Any, Union
+
+# Third-party imports
+from cachetools import LRUCache, cached
 
 # Django imports
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import models
-from django.db.models import Count
+from django.db.models import Count, Prefetch, Q
 from django.db.models.query import QuerySet
 from django.urls import reverse
 
 # Local application imports
 from filetypes.models import filetypes, get_ftype_dict
-from frontend.serve_up import send_file_response
+from frontend.serve_up import async_send_file_response, send_file_response
+from thumbnails.models import ThumbnailFiles
+
 from quickbbs.common import get_dir_sha, normalize_fqpn
 from quickbbs.natsort_model import NaturalSortField
-from thumbnails.models import ThumbnailFiles
+
+# Async-safe caches for database object lookups
+indexdirs_cache = LRUCache(maxsize=1000)
+indexdata_cache = LRUCache(maxsize=2000)
 
 
 class Owners(models.Model):
@@ -32,12 +39,8 @@ class Owners(models.Model):
     """
 
     id = models.AutoField(primary_key=True)
-    uuid = models.UUIDField(
-        default=None, null=True, editable=False, blank=True, db_index=True
-    )
-    ownerdetails = models.OneToOneField(
-        User, on_delete=models.CASCADE, db_index=True, default=None
-    )
+    uuid = models.UUIDField(default=None, null=True, editable=False, blank=True, db_index=True)
+    ownerdetails = models.OneToOneField(User, on_delete=models.CASCADE, db_index=True, default=None)
 
     class Meta:
         verbose_name = "Ownership"
@@ -50,9 +53,7 @@ class Favorites(models.Model):
     """
 
     id = models.AutoField(primary_key=True)
-    uuid = models.UUIDField(
-        default=None, null=True, editable=False, blank=True, db_index=True
-    )
+    uuid = models.UUIDField(default=None, null=True, editable=False, blank=True, db_index=True)
 
 
 INDEXDIRS_PREFETCH_LIST = [
@@ -80,9 +81,7 @@ class IndexDirs(models.Model):
             cls._albums_prefix = settings.ALBUMS_PATH.lower() + r"/albums/"
         return cls._albums_prefix
 
-    fqpndirectory = models.CharField(
-        db_index=True, max_length=384, default="", unique=True, blank=True
-    )  # True fqpn name
+    fqpndirectory = models.CharField(db_index=True, max_length=384, default="", unique=True, blank=True)  # True fqpn name
 
     dir_fqpn_sha256 = models.CharField(
         db_index=True,
@@ -101,19 +100,11 @@ class IndexDirs(models.Model):
         default=None,
         related_name="parent_dir",
     )
-    lastscan = models.FloatField(
-        db_index=True, default=None
-    )  # Stored as Unix TimeStamp (ms)
-    lastmod = models.FloatField(
-        db_index=True, default=None
-    )  # Stored as Unix TimeStamp (ms)
+    lastscan = models.FloatField(db_index=True, default=None)  # Stored as Unix TimeStamp (ms)
+    lastmod = models.FloatField(db_index=True, default=None)  # Stored as Unix TimeStamp (ms)
     name_sort = NaturalSortField(for_field="fqpndirectory", max_length=384, default="")
-    is_generic_icon = models.BooleanField(
-        default=False, db_index=True
-    )  # File is to be ignored
-    delete_pending = models.BooleanField(
-        default=False, db_index=True
-    )  # File is to be deleted,
+    is_generic_icon = models.BooleanField(default=False, db_index=True)  # File is to be ignored
+    delete_pending = models.BooleanField(default=False, db_index=True)  # File is to be deleted,
     filetype = models.ForeignKey(
         filetypes,
         to_field="fileext",
@@ -144,29 +135,27 @@ class IndexDirs(models.Model):
         ]
 
     @staticmethod
-    def add_directory(
-        fqpn_directory: str, thumbnail: bytes = b""
-    ) -> tuple[bool, "IndexDirs"]:
+    def add_directory(fqpn_directory: str, thumbnail: bytes = b"") -> tuple[bool, "IndexDirs"]:
         """
         Create a new directory entry or get existing one
-        :param fqpn_directory: The fully qualified pathname for the directory
-        :param thumbnail: thumbnail image to store for the thumbnail/cover art
-        :return: Database record
+
+        Args:
+            fqpn_directory: The fully qualified pathname for the directory
+            thumbnail: thumbnail image to store for the thumbnail/cover art
+
+        Returns:
+            Database record
         """
         from django.conf import settings
 
         Path = pathlib.Path(fqpn_directory)
         fqpn_directory = normalize_fqpn(str(Path.resolve()))
         parent_dir = normalize_fqpn(str(Path.parent.resolve()))
-        if fqpn_directory.lower().startswith(
-            os.path.join(settings.ALBUMS_PATH, "albums").lower()
-        ):
+        if fqpn_directory.lower().startswith(os.path.join(settings.ALBUMS_PATH, "albums").lower()):
             parent_sha = get_dir_sha(parent_dir)
             found, parent_dir_link = IndexDirs.search_for_directory_by_sha(parent_sha)
 
-            if not found and parent_dir.lower().startswith(
-                os.path.join(settings.ALBUMS_PATH, "albums").lower()
-            ):
+            if not found and parent_dir.lower().startswith(os.path.join(settings.ALBUMS_PATH, "albums").lower()):
                 print("Trying to create parent directory: ", parent_dir)
                 # If the parent directory is not found, create it
                 parent_dir_link = IndexDirs.add_directory(parent_dir)
@@ -178,12 +167,17 @@ class IndexDirs(models.Model):
             parent_dir_link = None
         # Prepare the defaults for fields that should be set on creation
         print("Parent Directory Link: ", parent_dir_link)
-        if not os.path.exists(fqpn_directory):
+
+        # Use single stat call for both exists check and mtime
+        dir_path = pathlib.Path(fqpn_directory)
+        try:
+            stat_info = dir_path.stat()
+        except (FileNotFoundError, OSError):
             return (False, IndexDirs.objects.none)
 
         defaults = {
             "fqpndirectory": normalize_fqpn(fqpn_directory),
-            "lastmod": os.path.getmtime(fqpn_directory),
+            "lastmod": stat_info.st_mtime,
             "lastscan": time.time(),
             "filetype": filetypes(fileext=".dir"),
             "dir_fqpn_sha256": get_dir_sha(fqpn_directory),
@@ -206,18 +200,24 @@ class IndexDirs(models.Model):
         Invalidate the thumbnail for the directory.  This is used when the directory
         is deleted, and the thumbnail is no longer valid.
 
-        :return: None
+        Uses QuerySet.update() for efficient database-level UPDATE without
+        model serialization overhead.
+
+        Returns:
+            None
         """
         print("Invalidating generic thumbnail for ", self.fqpndirectory)
+        IndexDirs.objects.filter(pk=self.pk).update(thumbnail=None, is_generic_icon=False)
+        # Refresh local instance to reflect DB state
         self.thumbnail = None
         self.is_generic_icon = False
-        self.save()
 
     def get_dir_sha(self) -> str:
         """
         Return the SHA256 hash of the directory as a hexdigest string
 
-        :return: The SHA256 hash of the directory's fully qualified pathname
+        Returns:
+            The SHA256 hash of the directory's fully qualified pathname
         """
         return get_dir_sha(self.fqpndirectory)
 
@@ -226,7 +226,9 @@ class IndexDirs(models.Model):
         """
         Return the virtual directory name of the directory.
         This is used to return the directory name without the full path.
-        :return: String
+
+        Returns:
+            String
         """
         return str(pathlib.Path(self.fqpndirectory).name)
 
@@ -235,7 +237,9 @@ class IndexDirs(models.Model):
         """
         Placeholder property for backward compatibility reasons (allows IndexDirs objects
         to be used interchangeably with IndexData objects in templates)
-        :return: None
+
+        Returns:
+            None
         """
         return None
 
@@ -244,7 +248,9 @@ class IndexDirs(models.Model):
         """
         Placeholder property for backward compatibility reasons (allows IndexDirs objects
         to be used interchangeably with IndexData objects in templates)
-        :return: None
+
+        Returns:
+            None
         """
         return None
 
@@ -252,7 +258,9 @@ class IndexDirs(models.Model):
     def name(self) -> str:
         """
         Return the directory name of the directory.
-        :return: String
+
+        Returns:
+            String
         """
         return str(pathlib.Path(self.fqpndirectory).name)
 
@@ -261,9 +269,12 @@ class IndexDirs(models.Model):
         """
         Delete the Index_Dirs data for the fqpn_directory, and ensure that all
         IndexData records are wiped as well.
-        :param fqpn_directory: text string of fully qualified pathname of the directory
-        :param cache_only: Do not perform a delete on the Index_Dirs data
-        :return:
+
+        Args:
+            fqpn_directory: text string of fully qualified pathname of the directory
+            cache_only: Do not perform a delete on the Index_Dirs data
+
+        Returns:
         """
         # pylint: disable-next=import-outside-toplevel
         from cache_watcher.models import Cache_Storage
@@ -273,23 +284,22 @@ class IndexDirs(models.Model):
         if not cache_only:
             IndexDirs.objects.filter(dir_fqpn_sha256=dir_sha256).delete()
 
-    def do_files_exist(
-        self, additional_filters: Union[dict[str, Any], None] = None
-    ) -> bool:
+    def do_files_exist(self, additional_filters: Union[dict[str, Any], None] = None) -> bool:
         """
         Check if any files exist in the current directory with optional filters
-        :param additional_filters: Additional Django ORM filters to apply (e.g., filetype, status filters)
-        :return: Boolean indicating if files exist in the directory using QuerySet.exists()
+
+        Args:
+            additional_filters: Additional Django ORM filters to apply (e.g., filetype, status filters)
+
+        Returns: Boolean indicating if files exist in the directory using QuerySet.exists()
         """
         additional_filters = additional_filters or {}
-        return self.IndexData_entries.filter(
-            home_directory=self.pk, delete_pending=False, **additional_filters
-        ).exists()
+        return self.IndexData_entries.filter(home_directory=self.pk, delete_pending=False, **additional_filters).exists()
 
     def get_file_counts(self) -> int:
         """
         Return the number of files that are in the database for the current directory
-        :return: Integer - Number of files in the database for the directory
+        Returns: Integer - Number of files in the database for the directory
         """
         return self.IndexData_entries.filter(delete_pending=False).count()
         # return IndexData.objects.filter(
@@ -299,51 +309,54 @@ class IndexDirs(models.Model):
     def get_dir_counts(self) -> int:
         """
         Return the number of directories that are in the database for the current directory
-        :return: Integer - Number of directories
+        Returns: Integer - Number of directories
         """
-        return IndexDirs.objects.filter(
-            parent_directory=self.pk, delete_pending=False
-        ).count()
+        return IndexDirs.objects.filter(parent_directory=self.pk, delete_pending=False).count()
 
     def get_count_breakdown(self) -> dict[str, int]:
         """
         Return the count of items in the directory, broken down by filetype.
-        :return: dictionary, where the key is the filetype (e.g. "dir", "jpg", "mp4"),
+        Returns: dictionary, where the key is the filetype (e.g. "dir", "jpg", "mp4"),
         and the value is the number of items of that filetype.
         A special "all_files" key is used to store the # of all items in the directory (except
         for directories).  (all_files is the sum of all file types, except "dir")
         """
         filetypes_dict = get_ftype_dict()
-        d_files = self.files_in_dir()
 
-        counts = d_files.values("filetype__fileext").annotate(count=Count("id"))
-        totals = {item["filetype__fileext"][1:]: item["count"] for item in counts}
+        # Single aggregate query for ALL file counts by type
+        file_aggregates = self.IndexData_entries.filter(delete_pending=False).aggregate(
+            total_files=Count("id"),
+            **{f"type_{ft[1:]}": Count("id", filter=Q(filetype__fileext=ft)) for ft in filetypes_dict.keys()},
+        )
 
-        for key in filetypes_dict.keys():
-            if key[1:] not in totals:
-                totals[key[1:]] = 0
+        # Directory count (separate table, still needs its own query)
+        dir_count = IndexDirs.objects.filter(parent_directory=self.pk, delete_pending=False).count()
 
-        totals["dir"] = self.get_dir_counts()
-        totals["all_files"] = self.get_file_counts()
+        # Build result dictionary from aggregates
+        totals = {ft[1:]: file_aggregates.get(f"type_{ft[1:]}", 0) for ft in filetypes_dict.keys()}
+        totals["dir"] = dir_count
+        totals["all_files"] = file_aggregates["total_files"]
+
         return totals
 
-    @lru_cache(maxsize=100)
+    @cached(indexdirs_cache)
     def return_parent_directory(self) -> Union["IndexDirs", "QuerySet[IndexDirs]"]:
         """
         Return the database object of the parent directory to the current directory
-        :return: database record of parent directory
+        Returns: database record of parent directory
         """
-        return (
-            self.parent_directory if self.parent_directory else IndexDirs.objects.none()
-        )
+        return self.parent_directory if self.parent_directory else IndexDirs.objects.none()
 
-    @lru_cache(maxsize=1000)
+    @cached(indexdirs_cache)
     @staticmethod
     def search_for_directory_by_sha(sha_256: str) -> tuple[bool, "IndexDirs"]:
         """
         Return the database object matching the dir_fqpn_sha256
-        :param sha_256: The SHA-256 hash of the directory's fully qualified pathname
-        :return: A boolean representing the success of the search, and the resultant record
+
+        Args:
+            sha_256: The SHA-256 hash of the directory's fully qualified pathname
+
+        Returns: A boolean representing the success of the search, and the resultant record
         """
         try:
             record = IndexDirs.objects.prefetch_related(*INDEXDIRS_PREFETCH_LIST).get(
@@ -358,8 +371,11 @@ class IndexDirs(models.Model):
     def search_for_directory(fqpn_directory: str) -> tuple[bool, "IndexDirs"]:
         """
         Return the database object matching the fqpn_directory
-        :param fqpn_directory: The fully qualified pathname of the directory
-        :return: A boolean representing the success of the search, and the resultant record
+
+        Args:
+            fqpn_directory: The fully qualified pathname of the directory
+
+        Returns: A boolean representing the success of the search, and the resultant record
         """
         Path = pathlib.Path(fqpn_directory)
         fqpn_directory = normalize_fqpn(str(Path.resolve()))
@@ -367,14 +383,15 @@ class IndexDirs(models.Model):
         return IndexDirs.search_for_directory_by_sha(sha_256)
 
     @staticmethod
-    def return_by_sha256_list(
-        sha256_list: list[str], sort: int = 0
-    ) -> "QuerySet[IndexDirs]":
+    def return_by_sha256_list(sha256_list: list[str], sort: int = 0) -> "QuerySet[IndexDirs]":
         """
         Return directories matching the provided SHA256 list
-        :param sha256_list: List of directory SHA256 hashes to filter by
-        :param sort: The sort order of the dirs (0-2)
-        :return: The sorted query of directories matching the SHA256 list
+
+        Args:
+            sha256_list: List of directory SHA256 hashes to filter by
+            sort: The sort order of the dirs (0-2)
+
+        Returns: The sorted query of directories matching the SHA256 list
         """
         # necessary to prevent circular references on startup
         # pylint: disable-next=import-outside-toplevel
@@ -388,14 +405,15 @@ class IndexDirs(models.Model):
         )
         return dirs
 
-    def files_in_dir(
-        self, sort: int = 0, additional_filters: Union[dict[str, Any], None] = None
-    ) -> "QuerySet[IndexData]":
+    def files_in_dir(self, sort: int = 0, additional_filters: Union[dict[str, Any], None] = None) -> "QuerySet[IndexData]":
         """
         Return the files in the current directory
-        :param sort: The sort order of the files (0-2)
-        :param additional_filters: Additional Django ORM filters to apply (e.g., filetype, status filters)
-        :return: The sorted query of files
+
+        Args:
+            sort: The sort order of the files (0-2)
+            additional_filters: Additional Django ORM filters to apply (e.g., filetype, status filters)
+
+        Returns: The sorted query of files
         """
         # necessary to prevent circular references on startup
         # pylint: disable-next=import-outside-toplevel
@@ -406,34 +424,31 @@ class IndexDirs(models.Model):
 
         files = (
             self.IndexData_entries.prefetch_related(
-                #                "new_ftnail",
-                #                "home_directory",
-                #               "dir_thumbnail",
-                "file_links",
                 "filetype",
             )
-            #            .select_related("new_ftnail")
-            #            .select_related("home_directory")
-            #            .select_related("dir_thumbnail")
-            #            .select_related("filetype")
-            .filter(delete_pending=False, **additional_filters).order_by(
-                *SORT_MATRIX[sort]
-            )
+            .filter(delete_pending=False, **additional_filters)
+            .order_by(*SORT_MATRIX[sort])
         )
         return files
 
     def dirs_in_dir(self, sort: int = 0) -> "QuerySet[IndexDirs]":
         """
         Return the directories in the current directory
-        :param sort: The sort order of the directories (0-2)
-        :return: The sorted query of directories
+
+        Args:
+            sort: The sort order of the directories (0-2)
+
+        Returns: The sorted query of directories
         """
         # necessary to prevent circular references on startup
         # pylint: disable-next=import-outside-toplevel
         from frontend.utilities import SORT_MATRIX
 
         return (
-            IndexDirs.objects.prefetch_related(*INDEXDIRS_PREFETCH_LIST)
+            IndexDirs.objects.prefetch_related(
+                Prefetch("IndexData_entries", queryset=IndexData.objects.filter(delete_pending=False)),
+                "filetype",
+            )
             .filter(parent_directory=self.pk, delete_pending=False)
             .order_by(*SORT_MATRIX[sort])
         )
@@ -449,9 +464,7 @@ class IndexDirs(models.Model):
         """
         from frontend.utilities import convert_to_webpath
 
-        webpath = convert_to_webpath(
-            self.fqpndirectory.removeprefix(self.get_albums_prefix())
-        )
+        webpath = convert_to_webpath(self.fqpndirectory.removeprefix(self.get_albums_prefix()))
         return reverse("directories") + webpath
 
     def get_bg_color(self) -> str:
@@ -467,7 +480,7 @@ class IndexDirs(models.Model):
     def return_identifier(self) -> str:
         """
         Return the unique identifier for the directory
-        :return: The SHA256 hash of the directory's fully qualified pathname
+        Returns: The SHA256 hash of the directory's fully qualified pathname
         """
         return self.dir_fqpn_sha256
 
@@ -556,12 +569,8 @@ class IndexData(models.Model):
     )
     is_animated = models.BooleanField(default=False, db_index=True)
     ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
-    delete_pending = models.BooleanField(
-        default=False, db_index=True
-    )  # File is to be deleted,
-    cover_image = models.BooleanField(
-        default=False, db_index=True
-    )  # This image is the directory placard
+    delete_pending = models.BooleanField(default=False, db_index=True)  # File is to be deleted,
+    cover_image = models.BooleanField(default=False, db_index=True)  # This image is the directory placard
     filetype = models.ForeignKey(
         filetypes,
         to_field="fileext",
@@ -570,9 +579,7 @@ class IndexData(models.Model):
         default=".none",
         related_name="file_filetype_data",
     )
-    is_generic_icon = models.BooleanField(
-        default=False, db_index=True
-    )  # icon is a generic icon
+    is_generic_icon = models.BooleanField(default=False, db_index=True)  # icon is a generic icon
 
     # dir_sha256 = models.CharField(db_index=True, blank=True,
     #                               unique=True, null=True,
@@ -605,7 +612,7 @@ class IndexData(models.Model):
     def fqpndirectory(self) -> str:
         """
         Return the fully qualified pathname of the directory containing this file
-        :return: String representing the directory path from the parent IndexDirs object
+        Returns: String representing the directory path from the parent IndexDirs object
         """
         return self.home_directory.fqpndirectory
 
@@ -613,16 +620,14 @@ class IndexData(models.Model):
     def full_filepathname(self) -> str:
         """
         Return the complete file path including directory and filename
-        :return: String representing the full file path by concatenating directory + filename
+        Returns: String representing the full file path by concatenating directory + filename
         """
         return self.fqpndirectory + self.name
 
-    def update_or_create_file(
-        self, fs_record: dict[str, Any], unique_file_sha256: str, dir_sha256: str
-    ) -> tuple[bool, "IndexData"]:
+    def update_or_create_file(self, fs_record: dict[str, Any], unique_file_sha256: str, dir_sha256: str) -> tuple[bool, "IndexData"]:
         """
         Add a file to the database, or update an existing file.
-        :param fs_record: Dictionary with file information, including:
+            fs_record: Dictionary with file information, including:
             - name: The name of the file
             - size: The size of the file
             - lastmod: The last modified time of the file
@@ -633,9 +638,12 @@ class IndexData(models.Model):
             - delete_pending: Whether this file is pending deletion
             - cover_image: Whether this image is a cover image for the directory
             - filetype: The type of the file (e.g., .jpg, .mp4)
-        :param unique_file_sha256: The unique SHA256 hash of the file (unused parameter)
-        :param dir_sha256: The SHA256 hash of the directory containing the file (legacy parameter)
-        :return: Tuple (found, new_rec) where found is a boolean indicating if the record was found,
+
+        Args:
+            unique_file_sha256: The unique SHA256 hash of the file (unused parameter)
+            dir_sha256: The SHA256 hash of the directory containing the file (legacy parameter)
+
+        Returns: Tuple (found, new_rec) where found is a boolean indicating if the record was found,
                  and new_rec is the IndexData object.
         """
         defaults = {
@@ -665,7 +673,7 @@ class IndexData(models.Model):
     def return_unique_identifier(self) -> str:
         """
         Return the unique identifier for the file
-        :return: The unique SHA256 hash of the file + fully qualified filename
+        Returns: The unique SHA256 hash of the file + fully qualified filename
         """
         return self.unique_sha256
 
@@ -673,7 +681,7 @@ class IndexData(models.Model):
     def return_identical_files_count(sha: str) -> int:
         """
         Return the number of identical files in the database
-        :return: Integer - Number of identical files
+        Returns: Integer - Number of identical files
         """
         return IndexData.objects.filter(file_sha256=sha).count()
 
@@ -681,8 +689,11 @@ class IndexData(models.Model):
     def return_list_all_identical_files_by_sha(sha: str) -> "QuerySet[IndexData]":
         """
         Return a query of all duplicate files based on file SHA256 hash
-        :param sha: The SHA256 hash of the file to find duplicates for
-        :return: QuerySet containing summary data (file_sha256 + count) using .values() and .annotate() for files with 2+ duplicates
+
+        Args:
+            sha: The SHA256 hash of the file to find duplicates for
+
+        Returns: QuerySet containing summary data (file_sha256 + count) using .values() and .annotate() for files with 2+ duplicates
         """
         dupes = (
             IndexData.objects.filter(file_sha256=sha)
@@ -697,36 +708,41 @@ class IndexData(models.Model):
     def get_identical_file_entries_by_sha(sha: str) -> "QuerySet[dict[str, Any]]":
         """
         Get file entries for identical files based on SHA256 hash
-        :param sha: The SHA256 hash of the file to search for
-        :return: QuerySet with dictionary-like data containing only name and directory fields using .values() for identical files
+
+        Args:
+            sha: The SHA256 hash of the file to search for
+
+        Returns: QuerySet with dictionary-like data containing only name and directory fields using .values() for identical files
         """
         return IndexData.objects.values("name", "fqpndirectory").filter(file_sha256=sha)
 
-    @lru_cache(maxsize=1000)
+    @cached(indexdata_cache)
     @staticmethod
     def get_by_filters(
         additional_filters: Union[dict[str, Any], None] = None,
     ) -> "QuerySet[IndexData]":
         """
         Return the files in the current directory, filtered by additional filters
-        :param additional_filters: Additional filters to apply to the query
-        :return: The filtered query of files
+
+        Args:
+            additional_filters: Additional filters to apply to the query
+
+        Returns: The filtered query of files
         """
         if additional_filters is None:
             additional_filters = {}
-        return IndexData.objects.prefetch_related(*INDEXDATA_PREFETCH_LIST).filter(
-            delete_pending=False, **additional_filters
-        )
+        return IndexData.objects.prefetch_related(*INDEXDATA_PREFETCH_LIST).filter(delete_pending=False, **additional_filters)
 
     @staticmethod
-    def return_by_sha256_list(
-        sha256_list: list[str], sort: int = 0
-    ) -> "QuerySet[IndexData]":
+    def return_by_sha256_list(sha256_list: list[str], sort: int = 0) -> "QuerySet[IndexData]":
         """
         Return files matching the provided SHA256 list
-        :param sha256_list: List of file SHA256 hashes to filter by
-        :param sort: The sort order of the files (0-2)
-        :return: The sorted query of files matching the SHA256 list
+
+        Args:
+            sha256_list: List of file SHA256 hashes to filter by
+            sort: The sort order of the files (0-2)
+
+        Returns: The sorted query of files matching the SHA256 list
         """
         # necessary to prevent circular references on startup
         # pylint: disable-next=import-outside-toplevel
@@ -740,25 +756,30 @@ class IndexData(models.Model):
         )
         return files
 
-    @lru_cache(maxsize=1000)
+    @cached(indexdata_cache)
     @staticmethod
     def get_by_sha256(sha_value: str, unique: bool = False) -> Union["IndexData", None]:
         """
         Return the IndexData object by SHA256
-        :param sha_value: The SHA256 of the IndexData object
-        :param unique: If True, search by unique_sha256, otherwise by file_sha256
-        :return: IndexData object or None if not found
+
+        Args:
+            sha_value: The SHA256 of the IndexData object
+            unique: If True, search by unique_sha256, otherwise by file_sha256
+
+        Returns: IndexData object or None if not found
         """
         try:
             if unique:
                 return (
                     IndexData.objects.prefetch_related("new_ftnail")
                     .prefetch_related("filetype")
+                    .prefetch_related("home_directory")
                     .get(unique_sha256=sha_value, delete_pending=False)
                 )
             return (
                 IndexData.objects.prefetch_related("new_ftnail")
                 .prefetch_related("filetype")
+                .prefetch_related("home_directory")
                 .get(file_sha256=sha_value, delete_pending=False)
             )
         except IndexData.DoesNotExist:
@@ -771,7 +792,7 @@ class IndexData(models.Model):
         Args:
             fqfn (str) : The fully qualified filename of the file to be hashed
 
-        :return: Tuple of (file_sha256, unique_sha256) where file_sha256 is the hash of the file contents
+        Returns: Tuple of (file_sha256, unique_sha256) where file_sha256 is the hash of the file contents
                  and unique_sha256 is the hash of the file contents + fqfn
         """
         sha = None
@@ -791,7 +812,7 @@ class IndexData(models.Model):
     def get_webpath(self) -> str:
         """
         Convert the fqpndirectory to an web path
-        :return:
+        Returns:
         """
         return self.fqpndirectory.removeprefix(IndexDirs.get_albums_prefix())
 
@@ -799,7 +820,7 @@ class IndexData(models.Model):
         """
         Stub method to allow the same behavior between a Index_Dir objects and IndexData object.
 
-        :return: None
+        Returns: None
         """
         return None
 
@@ -807,7 +828,7 @@ class IndexData(models.Model):
         """
         Stub method to allow the same behavior between a Index_Dir objects and IndexData object.
 
-        :return: None
+        Returns: None
         """
         return None
 
@@ -868,7 +889,7 @@ class IndexData(models.Model):
         Helper function to send data to remote.  Unifying the send functionality in one place,
         using stub functions for any customizations.
 
-        Uses send_file_response in serve_up
+        Uses send_file_response in serve_up (WSGI sync version).
         """
         mtype = self.filetype.mimetype
         if mtype is None:
@@ -889,6 +910,43 @@ class IndexData(models.Model):
             request=request,
             filename=self.name,
             content_to_send=file_handle,
+            mtype=mtype or "image/jpeg",
+            attachment=False,
+            last_modified=None,
+            expiration=300,
+        )
+
+    async def async_inline_sendfile(self, request: Any, ranged: bool = False) -> Any:
+        """
+        Helper function to send data to remote (ASGI async version).
+
+        Uses async_send_file_response in serve_up for proper async file handling.
+
+        :Args:
+            request: Django request object
+            ranged: Whether to support HTTP range requests for video streaming
+
+        :Return:
+            FileResponse with async file content
+        """
+        mtype = self.filetype.mimetype
+        if mtype is None:
+            mtype = "application/octet-stream"
+        fqpn_filename = self.full_filepathname
+
+        if not ranged:
+            return await async_send_file_response(
+                filename=self.name,
+                filepath=fqpn_filename,
+                mtype=mtype or "image/jpeg",
+                attachment=False,
+                last_modified=None,
+                expiration=300,
+            )
+        return await async_send_file_response(
+            request=request,
+            filename=self.name,
+            filepath=fqpn_filename,
             mtype=mtype or "image/jpeg",
             attachment=False,
             last_modified=None,

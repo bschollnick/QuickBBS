@@ -1,7 +1,11 @@
 """
 Django views for QuickBBS Gallery
+
+ASGI: Views are being converted to async for ASGI compatibility.
+Both sync and async versions will be maintained during transition.
 """
 
+import asyncio
 import datetime
 import logging
 import os
@@ -10,8 +14,8 @@ import re
 import time
 import urllib.parse
 import warnings
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 
@@ -58,13 +62,28 @@ warnings.simplefilter("ignore", Image.DecompressionBombWarning)
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
+# ASGI: Async wrapper for render function
+async def async_render(request, template_name, context=None, **kwargs):
+    """
+    Async wrapper for Django's render function.
+
+    Args:
+        request: HttpRequest object
+        template_name: Template file name
+        context: Context dictionary
+        **kwargs: Additional arguments for render
+    Returns: HttpResponse
+    """
+    return await sync_to_async(render)(request, template_name, context, **kwargs)
+
+
 def _create_base_context(request: WSGIRequest) -> dict:
     """
     Create base context dictionary shared by all view functions.
 
-    :Args:
+    Args:
         request: Django WSGIRequest object
-    :return: Base context dictionary
+    Returns: Base context dictionary
     """
     from frontend.web import detect_mobile, g_option
 
@@ -196,28 +215,38 @@ def get_search_results(
 #     )
 
 
-def return_prev_next2(directory, sorder: int) -> tuple[str | None, str | None]:
+async def return_prev_next2(directory, sorder: int) -> tuple[str | None, str | None]:
     """
     The return_prev_next function takes a fully qualified pathname,
     and the current path as parameters. It returns the previous and next paths in a tuple.
 
-    :param fqpn: Get the path of the parent directory
-    :param currentpath: Determine the current offset in the list of files
-    :param sorder: Determine whether the index is sorted by name or size
-    :return: A tuple of two strings,
+    ASGI async version - all database operations wrapped.
+
+    Args:
+        fqpn: Get the path of the parent directory
+        currentpath: Determine the current offset in the list of files
+        sorder: Determine whether the index is sorted by name or size
+
+    Returns:
+        A tuple of two strings
 
     Note:
-    ORM only derived from https://stackoverflow.com/questions/1042596/
-            get-the-index-of-an-element-in-a-queryset
-                Specifically Richard's answer.
+        ORM only derived from https://stackoverflow.com/questions/1042596/
+        get-the-index-of-an-element-in-a-queryset
+        Specifically Richard's answer.
     """
     nextdir = ""
     prevdir = ""
-    parent_dir = directory.return_parent_directory()
+
+    # Wrap model method that accesses database
+    parent_dir = await sync_to_async(directory.return_parent_directory)()
     if not parent_dir:
         return (None, None)
-    directories = parent_dir.dirs_in_dir(sort=sorder)
-    parent_dir_data = directories.values("fqpndirectory")
+
+    # Wrap queryset operations
+    directories = await sync_to_async(parent_dir.dirs_in_dir)(sort=sorder)
+    parent_dir_data = await sync_to_async(list)(directories.values("fqpndirectory"))
+
     for count, entry in enumerate(parent_dir_data):
         if entry["fqpndirectory"] == directory.fqpndirectory:
             if count >= 1:
@@ -239,10 +268,15 @@ def thumbnail2_dir(
     """
     Serve directory thumbnail by finding the first image in the directory.
 
-    :param request: Django Request object
-    :param dir_sha256: the sha256 of the directory
-    :return: The image of the thumbnail to send
-    :raises: HttpResponseBadRequest - If the directory cannot be found
+    Args:
+        request: Django Request object
+        dir_sha256: the sha256 of the directory
+
+    Returns:
+        The image of the thumbnail to send
+
+    Raises:
+        HttpResponseBadRequest: If the directory cannot be found
     """
 
     def get_image_files(directory):
@@ -307,9 +341,12 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
     """
     Create and serve a thumbnail for a specific file.
 
-    :param request: Django Request object
-    :param sha256: The sha256 of the file - IndexData object
-    :return: The sent thumbnail
+    Args:
+        request: Django Request object
+        sha256: The sha256 of the file - IndexData object
+
+    Returns:
+        The sent thumbnail
     """
     try:
         thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(sha256)
@@ -340,9 +377,9 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
 
 
 @vary_on_headers("HX-Request")
-def search_viewresults(request: WSGIRequest):
+async def search_viewresults(request: WSGIRequest):
     """
-    View the search results Gallery page using shared patterns.
+    View the search results Gallery page using shared patterns (ASGI async version).
 
     Args:
         request: Django Request object
@@ -382,16 +419,18 @@ def search_viewresults(request: WSGIRequest):
         }
     )
 
-    # Perform search using shared functions
+    # Perform search using shared functions (async wrapped)
     search_regex_pattern = create_search_regex_pattern(searchtext)
     print(f"Search text: '{searchtext}' -> Regex pattern: '{search_regex_pattern}'")
 
-    dirs, files = get_search_results(searchtext, search_regex_pattern, context["sort"])
+    dirs, files = await sync_to_async(get_search_results)(searchtext, search_regex_pattern, context["sort"])
 
-    # Combine and limit results
+    # Combine and limit results (async wrapped list conversion)
     max_search_results = 10000
-    dir_list = list(dirs[: max_search_results // 2])
-    file_list = list(files[: max_search_results // 2])
+    dir_list, file_list = await asyncio.gather(
+        sync_to_async(list)(dirs[: max_search_results // 2]),
+        sync_to_async(list)(files[: max_search_results // 2])
+    )
     combined_results = dir_list + file_list
 
     if len(combined_results) >= max_search_results:
@@ -438,9 +477,11 @@ def search_viewresults(request: WSGIRequest):
         print(f"{len(files_needing_thumbnails)} search results need thumbnails")
         context["no_thumbnails"] = files_needing_thumbnails
 
-    response = render(request, template_name, context, using="Jinja2")
+    response = await async_render(request, template_name, context, using="Jinja2")
     print("search View, processing time: ", time.perf_counter() - start_time)
-    close_old_connections()
+    # ASGI: close_old_connections() commented out for ASGI compatibility
+    # ASGI handles connection lifecycle automatically
+    # close_old_connections()
     return response
 
 
@@ -448,10 +489,10 @@ def _determine_template(request: WSGIRequest, template_type: str = "gallery") ->
     """
     Determine which template to use based on HTMX request type.
 
-    :Args:
+    Args:
         request: Django WSGIRequest object
         template_type: Type of template ("gallery", "search", "item")
-    :return: Template name string
+    Returns: Template name string
     """
     is_partial = (
         request.htmx.boosted
@@ -482,9 +523,9 @@ def _process_request_path(request: WSGIRequest) -> dict:
     """
     Process and normalize the request path for gallery viewing.
 
-    :Args:
+    Args:
         request: Django WSGIRequest object
-    :return: Dictionary containing processed paths
+    Returns: Dictionary containing processed paths
     """
     # Properly decode URL before processing to handle special characters like #
     try:
@@ -508,9 +549,9 @@ def _find_directory(paths: dict):
     """
     Find and validate directory existence.
 
-    :Args:
+    Args:
         paths: Dictionary containing path information
-    :return: Tuple of (found, directory) or raises Http404/HttpResponseBadRequest
+    Returns: Tuple of (found, directory) or raises Http404/HttpResponseBadRequest
     """
     try:
         found, directory = IndexDirs.search_for_directory(paths["album_viewing"])
@@ -530,7 +571,7 @@ def _find_directory(paths: dict):
     logger.info("Viewing: %s", paths["album_viewing"])
 
     # Check if physical directory exists
-    if not os.path.exists(paths["album_viewing"]):
+    if not pathlib.Path(paths["album_viewing"]).exists():
         if found:
             parent_dir = directory.return_parent_directory()
         else:
@@ -550,11 +591,11 @@ def _build_gallery_context(
     """
     Build gallery-specific context using shared base context.
 
-    :Args:
+    Args:
         request: Django WSGIRequest object
         paths: Dictionary containing path information
         directory: IndexDirs object for the directory
-    :return: Context dictionary
+    Returns: Context dictionary
     """
     # Start with shared base context
     context = _create_base_context(request)
@@ -577,23 +618,25 @@ def _build_gallery_context(
     return context
 
 
-# @sync_to_async
 @vary_on_headers("HX-Request")
-def new_viewgallery(request: WSGIRequest):
+async def new_viewgallery(request: WSGIRequest):
     """
-    View the requested Gallery page using optimized helper functions.
+    View the requested Gallery page using optimized helper functions (ASGI async version).
 
-    :Args:
+    Args:
         request: Django Request object
-    :return: Django response
+    Returns: Django response
     """
+    from frontend.managers import async_layout_manager
+    from frontend.utilities import async_read_from_disk
+
     print("NEW VIEW GALLERY for ", request.path)
     start_time = time.perf_counter()
 
     # Use standardized template selection
     template_name = _determine_template(request, "gallery")
     paths = _process_request_path(request)
-    directory_result = _find_directory(paths)
+    directory_result = await sync_to_async(_find_directory)(paths)
 
     # Handle early returns from directory lookup
     if isinstance(directory_result, (HttpResponseNotFound, HttpResponseBadRequest)):
@@ -602,13 +645,13 @@ def new_viewgallery(request: WSGIRequest):
     _, directory = directory_result
 
     # Ensure directory data is up to date
-    read_from_disk(paths["album_viewing"], skippable=True)
+    await async_read_from_disk(paths["album_viewing"], skippable=True)
 
     # Build initial context
     context = _build_gallery_context(request, paths, directory)
 
-    # Get layout data and update context
-    layout = layout_manager(
+    # Get layout data and update context (async wrapped)
+    layout = await async_layout_manager(
         page_number=context["current_page"],
         directory=directory,
         sort_ordering=context["sort"],
@@ -622,17 +665,17 @@ def new_viewgallery(request: WSGIRequest):
         }
     )
 
-    # Set navigation URIs
-    context["prev_uri"], context["next_uri"] = return_prev_next2(
+    # Set navigation URIs (async function)
+    context["prev_uri"], context["next_uri"] = await return_prev_next2(
         directory, sorder=context["sort"]
     )
 
     # Get current page data and build display items with optimized queries
     data_for_current_page = layout["data"]
 
-    # Only fetch directories if there are any on this page
+    # Only fetch directories if there are any on this page (async wrapped)
     if data_for_current_page["directories"]:
-        dirs_to_display = (
+        dirs_to_display = await sync_to_async(list)(
             directory.dirs_in_dir(sort=context["sort"])
             .filter(dir_fqpn_sha256__in=data_for_current_page["directories"])
             .select_related("filetype", "thumbnail__new_ftnail")
@@ -646,9 +689,9 @@ def new_viewgallery(request: WSGIRequest):
     else:
         dirs_to_display = []
 
-    # Only fetch files if there are any on this page
+    # Only fetch files if there are any on this page (async wrapped)
     if data_for_current_page["files"]:
-        files_and_links = (
+        files_and_links = await sync_to_async(list)(
             directory.files_in_dir(sort=context["sort"])
             .filter(unique_sha256__in=data_for_current_page["files"])
             .select_related("filetype", "home_directory", "new_ftnail")
@@ -671,7 +714,7 @@ def new_viewgallery(request: WSGIRequest):
         batchsize = 100
         no_thumbs = layout["no_thumbnails"][0:batchsize]
         if no_thumbs:
-            process_thumbnails_threaded(layout, batchsize=100, max_workers=6)
+            await process_thumbnails_async(layout, batchsize=100, max_workers=6)
             # Clear layout cache for affected pages
             for page_numb in range(0, context["current_page"] + 1):
                 key = hashkey(
@@ -684,7 +727,7 @@ def new_viewgallery(request: WSGIRequest):
                     del layout_manager_cache[key]
         print("elapsed thumbnail time - ", time.time() - no_thumb_start)
 
-    response = render(
+    response = await async_render(
         request,
         f"{template_name}",
         context,
@@ -694,17 +737,17 @@ def new_viewgallery(request: WSGIRequest):
     return response
 
 
+@sync_to_async
 def process_thumbnail(sha256: str) -> tuple[bool, str, any]:
     """
     Process a single thumbnail with proper Django database handling.
 
-    :param sha256: SHA256 hash of the file to create thumbnail for
-    :return: Tuple of (success, sha256, thumbnail) where success is bool,
+    Args:
+        sha256: SHA256 hash of the file to create thumbnail for
+    Returns: Tuple of (success, sha256, thumbnail) where success is bool,
              sha256 is the file hash, and thumbnail is the ThumbnailFiles object or None
     """
     try:
-        # Each thread needs its own database connection
-        # Django handles this automatically when using transaction.atomic()
         with transaction.atomic():
             thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(
                 sha256, suppress_save=False
@@ -716,45 +759,38 @@ def process_thumbnail(sha256: str) -> tuple[bool, str, any]:
     except Exception as e:
         print(f"Unexpected error creating thumbnail for {sha256}: {e}")
         return False, sha256, None
-    finally:
-        # Close the connection for this thread to prevent connection leaks
-        connections.close_all()
 
 
-def process_thumbnails_threaded(
+async def process_thumbnails_async(
     layout: dict, batchsize: int = 100, max_workers: int = 4
 ) -> bool:
     """
-    Process thumbnails using threaded multitasking for improved performance.
+    Process thumbnails using asyncio tasks for improved performance.
 
-    :param layout: Layout dictionary containing thumbnail information
-    :param batchsize: Number of thumbnails to process in batch (default: 100)
-    :param max_workers: Maximum number of worker threads (default: 4)
-    :return: True if any thumbnails were successfully updated, False otherwise
+    Args:
+        layout: Layout dictionary containing thumbnail information
+        batchsize: Number of thumbnails to process in batch (default: 100)
+        max_workers: Maximum number of concurrent tasks (default: 4)
+    Returns: True if any thumbnails were successfully updated, False otherwise
     """
     no_thumbs = layout["no_thumbnails"][:batchsize]
     if not no_thumbs:
         return False
 
-    print(f"Processing {len(no_thumbs)} thumbnails with {max_workers} workers")
+    print(f"Processing {len(no_thumbs)} thumbnails with {max_workers} concurrent tasks")
+
+    # Process in batches to limit concurrency
     successful_count = 0
+    for i in range(0, len(no_thumbs), max_workers):
+        batch = no_thumbs[i:i + max_workers]
+        tasks = [process_thumbnail(sha256) for sha256 in batch]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # Use ThreadPoolExecutor for better control over thread lifecycle
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all tasks
-        future_to_sha256 = {
-            executor.submit(process_thumbnail, sha256): sha256 for sha256 in no_thumbs
-        }
-
-        # Process completed tasks with simplified logic
-        for future in as_completed(future_to_sha256):
-            sha256 = future_to_sha256[future]
-            try:
-                success, _, _ = future.result()
-                if success:
-                    successful_count += 1
-            except (DatabaseError, OperationalError) as e:
-                print(f"Thread execution error for {sha256}: {e}")
+        for result in results:
+            if isinstance(result, Exception):
+                print(f"Task execution error: {result}")
+            elif result and result[0]:
+                successful_count += 1
 
     if successful_count > 0:
         print(f"Successfully processed {successful_count}/{len(no_thumbs)} thumbnails")
@@ -763,32 +799,34 @@ def process_thumbnails_threaded(
 
 
 @vary_on_headers("HX-Request")
-def htmx_view_item(request: HtmxHttpRequest, sha256: str):
+async def htmx_view_item(request: HtmxHttpRequest, sha256: str):
     """
-    View individual item with HTMX support using standardized patterns.
+    View individual item with HTMX support using standardized patterns (ASGI async version).
 
-    :Args:
+    Args:
         request: Django HtmxHttpRequest object
         sha256: SHA256 hash of the item to view
-    :return: Django response
+    Returns: Django response
     """
+    from frontend.managers import async_build_context_info
+
     # Use standardized template selection
     template_name = _determine_template(request, "item")
 
-    # Use managers.py for context building (already optimized)
-    context = build_context_info(request, sha256)
+    # Use managers.py for context building (async wrapped)
+    context = await async_build_context_info(request, sha256)
     if isinstance(context, HttpResponseBadRequest):
         return context
 
     # Ensure user is in context (standardized pattern)
     context["user"] = request.user
 
-    return render(request, template_name, context, using="Jinja2")
+    return await async_render(request, template_name, context, using="Jinja2")
 
 
-def download_file(request: WSGIRequest):  # , filename=None):
+async def download_file(request: WSGIRequest):  # , filename=None):
     """
-    Replaces new_download.
+    Replaces new_download (ASGI async version).
 
     This now takes http://<servername>/downloads/<filename>?usha=<unique_sha>
 
@@ -809,9 +847,12 @@ def download_file(request: WSGIRequest):  # , filename=None):
     if sha_value in ["", None]:
         raise Http404("No Identifier provided for download.")
     sha_value = sha_value.strip().lower()
-    file_to_send = IndexData.get_by_sha256(sha_value, unique=True)
+
+    # Wrap database query
+    file_to_send = await sync_to_async(IndexData.get_by_sha256)(sha_value, unique=True)
     if file_to_send:
-        return file_to_send.inline_sendfile(
+        # Use async sendfile method to avoid sync iterator warning
+        return await file_to_send.async_inline_sendfile(
             request, ranged=file_to_send.filetype.is_movie
         )
     raise Http404("No File to Send")

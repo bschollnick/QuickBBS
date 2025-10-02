@@ -37,10 +37,10 @@ MAX_SHA_SIZE = 2 * 1024 * 1024
 def calculate_sha224(filepath: str) -> str:
     """Calculate SHA224 hash for a file.
 
-    :Args:
+    Args:
         filepath: Path to the file
 
-    :Returns:
+    Returns:
         SHA224 hash as hexadecimal string, or None if error
     """
     try:
@@ -60,11 +60,11 @@ def calculate_sha224(filepath: str) -> str:
 def scan_destination_directory(dst_dir: str, use_shas: bool) -> dict[str, str]:
     """Scan destination directory for existing files.
 
-    :Args:
+    Args:
         dst_dir: Destination directory path
         use_shas: Whether to calculate SHA224 hashes
 
-    :Returns:
+    Returns:
         Dictionary with filename as key, value is None (no SHA) or SHA224 hash
     """
     file_map = {}
@@ -170,10 +170,10 @@ colornames = {
 def get_color(filename):
     """Get macOS Finder color label for a file using xattr method.
 
-    :Args:
+    Args:
         filename: Path to the file to check
 
-    :Returns:
+    Returns:
         Tuple of (color_code, color_name)
     """
     try:
@@ -194,11 +194,11 @@ regex = re.compile(f"({'|'.join(map(re.escape, replacements.keys()))})")
 def multiple_replace(dictdata, text):
     """Replace multiple characters in filename using regex.
 
-    :Args:
+    Args:
         dictdata: Dictionary mapping characters to replace with their replacements
         text: Text string to perform replacements on
 
-    :Returns:
+    Returns:
         String with specified characters replaced according to dictdata mapping
     """
     return regex.sub(lambda mo: dictdata[mo.string[mo.start() : mo.end()]], text)
@@ -207,7 +207,7 @@ def multiple_replace(dictdata, text):
 def process_folder(src_dir, dst_dir, files, config):
     """Process files in a folder, copying/moving only those with color labels.
 
-    :Args:
+    Args:
         src_dir: Source directory path
         dst_dir: Destination directory path
         files: List of filenames to process
@@ -276,7 +276,7 @@ def process_folder(src_dir, dst_dir, files, config):
 def main(args):
     """Main function to process files with color labels.
 
-    :Args:
+    Args:
         args: Parsed command line arguments
     """
     use_shas = getattr(args, "use_shas", False)
