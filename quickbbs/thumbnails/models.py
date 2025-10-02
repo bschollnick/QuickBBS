@@ -28,7 +28,8 @@ v3 - Pilot changing the thumbnail storage to be a single table, with the small, 
 
 import io
 import os
-from functools import lru_cache
+
+from cachetools import LRUCache, cached
 
 from django.conf import settings
 from django.db import models, transaction
@@ -57,6 +58,9 @@ ThumbnailFiles_Bulk_Prefetch_List = [
     "IndexData__filetype",
     "IndexData__home_directory",
 ]
+
+# Async-safe cache for thumbnail lookups
+thumbnailfiles_cache = LRUCache(maxsize=1000)
 
 
 class ThumbnailFiles(models.Model):
@@ -123,11 +127,12 @@ class ThumbnailFiles(models.Model):
         """
         Get or create a thumbnail record for a file.
 
-        :Args:
+        Args:
             file_sha256: The sha256 hash of the file to retrieve or create a thumbnail for
             suppress_save: If True, do not save the thumbnail after creation (default: False)
 
-        :return: ThumbnailFiles object, either retrieved from database or newly created
+        Returns:
+            ThumbnailFiles object, either retrieved from database or newly created
         """
 
         from quickbbs.models import IndexData
@@ -209,22 +214,24 @@ class ThumbnailFiles(models.Model):
         """
         Return the number of IndexData references for this thumbnail.
 
-        :return: Count of IndexData objects referencing this thumbnail
+        Returns:
+            Count of IndexData objects referencing this thumbnail
         """
         from quickbbs.models import IndexData
 
         return IndexData.objects.filter(file_sha256=self.sha256_hash).count()
 
     @classmethod
-    @lru_cache(maxsize=1000)
+    @cached(thumbnailfiles_cache)
     def get_thumbnail_by_sha(cls, sha256: str) -> "ThumbnailFiles":
         """
         Get thumbnail object by SHA256 hash with optimized caching.
 
-        :Args:
+        Args:
             sha256: SHA256 hash of the file
 
-        :return: ThumbnailFiles object for the specified hash
+        Returns:
+            ThumbnailFiles object for the specified hash
         """
         return cls.objects.prefetch_related(*ThumbnailFiles_Prefetch_List).get(
             sha256_hash=sha256
@@ -237,10 +244,11 @@ class ThumbnailFiles(models.Model):
         """
         Get multiple thumbnails by SHA256 hash list to avoid N+1 queries.
 
-        :Args:
+        Args:
             sha256_list: List of SHA256 hashes
 
-        :return: Dictionary mapping SHA256 hash to ThumbnailFiles object
+        Returns:
+            Dictionary mapping SHA256 hash to ThumbnailFiles object
         """
         thumbnails = cls.objects.prefetch_related(
             *ThumbnailFiles_Bulk_Prefetch_List
@@ -252,8 +260,11 @@ class ThumbnailFiles(models.Model):
         """
         Check if the thumbnail exists for the given size.
 
-        :param size: The size of the thumbnail to check for (small, medium, or large)
-        :return: True if the thumbnail exists, False otherwise
+        Args:
+            size: The size of the thumbnail to check for (small, medium, or large)
+
+        Returns:
+            True if the thumbnail exists, False otherwise
         """
         match size.lower():
             case "small":
@@ -271,7 +282,8 @@ class ThumbnailFiles(models.Model):
         Sets all thumbnail binary fields (small, medium, large) to empty byte strings.
         Does not save the object - call save() explicitly after invalidation.
 
-        :return: None
+        Returns:
+            None
 
         Note:
             This function does not delete the thumbnail object or save changes.
@@ -290,8 +302,11 @@ class ThumbnailFiles(models.Model):
         """
         Get thumbnail blob of specified size.
 
-        :param size: The size string (small, medium, or large)
-        :return: Binary blob containing the image data for the specified size
+        Args:
+            size: The size string (small, medium, or large)
+
+        Returns:
+            Binary blob containing the image data for the specified size
         """
         blobdata = b""
         match size.lower():
@@ -313,13 +328,14 @@ class ThumbnailFiles(models.Model):
         """
         Send thumbnail as HTTP response with appropriate headers.
 
-        :Args:
+        Args:
             filename_override: Optional filename to use instead of the original
             fext_override: Optional file extension override (unused, kept for API compatibility)
             size: The size of thumbnail to send (small, medium, or large)
             index_data_item: Pre-fetched IndexData to avoid additional query
 
-        :return: Django FileResponse containing the thumbnail with appropriate headers
+        Returns:
+            Django FileResponse containing the thumbnail with appropriate headers
 
         Note:
             Thumbnails are stored as JPEGs, so JPEG will always be sent regardless of

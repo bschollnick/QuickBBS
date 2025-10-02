@@ -109,13 +109,13 @@ def _generate_thumbnail_to_pil(
     """
     Generate a thumbnail from a video file and return it as a PIL Image.
 
-    :Args:
+    Args:
         video_path: Path to the input video file
         time_offset: Time position to capture thumbnail (format: HH:MM:SS or seconds as int)
         width: Thumbnail width in pixels
         height: Thumbnail height in pixels
 
-    :return: PIL Image object of the video frame
+    Returns: PIL Image object of the video frame
     :raises FileNotFoundError: If video file doesn't exist
     :raises Exception: If ffmpeg processing fails
     """
@@ -199,10 +199,10 @@ def _get_video_info(video_path: str) -> dict[str, any]:
     """
     Get basic information about a video file.
 
-    :Args:
+    Args:
         video_path: Path to the video file
 
-    :return: Dictionary containing video metadata (duration, width, height, fps, codec, format)
+    Returns: Dictionary containing video metadata (duration, width, height, fps, codec, format)
     :raises Exception: If ffmpeg probe fails
     """
     from fractions import Fraction
@@ -240,12 +240,12 @@ def _pil_to_binary(
     """
     Convert PIL Image to binary data.
 
-    :Args:
+    Args:
         image: PIL Image object to convert
         format: Output format (JPEG, PNG, or WEBP)
         quality: Quality for JPEG/WEBP (1-100)
 
-    :return: Binary image data as bytes
+    Returns: Binary image data as bytes
     :raises ValueError: If unsupported format is specified
     """
     output_buffer = io.BytesIO()

@@ -5,7 +5,8 @@ Utilities for QuickBBS, the python edition.
 # from asgiref.sync import async_to_sync
 import io
 import os
-from functools import lru_cache
+
+from cachetools import LRUCache, cached
 
 from django.apps import AppConfig
 from django.conf import settings
@@ -16,6 +17,9 @@ from django.utils.functional import cached_property
 from frontend.serve_up import send_file_response
 
 FILETYPE_DATA = {}
+
+# Async-safe cache for filetype lookups
+filetypes_cache = LRUCache(maxsize=500)
 
 
 class filetypes(models.Model):
@@ -98,7 +102,7 @@ class filetypes(models.Model):
             fileext = "." + fileext
         return fileext
 
-    @lru_cache(maxsize=1000)
+    @cached(filetypes_cache)
     @staticmethod
     def filetype_exists_by_ext(fileext: str) -> bool:
         """
@@ -112,7 +116,7 @@ class filetypes(models.Model):
             return False
         return filetypes.objects.filter(fileext=fileext).exists()
 
-    @lru_cache(maxsize=500)
+    @cached(filetypes_cache)
     @staticmethod
     def return_any_icon_filename(fileext: str) -> str | None:
         """
@@ -132,7 +136,7 @@ class filetypes(models.Model):
             return os.path.join(settings.IMAGES_PATH, data.icon_filename)
         return None
 
-    @lru_cache(maxsize=5000)
+    @cached(filetypes_cache)
     @staticmethod
     def return_filetype(fileext: str) -> "filetypes":
         """
@@ -149,12 +153,12 @@ class filetypes(models.Model):
         verbose_name_plural = "File Types"
 
 
-@lru_cache(maxsize=50)
+@cached(filetypes_cache)
 def get_ftype_dict() -> dict:
     """
     Return filetypes information from database as a dictionary.
 
-    :return: Dictionary of all filetype objects keyed by their primary key
+    Returns: Dictionary of all filetype objects keyed by their primary key
     """
     # https://stackoverflow.com/questions/21925671/
     # from django.forms.models import model_to_dict
@@ -165,8 +169,8 @@ def return_identifier(ext: str) -> str:
     """
     Return the extension portion of the filename.
 
-    :param ext: File extension to process
-    :return: Lowercase, stripped extension
+        ext: File extension to process
+    Returns: Lowercase, stripped extension
     """
     ext = ext.lower().strip()
     return ext
@@ -176,8 +180,8 @@ def load_filetypes(force: bool = False) -> dict:
     """
     Load file type data from database into global cache.
 
-    :param force: If True, force reload from database even if already cached
-    :return: Dictionary of filetype data
+        force: If True, force reload from database even if already cached
+    Returns: Dictionary of filetype data
     """
     from django.db import DatabaseError, connections
 
@@ -190,10 +194,12 @@ def load_filetypes(force: bool = False) -> dict:
             print(f"Database error while loading FileType data: {e}")
             print("\nPlease use manage.py --refresh-filetypes\n")
             print("This will rebuild and/or update the FileType table.")
-            connections.close_all()
+            # ASGI: connections.close_all() commented out for ASGI compatibility
+            # connections.close_all()
         except Exception as e:
             print(f"Unexpected error while loading FileType data: {e}")
             print("\nPlease use manage.py --refresh-filetypes\n")
             print("This will rebuild and/or update the FileType table.")
-            connections.close_all()
+            # ASGI: connections.close_all() commented out for ASGI compatibility
+            # connections.close_all()
     return FILETYPE_DATA

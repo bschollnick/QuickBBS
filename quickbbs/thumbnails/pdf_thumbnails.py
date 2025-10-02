@@ -25,7 +25,7 @@ class PDFBackend(AbstractBackend):
         self._image_backend = ImageBackend()
 
     @staticmethod
-    @lru_cache(maxsize=500)
+    @lru_cache(maxsize=500)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
     def _calculate_optimal_zoom(
         page_width: float, page_height: float, target_width: int, target_height: int
     ) -> float:
@@ -33,13 +33,14 @@ class PDFBackend(AbstractBackend):
         Calculate optimal zoom level to render PDF slightly larger than target size.
         Cached to avoid redundant calculations for similar page dimensions.
 
-        :Args:
+        Args:
             page_width: PDF page width
             page_height: PDF page height
             target_width: Target width
             target_height: Target height
 
-        :return: Optimal zoom factor with 10% quality buffer
+        Returns:
+            Optimal zoom factor with 10% quality buffer
         """
         # Calculate zoom for each dimension (fit within target bounds)
         zoom_x = target_width / page_width
@@ -58,13 +59,14 @@ class PDFBackend(AbstractBackend):
         """
         Process a PDF file and generate thumbnails.
 
-        :Args:
+        Args:
             file_path: Path to PDF file
             sizes: Dictionary of size names to (width, height) tuples
             output_format: Output format (JPEG, PNG, WEBP)
             quality: Image quality (1-100)
 
-        :return: Dictionary with 'format' key and size-keyed thumbnail bytes
+        Returns:
+            Dictionary with 'format' key and size-keyed thumbnail bytes
         """
         page_num = 0
         try:
@@ -119,14 +121,15 @@ class PDFBackend(AbstractBackend):
         """
         Process PDF bytes and generate thumbnails.
 
-        :Args:
+        Args:
             pdf_bytes: PDF file as bytes
             sizes: Dictionary of size names to (width, height) tuples
             output_format: Output format (JPEG, PNG, WEBP)
             quality: Image quality (1-100)
             page_num: Page number to use for thumbnail (0-indexed, default: 0)
 
-        :return: Dictionary with 'format' key and size-keyed thumbnail bytes
+        Returns:
+            Dictionary with 'format' key and size-keyed thumbnail bytes
         """
         try:
             pdf_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -179,13 +182,14 @@ class PDFBackend(AbstractBackend):
         """
         Process a PIL Image and generate thumbnails.
 
-        :Args:
+        Args:
             pil_image: PIL Image object
             sizes: Dictionary of size names to (width, height) tuples
             output_format: Output format (JPEG, PNG, WEBP)
             quality: Image quality (1-100)
 
-        :raises NotImplementedError: PDF processing from PIL Image is not supported
+        Raises:
+            NotImplementedError: PDF processing from PIL Image is not supported
         """
         raise NotImplementedError("PDF processing from PIL Image is not implemented.")
 

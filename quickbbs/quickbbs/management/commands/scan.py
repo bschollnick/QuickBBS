@@ -4,6 +4,7 @@ import sys
 
 from django.core.management.base import BaseCommand
 from django.conf import settings
+from django.db import close_old_connections
 
 from quickbbs.models import IndexDirs, IndexData
 from frontend.utilities import sync_database_disk
@@ -18,10 +19,23 @@ def verify_directories():
     print("Gathering Directories")
     directories_to_scan = IndexDirs.objects.all().iterator(chunk_size=100)
     print("Starting Scan")
+
+    # Process directories with periodic connection cleanup
+    batch_counter = 0
+    cleanup_interval = 50
+
     for directory in directories_to_scan:
         if not os.path.exists(directory.fqpndirectory):
             print(f"Directory: {directory.fqpndirectory} does not exist")
             directory.delete_directory(fqpn_directory=directory.fqpndirectory)
+
+        # Periodic connection cleanup
+        batch_counter += 1
+        if batch_counter % cleanup_interval == 0:
+            close_old_connections()
+
+    close_old_connections()
+
     end_count = IndexDirs.objects.count()
     print("Ending Count: ", end_count)
     print("Difference : ", start_count - end_count)
@@ -32,17 +46,41 @@ def verify_directories():
     )
     # exclude the albums_root, since that is suppose to have no parent.  You can't tranverse below the albums_root
     print(f"Found {unlinked_parents.count()} directories with no parents")
+
+    batch_counter = 0
     for directory in unlinked_parents:
         IndexDirs.add_directory(directory.fqpndirectory)
+
+        # Periodic connection cleanup
+        batch_counter += 1
+        if batch_counter % cleanup_interval == 0:
+            close_old_connections()
+
+    close_old_connections()
 
 
 def verify_files():
     print("Checking for invalid files in Database")
     start_count = IndexData.objects.count()
     print("\tStarting File Count: ", start_count)
+
+    # Process directories in batches with connection cleanup
+    batch_counter = 0
+    cleanup_interval = 50  # Close connections every 50 directories
+
     for directory in IndexDirs.objects.all().iterator(chunk_size=100):
         Cache_Storage.remove_from_cache_sha(sha256=directory.dir_fqpn_sha256)
         sync_database_disk(directory.fqpndirectory)
+
+        # Periodic connection cleanup to prevent exhaustion
+        batch_counter += 1
+        if batch_counter % cleanup_interval == 0:
+            close_old_connections()
+            print(f"\tProcessed {batch_counter} directories...")
+
+    # Final cleanup
+    close_old_connections()
+
     end_count = IndexData.objects.count()
     print("\tStarting File Count: ", start_count)
     print("\tEnding Count: ", end_count)

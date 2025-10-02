@@ -12,6 +12,8 @@ Key Components:
 The system buffers events for 5 seconds before processing to handle bulk operations efficiently.
 """
 
+import asyncio
+import collections
 import hashlib
 import logging
 import os
@@ -20,19 +22,17 @@ import sys
 import threading
 import time
 from collections import defaultdict
-import collections
 from functools import lru_cache
 from typing import Any, Optional
 
-from watchdog.events import FileSystemEvent
-
+from asgiref.sync import async_to_sync, iscoroutinefunction
 from cache_watcher.watchdogmon import watchdog
 from cachetools.keys import hashkey
 from django.apps import AppConfig
 from django.conf import settings
 from django.core.cache import cache
 from django.db import close_old_connections, models, transaction
-from watchdog.events import FileSystemEventHandler
+from watchdog.events import FileSystemEvent, FileSystemEventHandler
 
 from quickbbs.common import get_dir_sha, normalize_fqpn
 
@@ -47,6 +47,16 @@ class LockFreeEventBuffer:
     Thread-safe event buffer for file system events with automatic deduplication.
 
     Replaces global defaultdict with lock to reduce contention during high file activity.
+
+    IMPORTANT - Threading.Lock Usage:
+    This class MUST use threading.RLock (not asyncio.Lock) because:
+    1. Watchdog library runs filesystem monitoring in separate OS threads
+    2. Event handlers (on_created, on_modified, etc.) are called from Watchdog's threads
+    3. These OS threads exist outside the asyncio event loop
+    4. threading.Lock protects shared state between multiple OS threads
+    5. asyncio.Lock only works within a single asyncio event loop
+
+    Do NOT convert to asyncio.Lock - it will break Watchdog integration.
     """
 
     def __init__(self, max_size: int = 1000):
@@ -57,6 +67,7 @@ class LockFreeEventBuffer:
         # Thread-safe deque for event paths
         self._events = collections.deque()
         # RLock allows recursive locking if needed
+        # MUST be threading.RLock (see class docstring for why)
         self._lock = threading.RLock()
         self._max_size = max_size
 
@@ -105,15 +116,28 @@ EVENT_PROCESSING_DELAY = 5  # seconds
 WATCHDOG_RESTART_INTERVAL = 4 * 60 * 60  # 4 hours in seconds
 
 # Global watchdog restart timer
+# MUST use threading.Lock - accessed by threading.Timer callbacks in OS threads
 watchdog_restart_timer = None
 watchdog_restart_lock = threading.Lock()
 
 
 class WatchdogManager:
-    """Manages periodic restart of the watchdog process"""
+    """
+    Manages periodic restart of the watchdog process.
+
+    IMPORTANT - Threading.Lock Usage:
+    This class MUST use threading.Lock (not asyncio.Lock) because:
+    1. Uses threading.Timer for scheduled restarts (runs in OS threads)
+    2. Watchdog observer runs in separate OS threads
+    3. Lock protects state accessed from timer callbacks and watchdog threads
+    4. These threads exist outside any asyncio event loop
+
+    Do NOT convert to asyncio.Lock - it will break timer-based restarts.
+    """
 
     def __init__(self) -> None:
         self.restart_timer = None
+        # MUST be threading.Lock (see class docstring for why)
         self.lock = threading.Lock()
         self.monitor_path = os.path.join(settings.ALBUMS_PATH, "albums")
         self.event_handler = None
@@ -197,26 +221,18 @@ class WatchdogManager:
             if self.restart_timer:
                 was_alive = self.restart_timer.is_alive()
                 self.restart_timer.cancel()
-                logger.debug(
-                    f"Cancelled existing restart timer (was_alive: {was_alive})"
-                )
+                logger.debug(f"Cancelled existing restart timer (was_alive: {was_alive})")
                 self.restart_timer = None
 
             # Create new timer
-            self.restart_timer = threading.Timer(
-                WATCHDOG_RESTART_INTERVAL, self.restart
-            )
+            self.restart_timer = threading.Timer(WATCHDOG_RESTART_INTERVAL, self.restart)
             self.restart_timer.daemon = True
             self.restart_timer.start()
 
             # Verify timer started successfully
             if self.restart_timer.is_alive():
-                logger.info(
-                    f"✓ Next watchdog restart scheduled in {WATCHDOG_RESTART_INTERVAL/3600:.1f} hours"
-                )
-                logger.debug(
-                    f"Timer object: {self.restart_timer}, thread name: {self.restart_timer.name}"
-                )
+                logger.info(f"✓ Next watchdog restart scheduled in {WATCHDOG_RESTART_INTERVAL/3600:.1f} hours")
+                logger.debug(f"Timer object: {self.restart_timer}, thread name: {self.restart_timer.name}")
             else:
                 logger.error("⚠ Timer failed to start!")
 
@@ -231,11 +247,21 @@ watchdog_manager = WatchdogManager()
 class CacheFileMonitorEventHandler(FileSystemEventHandler):
     """
     Event Handler for the Watchdog Monitor for QuickBBS, optimized to batch process events.
+
+    IMPORTANT - Threading.Lock Usage:
+    This class MUST use threading.Lock (not asyncio.Lock) because:
+    1. Event handlers (on_created, on_modified, etc.) are called from Watchdog's OS threads
+    2. Uses threading.Timer for delayed event processing (runs in OS threads)
+    3. Lock protects timer state accessed from both event handler and timer threads
+    4. Watchdog library operates entirely outside the asyncio event loop
+
+    Do NOT convert to asyncio.Lock - event handlers are called from OS threads.
     """
 
     def __init__(self) -> None:
         super().__init__()
         self.event_timer = None
+        # MUST be threading.Lock (see class docstring for why)
         self.timer_lock = threading.Lock()
 
     def on_created(self, event: FileSystemEvent) -> None:
@@ -270,9 +296,7 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
                 if self.event_timer is not None:
                     self.event_timer.cancel()
 
-                self.event_timer = threading.Timer(
-                    EVENT_PROCESSING_DELAY, self._process_buffered_events
-                )
+                self.event_timer = threading.Timer(EVENT_PROCESSING_DELAY, self._process_buffered_events)
                 self.event_timer.daemon = True
                 self.event_timer.start()
 
@@ -280,20 +304,42 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
             logger.error(f"Error buffering event {event.src_path}: {e}")
 
     def _process_buffered_events(self) -> None:
-        """Process all buffered events at once."""
+        """Process all buffered events at once.
+
+        This method runs in a background thread from the watchdog system.
+        Database operations are wrapped for ASGI compatibility using async_to_sync.
+        """
         try:
             # Get unique paths from lock-free buffer (automatic deduplication)
             paths_to_process = optimized_event_buffer.get_events_to_process()
 
             if paths_to_process:
-                logger.info(
-                    f"Processing {len(paths_to_process)} buffered directory changes"
-                )
+                logger.info(f"Processing {len(paths_to_process)} buffered directory changes")
                 # Convert set to list for cache removal function
-                Cache_Storage.remove_multiple_from_cache(list(paths_to_process))
+                # Wrap DB operation for ASGI compatibility - this ensures the operation
+                # works correctly whether running under WSGI or ASGI
+                try:
+                    # Try async_to_sync wrapper for ASGI compatibility
+                    async_to_sync(self._remove_from_cache_async)(list(paths_to_process))
+                except RuntimeError:
+                    # Fallback to direct call if not in async context
+                    Cache_Storage.remove_multiple_from_cache(list(paths_to_process))
 
         except Exception as e:
             logger.error(f"Error processing buffered events: {e}")
+        finally:
+            # Watchdog runs in background thread - must close connections
+            close_old_connections()
+
+    async def _remove_from_cache_async(self, paths: list[str]) -> None:
+        """Async wrapper for cache removal to support ASGI mode.
+
+        :param paths: List of directory paths to remove from cache
+        """
+        from asgiref.sync import sync_to_async
+
+        # Run the synchronous database operation in a thread pool
+        await sync_to_async(Cache_Storage.remove_multiple_from_cache)(paths)
 
 
 class fs_Cache_Tracking(models.Model):
@@ -310,9 +356,7 @@ class fs_Cache_Tracking(models.Model):
         max_length=64,
     )
     DirName = models.CharField(db_index=False, max_length=384, default="", blank=True)
-    lastscan = models.FloatField(
-        default=0, blank=True  # Fixed: removed string default
-    )  # Stored as Unix TimeStamp (ms)
+    lastscan = models.FloatField(default=0, blank=True)  # Fixed: removed string default  # Stored as Unix TimeStamp (ms)
     invalidated = models.BooleanField(default=False)
 
     class Meta:
@@ -369,9 +413,7 @@ class fs_Cache_Tracking(models.Model):
         :return: True if SHA exists and is not invalidated, False otherwise
         """
         try:
-            return fs_Cache_Tracking.objects.filter(
-                directory_sha256=sha256, invalidated=False
-            ).exists()
+            return fs_Cache_Tracking.objects.filter(directory_sha256=sha256, invalidated=False).exists()
         except Exception as e:
             logger.error(f"Error checking SHA existence in cache: {e}")
             return False
@@ -384,6 +426,7 @@ class fs_Cache_Tracking(models.Model):
         """
         try:
             from frontend.views import layout_manager, layout_manager_cache
+
             from quickbbs.models import IndexDirs
 
             # Get the directory information before updating
@@ -392,7 +435,6 @@ class fs_Cache_Tracking(models.Model):
                 directory = IndexDirs.objects.get(dir_fqpn_sha256=sha256)
                 directory_found = True
                 directory.invalidate_thumb()
-                directory.save()
             except IndexDirs.DoesNotExist:
                 pass
 
@@ -443,6 +485,7 @@ class fs_Cache_Tracking(models.Model):
         #
         #        try:
         from frontend.views import layout_manager, layout_manager_cache
+
         from quickbbs.models import IndexDirs
 
         # Convert all directory names to SHA256 hashes (deduplicate first for efficiency)
@@ -454,18 +497,14 @@ class fs_Cache_Tracking(models.Model):
         logger.info(f"Removing {len(sha_list)} directories from cache")
 
         # Get affected directories (only load fields needed for cache clearing)
-        directories = list(
-            IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list).only(
-                "dir_fqpn_sha256", "id", "fqpndirectory"
-            )
-        )
+        directories = list(IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list).only("dir_fqpn_sha256", "id", "fqpndirectory"))
         fqpn_by_dir_sha = {d.dir_fqpn_sha256: d for d in directories}
 
         # Update cache entries in a single transaction
         with transaction.atomic():
-            update_count = fs_Cache_Tracking.objects.filter(
-                directory_sha256__in=sha_list, invalidated=False
-            ).update(invalidated=True, lastscan=time.time())
+            update_count = fs_Cache_Tracking.objects.filter(directory_sha256__in=sha_list, invalidated=False).update(
+                invalidated=True, lastscan=time.time()
+            )
 
         # Clear layout caches for affected directories
         if update_count > 0:

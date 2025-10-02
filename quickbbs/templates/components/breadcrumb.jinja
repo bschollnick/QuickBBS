@@ -1,7 +1,17 @@
 {% autoescape off %}
 <nav hx-boost="true" class="breadcrumb is-small" aria-label="breadcrumbs" style="margin:0px; overflow-wrap: break-word;">
     <ul style="word-wrap: break-word; word-break: break-word; overflow-wrap: break-word;">
-        {{ breadcrumbs }}
+        {%- for breadcrumb in breadcrumbs -%}
+            <li><a href='{{breadcrumb.url}}'
+                   hx-get='{{breadcrumb.url}}'
+                   hx-push-url="true"
+                   hx-target="body"
+                   hx-swap="outerHTML transition:true"
+                   hx-headers='{"Cache-Control": "max-age=300"}'>{{breadcrumb.name}}</a></li>
+        {%- endfor -%}
+        <li class="is-active">
+            <B>{{ gallery_name|wordwrap(width=50,break_long_words=True) }}</B>
+        </li>
     </ul>
 </nav>
 {% endautoescape %}
