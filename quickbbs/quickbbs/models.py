@@ -3,7 +3,6 @@ Django Models for quickbbs
 """
 
 # Standard library imports
-import hashlib
 import os
 import pathlib
 import time
@@ -749,8 +748,7 @@ class IndexData(models.Model):
         from frontend.utilities import SORT_MATRIX
 
         files = (
-            IndexData.objects.prefetch_related("new_ftnail")
-            .prefetch_related("filetype")
+            IndexData.objects.prefetch_related(*INDEXDATA_PREFETCH_LIST)
             .filter(file_sha256__in=sha256_list, delete_pending=False)
             .order_by(*SORT_MATRIX[sort])
         )
@@ -770,44 +768,28 @@ class IndexData(models.Model):
         """
         try:
             if unique:
-                return (
-                    IndexData.objects.prefetch_related("new_ftnail")
-                    .prefetch_related("filetype")
-                    .prefetch_related("home_directory")
-                    .get(unique_sha256=sha_value, delete_pending=False)
-                )
-            return (
-                IndexData.objects.prefetch_related("new_ftnail")
-                .prefetch_related("filetype")
-                .prefetch_related("home_directory")
-                .get(file_sha256=sha_value, delete_pending=False)
-            )
+                return IndexData.objects.prefetch_related(*INDEXDATA_PREFETCH_LIST).get(unique_sha256=sha_value, delete_pending=False)
+            return IndexData.objects.prefetch_related(*INDEXDATA_PREFETCH_LIST).get(file_sha256=sha_value, delete_pending=False)
         except IndexData.DoesNotExist:
             return None
 
-    def get_file_sha(self, fqfn: str) -> tuple[Union[str, None], Union[str, None]]:
+    def get_file_sha(self, fqfn: str) -> tuple[str | None, str | None]:
         """
-        Return the SHA256 hashes of the file as hexdigest strings
+        Return the SHA256 hashes of the file as hexdigest strings.
+
+        Delegates to the centralized implementation in quickbbs.common.
 
         Args:
-            fqfn (str) : The fully qualified filename of the file to be hashed
+            fqfn: The fully qualified filename of the file to be hashed
 
-        Returns: Tuple of (file_sha256, unique_sha256) where file_sha256 is the hash of the file contents
-                 and unique_sha256 is the hash of the file contents + fqfn
+        Returns:
+            Tuple of (file_sha256, unique_sha256) where file_sha256 is the hash
+            of the file contents and unique_sha256 is the hash of the file
+            contents + fqfn
         """
-        sha = None
-        unique = None
-        try:
-            with open(fqfn, "rb") as filehandle:
-                digest = hashlib.file_digest(filehandle, "sha256")
-                sha = digest.hexdigest()
-                digest.update(str(fqfn).title().encode("utf-8"))
-                unique = digest.hexdigest()
-        except FileNotFoundError:
-            sha = None
-            unique = None
-            print(f"FNF (SHA256): {fqfn}")
-        return sha, unique
+        from quickbbs.common import get_file_sha
+
+        return get_file_sha(fqfn)
 
     def get_webpath(self) -> str:
         """
@@ -903,7 +885,6 @@ class IndexData(models.Model):
                 content_to_send=file_handle,
                 mtype=mtype or "image/jpeg",
                 attachment=False,
-                last_modified=None,
                 expiration=300,
             )
         return send_file_response(
@@ -912,7 +893,6 @@ class IndexData(models.Model):
             content_to_send=file_handle,
             mtype=mtype or "image/jpeg",
             attachment=False,
-            last_modified=None,
             expiration=300,
         )
 
@@ -940,7 +920,6 @@ class IndexData(models.Model):
                 filepath=fqpn_filename,
                 mtype=mtype or "image/jpeg",
                 attachment=False,
-                last_modified=None,
                 expiration=300,
             )
         return await async_send_file_response(
@@ -949,7 +928,6 @@ class IndexData(models.Model):
             filepath=fqpn_filename,
             mtype=mtype or "image/jpeg",
             attachment=False,
-            last_modified=None,
             expiration=300,
         )
 

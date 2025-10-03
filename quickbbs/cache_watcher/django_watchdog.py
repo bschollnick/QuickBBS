@@ -1,18 +1,20 @@
 # django_watchdog.py
-import os, os.path
-import time
-import threading
-import logging
-import signal
 import atexit
+import logging
+import os
+import os.path
+import signal
+import threading
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
+
 from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import models
 from django.utils import timezone
-from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
 
 logger = logging.getLogger(__name__)
 
@@ -148,9 +150,7 @@ class ScheduledRestartThread:
         for time_str in self.restart_times:
             try:
                 hour, minute = map(int, time_str.split(":"))
-                restart_time = datetime.combine(
-                    today, datetime.min.time().replace(hour=hour, minute=minute)
-                )
+                restart_time = datetime.combine(today, datetime.min.time().replace(hour=hour, minute=minute))
 
                 # If time has passed today, schedule for tomorrow
                 if restart_time <= now:
@@ -246,9 +246,7 @@ class DjangoWatchdog:
         try:
             # Ensure watch path exists
             if not self.watch_path.exists():
-                logger.warning(
-                    f"[{self.name}] Watch path doesn't exist: {self.watch_path}"
-                )
+                logger.warning(f"[{self.name}] Watch path doesn't exist: {self.watch_path}")
                 self.watch_path.mkdir(parents=True, exist_ok=True)
 
             # Start observer
@@ -259,9 +257,7 @@ class DjangoWatchdog:
 
             # Start scheduler if restart times are configured
             if self.restart_times:
-                self.scheduler = ScheduledRestartThread(
-                    self.restart_observer, self.restart_times
-                )
+                self.scheduler = ScheduledRestartThread(self.restart_observer, self.restart_times)
                 self.scheduler.start()
 
             # Start heartbeat thread to maintain master status
@@ -297,9 +293,7 @@ class DjangoWatchdog:
 
                 # Force stop if still alive
                 if self.observer.is_alive():
-                    logger.warning(
-                        f"[{self.name}] Observer didn't stop gracefully, forcing..."
-                    )
+                    logger.warning(f"[{self.name}] Observer didn't stop gracefully, forcing...")
                     try:
                         self.observer.stop()
                         time.sleep(0.5)
@@ -351,11 +345,7 @@ class DjangoWatchdog:
             "process_id": self.coordinator.process_id,
             "restart_times": self.restart_times,
             "event_count": self.handler.event_count,
-            "last_event": (
-                self.handler.last_event_time.isoformat()
-                if self.handler.last_event_time
-                else None
-            ),
+            "last_event": (self.handler.last_event_time.isoformat() if self.handler.last_event_time else None),
         }
 
     def _start_heartbeat(self):
@@ -370,9 +360,7 @@ class DjangoWatchdog:
 
                     # Refresh master status every 30 seconds
                     if not self.coordinator.is_master():
-                        logger.warning(
-                            f"[{self.name}] Lost master status, stopping observer"
-                        )
+                        logger.warning(f"[{self.name}] Lost master status, stopping observer")
                         self.stop_observer()
                         break
 

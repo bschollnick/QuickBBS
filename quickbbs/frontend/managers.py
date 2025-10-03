@@ -39,26 +39,19 @@ import time
 from pathlib import Path
 
 import charset_normalizer
-
 import markdown2
 
 # from cache_watcher.models import Cache_Storage
 from asgiref.sync import sync_to_async
 from cachetools import LRUCache, cached
-
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
-from django.http import (  # HttpResponse,
-    #    Http404,
-    #    HttpRequest,
+from django.http import (  # HttpResponse,; Http404,; HttpRequest,; HttpResponseNotFound,; JsonResponse,
     HttpResponseBadRequest,
-    #    HttpResponseNotFound,
-    #    JsonResponse,
 )
 
 # from filetypes.models import load_filetypes
-from frontend.utilities import (
-    #    SORT_MATRIX,
+from frontend.utilities import (  # SORT_MATRIX,
     convert_to_webpath,
     return_breadcrumbs,
     sort_order,
@@ -104,30 +97,26 @@ def _webpath_to_filepath(webpath: str, filename: str) -> str:
     return os.path.join(webpath.replace("/", os.sep), filename)
 
 
-def get_file_text_encoding(filename: str) -> str:
+def _detect_encoding_from_bytes(raw_data: bytes) -> str:
     """
-    Detect the text encoding of a file.
+    Detect encoding from raw bytes using charset_normalizer.
 
     Args:
-        filename: Path to the file to analyze
+        raw_data: Raw file bytes to analyze
     Returns: Detected encoding string, defaults to 'utf-8' if detection fails
     """
-    try:
-        with open(filename, "rb") as f:
-            raw_data = f.read()
-            result = charset_normalizer.from_bytes(raw_data)
-            encoding = result.best().encoding
-            return encoding if encoding else "utf-8"
-    except (OSError, IOError):
-        return "utf-8"
+    result = charset_normalizer.from_bytes(raw_data)
+    encoding = result.best().encoding
+    return encoding if encoding else "utf-8"
 
 
 async def async_get_file_text_encoding(filename: str) -> str:
     """
-    Async version: Detect the text encoding of a file.
+    Detect the text encoding of a file (async version).
 
     Non-blocking file I/O for use in async contexts. Uses aiofiles for
-    async file operations to prevent blocking the event loop.
+    async file operations to prevent blocking the event loop. Reads only
+    the first 4KB for efficient encoding detection.
 
     Args:
         filename: Path to the file to analyze
@@ -137,16 +126,47 @@ async def async_get_file_text_encoding(filename: str) -> str:
 
     try:
         async with aiofiles.open(filename, "rb") as f:
-            raw_data = await f.read()
-            result = charset_normalizer.from_bytes(raw_data)
-            encoding = result.best().encoding
-            return encoding if encoding else "utf-8"
+            raw_data = await f.read(4096)  # Read only first 4KB
+            return _detect_encoding_from_bytes(raw_data)
     except (OSError, IOError):
         return "utf-8"
 
 
+def get_file_text_encoding(filename: str) -> str:
+    """
+    Detect the text encoding of a file (sync version).
+
+    Wrapper around async version for synchronous contexts. Reads only
+    the first 4KB for efficient encoding detection.
+
+    Args:
+        filename: Path to the file to analyze
+    Returns: Detected encoding string, defaults to 'utf-8' if detection fails
+    """
+    import asyncio
+
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # If event loop is already running, use sync I/O
+            with open(filename, "rb") as f:
+                raw_data = f.read(4096)  # Read only first 4KB
+                return _detect_encoding_from_bytes(raw_data)
+        else:
+            # If no event loop, run async version
+            return loop.run_until_complete(async_get_file_text_encoding(filename))
+    except RuntimeError:
+        # No event loop exists, use sync I/O
+        try:
+            with open(filename, "rb") as f:
+                raw_data = f.read(4096)  # Read only first 4KB
+                return _detect_encoding_from_bytes(raw_data)
+        except (OSError, IOError):
+            return "utf-8"
+
+
 @cached(LRUCache(maxsize=1000))
-def get_file_text_encoding_cached(filename: str, file_mtime: float) -> str:
+def get_file_text_encoding_cached(filename: str, file_mtime: float) -> str:  # pylint: disable=unused-argument
     """
     Cache text encoding detection based on filename and modification time.
 
@@ -158,6 +178,41 @@ def get_file_text_encoding_cached(filename: str, file_mtime: float) -> str:
     return get_file_text_encoding(filename)
 
 
+def _check_file_size(stat_info) -> str | None:
+    """
+    Check if file exceeds size limit.
+
+    ASYNC-SAFE: Pure function with no DB/IO operations
+
+    Args:
+        stat_info: os.stat_result object
+
+    Returns:
+        Error message HTML if file is too large, None otherwise
+    """
+    if stat_info.st_size > MAX_TEXT_FILE_SIZE:
+        return f"<p><em>File too large to display ({stat_info.st_size:,} bytes). " f"Maximum size: {MAX_TEXT_FILE_SIZE:,} bytes.</em></p>"
+    return None
+
+
+def _process_text_content(content: str, is_markdown: bool) -> str:
+    """
+    Process text content (markdown or HTML).
+
+    ASYNC-SAFE: Pure function with no DB/IO operations
+
+    Args:
+        content: Raw text content
+        is_markdown: Whether to process as markdown (True) or HTML (False)
+
+    Returns:
+        Processed HTML content
+    """
+    if is_markdown:
+        return _markdown_processor.convert(content)
+    return content.replace("\n", "<br>")
+
+
 def _process_text_file(filename: str, is_markdown: bool = False) -> str:
     """
     Process text or HTML files with size limits and encoding detection.
@@ -165,26 +220,25 @@ def _process_text_file(filename: str, is_markdown: bool = False) -> str:
     Args:
         filename: Path to the file to process
         is_markdown: Whether to process as markdown (True) or HTML (False)
-    Returns: Processed HTML content or error message
+
+    Returns:
+        Processed HTML content or error message
     """
     try:
         # Use single stat call for both size and mtime
         file_path = Path(filename)
         stat_info = file_path.stat()
 
-        if stat_info.st_size > MAX_TEXT_FILE_SIZE:
-            return (
-                f"<p><em>File too large to display ({stat_info.st_size:,} bytes). "
-                f"Maximum size: {MAX_TEXT_FILE_SIZE:,} bytes.</em></p>"
-            )
+        # Check file size limit
+        size_error = _check_file_size(stat_info)
+        if size_error:
+            return size_error
 
         encoding = get_file_text_encoding_cached(filename, stat_info.st_mtime)
 
         with open(filename, "r", encoding=encoding) as f:
             content = f.read()
-            if is_markdown:
-                return _markdown_processor.convert(content)
-            return content.replace("\n", "<br>")
+            return _process_text_content(content, is_markdown)
     except (OSError, IOError) as e:
         return f"<p><em>Error reading file: {str(e)}</em></p>"
 
@@ -199,7 +253,9 @@ async def async_process_text_file(filename: str, is_markdown: bool = False) -> s
     Args:
         filename: Path to the file to process
         is_markdown: Whether to process as markdown (True) or HTML (False)
-    Returns: Processed HTML content or error message
+
+    Returns:
+        Processed HTML content or error message
     """
     import aiofiles
 
@@ -208,20 +264,17 @@ async def async_process_text_file(filename: str, is_markdown: bool = False) -> s
         file_path = Path(filename)
         stat_info = file_path.stat()
 
-        if stat_info.st_size > MAX_TEXT_FILE_SIZE:
-            return (
-                f"<p><em>File too large to display ({stat_info.st_size:,} bytes). "
-                f"Maximum size: {MAX_TEXT_FILE_SIZE:,} bytes.</em></p>"
-            )
+        # Check file size limit
+        size_error = _check_file_size(stat_info)
+        if size_error:
+            return size_error
 
         # Try to use cached encoding if available
         encoding = get_file_text_encoding_cached(filename, stat_info.st_mtime)
 
         async with aiofiles.open(filename, "r", encoding=encoding) as f:
             content = await f.read()
-            if is_markdown:
-                return _markdown_processor.convert(content)
-            return content.replace("\n", "<br>")
+            return _process_text_content(content, is_markdown)
     except (OSError, IOError) as e:
         return f"<p><em>Error reading file: {str(e)}</em></p>"
 
@@ -240,17 +293,11 @@ def _get_all_shas_cached(directory_id: str, sort_ordering: int) -> list[str]:
     from quickbbs.models import IndexDirs  # pylint: disable=import-outside-toplevel
 
     directory = IndexDirs.objects.get(pk=directory_id)
-    return list(
-        directory.files_in_dir(sort=sort_ordering).values_list(
-            "unique_sha256", flat=True
-        )
-    )
+    return list(directory.files_in_dir(sort=sort_ordering).values_list("unique_sha256", flat=True))
 
 
 @cached(build_context_info_cache)
-def build_context_info(
-    request: WSGIRequest, unique_file_sha256: str
-) -> dict | HttpResponseBadRequest:
+def build_context_info(request: WSGIRequest, unique_file_sha256: str) -> dict | HttpResponseBadRequest:
     """
     Build context information for item view using optimized single-pass dictionary creation.
 
@@ -268,9 +315,8 @@ def build_context_info(
         return HttpResponseBadRequest(content="No SHA256 provided.")
 
     unique_file_sha256 = unique_file_sha256.strip().lower()
-    try:
-        entry = IndexData.get_by_sha256(unique_file_sha256, unique=True)
-    except IndexData.DoesNotExist:
+    entry = IndexData.get_by_sha256(unique_file_sha256, unique=True)
+    if entry is None:
         return HttpResponseBadRequest(content="No entry found.")
 
     start_time = time.perf_counter()
@@ -316,9 +362,7 @@ def build_context_info(
         "duration": entry.duration,
         "is_animated": entry.is_animated,
         "lastmod": lastmod_timestamp,
-        "lastmod_ds": datetime.datetime.fromtimestamp(lastmod_timestamp).strftime(
-            "%m/%d/%y %H:%M:%S"
-        ),
+        "lastmod_ds": datetime.datetime.fromtimestamp(lastmod_timestamp).strftime("%m/%d/%y %H:%M:%S"),
         "ft_filename": entry.filetype.icon_filename,
         "download_uri": entry.get_download_url(),
         "thumbnail_uri": entry.get_thumbnail_url(size=size),
@@ -340,9 +384,7 @@ def build_context_info(
 
 
 # ASGI: Async wrapper for build_context_info
-async def async_build_context_info(
-    request: WSGIRequest, unique_file_sha256: str
-) -> dict | HttpResponseBadRequest:
+async def async_build_context_info(request: WSGIRequest, unique_file_sha256: str) -> dict | HttpResponseBadRequest:
     """
     Async wrapper for build_context_info to support ASGI views.
 
@@ -365,9 +407,7 @@ def _process_file_content(entry: IndexData, webpath: str) -> str:
         webpath: Web path for constructing file path
     Returns: Processed HTML content or empty string
     """
-    if not (
-        entry.filetype.is_text or entry.filetype.is_markdown or entry.filetype.is_html
-    ):
+    if not (entry.filetype.is_text or entry.filetype.is_markdown or entry.filetype.is_html):
         return ""
 
     # Optimize path construction
@@ -393,9 +433,7 @@ async def async_process_file_content(entry: IndexData, webpath: str) -> str:
         webpath: Web path for constructing file path
     Returns: Processed HTML content or empty string
     """
-    if not (
-        entry.filetype.is_text or entry.filetype.is_markdown or entry.filetype.is_html
-    ):
+    if not (entry.filetype.is_text or entry.filetype.is_markdown or entry.filetype.is_html):
         return ""
 
     # Optimize path construction
@@ -433,11 +471,7 @@ def _get_no_thumbnails(directory, sort_ordering: int) -> list[str]:
         sort_ordering: Sort order to apply
     Returns: List of file SHA256 hashes without thumbnails
     """
-    return list(
-        directory.files_in_dir(
-            sort=sort_ordering, additional_filters={"new_ftnail__isnull": True}
-        ).values_list("file_sha256", flat=True)
-    )
+    return list(directory.files_in_dir(sort=sort_ordering, additional_filters={"new_ftnail__isnull": True}).values_list("file_sha256", flat=True))
 
 
 def calculate_page_bounds(page_number: int, chunk_size: int, dirs_count: int) -> dict:
@@ -479,9 +513,7 @@ def calculate_page_bounds(page_number: int, chunk_size: int, dirs_count: int) ->
 
 
 @cached(layout_manager_cache)
-def layout_manager(
-    page_number: int = 1, directory=None, sort_ordering: int | None = None
-) -> dict:
+def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | None = None) -> dict:
     """
     Manage gallery layout with optimized database-level pagination.
 
@@ -520,9 +552,7 @@ def layout_manager(
 
     if bounds["dirs_slice"]:
         start, end = bounds["dirs_slice"]
-        page_directories = list(
-            directories_qs[start:end].values_list("dir_fqpn_sha256", flat=True)
-        )
+        page_directories = list(directories_qs[start:end].values_list("dir_fqpn_sha256", flat=True))
         page_data["directories"] = page_directories
         page_data["cnt_dirs"] = len(page_directories)
     else:
@@ -565,9 +595,7 @@ def layout_manager(
 
 
 # ASGI: Async wrapper for layout_manager
-async def async_layout_manager(
-    page_number: int = 1, directory=None, sort_ordering: int | None = None
-) -> dict:
+async def async_layout_manager(page_number: int = 1, directory=None, sort_ordering: int | None = None) -> dict:
     """
     Async wrapper for layout_manager to support ASGI views.
 
@@ -579,8 +607,4 @@ async def async_layout_manager(
         sort_ordering: Sort order to apply (0-2)
     Returns: Dictionary containing pagination data and current page items
     """
-    return await sync_to_async(layout_manager)(
-        page_number=page_number,
-        directory=directory,
-        sort_ordering=sort_ordering
-    )
+    return await sync_to_async(layout_manager)(page_number=page_number, directory=directory, sort_ordering=sort_ordering)

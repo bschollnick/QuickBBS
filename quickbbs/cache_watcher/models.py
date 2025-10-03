@@ -356,7 +356,8 @@ class fs_Cache_Tracking(models.Model):
         max_length=64,
     )
     DirName = models.CharField(db_index=False, max_length=384, default="", blank=True)
-    lastscan = models.FloatField(default=0, blank=True)  # Fixed: removed string default  # Stored as Unix TimeStamp (ms)
+    # Stored as Unix TimeStamp (ms)
+    lastscan = models.FloatField(default=0, blank=True)  # Fixed: removed string default
     invalidated = models.BooleanField(default=False)
 
     class Meta:
@@ -427,16 +428,15 @@ class fs_Cache_Tracking(models.Model):
         try:
             from frontend.views import layout_manager, layout_manager_cache
 
+            from quickbbs.common import safe_get_with_callback
             from quickbbs.models import IndexDirs
 
             # Get the directory information before updating
-            directory_found = False
-            try:
-                directory = IndexDirs.objects.get(dir_fqpn_sha256=sha256)
-                directory_found = True
-                directory.invalidate_thumb()
-            except IndexDirs.DoesNotExist:
-                pass
+            directory_found, directory = safe_get_with_callback(
+                IndexDirs,
+                found_callback=lambda d: d.invalidate_thumb(),
+                dir_fqpn_sha256=sha256,
+            )
 
             # Update cache entry
             scan_time = time.time()

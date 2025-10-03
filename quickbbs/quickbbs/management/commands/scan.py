@@ -2,13 +2,13 @@ import os
 import pathlib
 import sys
 
-from django.core.management.base import BaseCommand
-from django.conf import settings
-from django.db import close_old_connections
-
-from quickbbs.models import IndexDirs, IndexData
-from frontend.utilities import sync_database_disk
 from cache_watcher.models import Cache_Storage
+from django.conf import settings
+from django.core.management.base import BaseCommand
+from django.db import close_old_connections
+from frontend.utilities import sync_database_disk
+
+from quickbbs.models import IndexData, IndexDirs
 
 
 def verify_directories():
@@ -41,9 +41,7 @@ def verify_directories():
     print("Difference : ", start_count - end_count)
     print("-" * 30)
     print("Checking for unlinked parents")
-    unlinked_parents = IndexDirs.objects.filter(parent_directory__isnull=True).exclude(
-        fqpndirectory=albums_root
-    )
+    unlinked_parents = IndexDirs.objects.filter(parent_directory__isnull=True).exclude(fqpndirectory=albums_root)
     # exclude the albums_root, since that is suppose to have no parent.  You can't tranverse below the albums_root
     print(f"Found {unlinked_parents.count()} directories with no parents")
 

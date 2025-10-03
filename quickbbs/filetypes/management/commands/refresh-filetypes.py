@@ -21,9 +21,7 @@ class Command(BaseCommand):
                     "filetype": settings.FTYPES["movie"],
                     "is_movie": True,
                     "mimetype": mimetype,
-                    "thumbnail": pathlib.Path(
-                        settings.ICONS_PATH, "MovieIcon100.jpg"
-                    ).read_bytes(),
+                    "thumbnail": pathlib.Path(settings.ICONS_PATH, "MovieIcon100.jpg").read_bytes(),
                 },
             )
         for ext in settings.AUDIO_FILE_TYPES:
@@ -36,9 +34,7 @@ class Command(BaseCommand):
                     "filetype": settings.FTYPES["audio"],
                     "is_audio": True,
                     "mimetype": guess_type(f"test.{ext}")[0],
-                    "thumbnail": pathlib.Path(
-                        settings.ICONS_PATH, "MovieIcon100.jpg"
-                    ).read_bytes(),
+                    "thumbnail": pathlib.Path(settings.ICONS_PATH, "MovieIcon100.jpg").read_bytes(),
                 },
             )
 
@@ -52,9 +48,7 @@ class Command(BaseCommand):
                     "filetype": settings.FTYPES["archive"],
                     "is_archive": True,
                     "mimetype": guess_type(f"test.{ext}")[0],
-                    "thumbnail": pathlib.Path(
-                        settings.ICONS_PATH, "1431973824_compressed.png"
-                    ).read_bytes(),
+                    "thumbnail": pathlib.Path(settings.ICONS_PATH, "1431973824_compressed.png").read_bytes(),
                 },
             )
 
@@ -69,9 +63,7 @@ class Command(BaseCommand):
                     "is_html": True,
                     "is_text": False,
                     "mimetype": guess_type(f"test.{ext}")[0],
-                    "thumbnail": pathlib.Path(
-                        settings.ICONS_PATH, "1431973779_html.png"
-                    ).read_bytes(),
+                    "thumbnail": pathlib.Path(settings.ICONS_PATH, "1431973779_html.png").read_bytes(),
                 },
             )
 
@@ -97,9 +89,7 @@ class Command(BaseCommand):
                     "filetype": settings.FTYPES["image"],
                     "is_text": True,
                     "mimetype": guess_type(f"test.{ext}")[0],
-                    "thumbnail": pathlib.Path(
-                        settings.ICONS_PATH, "1431973815_text.PNG"
-                    ).read_bytes(),
+                    "thumbnail": pathlib.Path(settings.ICONS_PATH, "1431973815_text.PNG").read_bytes(),
                 },
             )
 
@@ -114,9 +104,7 @@ class Command(BaseCommand):
                     "is_markdown": True,
                     "is_text": False,
                     "mimetype": guess_type(f"test.{ext}")[0],
-                    "thumbnail": pathlib.Path(
-                        settings.ICONS_PATH, "1431973815_text.PNG"
-                    ).read_bytes(),
+                    "thumbnail": pathlib.Path(settings.ICONS_PATH, "1431973815_text.PNG").read_bytes(),
                 },
             )
 
@@ -130,9 +118,7 @@ class Command(BaseCommand):
                     "filetype": settings.FTYPES["link"],
                     "is_link": True,
                     "mimetype": guess_type(f"test.{ext}")[0],
-                    "thumbnail": pathlib.Path(
-                        settings.ICONS_PATH, "redirecting-link.PNG"
-                    ).read_bytes(),
+                    "thumbnail": pathlib.Path(settings.ICONS_PATH, "redirecting-link.PNG").read_bytes(),
                 },
             )
         filetypes.objects.update_or_create(
@@ -144,9 +130,7 @@ class Command(BaseCommand):
                 "filetype": settings.FTYPES["link"],
                 "is_link": True,
                 "mimetype": guess_type("test.url")[0],
-                "thumbnail": pathlib.Path(
-                    settings.ICONS_PATH, "redirecting-link.PNG"
-                ).read_bytes(),
+                "thumbnail": pathlib.Path(settings.ICONS_PATH, "redirecting-link.PNG").read_bytes(),
             },
         )
 
@@ -169,9 +153,7 @@ class Command(BaseCommand):
                 "color": "FDEDB1",
                 "filetype": settings.FTYPES["epub"],
                 "mimetype": guess_type("test.epub")[0],
-                "thumbnail": pathlib.Path(
-                    settings.ICONS_PATH, "epub-logo.gif"
-                ).read_bytes(),
+                "thumbnail": pathlib.Path(settings.ICONS_PATH, "epub-logo.gif").read_bytes(),
             },
         )
 
@@ -183,9 +165,7 @@ class Command(BaseCommand):
                 "icon_filename": "1431973840_folder.png",
                 "filetype": settings.FTYPES["dir"],
                 "is_dir": True,
-                "thumbnail": pathlib.Path(
-                    settings.ICONS_PATH, "1431973840_folder.png"
-                ).read_bytes(),
+                "thumbnail": pathlib.Path(settings.ICONS_PATH, "1431973840_folder.png").read_bytes(),
             },
         )
 
@@ -196,9 +176,7 @@ class Command(BaseCommand):
                 "icon_filename": "1431973807_fileicon_bg.png",
                 "color": "FFFFFF",
                 "filetype": settings.FTYPES["unknown"],
-                "thumbnail": pathlib.Path(
-                    settings.ICONS_PATH, "1431973807_fileicon_bg.png"
-                ).read_bytes(),
+                "thumbnail": pathlib.Path(settings.ICONS_PATH, "1431973807_fileicon_bg.png").read_bytes(),
             },
         )
 

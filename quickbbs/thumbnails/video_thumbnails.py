@@ -1,3 +1,5 @@
+"""FFMPEG backend for video thumbnail generation."""
+
 import io
 from pathlib import Path
 
@@ -6,10 +8,10 @@ from PIL import Image
 
 try:
     from .Abstractbase_thumbnails import AbstractBackend
-    from .pil_thumbnails import ImageBackend
+    from .pil_thumbnails import ImageBackend, convert_image_for_format
 except ImportError:
     from Abstractbase_thumbnails import AbstractBackend
-    from pil_thumbnails import ImageBackend
+    from pil_thumbnails import ImageBackend, convert_image_for_format
 
 
 class VideoBackend(AbstractBackend):
@@ -47,12 +49,8 @@ class VideoBackend(AbstractBackend):
         output["duration"] = video_data["duration"]
         height, width = video_data["height"], video_data["width"]
         capture_time = int(video_data["duration"] / 2)  # Capture at half the duration
-        thumbnail = _generate_thumbnail_to_pil(
-            file_path, time_offset=capture_time, width=width, height=height
-        )
-        pillow_output = self._image_backend._process_pil_image(
-            thumbnail, sizes, output_format, quality
-        )
+        thumbnail = _generate_thumbnail_to_pil(file_path, time_offset=capture_time, width=width, height=height)
+        pillow_output = self._image_backend._process_pil_image(thumbnail, sizes, output_format, quality)
         output["format"] = output_format
         output.update(pillow_output)
         return output
@@ -234,9 +232,7 @@ def _get_video_info(video_path: str) -> dict[str, any]:
         raise Exception(f"Error getting video info: {e}")
 
 
-def _pil_to_binary(
-    image: Image.Image, format: str = "JPEG", quality: int = 85
-) -> bytes:
+def _pil_to_binary(image: Image.Image, format: str = "JPEG", quality: int = 85) -> bytes:
     """
     Convert PIL Image to binary data.
 
@@ -250,14 +246,10 @@ def _pil_to_binary(
     """
     output_buffer = io.BytesIO()
 
+    # Convert image to appropriate color mode for target format
+    image = convert_image_for_format(image, format)
+
     if format.upper() == "JPEG":
-        # Convert RGBA to RGB for JPEG compatibility
-        if image.mode in ("RGBA", "LA"):
-            background = Image.new("RGB", image.size, (255, 255, 255))
-            background.paste(
-                image, mask=image.split()[-1] if image.mode == "RGBA" else None
-            )
-            image = background
         image.save(output_buffer, format="JPEG", quality=quality, optimize=True)
     elif format.upper() == "PNG":
         image.save(output_buffer, format="PNG", optimize=True)

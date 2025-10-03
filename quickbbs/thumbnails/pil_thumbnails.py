@@ -1,3 +1,5 @@
+"""PIL/Pillow backend for image thumbnail generation."""
+
 import io
 
 from PIL import Image, ImageOps
@@ -6,6 +8,33 @@ try:
     from .Abstractbase_thumbnails import AbstractBackend
 except ImportError:
     from Abstractbase_thumbnails import AbstractBackend
+
+
+def convert_image_for_format(img: Image.Image, output_format: str) -> Image.Image:
+    """
+    Convert PIL Image to appropriate color mode for output format.
+
+    Handles conversion of RGBA/P/LA images to RGB for JPEG compatibility,
+    which doesn't support transparency. Uses white background for transparency.
+
+    Args:
+        img: PIL Image object to convert
+        output_format: Target format (JPEG, PNG, WEBP, etc.)
+
+    Returns:
+        Converted PIL Image object ready for saving in target format
+    """
+    # JPEG doesn't support transparency - convert RGBA/P/LA to RGB with white background
+    if output_format.upper() == "JPEG" and img.mode in ("RGBA", "P", "LA"):
+        background = Image.new("RGB", img.size, (255, 255, 255))
+        if img.mode == "P":
+            img = img.convert("RGBA")
+        background.paste(img, mask=img.split()[-1] if img.mode in ("RGBA", "LA") else None)
+        return background
+    # Convert exotic color modes to RGB
+    if img.mode not in ("RGB", "RGBA", "L"):
+        return img.convert("RGB")
+    return img
 
 
 class ImageBackend(AbstractBackend):
@@ -101,25 +130,14 @@ class ImageBackend(AbstractBackend):
         """
         results = {}
 
-        # Convert to RGB if necessary
-        if output_format.upper() == "JPEG" and img.mode in ("RGBA", "P", "LA"):
-            background = Image.new("RGB", img.size, (255, 255, 255))
-            if img.mode == "P":
-                img = img.convert("RGBA")
-            background.paste(
-                img, mask=img.split()[-1] if img.mode in ("RGBA", "LA") else None
-            )
-            img = background
-        elif img.mode not in ("RGB", "RGBA", "L"):
-            img = img.convert("RGB")
+        # Convert to RGB if necessary for target format
+        img = convert_image_for_format(img, output_format)
 
         # Auto-orient based on EXIF
         img = ImageOps.exif_transpose(img)
 
         # Sort sizes by area (largest first)
-        sorted_sizes = sorted(
-            sizes.items(), key=lambda x: x[1][0] * x[1][1], reverse=True
-        )
+        sorted_sizes = sorted(sizes.items(), key=lambda x: x[1][0] * x[1][1], reverse=True)
 
         for size_name, target_size in sorted_sizes:
             working_img = img.copy()
@@ -129,9 +147,7 @@ class ImageBackend(AbstractBackend):
             save_kwargs = {"format": output_format}
 
             if output_format.upper() in ["JPEG", "JPG"]:
-                save_kwargs.update(
-                    {"quality": quality, "optimize": True, "progressive": True}
-                )
+                save_kwargs.update({"quality": quality, "optimize": True, "progressive": True})
             elif output_format.upper() == "PNG":
                 save_kwargs.update({"optimize": True})
             elif output_format.upper() == "WEBP":

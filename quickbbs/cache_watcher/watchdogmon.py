@@ -73,9 +73,7 @@ class watchdog_monitor:
         self.my_event_handler = event_handler
         go_recursively = True
         self.my_observer = Observer()
-        self.my_observer.schedule(
-            self.my_event_handler, monitor_path, recursive=go_recursively
-        )
+        self.my_observer.schedule(self.my_event_handler, monitor_path, recursive=go_recursively)
         self.my_observer.start()
 
     def shutdown(self, *args) -> None:

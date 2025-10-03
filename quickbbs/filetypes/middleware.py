@@ -3,7 +3,6 @@
 import asyncio
 
 from asgiref.sync import iscoroutinefunction, sync_to_async
-
 from filetypes.models import load_filetypes
 
 
