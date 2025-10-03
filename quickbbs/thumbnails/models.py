@@ -30,7 +30,6 @@ import io
 import os
 
 from cachetools import LRUCache, cached
-
 from django.conf import settings
 from django.db import models, transaction
 from django.http import FileResponse
@@ -101,29 +100,24 @@ class ThumbnailFiles(models.Model):
             models.Index(
                 fields=["sha256_hash"],
                 name="thumbnails_has_small_idx",
-                condition=models.Q(small_thumb__isnull=False)
-                & ~models.Q(small_thumb=b""),
+                condition=models.Q(small_thumb__isnull=False) & ~models.Q(small_thumb=b""),
             ),
             models.Index(
                 fields=["sha256_hash"],
                 name="thumbnails_has_medium_idx",
-                condition=models.Q(medium_thumb__isnull=False)
-                & ~models.Q(medium_thumb=b""),
+                condition=models.Q(medium_thumb__isnull=False) & ~models.Q(medium_thumb=b""),
             ),
             models.Index(
                 fields=["sha256_hash"],
                 name="thumbnails_has_large_idx",
-                condition=models.Q(large_thumb__isnull=False)
-                & ~models.Q(large_thumb=b""),
+                condition=models.Q(large_thumb__isnull=False) & ~models.Q(large_thumb=b""),
             ),
         ]
         # Note: Constraints can be added later after cleaning up existing data
         # constraints = []
 
     @staticmethod
-    def get_or_create_thumbnail_record(
-        file_sha256: str, suppress_save: bool = False
-    ) -> "ThumbnailFiles":
+    def get_or_create_thumbnail_record(file_sha256: str, suppress_save: bool = False) -> "ThumbnailFiles":
         """
         Get or create a thumbnail record for a file.
 
@@ -145,24 +139,18 @@ class ThumbnailFiles(models.Model):
                 "medium_thumb": b"",
                 "large_thumb": b"",
             }
-            thumbnail, created = ThumbnailFiles.objects.prefetch_related(
-                *ThumbnailFiles_Prefetch_List
-            ).get_or_create(sha256_hash=file_sha256, defaults=defaults)
+            thumbnail, created = ThumbnailFiles.objects.prefetch_related(*ThumbnailFiles_Prefetch_List).get_or_create(
+                sha256_hash=file_sha256, defaults=defaults
+            )
 
             # Use prefetched data to avoid additional queries
             prefetched_indexdata = list(thumbnail.IndexData.all())
 
             if prefetched_indexdata:
                 index_data_item = prefetched_indexdata[0]
-                make_link = any(
-                    item.new_ftnail_id is None for item in prefetched_indexdata
-                )
+                make_link = any(item.new_ftnail_id is None for item in prefetched_indexdata)
             else:
-                index_data_item = (
-                    IndexData.objects.prefetch_related("filetype")
-                    .filter(file_sha256=file_sha256)
-                    .first()
-                )
+                index_data_item = IndexData.objects.prefetch_related("filetype").filter(file_sha256=file_sha256).first()
                 make_link = True
 
             make_link = make_link or created
@@ -182,17 +170,11 @@ class ThumbnailFiles(models.Model):
         filetype = index_data_item.filetype
 
         if filetype.is_image:
-            thumbnails = create_thumbnails_from_path(
-                filename, settings.IMAGE_SIZE, output="JPEG", backend="image"
-            )
+            thumbnails = create_thumbnails_from_path(filename, settings.IMAGE_SIZE, output="JPEG", backend="image")
         elif filetype.is_movie:
-            thumbnails = create_thumbnails_from_path(
-                filename, settings.IMAGE_SIZE, output="JPEG", backend="video"
-            )
+            thumbnails = create_thumbnails_from_path(filename, settings.IMAGE_SIZE, output="JPEG", backend="video")
         elif filetype.is_pdf:
-            thumbnails = create_thumbnails_from_path(
-                filename, settings.IMAGE_SIZE, output="JPEG", backend="pdf"
-            )
+            thumbnails = create_thumbnails_from_path(filename, settings.IMAGE_SIZE, output="JPEG", backend="pdf")
         else:
             print("Unable to create thumbnails for this file type.")
             thumbnails = {
@@ -233,14 +215,10 @@ class ThumbnailFiles(models.Model):
         Returns:
             ThumbnailFiles object for the specified hash
         """
-        return cls.objects.prefetch_related(*ThumbnailFiles_Prefetch_List).get(
-            sha256_hash=sha256
-        )
+        return cls.objects.prefetch_related(*ThumbnailFiles_Prefetch_List).get(sha256_hash=sha256)
 
     @classmethod
-    def get_thumbnails_by_sha_list(
-        cls, sha256_list: list[str]
-    ) -> dict[str, "ThumbnailFiles"]:
+    def get_thumbnails_by_sha_list(cls, sha256_list: list[str]) -> dict[str, "ThumbnailFiles"]:
         """
         Get multiple thumbnails by SHA256 hash list to avoid N+1 queries.
 
@@ -250,9 +228,7 @@ class ThumbnailFiles(models.Model):
         Returns:
             Dictionary mapping SHA256 hash to ThumbnailFiles object
         """
-        thumbnails = cls.objects.prefetch_related(
-            *ThumbnailFiles_Bulk_Prefetch_List
-        ).filter(sha256_hash__in=sha256_list)
+        thumbnails = cls.objects.prefetch_related(*ThumbnailFiles_Bulk_Prefetch_List).filter(sha256_hash__in=sha256_list)
 
         return {thumb.sha256_hash: thumb for thumb in thumbnails}
 
@@ -365,6 +341,5 @@ class ThumbnailFiles(models.Model):
             content_to_send=io.BytesIO(blob),
             mtype=mtype or "image/jpeg",
             attachment=False,
-            last_modified=None,
             expiration=300,
         )

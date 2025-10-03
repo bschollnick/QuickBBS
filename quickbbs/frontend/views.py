@@ -16,13 +16,15 @@ import urllib.parse
 import warnings
 
 from asgiref.sync import sync_to_async
+from cache_watcher.models import Cache_Storage
+from cachetools.keys import hashkey
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 
 # from django.core.paginator import EmptyPage, PageNotAnInteger  # Unused after optimization
 from django.db import close_old_connections, connections, transaction
 from django.db.models import Count, Q
-from django.db.utils import IntegrityError, DatabaseError, OperationalError
+from django.db.utils import DatabaseError, IntegrityError, OperationalError
 from django.http import (
     Http404,
     HttpRequest,
@@ -32,10 +34,6 @@ from django.http import (
 from django.shortcuts import render
 from django.views.decorators.vary import vary_on_headers
 from django_htmx.middleware import HtmxDetails
-from PIL import Image, ImageFile
-
-from cache_watcher.models import Cache_Storage
-from cachetools.keys import hashkey
 from frontend.managers import build_context_info, layout_manager, layout_manager_cache
 from frontend.utilities import (
     SORT_MATRIX,
@@ -46,8 +44,11 @@ from frontend.utilities import (
     sync_database_disk,
 )
 from frontend.web import detect_mobile
-from quickbbs.models import IndexData, IndexDirs
+from PIL import Image, ImageFile
 from thumbnails.models import ThumbnailFiles
+
+from quickbbs.common import safe_get_or_error
+from quickbbs.models import IndexData, IndexDirs
 
 
 class HtmxHttpRequest(HttpRequest):
@@ -59,7 +60,6 @@ class HtmxHttpRequest(HttpRequest):
 logger = logging.getLogger()
 
 warnings.simplefilter("ignore", Image.DecompressionBombWarning)
-ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 # ASGI: Async wrapper for render function
@@ -134,11 +134,59 @@ def create_search_regex_pattern(text: str) -> str:
     return pattern if len(pattern) <= 500 else ""
 
 
-def get_search_results(
-    searchtext: str, search_regex_pattern: str, sort_order_value: int
-) -> tuple:
+def _safe_regex_search(model, field_name: str, regex_pattern: str, fallback_text: str, order_by: tuple, **filter_kwargs):
+    """
+    Perform regex search with automatic fallback to icontains on failure.
+
+    ASYNC-SAFE: Pure ORM operations, no blocking I/O
+
+    Args:
+        model: Django model class to query
+        field_name: Name of field to search (e.g., "fqpndirectory", "name")
+        regex_pattern: Regex pattern to search with
+        fallback_text: Text to use for icontains fallback if regex fails
+        order_by: Tuple of field names for ordering
+        **filter_kwargs: Additional filter arguments and queryset methods
+
+    Returns:
+        QuerySet with results
+    """
+    # Extract queryset methods from kwargs
+    prefetch_fields = filter_kwargs.pop("prefetch_fields", [])
+    annotate_kwargs = filter_kwargs.pop("annotate_kwargs", {})
+
+    try:
+        # Try regex search first
+        filter_lookup = {f"{field_name}__iregex": regex_pattern}
+        qs = model.objects.filter(**filter_lookup, **filter_kwargs)
+    except (DatabaseError, OperationalError) as e:
+        print(f"Regex search failed for {model.__name__}.{field_name}, using fallback: {e}")
+        # Fallback to case-insensitive contains
+        filter_lookup = {f"{field_name}__icontains": fallback_text.strip()}
+        qs = model.objects.filter(**filter_lookup, **filter_kwargs)
+
+    # Apply prefetch if provided
+    if prefetch_fields:
+        qs = qs.prefetch_related(*prefetch_fields)
+
+    # Apply annotations if provided
+    if annotate_kwargs:
+        qs = qs.annotate(**annotate_kwargs)
+
+    # Apply ordering
+    return qs.order_by(*order_by)
+
+
+def get_search_results(searchtext: str, search_regex_pattern: str, sort_order_value: int) -> tuple:
     """
     Get both directory and file search results with optimized queries.
+
+    ASYNC-SAFE: Uses _safe_regex_search which is async-safe
+
+    Args:
+        searchtext: Original search text for fallback
+        search_regex_pattern: Compiled regex pattern
+        sort_order_value: Sort order index
 
     Returns:
         Tuple of (dirs_queryset, files_queryset)
@@ -150,52 +198,32 @@ def get_search_results(
     order_by = SORT_MATRIX[sort_order_value]
 
     # Directory search with optimized prefetching
-    try:
-        dirs = (
-            IndexDirs.objects.filter(
-                fqpndirectory__iregex=search_regex_pattern, **base_filters
+    dirs = _safe_regex_search(
+        IndexDirs,
+        "fqpndirectory",
+        search_regex_pattern,
+        searchtext,
+        order_by,
+        prefetch_fields=["filetype", "IndexData_entries__filetype"],
+        annotate_kwargs={
+            "file_count_cached": Count(
+                "IndexData_entries",
+                filter=Q(IndexData_entries__delete_pending=False),
             )
-            .select_related("filetype")
-            .prefetch_related("IndexData_entries__filetype")
-            .annotate(
-                file_count_cached=Count(
-                    "IndexData_entries",
-                    filter=Q(IndexData_entries__delete_pending=False),
-                )
-            )
-            .order_by(*order_by)
-        )
-    except (DatabaseError, OperationalError) as e:
-        print(f"Regex search failed for directories, using fallback: {e}")
-        dirs = (
-            IndexDirs.objects.filter(
-                fqpndirectory__icontains=searchtext.strip(), **base_filters
-            )
-            .select_related("filetype")
-            .prefetch_related("IndexData_entries__filetype")
-            .annotate(
-                file_count_cached=Count(
-                    "IndexData_entries",
-                    filter=Q(IndexData_entries__delete_pending=False),
-                )
-            )
-            .order_by(*order_by)
-        )
+        },
+        **base_filters,
+    )
 
     # File search with optimized prefetching
-    try:
-        files = (
-            IndexData.objects.filter(name__iregex=search_regex_pattern, **base_filters)
-            .select_related("filetype", "home_directory", "new_ftnail")
-            .order_by(*order_by)
-        )
-    except (DatabaseError, OperationalError) as e:
-        print(f"Regex search failed for files, using fallback: {e}")
-        files = (
-            IndexData.objects.filter(name__icontains=searchtext.strip(), **base_filters)
-            .select_related("filetype", "home_directory", "new_ftnail")
-            .order_by(*order_by)
-        )
+    files = _safe_regex_search(
+        IndexData,
+        "name",
+        search_regex_pattern,
+        searchtext,
+        order_by,
+        prefetch_fields=["filetype", "home_directory", "new_ftnail"],
+        **base_filters,
+    )
 
     return dirs, files
 
@@ -262,9 +290,7 @@ async def return_prev_next2(directory, sorder: int) -> tuple[str | None, str | N
     return (prevdir, nextdir)
 
 
-def thumbnail2_dir(
-    request: WSGIRequest, dir_sha256: str | None = None
-):  # pylint: disable=unused-argument
+def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pylint: disable=unused-argument
     """
     Serve directory thumbnail by finding the first image in the directory.
 
@@ -286,21 +312,19 @@ def thumbnail2_dir(
         :param directory: IndexDirs object representing the directory
         :return: QuerySet of image files in the directory
         """
-        files_in_directory = directory.files_in_dir(
-            additional_filters={"filetype__is_image": True}
-        )
+        files_in_directory = directory.files_in_dir(additional_filters={"filetype__is_image": True})
         if not files_in_directory.exists():
             sync_database_disk(directory.fqpndirectory)
-            files_in_directory = directory.files_in_dir(
-                additional_filters={"filetype__is_image": True}
-            )
+            files_in_directory = directory.files_in_dir(additional_filters={"filetype__is_image": True})
         return files_in_directory
 
-    try:
-        directory = IndexDirs.objects.get(dir_fqpn_sha256=dir_sha256)
-    except IndexDirs.DoesNotExist:
-        # does not exist
-        print(dir_sha256, "Directory not found - No records returned.")
+    directory, error = safe_get_or_error(
+        IndexDirs,
+        error_message="Directory not found - No records returned.",
+        dir_fqpn_sha256=dir_sha256,
+    )
+    if error:
+        print(dir_sha256, error.content)
         return Http404
 
     if directory.thumbnail and directory.thumbnail.new_ftnail:
@@ -322,19 +346,12 @@ def thumbnail2_dir(
 
     # Ensure thumbnail record exists
     if not directory.thumbnail.new_ftnail:
-        try:
-            thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(
-                directory.thumbnail.file_sha256
-            )
-            directory.thumbnail.new_ftnail = thumbnail
-            directory.save()
-        except ThumbnailFiles.DoesNotExist:
-            return HttpResponseBadRequest(content="Thumbnail not found.")
+        thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(directory.thumbnail.file_sha256)
+        directory.thumbnail.new_ftnail = thumbnail
+        directory.save()
 
     # Return the thumbnail
-    return directory.thumbnail.new_ftnail.send_thumbnail(
-        fext_override=".jpg", size="small", index_data_item=directory.thumbnail
-    )
+    return directory.thumbnail.new_ftnail.send_thumbnail(fext_override=".jpg", size="small", index_data_item=directory.thumbnail)
 
 
 def thumbnail2_file(request: WSGIRequest, sha256: str):
@@ -348,11 +365,7 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
     Returns:
         The sent thumbnail
     """
-    try:
-        thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(sha256)
-    except ThumbnailFiles.DoesNotExist:
-        print(f"{sha256} - File not found")
-        return HttpResponseBadRequest(content="Thumbnail not found.")
+    thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(sha256)
 
     # Get associated IndexData
     try:
@@ -428,8 +441,7 @@ async def search_viewresults(request: WSGIRequest):
     # Combine and limit results (async wrapped list conversion)
     max_search_results = 10000
     dir_list, file_list = await asyncio.gather(
-        sync_to_async(list)(dirs[: max_search_results // 2]),
-        sync_to_async(list)(files[: max_search_results // 2])
+        sync_to_async(list)(dirs[: max_search_results // 2]), sync_to_async(list)(files[: max_search_results // 2])
     )
     combined_results = dir_list + file_list
 
@@ -446,16 +458,16 @@ async def search_viewresults(request: WSGIRequest):
     end_idx = start_idx + items_per_page
     page_items = combined_results[start_idx:end_idx]
 
-    # Update context with pagination data
+    # Update context with pagination data (consistent with gallery view)
     context.update(
         {
             "page_cnt": list(range(1, total_pages + 1)),
             "total_pages": total_pages,
+            "total_items": total_items,
             "current_page": current_page,
             "has_previous": current_page > 1,
             "has_next": current_page < total_pages,
             "items_to_display": page_items,
-            "pagelist": {"object_list": page_items},
         }
     )
 
@@ -467,10 +479,7 @@ async def search_viewresults(request: WSGIRequest):
     files_needing_thumbnails = [
         item.file_sha256
         for item in page_items
-        if hasattr(item, "file_sha256")
-        and hasattr(item, "new_ftnail")
-        and item.new_ftnail is None
-        and item.filetype.is_image
+        if hasattr(item, "file_sha256") and hasattr(item, "new_ftnail") and item.new_ftnail is None and item.filetype.is_image
     ]
 
     if files_needing_thumbnails:
@@ -494,11 +503,7 @@ def _determine_template(request: WSGIRequest, template_type: str = "gallery") ->
         template_type: Type of template ("gallery", "search", "item")
     Returns: Template name string
     """
-    is_partial = (
-        request.htmx.boosted
-        and request.htmx.current_url is not None
-        and not request.GET.get("newwin", False)
-    )
+    is_partial = request.htmx.boosted and request.htmx.current_url is not None and not request.GET.get("newwin", False)
 
     template_map = {
         "gallery": {
@@ -539,9 +544,7 @@ def _process_request_path(request: WSGIRequest) -> dict:
     return {
         "webpath": request.path,
         "album_viewing": settings.ALBUMS_PATH + request.path,
-        "thumbpath": ensures_endswith(
-            request.path.replace(r"/albums/", r"/thumbnails/"), "/"
-        ),
+        "thumbpath": ensures_endswith(request.path.replace(r"/albums/", r"/thumbnails/"), "/"),
     }
 
 
@@ -563,9 +566,7 @@ def _find_directory(paths: dict):
                 logger.info("Directory not found: %s", paths["album_viewing"])
                 return HttpResponseNotFound("<h1>gallery not found</h1>")
     except Exception as e:
-        logger.error(
-            "Error searching for directory '%s': %s", paths["album_viewing"], e
-        )
+        logger.error("Error searching for directory '%s': %s", paths["album_viewing"], e)
         return HttpResponseBadRequest("<h1>Invalid path specified</h1>")
 
     logger.info("Viewing: %s", paths["album_viewing"])
@@ -585,9 +586,7 @@ def _find_directory(paths: dict):
     return found, directory
 
 
-def _build_gallery_context(
-    request: WSGIRequest, paths: dict, directory
-) -> dict:  # pylint: disable=unused-argument
+def _build_gallery_context(request: WSGIRequest, paths: dict, directory) -> dict:  # pylint: disable=unused-argument
     """
     Build gallery-specific context using shared base context.
 
@@ -666,9 +665,7 @@ async def new_viewgallery(request: WSGIRequest):
     )
 
     # Set navigation URIs (async function)
-    context["prev_uri"], context["next_uri"] = await return_prev_next2(
-        directory, sorder=context["sort"]
-    )
+    context["prev_uri"], context["next_uri"] = await return_prev_next2(directory, sorder=context["sort"])
 
     # Get current page data and build display items with optimized queries
     data_for_current_page = layout["data"]
@@ -749,9 +746,7 @@ def process_thumbnail(sha256: str) -> tuple[bool, str, any]:
     """
     try:
         with transaction.atomic():
-            thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(
-                sha256, suppress_save=False
-            )
+            thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(sha256, suppress_save=False)
         return True, sha256, thumbnail
     except IntegrityError as e:
         print(f"Error creating thumbnail for {sha256}: {e}")
@@ -761,9 +756,7 @@ def process_thumbnail(sha256: str) -> tuple[bool, str, any]:
         return False, sha256, None
 
 
-async def process_thumbnails_async(
-    layout: dict, batchsize: int = 100, max_workers: int = 4
-) -> bool:
+async def process_thumbnails_async(layout: dict, batchsize: int = 100, max_workers: int = 4) -> bool:
     """
     Process thumbnails using asyncio tasks for improved performance.
 
@@ -782,7 +775,7 @@ async def process_thumbnails_async(
     # Process in batches to limit concurrency
     successful_count = 0
     for i in range(0, len(no_thumbs), max_workers):
-        batch = no_thumbs[i:i + max_workers]
+        batch = no_thumbs[i : i + max_workers]
         tasks = [process_thumbnail(sha256) for sha256 in batch]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -852,7 +845,5 @@ async def download_file(request: WSGIRequest):  # , filename=None):
     file_to_send = await sync_to_async(IndexData.get_by_sha256)(sha_value, unique=True)
     if file_to_send:
         # Use async sendfile method to avoid sync iterator warning
-        return await file_to_send.async_inline_sendfile(
-            request, ranged=file_to_send.filetype.is_movie
-        )
+        return await file_to_send.async_inline_sendfile(request, ranged=file_to_send.filetype.is_movie)
     raise Http404("No File to Send")

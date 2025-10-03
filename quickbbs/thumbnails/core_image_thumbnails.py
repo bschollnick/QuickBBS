@@ -6,9 +6,7 @@ class CoreImageBackend(ImageBackend):
 
     def __init__(self):
         if not CORE_IMAGE_AVAILABLE:
-            raise ImportError(
-                "Core Image not available. This backend requires macOS with pyobjc."
-            )
+            raise ImportError("Core Image not available. This backend requires macOS with pyobjc.")
 
         # Create GPU-accelerated Core Image context
         self.context = CIContext.contextWithOptions_(
@@ -90,9 +88,7 @@ class CoreImageBackend(ImageBackend):
         original_height = extent.size.height
 
         # Sort sizes by area (largest first) for optimal processing
-        sorted_sizes = sorted(
-            sizes.items(), key=lambda x: x[1][0] * x[1][1], reverse=True
-        )
+        sorted_sizes = sorted(sizes.items(), key=lambda x: x[1][0] * x[1][1], reverse=True)
 
         for size_name, (target_width, target_height) in sorted_sizes:
             # Calculate scale factor to fit within target size (maintaining aspect ratio)
@@ -104,9 +100,7 @@ class CoreImageBackend(ImageBackend):
             scale_filter = CIFilter.filterWithName_("CILanczosScaleTransform")
             scale_filter.setValue_forKey_(ci_image, "inputImage")
             scale_filter.setValue_forKey_(scale, "inputScale")
-            scale_filter.setValue_forKey_(
-                1.0, "inputAspectRatio"
-            )  # Maintain aspect ratio
+            scale_filter.setValue_forKey_(1.0, "inputAspectRatio")  # Maintain aspect ratio
 
             scaled_image = scale_filter.outputImage()
 
@@ -116,9 +110,7 @@ class CoreImageBackend(ImageBackend):
 
         return results
 
-    def _render_to_bytes(
-        self, ci_image: "CIImage", output_format: str, quality: int
-    ) -> bytes:
+    def _render_to_bytes(self, ci_image: "CIImage", output_format: str, quality: int) -> bytes:
         """Render CIImage to bytes in specified format."""
         # Get image extent
         extent = ci_image.extent()
@@ -143,14 +135,10 @@ class CoreImageBackend(ImageBackend):
         output_data = NSData.data().mutableCopy()
 
         # Create image destination
-        destination = CGImageDestinationCreateWithData(
-            output_data, uti_type.identifier(), 1, None  # image count
-        )
+        destination = CGImageDestinationCreateWithData(output_data, uti_type.identifier(), 1, None)  # image count
 
         if destination is None:
-            raise RuntimeError(
-                f"Failed to create image destination for {output_format}"
-            )
+            raise RuntimeError(f"Failed to create image destination for {output_format}")
 
         # Set properties
         properties = {}

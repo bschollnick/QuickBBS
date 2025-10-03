@@ -28,9 +28,7 @@ class FastImageProcessor:
     # Class-level backend cache to reuse backend instances
     _backend_cache = {}
 
-    def __init__(
-        self, image_sizes: dict[str, tuple[int, int]], backend: BackendType = "auto"
-    ):
+    def __init__(self, image_sizes: dict[str, tuple[int, int]], backend: BackendType = "auto"):
         """
         Args:
             image_sizes: dict mapping size names to (width, height) tuples
@@ -79,11 +77,7 @@ class FastImageProcessor:
     def _is_apple_silicon(self) -> bool:
         """Check if running on Apple Silicon."""
         try:
-            return (
-                platform.system() == "Darwin"
-                and platform.processor() == "arm"
-                and "arm64" in platform.machine().lower()
-            )
+            return platform.system() == "Darwin" and platform.processor() == "arm" and "arm64" in platform.machine().lower()
         except Exception:
             return False
 
@@ -92,38 +86,24 @@ class FastImageProcessor:
         """Get name of currently active backend."""
         return type(self._backend).__name__
 
-    def process_image_file(
-        self, file_path: str, output_format: str = "JPEG", quality: int = 85
-    ) -> dict[str, bytes]:
+    def process_image_file(self, file_path: str, output_format: str = "JPEG", quality: int = 85) -> dict[str, bytes]:
         """Process image file and generate multiple thumbnails."""
-        return self._backend.process_from_file(
-            file_path, self.image_sizes, output_format, quality
-        )
+        return self._backend.process_from_file(file_path, self.image_sizes, output_format, quality)
 
-    def process_image_bytes(
-        self, image_bytes: bytes, output_format: str = "JPEG", quality: int = 85
-    ) -> dict[str, bytes]:
+    def process_image_bytes(self, image_bytes: bytes, output_format: str = "JPEG", quality: int = 85) -> dict[str, bytes]:
         """Process image from bytes and generate multiple thumbnails."""
-        return self._backend.process_from_memory(
-            image_bytes, self.image_sizes, output_format, quality
-        )
+        return self._backend.process_from_memory(image_bytes, self.image_sizes, output_format, quality)
 
-    def process_pil_image(
-        self, pil_image: Image.Image, output_format: str = "JPEG", quality: int = 85
-    ) -> dict[str, bytes]:
+    def process_pil_image(self, pil_image: Image.Image, output_format: str = "JPEG", quality: int = 85) -> dict[str, bytes]:
         """Process PIL Image object and generate multiple thumbnails."""
-        return self._backend.process_data(
-            pil_image, self.image_sizes, output_format, quality
-        )
+        return self._backend.process_data(pil_image, self.image_sizes, output_format, quality)
 
 
 # Global processor cache for common size configurations
 _processor_cache = {}
 
 
-def _get_cached_processor(
-    sizes: dict[str, tuple[int, int]], backend: BackendType
-) -> FastImageProcessor:
+def _get_cached_processor(sizes: dict[str, tuple[int, int]], backend: BackendType) -> FastImageProcessor:
     """Get or create cached processor for common configurations."""
     cache_key = (tuple(sorted(sizes.items())), backend)
     if cache_key not in _processor_cache:
@@ -179,15 +159,11 @@ if __name__ == "__main__":
     image_filename = "image.png"
     IMAGE_SIZES = {"large": (800, 600), "medium": (400, 300), "small": (200, 150)}
 
-    thumbnails_pillow = create_thumbnails_from_path(
-        image_filename, IMAGE_SIZES, output="JPEG", backend="image"
-    )
+    thumbnails_pillow = create_thumbnails_from_path(image_filename, IMAGE_SIZES, output="JPEG", backend="image")
     print("CORE_IMAGE_AVAILABLE:", CORE_IMAGE_AVAILABLE)
     # On macOS with Core Image available
     if CORE_IMAGE_AVAILABLE:
-        thumbnails_ci = create_thumbnails_from_path(
-            image_filename, IMAGE_SIZES, output="JPEG", backend="coreimage"
-        )
+        thumbnails_ci = create_thumbnails_from_path(image_filename, IMAGE_SIZES, output="JPEG", backend="coreimage")
 
     # Access the binary data
     small_thumb_bytes = thumbnails_pillow["small"]

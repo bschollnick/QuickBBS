@@ -1,54 +1,72 @@
 import asyncio
 import os
-from functools import partial
 from pathlib import Path
 
 import filetypes.models as filetype_models
 from asgiref.sync import sync_to_async
 from django.conf import settings
 
+from quickbbs.common import normalize_string_lower, normalize_string_title
+
+
+def _filter_and_process_item(item, ext_ignore, files_ignore, ignore_dots):
+    """
+    Filter and process a single directory item.
+
+    ASYNC-SAFE: Pure function with no DB/IO operations (file stats only)
+
+    Args:
+        item: os.DirEntry object to process
+        ext_ignore: Set of file extensions to ignore
+        files_ignore: Set of filenames to ignore
+        ignore_dots: Whether to ignore dot files
+
+    Returns:
+        Tuple of (title_cased_name, item) if item passes filters, None otherwise
+    """
+    try:
+        name_lower = normalize_string_lower(item.name)
+
+        # Skip dot files early if configured
+        if ignore_dots and name_lower.startswith("."):
+            return None
+
+        # Skip ignored files early
+        if name_lower in files_ignore:
+            return None
+
+        # Determine file extension
+        if item.is_dir():
+            fext = ".dir"
+        else:
+            fext = os.path.splitext(name_lower)[1] or ".none"
+
+        # Skip ignored extensions and unknown filetypes
+        if fext in ext_ignore or not filetype_models.filetypes.filetype_exists_by_ext(fext):
+            return None
+
+        return (normalize_string_title(item.name), item)
+
+    except (OSError, PermissionError):
+        # Skip items we can't access
+        return None
+
 
 def _process_item_batch(items_batch, ext_ignore, files_ignore, ignore_dots):
-    """Process a batch of directory items in a separate thread"""
+    """
+    Process a batch of directory items in a separate thread.
+
+    ASYNC-SAFE: Uses _filter_and_process_item which is async-safe
+    """
     batch_data = {}
-
     for item in items_batch:
-        try:
-            name_lower = item.name.lower().strip()
-
-            # Skip dot files early if configured
-            if ignore_dots and name_lower.startswith("."):
-                continue
-
-            # Skip ignored files early
-            if name_lower in files_ignore:
-                continue
-
-            # Determine file extension
-            if item.is_dir():
-                fext = ".dir"
-            else:
-                fext = os.path.splitext(name_lower)[1] or ".none"
-
-            # Skip ignored extensions and unknown filetypes
-            if (
-                fext in ext_ignore
-                or not filetype_models.filetypes.filetype_exists_by_ext(fext)
-            ):
-                continue
-
-            batch_data[name_lower.title()] = item
-
-        except (OSError, PermissionError):
-            # Skip items we can't access
-            continue
-
+        result = _filter_and_process_item(item, ext_ignore, files_ignore, ignore_dots)
+        if result:
+            batch_data[result[0]] = result[1]
     return batch_data
 
 
-async def return_disk_listing(
-    fqpn, use_async=True, batch_size=25, max_workers=4
-) -> tuple[bool, dict]:
+async def return_disk_listing(fqpn, use_async=True, batch_size=25, max_workers=4) -> tuple[bool, dict]:
     """
     This code obeys the following quickbbs_settings, settings:
     * EXTENSIONS_TO_IGNORE
@@ -87,11 +105,8 @@ async def return_disk_listing(
 
         # Process batches with limited concurrency
         for i in range(0, len(batches), max_workers):
-            batch_group = batches[i:i + max_workers]
-            tasks = [
-                async_process_batch(batch, ext_ignore, files_ignore, ignore_dots)
-                for batch in batch_group
-            ]
+            batch_group = batches[i : i + max_workers]
+            tasks = [async_process_batch(batch, ext_ignore, files_ignore, ignore_dots) for batch in batch_group]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
             for result in results:
@@ -111,7 +126,11 @@ async def return_disk_listing(
 
 
 def _single_threaded_listing(items) -> tuple[bool, dict]:
-    """Single-threaded processing - most efficient for small directories"""
+    """
+    Single-threaded processing - most efficient for small directories.
+
+    ASYNC-SAFE: Uses _filter_and_process_item which is async-safe
+    """
     fs_data = {}
 
     # Pre-compute settings checks
@@ -120,35 +139,9 @@ def _single_threaded_listing(items) -> tuple[bool, dict]:
     ignore_dots = settings.IGNORE_DOT_FILES
 
     for item in items:
-        try:
-            name_lower = item.name.lower()
-
-            # Skip dot files early if configured
-            if ignore_dots and name_lower.startswith("."):
-                continue
-
-            # Skip ignored files early
-            if name_lower in files_ignore:
-                continue
-
-            # Determine file extension
-            if item.is_dir():
-                fext = ".dir"
-            else:
-                fext = os.path.splitext(name_lower)[1] or ".none"
-
-            # Skip ignored extensions and unknown filetypes
-            if (
-                fext in ext_ignore
-                or not filetype_models.filetypes.filetype_exists_by_ext(fext)
-            ):
-                continue
-
-            fs_data[item.name.title().strip()] = item
-
-        except (OSError, PermissionError):
-            # Skip items we can't access
-            continue
+        result = _filter_and_process_item(item, ext_ignore, files_ignore, ignore_dots)
+        if result:
+            fs_data[result[0]] = result[1]
 
     return True, fs_data
 

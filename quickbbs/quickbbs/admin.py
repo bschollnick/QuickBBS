@@ -119,11 +119,7 @@ class AdminMaster_Dirs(admin.ModelAdmin):
         if len(links) > 25:
             links = links[:25]
             links.append("+ More files (Files truncated)...")
-        return (
-            ", \n".join([f"{link.fqpndirectory}{link.name}" for link in links])
-            if links
-            else "No links"
-        )
+        return ", \n".join([f"{link.fqpndirectory}{link.name}" for link in links]) if links else "No links"
 
 
 admin.site.register(Owners)

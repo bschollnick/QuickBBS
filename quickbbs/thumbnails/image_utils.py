@@ -5,6 +5,7 @@ Utilities for QuickBBS, the python edition.
 import os
 import os.path
 from io import BytesIO
+from pathlib import Path
 
 import av  # Video Previews
 import filetypes
@@ -17,8 +18,8 @@ def pdf_to_pil(fspath):
     """
     The load_pdf function loads a PDF file from the filesystem and returns an image.
 
-    :param fspath: Load the file
-    :return: A pil
+        fspath: Load the file
+    Returns: A pil
     :doc-author: Trelent
     """
     with fitz.open(fspath) as pdf_file:
@@ -37,10 +38,10 @@ def movie_duration(fspath):
     The load_movie function loads a movie from the file system and returns an image.
 
     Updated - 2022/12/21 - It will now search for the next
-    :param fspath: Specify the path to the video file
-    :param offset_from: The number of frames to advance *after* detecting a non-solid
+        fspath: Specify the path to the video file
+        offset_from: The number of frames to advance *after* detecting a non-solid
         black or white frame.
-    :return: A pillow image object
+    Returns: A pillow image object
 
     References:
         * https://stackoverflow.com/questions/14041562/
@@ -65,10 +66,10 @@ def movie_to_pil(fspath):
     The load_movie function loads a movie from the file system and returns an image.
 
         Updated - 2022/12/21 - It will now search for the next
-    :param fspath: Specify the path to the video file
-    :param offset_from: The number of frames to advance *after* detecting a non-solid
+        fspath: Specify the path to the video file
+        offset_from: The number of frames to advance *after* detecting a non-solid
         black or white frame.
-    :return: A pillow image object
+    Returns: A pillow image object
 
     References:
         * https://stackoverflow.com/questions/14041562/
@@ -85,9 +86,7 @@ def movie_to_pil(fspath):
     except (av.error.InvalidDataError, StopIteration):
         image = Image.open(
             #            return_image_obj(
-            os.path.join(
-                settings.RESOURCES_PATH, "images", "3559224-200_broken_video.png"
-            )
+            os.path.join(settings.RESOURCES_PATH, "images", "3559224-200_broken_video.png")
         )
     return image
 
@@ -110,9 +109,9 @@ def image_to_pil(fspath, mem=False):
     The load_image function loads an image from a file path or byte stream.
     It returns the source_image object, which is a PIL Image object.
 
-    :param fspath: Pass the path of the image file
-    :param mem: Determine if the source file is a local file or a byte stream, if true, byte stream
-    :return: A pil / Image object
+        fspath: Pass the path of the image file
+        mem: Determine if the source file is a local file or a byte stream, if true, byte stream
+    Returns: A pil / Image object
     """
     source_image = None
     if not mem:
@@ -199,7 +198,7 @@ def return_image_obj(fs_path, memory=False) -> Image:
         filetypes.models.FILETYPE_DATA = filetypes.models.load_filetypes()
 
     source_image = None
-    extension = os.path.splitext(fs_path)[1].lower()
+    extension = Path(fs_path).suffix.lower() if Path(fs_path).suffix else ""
 
     if extension in ("", b"", None):
         # There is currently no concept of a "None" in filetypes

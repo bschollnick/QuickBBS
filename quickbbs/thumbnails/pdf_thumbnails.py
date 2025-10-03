@@ -2,7 +2,7 @@ import io
 from functools import lru_cache
 
 import fitz  # PyMuPDF
-from PIL import Image
+from PIL import Image, ImageOps
 
 try:
     from .Abstractbase_thumbnails import AbstractBackend
@@ -26,9 +26,7 @@ class PDFBackend(AbstractBackend):
 
     @staticmethod
     @lru_cache(maxsize=500)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
-    def _calculate_optimal_zoom(
-        page_width: float, page_height: float, target_width: int, target_height: int
-    ) -> float:
+    def _calculate_optimal_zoom(page_width: float, page_height: float, target_width: int, target_height: int) -> float:
         """
         Calculate optimal zoom level to render PDF slightly larger than target size.
         Cached to avoid redundant calculations for similar page dimensions.
@@ -48,6 +46,53 @@ class PDFBackend(AbstractBackend):
 
         # Use smaller zoom to fit, add 10% buffer for quality
         return min(zoom_x, zoom_y) * 1.1
+
+    def _render_pdf_page(
+        self,
+        page,
+        sizes: dict[str, tuple[int, int]],
+        output_format: str,
+        quality: int,
+    ) -> dict[str, bytes]:
+        """
+        Render a PDF page to thumbnails.
+
+        ASYNC-SAFE: Pure computation with no DB/IO operations
+
+        Args:
+            page: PyMuPDF page object
+            sizes: Dictionary of size names to (width, height) tuples
+            output_format: Output format (JPEG, PNG, WEBP)
+            quality: Image quality (1-100)
+
+        Returns:
+            Dictionary with 'format' key and size-keyed thumbnail bytes
+        """
+        # Calculate optimal zoom for largest requested size using cached method
+        largest_size = max(sizes.values(), key=lambda s: s[0] * s[1])
+        rect = page.rect
+        zoom = self._calculate_optimal_zoom(rect.width, rect.height, largest_size[0], largest_size[1])
+
+        # Create matrix for rendering
+        mat = fitz.Matrix(zoom, zoom)
+
+        # Render page to pixmap
+        pix = page.get_pixmap(matrix=mat)
+
+        # Convert directly to PIL Image from raw pixel data (no PNG encoding)
+        mode = "RGBA" if pix.alpha else "RGB"
+        img = Image.frombytes(mode, (pix.width, pix.height), pix.samples)
+
+        # Auto-orient based on EXIF (PDFs typically don't have EXIF, but handle it if present)
+        img = ImageOps.exif_transpose(img)
+
+        # Process the image using cached backend
+        output = {}
+        pillow_output = self._image_backend._process_pil_image(img, sizes, output_format, quality)
+        output["format"] = output_format
+        output.update(pillow_output)
+
+        return output
 
     def process_from_file(
         self,
@@ -76,31 +121,7 @@ class PDFBackend(AbstractBackend):
                 page_num = 0
 
             page = pdf_doc[page_num]
-
-            # Calculate optimal zoom for largest requested size using cached method
-            largest_size = max(sizes.values(), key=lambda s: s[0] * s[1])
-            rect = page.rect
-            zoom = self._calculate_optimal_zoom(
-                rect.width, rect.height, largest_size[0], largest_size[1]
-            )
-
-            # Create matrix for rendering
-            mat = fitz.Matrix(zoom, zoom)
-
-            # Render page to pixmap
-            pix = page.get_pixmap(matrix=mat)
-
-            # Convert directly to PIL Image from raw pixel data (no PNG encoding)
-            mode = "RGBA" if pix.alpha else "RGB"
-            img = Image.frombytes(mode, (pix.width, pix.height), pix.samples)
-
-            # Process the image using cached backend
-            output = {}
-            pillow_output = self._image_backend._process_pil_image(
-                img, sizes, output_format, quality
-            )
-            output["format"] = output_format
-            output.update(pillow_output)
+            output = self._render_pdf_page(page, sizes, output_format, quality)
 
             # Clean up
             pdf_doc.close()
@@ -138,31 +159,7 @@ class PDFBackend(AbstractBackend):
                 page_num = 0
 
             page = pdf_doc[page_num]
-
-            # Calculate optimal zoom for largest requested size using cached method
-            largest_size = max(sizes.values(), key=lambda s: s[0] * s[1])
-            rect = page.rect
-            zoom = self._calculate_optimal_zoom(
-                rect.width, rect.height, largest_size[0], largest_size[1]
-            )
-
-            # Create matrix for rendering
-            mat = fitz.Matrix(zoom, zoom)
-
-            # Render page to pixmap
-            pix = page.get_pixmap(matrix=mat)
-
-            # Convert directly to PIL Image from raw pixel data
-            mode = "RGBA" if pix.alpha else "RGB"
-            img = Image.frombytes(mode, (pix.width, pix.height), pix.samples)
-
-            # Process the image using cached backend
-            output = {}
-            pillow_output = self._image_backend._process_pil_image(
-                img, sizes, output_format, quality
-            )
-            output["format"] = output_format
-            output.update(pillow_output)
+            output = self._render_pdf_page(page, sizes, output_format, quality)
 
             # Clean up
             pdf_doc.close()
