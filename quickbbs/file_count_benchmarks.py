@@ -1,5 +1,4 @@
 import os
-from itertools import filterfalse
 from timeit import timeit
 
 new = """
@@ -96,15 +95,11 @@ print(
 )
 print(
     "new2 w/filter : ",
-    timeit(
-        stmt=new_filter, setup="import os", number=1000, globals={"fs_entries": fs_data}
-    ),
+    timeit(stmt=new_filter, setup="import os", number=1000, globals={"fs_entries": fs_data}),
 )
 print(
     "claude : ",
-    timeit(
-        stmt=new_filter, setup="import os", number=1000, globals={"fs_entries": fs_data}
-    ),
+    timeit(stmt=new_filter, setup="import os", number=1000, globals={"fs_entries": fs_data}),
 )
 
 

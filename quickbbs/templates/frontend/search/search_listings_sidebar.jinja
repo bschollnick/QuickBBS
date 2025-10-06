@@ -16,8 +16,8 @@
       <div class="has-text-centered">
         <p class="is-size-7 has-text-weight-bold">Search Results</p>
         <p class="is-size-7">"{{ searchtext }}"</p>
-        {% if pagelist %}
-        <p class="is-size-7">{{ pagelist.paginator.count }} results</p>
+        {% if total_items is defined %}
+        <p class="is-size-7">{{ total_items }} results</p>
         {% endif %}
       </div>
     </div>

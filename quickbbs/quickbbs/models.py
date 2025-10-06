@@ -3,12 +3,14 @@ Django Models for quickbbs
 """
 
 # Standard library imports
+import logging
 import os
 import pathlib
 import time
 from typing import Any, Union
 
 # Third-party imports
+from asgiref.sync import sync_to_async
 from cachetools import LRUCache, cached
 
 # Django imports
@@ -17,19 +19,26 @@ from django.contrib.auth.models import User
 from django.db import models
 from django.db.models import Count, Prefetch, Q
 from django.db.models.query import QuerySet
+from django.http import HttpResponse
 from django.urls import reverse
 
 # Local application imports
 from filetypes.models import filetypes, get_ftype_dict
-from frontend.serve_up import async_send_file_response, send_file_response
+from frontend.serve_up import async_send_file_response
 from thumbnails.models import ThumbnailFiles
 
 from quickbbs.common import get_dir_sha, normalize_fqpn
 from quickbbs.natsort_model import NaturalSortField
 
+from ranged_fileresponse import RangedFileResponse
+
+# Logger
+logger = logging.getLogger(__name__)
+
 # Async-safe caches for database object lookups
-indexdirs_cache = LRUCache(maxsize=1000)
+indexdirs_cache = LRUCache(maxsize=2000)
 indexdata_cache = LRUCache(maxsize=2000)
+indexdata_download_cache = LRUCache(maxsize=1000)
 
 
 class Owners(models.Model):
@@ -147,23 +156,27 @@ class IndexDirs(models.Model):
         """
         from django.conf import settings
 
-        Path = pathlib.Path(fqpn_directory)
-        fqpn_directory = normalize_fqpn(str(Path.resolve()))
-        parent_dir = normalize_fqpn(str(Path.parent.resolve()))
-        if fqpn_directory.lower().startswith(os.path.join(settings.ALBUMS_PATH, "albums").lower()):
+        # Normalize once and compute SHA once
+        fqpn_directory = normalize_fqpn(fqpn_directory)
+        dir_sha256 = get_dir_sha(fqpn_directory)
+
+        # Cache the albums path check
+        albums_path_lower = os.path.join(settings.ALBUMS_PATH, "albums").lower()
+        is_in_albums = fqpn_directory.lower().startswith(albums_path_lower)
+
+        # Determine parent directory link
+        if is_in_albums:
+            parent_dir = normalize_fqpn(str(pathlib.Path(fqpn_directory).parent))
             parent_sha = get_dir_sha(parent_dir)
             found, parent_dir_link = IndexDirs.search_for_directory_by_sha(parent_sha)
 
-            if not found and parent_dir.lower().startswith(os.path.join(settings.ALBUMS_PATH, "albums").lower()):
+            if not found and parent_dir.lower().startswith(albums_path_lower):
                 print("Trying to create parent directory: ", parent_dir)
                 # If the parent directory is not found, create it
-                parent_dir_link = IndexDirs.add_directory(parent_dir)
-            elif found:
-                pass
-            else:
-                parent_dir_link = None
+                _, parent_dir_link = IndexDirs.add_directory(parent_dir)
         else:
             parent_dir_link = None
+
         # Prepare the defaults for fields that should be set on creation
         print("Parent Directory Link: ", parent_dir_link)
 
@@ -175,12 +188,12 @@ class IndexDirs(models.Model):
             return (False, IndexDirs.objects.none)
 
         defaults = {
-            "fqpndirectory": normalize_fqpn(fqpn_directory),
+            "fqpndirectory": fqpn_directory,  # Already normalized
             "lastmod": stat_info.st_mtime,
             "lastscan": time.time(),
             "filetype": filetypes(fileext=".dir"),
-            "dir_fqpn_sha256": get_dir_sha(fqpn_directory),
-            "parent_directory": parent_dir_link if parent_dir_link else None,
+            "dir_fqpn_sha256": dir_sha256,  # Already computed
+            "parent_directory": parent_dir_link,
             "is_generic_icon": False,
             "thumbnail": None,
         }
@@ -205,7 +218,6 @@ class IndexDirs(models.Model):
         Returns:
             None
         """
-        print("Invalidating generic thumbnail for ", self.fqpndirectory)
         IndexDirs.objects.filter(pk=self.pk).update(thumbnail=None, is_generic_icon=False)
         # Refresh local instance to reflect DB state
         self.thumbnail = None
@@ -338,13 +350,19 @@ class IndexDirs(models.Model):
 
         return totals
 
-    @cached(indexdirs_cache)
-    def return_parent_directory(self) -> Union["IndexDirs", "QuerySet[IndexDirs]"]:
+    def return_parent_directory(self) -> Union["IndexDirs", None]:
         """
         Return the database object of the parent directory to the current directory
-        Returns: database record of parent directory
+
+        Returns:
+            IndexDirs instance if parent exists, None otherwise
+
+        Note:
+            This method directly accesses the parent_directory ForeignKey field.
+            When used in async contexts, ensure the parent is prefetched with
+            select_related('parent_directory') or wrap the call with sync_to_async.
         """
-        return self.parent_directory if self.parent_directory else IndexDirs.objects.none()
+        return self.parent_directory
 
     @cached(indexdirs_cache)
     @staticmethod
@@ -366,6 +384,7 @@ class IndexDirs(models.Model):
         except IndexDirs.DoesNotExist:
             return (False, IndexDirs.objects.none())  # return an empty query set
 
+    @cached(indexdirs_cache)
     @staticmethod
     def search_for_directory(fqpn_directory: str) -> tuple[bool, "IndexDirs"]:
         """
@@ -376,8 +395,6 @@ class IndexDirs(models.Model):
 
         Returns: A boolean representing the success of the search, and the resultant record
         """
-        Path = pathlib.Path(fqpn_directory)
-        fqpn_directory = normalize_fqpn(str(Path.resolve()))
         sha_256 = get_dir_sha(fqpn_directory)
         return IndexDirs.search_for_directory_by_sha(sha_256)
 
@@ -452,6 +469,7 @@ class IndexDirs(models.Model):
             .order_by(*SORT_MATRIX[sort])
         )
 
+    @cached(indexdirs_cache)
     def get_view_url(self) -> str:
         """
         Generate the URL for the viewing of the current database item
@@ -476,6 +494,7 @@ class IndexDirs(models.Model):
         """
         return self.filetype.color
 
+    @cached(indexdirs_cache)
     def return_identifier(self) -> str:
         """
         Return the unique identifier for the directory
@@ -504,6 +523,12 @@ INDEXDATA_PREFETCH_LIST = [
     # "IndexDirs_entries",
     # "dir_thumbnail",
     # "file_links",
+]
+
+# Minimal select_related for downloads - filetype and home_directory needed
+INDEXDATA_DOWNLOAD_SELECT_RELATED_LIST = [
+    "filetype",
+    "home_directory",
 ]
 
 
@@ -713,7 +738,7 @@ class IndexData(models.Model):
 
         Returns: QuerySet with dictionary-like data containing only name and directory fields using .values() for identical files
         """
-        return IndexData.objects.values("name", "fqpndirectory").filter(file_sha256=sha)
+        return IndexData.objects.values("name", "home_directory__fqpndirectory").filter(file_sha256=sha)
 
     @cached(indexdata_cache)
     @staticmethod
@@ -772,6 +797,37 @@ class IndexData(models.Model):
             return IndexData.objects.prefetch_related(*INDEXDATA_PREFETCH_LIST).get(file_sha256=sha_value, delete_pending=False)
         except IndexData.DoesNotExist:
             return None
+
+    @cached(indexdata_download_cache)
+    @staticmethod
+    def get_by_sha256_for_download(sha_value: str, unique: bool = False) -> Union["IndexData", None]:
+        """
+        Return the IndexData object by SHA256 optimized for file downloads.
+
+        Uses select_related for forward FKs and .only() to fetch minimal fields
+        for maximum performance with high concurrency.
+
+        Args:
+            sha_value: The SHA256 of the IndexData object
+            unique: If True, search by unique_sha256, otherwise by file_sha256
+
+        Returns: IndexData object or None if not found
+        """
+        try:
+            # Only fetch fields needed for download: name, filetype.mimetype, filetype.is_movie, home_directory.fqpndirectory
+            if unique:
+                return (IndexData.objects
+                    .select_related("filetype", "home_directory")
+                    .only("name", "filetype__mimetype", "filetype__is_movie", "home_directory__fqpndirectory")
+                    .get(unique_sha256=sha_value, delete_pending=False))
+            else:
+                return (IndexData.objects
+                    .select_related("filetype", "home_directory")
+                    .only("name", "filetype__mimetype", "filetype__is_movie", "home_directory__fqpndirectory")
+                    .get(file_sha256=sha_value, delete_pending=False))
+        except IndexData.DoesNotExist:
+            return None
+
 
     def get_file_sha(self, fqfn: str) -> tuple[str | None, str | None]:
         """
@@ -868,68 +924,97 @@ class IndexData(models.Model):
 
     def inline_sendfile(self, request: Any, ranged: bool = False) -> Any:
         """
-        Helper function to send data to remote.  Unifying the send functionality in one place,
-        using stub functions for any customizations.
+        Helper function to send data to remote - matches original fast implementation.
 
-        Uses send_file_response in serve_up (WSGI sync version).
+        Loads entire file into memory for non-ranged requests (fast for small files,
+        benefits from OS caching on repeated reads).
+
+        Uses HttpResponse for non-ranged, RangedFileResponse for ranged (videos).
         """
+
         mtype = self.filetype.mimetype
         if mtype is None:
             mtype = "application/octet-stream"
-        # fqpn_filename = os.path.join(self.fqpndirectory, self.name)
         fqpn_filename = self.full_filepathname
-        file_handle = open(fqpn_filename, "rb")
+
         if not ranged:
-            return send_file_response(
-                filename=self.name,
-                content_to_send=file_handle,
-                mtype=mtype or "image/jpeg",
-                attachment=False,
-                expiration=300,
-            )
-        return send_file_response(
-            request=request,
-            filename=self.name,
-            content_to_send=file_handle,
-            mtype=mtype or "image/jpeg",
-            attachment=False,
-            expiration=300,
-        )
+            # Load entire file into memory - matches old fast code
+            try:
+                with open(fqpn_filename, "rb") as fh:
+                    response = HttpResponse(fh.read(), content_type=mtype)
+                    response["Content-Disposition"] = f"inline; filename={self.name}"
+                    response["Cache-Control"] = "public, max-age=300"
+            except FileNotFoundError:
+                raise Http404
+        else:
+            # Ranged request for video streaming
+            try:
+                response = RangedFileResponse(
+                    request,
+                    file=open(fqpn_filename, "rb"),
+                    as_attachment=False,
+                    filename=self.name,
+                )
+                response["Cache-Control"] = "public, max-age=300"
+            except FileNotFoundError:
+                raise Http404
+        response["Content-Type"] = mtype
+        return response
 
     async def async_inline_sendfile(self, request: Any, ranged: bool = False) -> Any:
         """
         Helper function to send data to remote (ASGI async version).
 
-        Uses async_send_file_response in serve_up for proper async file handling.
+        Uses aiofiles to open file handle asynchronously, avoiding sync iterator warnings.
 
         :Args:
             request: Django request object
             ranged: Whether to support HTTP range requests for video streaming
 
         :Return:
-            FileResponse with async file content
+            HttpResponse with async file content
         """
+        start = time.perf_counter()
+
         mtype = self.filetype.mimetype
         if mtype is None:
             mtype = "application/octet-stream"
         fqpn_filename = self.full_filepathname
 
         if not ranged:
-            return await async_send_file_response(
+            # Use sync file I/O in thread pool - faster than aiofiles for OS-cached files
+            def _read_file():
+                with open(fqpn_filename, "rb", buffering=8196) as fh:
+                    return fh.read()
+
+            try:
+                start_file = time.perf_counter()
+                content = await sync_to_async(_read_file)()
+                file_time = (time.perf_counter() - start_file) * 1000
+
+                response = HttpResponse(content, content_type=mtype)
+                response["Content-Disposition"] = f"inline; filename={self.name}"
+                response["Cache-Control"] = "public, max-age=300"
+                response["Content-Type"] = mtype
+
+                total_time = (time.perf_counter() - start) * 1000
+                logger.info("[PERF] async_inline_sendfile: file read=%.2fms, total=%.2fms", file_time, total_time)
+                return response
+            except FileNotFoundError:
+                raise Http404
+        else:
+            # Ranged request for video streaming
+            result = await async_send_file_response(
+                request=request,
                 filename=self.name,
                 filepath=fqpn_filename,
                 mtype=mtype or "image/jpeg",
                 attachment=False,
                 expiration=300,
             )
-        return await async_send_file_response(
-            request=request,
-            filename=self.name,
-            filepath=fqpn_filename,
-            mtype=mtype or "image/jpeg",
-            attachment=False,
-            expiration=300,
-        )
+            total_time = (time.perf_counter() - start) * 1000
+            logger.info("[PERF] async_inline_sendfile (ranged): %.2fms", total_time)
+            return result
 
     class Meta:
         verbose_name = "Master Files Index"

@@ -6,6 +6,7 @@ import io
 import os.path
 
 import aiofiles
+from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.http import FileResponse, Http404
 from ranged_fileresponse import RangedFileResponse
@@ -133,7 +134,7 @@ async def async_send_file_response(filename: str, filepath: str, mtype: str, att
     """
     Send a file response with appropriate headers and caching (async version).
 
-    Uses async file I/O to read file contents without blocking.
+    Uses sync I/O in thread pool for better performance with OS-cached files.
 
     Args:
         filename: Name of the file to send
@@ -145,16 +146,16 @@ async def async_send_file_response(filename: str, filepath: str, mtype: str, att
 
     Returns:
         FileResponse or RangedFileResponse with the file content
-
-    Note:
-        For async mode, pass the file path instead of file handle.
-        The file will be read asynchronously and closed properly.
     """
-    # Read file asynchronously
-    async with aiofiles.open(filepath, "rb") as f:
-        content = await f.read()
 
-    # Use shared response builder
+    def _read_file():
+        with open(filepath, "rb") as f:
+            return f.read()
+
+    # Read file synchronously in thread pool - faster for OS-cached files
+    content = await sync_to_async(_read_file)()
+
+    # Use shared response builder with in-memory content
     return _build_file_response(io.BytesIO(content), filename, mtype, attachment, expiration, request)
 
 

@@ -106,7 +106,10 @@ def _detect_encoding_from_bytes(raw_data: bytes) -> str:
     Returns: Detected encoding string, defaults to 'utf-8' if detection fails
     """
     result = charset_normalizer.from_bytes(raw_data)
-    encoding = result.best().encoding
+    best_match = result.best()
+    if best_match is None:
+        return "utf-8"
+    encoding = best_match.encoding
     return encoding if encoding else "utf-8"
 
 
@@ -239,6 +242,8 @@ def _process_text_file(filename: str, is_markdown: bool = False) -> str:
         with open(filename, "r", encoding=encoding) as f:
             content = f.read()
             return _process_text_content(content, is_markdown)
+    except UnicodeDecodeError:
+        return "<p><em>We are unable to view this file.</em></p>"
     except (OSError, IOError) as e:
         return f"<p><em>Error reading file: {str(e)}</em></p>"
 
@@ -275,6 +280,8 @@ async def async_process_text_file(filename: str, is_markdown: bool = False) -> s
         async with aiofiles.open(filename, "r", encoding=encoding) as f:
             content = await f.read()
             return _process_text_content(content, is_markdown)
+    except UnicodeDecodeError:
+        return "<p><em>We are unable to view this file.</em></p>"
     except (OSError, IOError) as e:
         return f"<p><em>Error reading file: {str(e)}</em></p>"
 

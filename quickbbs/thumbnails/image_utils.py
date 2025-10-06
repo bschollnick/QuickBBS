@@ -47,7 +47,6 @@ def movie_duration(fspath):
         * https://stackoverflow.com/questions/14041562/
             python-pil-detect-if-an-image-is-completely-black-or-white
     """
-    image = None
     # try:
     with av.open(fspath) as container:
         stream = container.streams.video[0]

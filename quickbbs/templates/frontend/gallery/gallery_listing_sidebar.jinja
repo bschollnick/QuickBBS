@@ -145,6 +145,27 @@
       </div>
     </div>
 
+    <!-- User Section -->
+    {% if user.is_authenticated %}
+      <div class="sidebar-section sidebar-user-section">
+        <div class="user-name">{{ user.username|title }}</div>
+        <hr class="user-divider">
+        <div class="user-options">
+          <a href="{{ url('admin:password_change') }}" class="user-button" hx-boost="false">Change Password</a>
+          <form method="post" action="{{ url('admin:logout') }}" style="margin: 0;" hx-boost="false">
+            {% csrf_token %}
+            <button type="submit" class="user-button logout-button">Logout</button>
+          </form>
+        </div>
+        {% if user.is_staff %}
+          <hr class="user-divider">
+          <div class="admin-link">
+            <a href="{{ url('admin:index') }}" class="user-button" hx-boost="false">Admin</a>
+          </div>
+        {% endif %}
+      </div>
+    {% endif %}
+
   </div>
 </aside>
 
@@ -255,13 +276,67 @@
   }
 }
 
+/* Sidebar user section styling */
+.sidebar-user-section {
+  font-size: 0.75rem;
+}
+
+.sidebar-user-section .user-name {
+  font-weight: bold;
+  margin-bottom: 0.5rem;
+  text-align: center;
+}
+
+.sidebar-user-section .user-divider {
+  margin: 0.5rem 0;
+  border: none;
+  border-top: 1px solid hsl(0, 0%, 86%);
+}
+
+.sidebar-user-section .user-options {
+  margin-left: 0.5rem;
+}
+
+.sidebar-user-section .user-button {
+  display: block;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  margin-bottom: 0.25rem;
+  background: hsl(0, 0%, 96%);
+  border: 1px solid hsl(0, 0%, 86%);
+  border-radius: 4px;
+  color: hsl(0, 0%, 21%);
+  text-decoration: none;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+  transition: background-color 0.15s ease;
+}
+
+.sidebar-user-section .user-button:hover {
+  background: hsl(0, 0%, 93%);
+}
+
+.sidebar-user-section .logout-button {
+  width: 100%;
+}
+
+.sidebar-user-section .admin-link {
+  text-align: left;
+}
+
+.sidebar-user-section .admin-link .user-button {
+  margin-left: 0;
+}
+
 /* Dark mode support */
 @media (prefers-color-scheme: dark) {
   .sidebar {
     background: hsl(0, 0%, 14%);
     border-right-color: hsl(0, 0%, 29%);
   }
-  
+
   .sidebar-section:not(:last-child) {
     border-bottom-color: hsl(0, 0%, 29%);
   }

@@ -15,14 +15,14 @@ import time
 import urllib.parse
 import warnings
 
-from asgiref.sync import sync_to_async
+from asgiref.sync import async_to_sync, sync_to_async
 from cache_watcher.models import Cache_Storage
 from cachetools.keys import hashkey
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 
 # from django.core.paginator import EmptyPage, PageNotAnInteger  # Unused after optimization
-from django.db import close_old_connections, connections, transaction
+from django.db import transaction
 from django.db.models import Count, Q
 from django.db.utils import DatabaseError, IntegrityError, OperationalError
 from django.http import (
@@ -34,21 +34,21 @@ from django.http import (
 from django.shortcuts import render
 from django.views.decorators.vary import vary_on_headers
 from django_htmx.middleware import HtmxDetails
-from frontend.managers import build_context_info, layout_manager, layout_manager_cache
+from frontend.managers import layout_manager_cache
 from frontend.utilities import (
     SORT_MATRIX,
     ensures_endswith,
-    read_from_disk,
     return_breadcrumbs,
     sort_order,
     sync_database_disk,
 )
-from frontend.web import detect_mobile
-from PIL import Image, ImageFile
+from PIL import Image
 from thumbnails.models import ThumbnailFiles
 
 from quickbbs.common import safe_get_or_error
 from quickbbs.models import IndexData, IndexDirs
+
+# download_cache = LRUCache(maxsize=1000)
 
 
 class HtmxHttpRequest(HttpRequest):
@@ -243,7 +243,7 @@ def get_search_results(searchtext: str, search_regex_pattern: str, sort_order_va
 #     )
 
 
-async def return_prev_next2(directory, sorder: int) -> tuple[str | None, str | None]:
+async def return_prev_next2(directory: "IndexDirs", sorder: int) -> tuple[str | None, str | None]:
     """
     The return_prev_next function takes a fully qualified pathname,
     and the current path as parameters. It returns the previous and next paths in a tuple.
@@ -251,12 +251,11 @@ async def return_prev_next2(directory, sorder: int) -> tuple[str | None, str | N
     ASGI async version - all database operations wrapped.
 
     Args:
-        fqpn: Get the path of the parent directory
-        currentpath: Determine the current offset in the list of files
+        directory: IndexDirs object for the current directory
         sorder: Determine whether the index is sorted by name or size
 
     Returns:
-        A tuple of two strings
+        A tuple of two strings (prev_uri, next_uri) or (None, None) if no parent
 
     Note:
         ORM only derived from https://stackoverflow.com/questions/1042596/
@@ -268,7 +267,9 @@ async def return_prev_next2(directory, sorder: int) -> tuple[str | None, str | N
 
     # Wrap model method that accesses database
     parent_dir = await sync_to_async(directory.return_parent_directory)()
-    if not parent_dir:
+
+    # No parent directory means this is a root directory
+    if parent_dir is None:
         return (None, None)
 
     # Wrap queryset operations
@@ -314,7 +315,7 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
         """
         files_in_directory = directory.files_in_dir(additional_filters={"filetype__is_image": True})
         if not files_in_directory.exists():
-            sync_database_disk(directory.fqpndirectory)
+            async_to_sync(sync_database_disk)(directory.fqpndirectory)
             files_in_directory = directory.files_in_dir(additional_filters={"filetype__is_image": True})
         return files_in_directory
 
@@ -559,7 +560,7 @@ def _find_directory(paths: dict):
     try:
         found, directory = IndexDirs.search_for_directory(paths["album_viewing"])
         if not found:
-            sync_database_disk(paths["album_viewing"])
+            async_to_sync(sync_database_disk)(paths["album_viewing"])
             found, directory = IndexDirs.search_for_directory(paths["album_viewing"])
 
             if not found:
@@ -573,14 +574,11 @@ def _find_directory(paths: dict):
 
     # Check if physical directory exists
     if not pathlib.Path(paths["album_viewing"]).exists():
-        if found:
-            parent_dir = directory.return_parent_directory()
-        else:
-            parent_dir = IndexDirs.objects.none()
-        if parent_dir.exists():
-            Cache_Storage.remove_from_cache_name(DirName=parent_dir[0].fqpndirectory)
-            Cache_Storage.remove_from_cache_name(DirName=paths["album_viewing"])
-            sync_database_disk(paths["album_viewing"])
+        parent_dir = directory.return_parent_directory() if found else None
+        if parent_dir:
+            Cache_Storage.remove_from_cache_name(dir_name=parent_dir.fqpndirectory)
+            Cache_Storage.remove_from_cache_name(dir_name=paths["album_viewing"])
+            async_to_sync(sync_database_disk)(paths["album_viewing"])
         return HttpResponseNotFound("<h1>gallery not found</h1>")
 
     return found, directory
@@ -835,15 +833,26 @@ async def download_file(request: WSGIRequest):  # , filename=None):
         #     found during v2 development).
 
     """
+    start_total = time.perf_counter()
+
     sha_value = request.GET.get("usha", None) or request.GET.get("USHA", None)
 
     if sha_value in ["", None]:
         raise Http404("No Identifier provided for download.")
     sha_value = sha_value.strip().lower()
 
-    # Wrap database query
-    file_to_send = await sync_to_async(IndexData.get_by_sha256)(sha_value, unique=True)
+    # Wrap database query - use optimized download method
+    start_db = time.perf_counter()
+    file_to_send = await sync_to_async(IndexData.get_by_sha256_for_download)(sha_value, unique=True)
+    db_time = (time.perf_counter() - start_db) * 1000
+    logging.info("[PERF] DB query: %.2fms", db_time)
+
     if file_to_send:
         # Use async sendfile method to avoid sync iterator warning
-        return await file_to_send.async_inline_sendfile(request, ranged=file_to_send.filetype.is_movie)
+        start_send = time.perf_counter()
+        response = await file_to_send.async_inline_sendfile(request, ranged=file_to_send.filetype.is_movie)
+        send_time = (time.perf_counter() - start_send) * 1000
+        total_time = (time.perf_counter() - start_total) * 1000
+        logging.info("[PERF] File send: %.2fms, Total: %.2fms", send_time, total_time)
+        return response
     raise Http404("No File to Send")

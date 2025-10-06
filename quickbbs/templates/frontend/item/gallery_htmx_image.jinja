@@ -10,15 +10,13 @@
         <div hx-boost="true">
                 {% if any([filetype.is_html, filetype.is_text, filetype.is_markdown]) %}
                 <div class="has-text-left filetype-bg" id="text_frame" style="text-align:left;!important;">
-                    </center>
                     <p class="has-text-left" style="text-align:left !important;" id="text_frame" defer>
                         {{html}}
                     </p>
-                    <center>
                 {% endif %}
                 {% if any([filetype.is_image, filetype.is_dir, filetype.is_link, filetype.is_archive]) %}
                 <div class="thumbnail filetype-bg" id="thumbnail_frame">
-                    <center>
+                    <div class="has-text-centered">
                         <a href="{{ download_uri }}" hx-boost="false" id="image_link">
                             {% if not is_animated %}
                                 <img id="display_image" class="lazy-image" data-src="{{thumbnail_uri}}" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3C/svg%3E" style="object-fit:cover;" loading="lazy" data-loaded="false"/>
@@ -26,40 +24,39 @@
                                 <img id="display_image" class="lazy-image" src="{{download_uri}}" hx-boost="false" style="object-fit:cover;" loading="lazy"/>
                             {% endif %}
                         </a>
-                    </center>
+                    </div>
                 {% elif filetype.is_pdf %}
                 <div class="thumbnail filetype-bg" id="thumbnail_frame">
-                    <center>
+                    <div class="has-text-centered">
                         <a href="/resources/javascript/pdfjs/web/viewer.html?file={{ download_uri }}" hx-boost="false" id="image_link">
                             <img id="display_image" class="lazy-image" data-src="{{thumbnail_uri}}" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3C/svg%3E" style="object-fit:cover;" loading="lazy" data-loaded="false"/>
                         </a>
-                    </center>
+                    </div>
 
                 {% elif filetype.is_movie %}
                 <div class="thumbnail filetype-bg" id="movie_frame" hx-boost="false">
-                    <center>
+                    <div class="has-text-centered">
                         <video width="auto" height="auto" controls poster="{{ thumbnail_uri }}" preload="metadata" hx-boost="false">
                             <source src="{{ download_uri }}" type="video/mp4" />
                           Your browser does not support the video tag.
                         </video>
 
-                    </center>
+                    </div>
                 {% endif %}
                     <div class="columns is-multiline" style="padding:0px;margin-left:2px;margin-top:0px;margin-bottom:0px;">
                         <div class="column is-one-half" style="padding:1px">
-                            <font class="is-size-7"><b id="last_mod_head">Last Modified: </b></font>
-                            <font class="is-size-7">{{lastmod_ds}}</font>
+                            <span class="is-size-7"><span class="has-text-weight-bold" id="last_mod_head">Last Modified: </span></span>
+                            <span class="is-size-7">{{lastmod_ds}}</span>
                         </div>
                         <div class="column is-one-half"  style="padding:1px">
-                            <font class="is-size-7"><b id="file_size_head">File Size: </b></font>
-                            <font class="is-size-7">{{ filesize }}</font>
+                            <span class="is-size-7"><span class="has-text-weight-bold" id="file_size_head">File Size: </span></span>
+                            <span class="is-size-7">{{ filesize }}</span>
                         </div>
                         <div class="column is-11 is-narrow" style="padding:1px" id="uuid_head">
-                            <font class="is-size-7"> <center><b>UUID:</b><font id="uuid">{{uuid}}</font></center>
+                            <span class="is-size-7"> <div class="has-text-centered"><span class="has-text-weight-bold">UUID:</span><span id="uuid">{{uuid}}</span></div>
                         </div>
                 </div> <!--- Thumbnail --->
             </div>
-            </center>
         </div>
         </div>
     </div>

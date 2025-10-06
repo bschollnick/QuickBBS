@@ -1,4 +1,5 @@
 import pathlib
+import sys
 from mimetypes import guess_type
 
 from django.conf import settings
@@ -8,13 +9,15 @@ from filetypes.models import filetypes
 
 class Command(BaseCommand):
     def refresh_filetypes(self):
+        # Build list of filetype entries
+        filetype_entries = []
+
+        # Movie file types
         for ext in settings.MOVIE_FILE_TYPES:
             mimetype = guess_type(f"test.{ext}")[0]
-            if mimetype is None:
-                mimetype = None
-            filetypes.objects.update_or_create(
-                fileext=ext,
-                defaults={
+            filetype_entries.append({
+                "fileext": ext,
+                "defaults": {
                     "generic": False,
                     "icon_filename": "MovieIcon100.jpg",
                     "color": "CCCCCC",
@@ -23,11 +26,13 @@ class Command(BaseCommand):
                     "mimetype": mimetype,
                     "thumbnail": pathlib.Path(settings.ICONS_PATH, "MovieIcon100.jpg").read_bytes(),
                 },
-            )
+            })
+
+        # Audio file types
         for ext in settings.AUDIO_FILE_TYPES:
-            filetypes.objects.update_or_create(
-                fileext=ext,
-                defaults={
+            filetype_entries.append({
+                "fileext": ext,
+                "defaults": {
                     "generic": True,
                     "icon_filename": "MovieIcon100.jpg",
                     "color": "CCCCCC",
@@ -36,12 +41,13 @@ class Command(BaseCommand):
                     "mimetype": guess_type(f"test.{ext}")[0],
                     "thumbnail": pathlib.Path(settings.ICONS_PATH, "MovieIcon100.jpg").read_bytes(),
                 },
-            )
+            })
 
+        # Archive file types
         for ext in settings.ARCHIVE_FILE_TYPES:
-            filetypes.objects.update_or_create(
-                fileext=ext,
-                defaults={
+            filetype_entries.append({
+                "fileext": ext,
+                "defaults": {
                     "generic": True,
                     "icon_filename": "1431973824_compressed.png",
                     "color": "b2dece",
@@ -50,12 +56,13 @@ class Command(BaseCommand):
                     "mimetype": guess_type(f"test.{ext}")[0],
                     "thumbnail": pathlib.Path(settings.ICONS_PATH, "1431973824_compressed.png").read_bytes(),
                 },
-            )
+            })
 
+        # HTML file types
         for ext in settings.HTML_FILE_TYPES:
-            filetypes.objects.update_or_create(
-                fileext=ext,
-                defaults={
+            filetype_entries.append({
+                "fileext": ext,
+                "defaults": {
                     "generic": True,
                     "icon_filename": "1431973779_html.png",
                     "color": "fef7df",
@@ -65,24 +72,26 @@ class Command(BaseCommand):
                     "mimetype": guess_type(f"test.{ext}")[0],
                     "thumbnail": pathlib.Path(settings.ICONS_PATH, "1431973779_html.png").read_bytes(),
                 },
-            )
+            })
 
+        # Graphic file types
         for ext in settings.GRAPHIC_FILE_TYPES:
-            filetypes.objects.update_or_create(
-                fileext=ext,
-                defaults={
+            filetype_entries.append({
+                "fileext": ext,
+                "defaults": {
                     "generic": False,
                     "color": "FAEBF4",
                     "filetype": settings.FTYPES["image"],
                     "is_image": True,
                     "mimetype": guess_type(f"test.{ext}")[0],
                 },
-            )
+            })
 
+        # Text file types
         for ext in settings.TEXT_FILE_TYPES:
-            filetypes.objects.update_or_create(
-                fileext=ext,
-                defaults={
+            filetype_entries.append({
+                "fileext": ext,
+                "defaults": {
                     "generic": True,
                     "icon_filename": "1431973815_text.PNG",
                     "color": "FAEBF4",
@@ -91,12 +100,13 @@ class Command(BaseCommand):
                     "mimetype": guess_type(f"test.{ext}")[0],
                     "thumbnail": pathlib.Path(settings.ICONS_PATH, "1431973815_text.PNG").read_bytes(),
                 },
-            )
+            })
 
+        # Markdown file types
         for ext in settings.MARKDOWN_FILE_TYPES:
-            filetypes.objects.update_or_create(
-                fileext=ext,
-                defaults={
+            filetype_entries.append({
+                "fileext": ext,
+                "defaults": {
                     "generic": True,
                     "icon_filename": "1431973815_text.PNG",
                     "color": "FAEBF4",
@@ -106,12 +116,13 @@ class Command(BaseCommand):
                     "mimetype": guess_type(f"test.{ext}")[0],
                     "thumbnail": pathlib.Path(settings.ICONS_PATH, "1431973815_text.PNG").read_bytes(),
                 },
-            )
+            })
 
+        # Link file types
         for ext in settings.LINK_FILE_TYPES:
-            filetypes.objects.update_or_create(
-                fileext=ext,
-                defaults={
+            filetype_entries.append({
+                "fileext": ext,
+                "defaults": {
                     "generic": True,
                     "icon_filename": "redirecting-link.png",
                     "color": "FDEDB1",
@@ -120,71 +131,74 @@ class Command(BaseCommand):
                     "mimetype": guess_type(f"test.{ext}")[0],
                     "thumbnail": pathlib.Path(settings.ICONS_PATH, "redirecting-link.PNG").read_bytes(),
                 },
+            })
+
+        # Special single entries
+        filetype_entries.extend([
+            {
+                "fileext": ".link",
+                "defaults": {
+                    "generic": True,
+                    "icon_filename": "redirecting-link.png",
+                    "color": "FDEDB1",
+                    "filetype": settings.FTYPES["link"],
+                    "is_link": True,
+                    "mimetype": guess_type("test.url")[0],
+                    "thumbnail": pathlib.Path(settings.ICONS_PATH, "redirecting-link.PNG").read_bytes(),
+                },
+            },
+            {
+                "fileext": ".pdf",
+                "defaults": {
+                    "generic": False,
+                    "color": "FDEDB1",
+                    "filetype": settings.FTYPES["image"],
+                    "is_pdf": True,
+                    "mimetype": guess_type("test.pdf")[0],
+                },
+            },
+            {
+                "fileext": ".epub",
+                "defaults": {
+                    "generic": True,
+                    "icon_filename": "epub-logo.gif",
+                    "color": "FDEDB1",
+                    "filetype": settings.FTYPES["epub"],
+                    "mimetype": guess_type("test.epub")[0],
+                    "thumbnail": pathlib.Path(settings.ICONS_PATH, "epub-logo.gif").read_bytes(),
+                },
+            },
+            {
+                "fileext": ".dir",
+                "defaults": {
+                    "generic": False,
+                    "color": "DAEFF5",
+                    "icon_filename": "1431973840_folder.png",
+                    "filetype": settings.FTYPES["dir"],
+                    "is_dir": True,
+                    "thumbnail": pathlib.Path(settings.ICONS_PATH, "1431973840_folder.png").read_bytes(),
+                },
+            },
+            {
+                "fileext": ".none",
+                "defaults": {
+                    "generic": True,
+                    "icon_filename": "1431973807_fileicon_bg.png",
+                    "color": "FFFFFF",
+                    "filetype": settings.FTYPES["unknown"],
+                    "thumbnail": pathlib.Path(settings.ICONS_PATH, "1431973807_fileicon_bg.png").read_bytes(),
+                },
+            },
+        ])
+
+        # Process all entries
+        for entry in filetype_entries:
+            filetypes.objects.update_or_create(
+                fileext=entry["fileext"],
+                defaults=entry["defaults"],
             )
-        filetypes.objects.update_or_create(
-            fileext=".link",
-            defaults={
-                "generic": True,
-                "icon_filename": "redirecting-link.png",
-                "color": "FDEDB1",
-                "filetype": settings.FTYPES["link"],
-                "is_link": True,
-                "mimetype": guess_type("test.url")[0],
-                "thumbnail": pathlib.Path(settings.ICONS_PATH, "redirecting-link.PNG").read_bytes(),
-            },
-        )
-
-        filetypes.objects.update_or_create(
-            fileext=".pdf",
-            defaults={
-                "generic": False,
-                "color": "FDEDB1",
-                "filetype": settings.FTYPES["image"],
-                "is_pdf": True,
-                "mimetype": guess_type("test.pdf")[0],
-            },
-        )
-
-        filetypes.objects.update_or_create(
-            fileext=".epub",
-            defaults={
-                "generic": True,
-                "icon_filename": "epub-logo.gif",
-                "color": "FDEDB1",
-                "filetype": settings.FTYPES["epub"],
-                "mimetype": guess_type("test.epub")[0],
-                "thumbnail": pathlib.Path(settings.ICONS_PATH, "epub-logo.gif").read_bytes(),
-            },
-        )
-
-        filetypes.objects.update_or_create(
-            fileext=".dir",
-            defaults={
-                "generic": False,
-                "color": "DAEFF5",
-                "icon_filename": "1431973840_folder.png",
-                "filetype": settings.FTYPES["dir"],
-                "is_dir": True,
-                "thumbnail": pathlib.Path(settings.ICONS_PATH, "1431973840_folder.png").read_bytes(),
-            },
-        )
-
-        filetypes.objects.update_or_create(
-            fileext=".none",
-            defaults={
-                "generic": True,
-                "icon_filename": "1431973807_fileicon_bg.png",
-                "color": "FFFFFF",
-                "filetype": settings.FTYPES["unknown"],
-                "thumbnail": pathlib.Path(settings.ICONS_PATH, "1431973807_fileicon_bg.png").read_bytes(),
-            },
-        )
 
     def add_arguments(self, parser):
-        # Positional arguments
-        #        parser.add_argument('poll_ids', nargs='+', type=int)
-
-        # Named (optional) arguments
         parser.add_argument(
             "--refresh-filetypes",
             action="store_true",
@@ -192,11 +206,10 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        # ...
-        #     try:
-        print("Starting to refresh all filetypes")
-        self.refresh_filetypes()
-        print("filetypes have been refreshed.")
-
-    #    except:
-    #       print("Unable to validate or create FileType database table.")
+        try:
+            print("Starting to refresh all filetypes")
+            self.refresh_filetypes()
+            print("filetypes have been refreshed.")
+        except Exception as e:
+            self.stderr.write(self.style.ERROR(f"Unable to update FileType database table: {e}"))
+            sys.exit(1)

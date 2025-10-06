@@ -1,5 +1,4 @@
 import os
-import pathlib
 import sys
 
 from cache_watcher.models import Cache_Storage

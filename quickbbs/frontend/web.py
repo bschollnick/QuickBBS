@@ -2,26 +2,19 @@
 Web functionality
 """
 
-import io
-import mimetypes
 import os
 import re
-from wsgiref.util import FileWrapper
 
-from django.conf import settings
 from django.contrib.auth import authenticate, login
 from django.http import (
     FileResponse,
     Http404,
-    HttpResponseBadRequest,
-    HttpResponseNotAllowed,
     StreamingHttpResponse,
 )
 
 # from django.conf import settings
 from django.views.decorators.cache import never_cache
-from filetypes.models import FILETYPE_DATA, filetypes, load_filetypes
-from werkzeug.http import parse_range_header
+from filetypes.models import filetypes
 
 RANGE_RE = re.compile(r"bytes\s*=\s*(\d+)\s*-\s*(\d*)", re.I)
 
