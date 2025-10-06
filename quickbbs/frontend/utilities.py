@@ -22,7 +22,7 @@ import filetypes.models as filetype_models
 from asgiref.sync import sync_to_async
 from cache_watcher.models import Cache_Storage, get_dir_sha
 from django.conf import settings
-from django.db import close_old_connections, connections, transaction  # connection
+from django.db import close_old_connections, transaction  # connection
 
 # from django.db.models import Case, F, Value, When, BooleanField
 from frontend.file_listings import return_disk_listing
@@ -36,15 +36,6 @@ logger = logging.getLogger(__name__)
 
 # Optimize thread count dynamically based on system resources
 MAX_THREADS = min(32, max(4, (os.cpu_count() or 1) * 2))  # Better scaling for modern systems
-
-# Filesystem operation caching - use regular dict since os.stat_result objects work better with regular dict
-_fs_stat_cache = {}  # Cache file stats with timestamp tuples
-_path_exists_cache = {}  # Cache path existence checks
-_cache_timeout = 30  # Cache timeout in seconds
-
-# Memory pooling for object creation
-_record_pool = []  # Pool of reusable record dictionaries
-_max_pool_size = 100  # Maximum number of pooled objects
 
 
 # Intelligent batch sizing based on system resources
@@ -151,7 +142,7 @@ async def _get_or_create_directory(directory_sha256: str, dirpath: str) -> tuple
     return dirpath_info, is_cached
 
 
-def _handle_missing_directory(dirpath_info: object) -> None:
+async def _handle_missing_directory(dirpath_info: object) -> None:
     """
     Handle case where directory doesn't exist on filesystem.
 
@@ -164,14 +155,12 @@ def _handle_missing_directory(dirpath_info: object) -> None:
         None
     """
     try:
-        parent_dirs = dirpath_info.return_parent_directory()
-        dirpath_info.delete_directory(dirpath_info.fqpndirectory)
+        parent_dir = await sync_to_async(dirpath_info.return_parent_directory)()
+        await sync_to_async(dirpath_info.delete_directory)(dirpath_info.fqpndirectory)
 
         # Clean up parent directory cache if it exists
-        if parent_dirs and parent_dirs.exists():
-            parent_dir = parent_dirs.first()
-            if parent_dir:
-                parent_dir.delete_directory(parent_dir.fqpndirectory, cache_only=True)
+        if parent_dir:
+            await sync_to_async(parent_dir.delete_directory)(parent_dir.fqpndirectory, cache_only=True)
     except Exception as e:
         logger.error(f"Error handling missing directory: {e}")
 
@@ -255,61 +244,6 @@ async def _sync_directories(dirpath_info: object, fs_entries: dict) -> None:
                     IndexDirs.add_directory(fqpn_directory=dir_to_create)
 
         await add_dirs()
-
-
-def _get_cached_stat(file_path: str):
-    """
-    Get cached file stat or fetch and cache it.
-
-    Args:
-        file_path (str): Path to file
-
-    Returns:
-        os.stat_result or None: File stat object or None if error
-    """
-    current_time = time.time()
-    cache_key = file_path
-
-    # Check if cached and not expired
-    if cache_key in _fs_stat_cache:
-        cached_stat, cache_time = _fs_stat_cache[cache_key]
-        if current_time - cache_time < _cache_timeout:
-            return cached_stat
-
-    try:
-        # Use pathlib for consistent Path handling
-        stat_result = Path(file_path).stat()
-        _fs_stat_cache[cache_key] = (stat_result, current_time)
-        return stat_result
-    except (OSError, IOError):
-        return None
-
-
-def _get_pooled_record() -> dict:
-    """
-    Get a record dictionary from the pool or create a new one.
-
-    Returns:
-        dict: A clean record dictionary for use
-    """
-    if _record_pool:
-        record = _record_pool.pop()
-        record.clear()  # Reset the dictionary
-        return record
-    else:
-        return {}
-
-
-def _return_to_pool(record: dict) -> None:
-    """
-    Return a record dictionary to the pool for reuse.
-
-    Args:
-        record (dict): Record dictionary to return to pool
-    """
-    if len(_record_pool) < _max_pool_size:
-        record.clear()
-        _record_pool.append(record)
 
 
 def _check_single_directory_update(db_dir_entry, fs_entries: dict) -> object | None:
@@ -926,14 +860,14 @@ async def sync_database_disk(directoryname: str) -> bool | None:
     success, fs_entries = await return_disk_listing(dirpath)
     if not success:
         print("File path doesn't exist, removing from cache and database.")
-        return _handle_missing_directory(dirpath_info)
+        return await _handle_missing_directory(dirpath_info)
 
     # Batch process all operations
     await _sync_directories(dirpath_info, fs_entries)
     await sync_to_async(_sync_files)(dirpath_info, fs_entries, BULK_SIZE)
 
     # Cache the result
-    await sync_to_async(Cache_Storage.add_to_cache)(DirName=dirpath)
+    await sync_to_async(Cache_Storage.add_to_cache)(dir_name=dirpath)
     logger.info(f"Cached directory: {dirpath}")
     print("Elapsed Time (Sync Database Disk): ", time.perf_counter() - start_time)
 
@@ -981,9 +915,9 @@ def read_from_disk(dir_to_scan: str, skippable: bool = True) -> None:
     if not Path(dir_to_scan).exists():
         if dir_to_scan.startswith("/"):
             dir_to_scan = dir_to_scan[1:]
-        dir_path = Path(os.path.join(settings.ALBUMS_PATH, dir_to_scan))
+        Path(os.path.join(settings.ALBUMS_PATH, dir_to_scan))
     else:
-        dir_path = Path(ensures_endswith(dir_to_scan, os.sep))
+        Path(ensures_endswith(dir_to_scan, os.sep))
 
     # Note: This is problematic - sync_database_disk is now async
     # This will fail in production. Use async_read_from_disk instead.
@@ -1044,9 +978,7 @@ def resolve_alias_path(alias_path: str) -> str:
     if error:
         raise ValueError(f"Error creating bookmark data: {error}")
 
-    resolved_url, is_stale, error = NSURL.URLByResolvingBookmarkData_options_relativeToURL_bookmarkDataIsStale_error_(
-        bookmark, options, None, None, None
-    )
+    resolved_url, _, error = NSURL.URLByResolvingBookmarkData_options_relativeToURL_bookmarkDataIsStale_error_(bookmark, options, None, None, None)
     if error:
         raise ValueError(f"Error resolving bookmark data: {error}")
 

@@ -25,7 +25,7 @@
                     {% set item_view_url = item.get_view_url() %}
                     {% set item_thumbnail_url = item.get_thumbnail_url() %}
                     <div class="column is-one-third" style="border:1px solid black;background-color:#{{item_bg_color}};">
-                        <b>{{ loop.index }}</b> <br>
+                        <span class="has-text-weight-bold">{{ loop.index }}</span> <br>
 <!-- title -->
                         {% if item.filetype.is_link %}
                             <span class="is-size-7"><a href="{{ item.fqpndirectory if item.fqpndirectory is defined else '#' }}"
@@ -101,16 +101,16 @@
                                 {% endif %}
                                 <div class="cell flex-shrink">
                                     {{ icon("fa-regular fa-calendar")}}
-                                    <b class="is-size-7"  style="color:black">{{ fromtimestamp( item.lastmod).strftime("%m/%d/%y %H:%M") }}</b>
+                                    <span class="is-size-7 has-text-weight-bold"  style="color:black">{{ fromtimestamp( item.lastmod).strftime("%m/%d/%y %H:%M") }}</span>
                                 </div>
                             <div class="cell flex-shrink">
                                 {% if item.size is defined and item.size and not item.filetype.is_movie and not item.filetype.is_dir %}
                                     {{ icon("fa-regular fa-ruler")}}
-                                    <b class="is-size-7  m-0 p-0" style="color:black"> {{ naturalsize(item.size, gnu=True) }}</b>
+                                    <span class="is-size-7 has-text-weight-bold m-0 p-0" style="color:black"> {{ naturalsize(item.size, gnu=True) }}</span>
                                 {% endif %}
                                 {% if item.duration is defined and item.filetype.is_movie %}
                                     {{ icon("fa-regular fa-clock")}}
-                                <b class="is-size-7 m-0 p-0" style="color:black"> {{ precisedelta(item.duration) }}</b>
+                                <span class="is-size-7 has-text-weight-bold m-0 p-0" style="color:black"> {{ precisedelta(item.duration) }}</span>
                                 {% endif %}
                             </div>
                         </div>

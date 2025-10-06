@@ -3,11 +3,8 @@
 import asyncio
 import logging
 
-from asgiref.sync import async_to_sync
 from django.apps import AppConfig
-from django.db import connection
 from django.db.models.signals import post_delete, post_save
-from django.db.utils import OperationalError
 
 logger = logging.getLogger(__name__)
 

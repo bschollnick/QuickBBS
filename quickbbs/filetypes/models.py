@@ -7,10 +7,8 @@ import io
 import os
 
 from cachetools import LRUCache, cached
-from django.apps import AppConfig
 from django.conf import settings
 from django.db import models
-from django.http import FileResponse, HttpResponse
 from django.utils.functional import cached_property
 from frontend.serve_up import send_file_response
 
@@ -176,7 +174,7 @@ def load_filetypes(force: bool = False) -> dict:
         force: If True, force reload from database even if already cached
     Returns: Dictionary of filetype data
     """
-    from django.db import DatabaseError, connections
+    from django.db import DatabaseError
 
     global FILETYPE_DATA
     if not FILETYPE_DATA or force:

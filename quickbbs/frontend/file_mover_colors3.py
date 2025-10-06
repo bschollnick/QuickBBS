@@ -302,7 +302,7 @@ def main(args):
         print(f"Error: Source path '{root_src_dir}' is not a directory.")
         sys.exit(1)
 
-#    root_target_dir.mkdir(parents=True, exist_ok=True)
+    #    root_target_dir.mkdir(parents=True, exist_ok=True)
 
     # No persistent cache needed - using per-directory processing
 
@@ -336,9 +336,7 @@ def main(args):
         """
         for src_dir, _, files in os.walk(str(root_src_dir)):
             if files:  # Only yield directories with files
-                dst_dir = Path(
-                    src_dir.replace(str(root_src_dir), str(root_target_dir))
-                ).resolve()
+                dst_dir = Path(src_dir.replace(str(root_src_dir), str(root_target_dir))).resolve()
                 dst_dir = dst_dir.parent / dst_dir.name.title().replace(" ", "_")
                 yield (src_dir, str(dst_dir), files)
 
@@ -350,9 +348,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Copy or move files with macOS Finder color labels"
-    )
+    parser = argparse.ArgumentParser(description="Copy or move files with macOS Finder color labels")
 
     parser.add_argument("source", help="Source directory path")
     parser.add_argument("target", help="Target directory path")

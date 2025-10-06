@@ -44,7 +44,7 @@ def normalize_string_title(s: str) -> str:
     return s.title().strip()
 
 
-@lru_cache(maxsize=1000)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
+@lru_cache(maxsize=5000)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
 def get_dir_sha(fqpn_directory: str) -> str:
     """
     Return the SHA256 hash of the normalized directory path.

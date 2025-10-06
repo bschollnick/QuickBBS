@@ -1,0 +1,54 @@
+<!-- User Menu Component -->
+{% if user.is_authenticated %}
+  <div class="navbar-item has-dropdown is-hoverable">
+    <a class="navbar-link">
+      <span class="icon-text">
+        <span class="icon">
+          <i class="fas fa-user"></i>
+        </span>
+        <span>{{ user.username }}</span>
+      </span>
+    </a>
+    <div class="navbar-dropdown is-boxed is-right">
+      {% if user.is_staff %}
+        <a class="navbar-item" href="{{ url('admin:index') }}" hx-boost="false">
+          <span class="icon-text">
+            <span class="icon">
+              <i class="fas fa-cog"></i>
+            </span>
+            <span>Admin Panel</span>
+          </span>
+        </a>
+        <hr class="navbar-divider">
+      {% endif %}
+      <a class="navbar-item" href="{{ url('admin:password_change') }}" hx-boost="false">
+        <span class="icon-text">
+          <span class="icon">
+            <i class="fas fa-key"></i>
+          </span>
+          <span>Change Password</span>
+        </span>
+      </a>
+      <hr class="navbar-divider">
+      <form method="post" action="{{ url('admin:logout') }}" style="margin: 0;" hx-boost="false">
+        {% csrf_token %}
+        <button type="submit" class="navbar-item" style="width: 100%; text-align: left; background: none; border: none; cursor: pointer; padding: 0.5rem 1rem;">
+          <span class="icon-text">
+            <span class="icon">
+              <i class="fas fa-sign-out-alt"></i>
+            </span>
+            <span>Logout</span>
+          </span>
+        </button>
+      </form>
+    </div>
+  </div>
+{% else %}
+  <div class="navbar-item">
+    <div class="buttons">
+      <a class="button is-primary" href="{{ url('admin:login') }}" hx-boost="false">
+        <strong>Login</strong>
+      </a>
+    </div>
+  </div>
+{% endif %}

@@ -1,8 +1,23 @@
+"""Watchdog filesystem monitoring module for QuickBBS cache invalidation.
+
+Example:
+    from cache_watcher.watchdogmon import watchdog
+    from cache_watcher.models import CacheFileMonitorEventHandler
+
+    # Create event handler
+    event_handler = CacheFileMonitorEventHandler()
+
+    # Start monitoring
+    watchdog.startup("/path/to/albums", event_handler)
+
+    # Stop monitoring
+    watchdog.shutdown()
+"""
+
 import logging
 import os
 import sys
 
-from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 logger = logging.getLogger()
@@ -39,7 +54,7 @@ __license__ = ""
 #             print(f"ok ok ok, someone moved {event.src_path} to {event.dest_path}")
 
 
-class watchdog_monitor:
+class WatchdogMonitor:
     """
     Class to monitor a directory for changes, and to call the appropriate event handler.
     In this case (QuickBBS's usage) is to monitor the albums directories and all children directories and
@@ -51,15 +66,16 @@ class watchdog_monitor:
 
     def __init__(self) -> None:
         """Initialize the watchdog monitor."""
-        pass
+        self.my_observer = None
+        self.my_event_handler = None
+        self.current_watch = None
 
     def on_event(self, event) -> None:
         """Handle filesystem events.
 
-        :param event: Filesystem event to process
-        :return: None
+        Args:
+            event: Filesystem event to process
         """
-        pass
 
     def startup(self, monitor_path: str, event_handler=None) -> None:
         """
@@ -70,11 +86,23 @@ class watchdog_monitor:
         :return: None
         """
         logger.info(f"Monitoring : {monitor_path}")
+
+        # If observer already exists, unschedule old handler first
+        if self.my_observer is not None and self.current_watch is not None:
+            logger.debug("Unscheduling existing event handler")
+            self.my_observer.unschedule(self.current_watch)
+            self.current_watch = None
+
         self.my_event_handler = event_handler
         go_recursively = True
-        self.my_observer = Observer()
-        self.my_observer.schedule(self.my_event_handler, monitor_path, recursive=go_recursively)
-        self.my_observer.start()
+
+        # Create observer only if it doesn't exist
+        if self.my_observer is None:
+            self.my_observer = Observer()
+            self.my_observer.start()
+
+        # Schedule the new handler
+        self.current_watch = self.my_observer.schedule(self.my_event_handler, monitor_path, recursive=go_recursively)
 
     def shutdown(self, *args) -> None:
         """
@@ -90,7 +118,7 @@ class watchdog_monitor:
         sys.exit(0)  # So runserver does try to exit
 
 
-watchdog = watchdog_monitor()
+watchdog = WatchdogMonitor()
 
 # if __name__ == "__main__":
 #     import time

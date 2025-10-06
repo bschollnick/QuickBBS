@@ -1,5 +1,3 @@
-import os
-from itertools import filterfalse
 from timeit import timeit
 
 from frontend.thumbnail_engine import FastImageProcessor, create_thumbnails_from_path

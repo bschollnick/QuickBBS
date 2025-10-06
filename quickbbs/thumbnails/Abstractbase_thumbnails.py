@@ -19,7 +19,6 @@ class AbstractBackend(ABC):
         quality: int,
     ) -> dict[str, bytes]:
         """Process an file and generate multiple thumbnails."""
-        pass
 
     @abstractmethod
     def process_from_memory(
@@ -30,7 +29,6 @@ class AbstractBackend(ABC):
         quality: int,
     ) -> dict[str, bytes]:
         """Process an in-memory blob and generate multiple thumbnails."""
-        pass
 
     @abstractmethod
     def process_data(
@@ -41,4 +39,3 @@ class AbstractBackend(ABC):
         quality: int,
     ) -> dict[str, bytes]:
         """Process an image (PILLOW) and generate multiple thumbnails."""
-        pass

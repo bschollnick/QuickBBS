@@ -1,8 +1,7 @@
 import logging
 import os
-import time
 import sys
-
+import time
 
 import django
 

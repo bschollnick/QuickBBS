@@ -1,17 +1,13 @@
 import io
-import os
-import pytest
-from unittest.mock import Mock, patch, MagicMock
-from django.test import TestCase
-from django.db import IntegrityError
-from django.conf import settings
+from unittest.mock import patch
 
+import pytest
+from django.db import IntegrityError
 from filetypes.models import (
     filetypes,
     get_ftype_dict,
-    return_identifier,
     load_filetypes,
-    FILETYPE_DATA
+    return_identifier,
 )
 
 
@@ -55,7 +51,7 @@ class TestFiletypesModel:
             color="FF0000",
             filetype=1,
             mimetype="image/jpeg",
-            is_image=True
+            is_image=True,
         )
 
         assert ft.fileext == ".jpg"
@@ -130,7 +126,7 @@ class TestFiletypesModel:
             is_text=True,
             is_html=True,
             is_markdown=True,
-            is_link=True
+            is_link=True,
         )
 
         assert ft.is_image is True
@@ -205,7 +201,7 @@ class TestFiletypesStaticMethods:
 
         assert result1 == result2 == True
 
-    @patch('filetypes.models.settings.IMAGES_PATH', '/test/images')
+    @patch("filetypes.models.settings.IMAGES_PATH", "/test/images")
     def test_return_any_icon_filename_success(self):
         """Test return_any_icon_filename returns correct path"""
         filetypes.objects.create(fileext=".jpg", icon_filename="test.png")
@@ -234,7 +230,7 @@ class TestFiletypesStaticMethods:
         """Test return_any_icon_filename uses .none for empty string"""
         filetypes.objects.create(fileext=".none", icon_filename="default.png")
 
-        with patch('filetypes.models.settings.IMAGES_PATH', '/test'):
+        with patch("filetypes.models.settings.IMAGES_PATH", "/test"):
             result = filetypes.return_any_icon_filename("")
             assert result == "/test/default.png"
 
@@ -242,13 +238,13 @@ class TestFiletypesStaticMethods:
         """Test return_any_icon_filename uses .none for 'unknown'"""
         filetypes.objects.create(fileext=".none", icon_filename="default.png")
 
-        with patch('filetypes.models.settings.IMAGES_PATH', '/test'):
+        with patch("filetypes.models.settings.IMAGES_PATH", "/test"):
             result = filetypes.return_any_icon_filename("unknown")
             assert result == "/test/default.png"
 
     def test_return_filetype_success(self):
         """Test return_filetype returns correct filetype object"""
-        ft = filetypes.objects.create(fileext=".jpg", is_image=True)
+        filetypes.objects.create(fileext=".jpg", is_image=True)
 
         result = filetypes.return_filetype(".jpg")
         assert result.fileext == ".jpg"
@@ -256,7 +252,7 @@ class TestFiletypesStaticMethods:
 
     def test_return_filetype_normalizes_extension(self):
         """Test return_filetype normalizes extension"""
-        ft = filetypes.objects.create(fileext=".jpg")
+        filetypes.objects.create(fileext=".jpg")
 
         result1 = filetypes.return_filetype("JPG")
         result2 = filetypes.return_filetype(".jpg")
@@ -266,21 +262,21 @@ class TestFiletypesStaticMethods:
 
     def test_return_filetype_empty_string_uses_none(self):
         """Test return_filetype uses .none for empty string"""
-        ft = filetypes.objects.create(fileext=".none")
+        filetypes.objects.create(fileext=".none")
 
         result = filetypes.return_filetype("")
         assert result.fileext == ".none"
 
     def test_return_filetype_adds_dot(self):
         """Test return_filetype adds dot if missing"""
-        ft = filetypes.objects.create(fileext=".jpg")
+        filetypes.objects.create(fileext=".jpg")
 
         result = filetypes.return_filetype("jpg")
         assert result.fileext == ".jpg"
 
     def test_return_filetype_caching(self):
         """Test return_filetype uses caching"""
-        ft = filetypes.objects.create(fileext=".jpg")
+        filetypes.objects.create(fileext=".jpg")
 
         result1 = filetypes.return_filetype(".jpg")
         result2 = filetypes.return_filetype(".jpg")
@@ -299,10 +295,10 @@ class TestFiletypesSendThumbnail:
             fileext=".jpg",
             icon_filename="test.jpg",
             mimetype="image/jpeg",
-            thumbnail=self.test_thumbnail
+            thumbnail=self.test_thumbnail,
         )
 
-    @patch('filetypes.models.send_file_response')
+    @patch("filetypes.models.send_file_response")
     def test_send_thumbnail_calls_send_file_response(self, mock_send_file):
         """Test send_thumbnail calls send_file_response correctly"""
         self.ft.send_thumbnail()
@@ -310,35 +306,30 @@ class TestFiletypesSendThumbnail:
         mock_send_file.assert_called_once()
         call_kwargs = mock_send_file.call_args[1]
 
-        assert call_kwargs['filename'] == "test.jpg"
-        assert isinstance(call_kwargs['content_to_send'], io.BytesIO)
-        assert call_kwargs['mtype'] == "image/jpeg"
-        assert call_kwargs['attachment'] is False
-        assert call_kwargs['last_modified'] is None
-        assert call_kwargs['expiration'] == 300
+        assert call_kwargs["filename"] == "test.jpg"
+        assert isinstance(call_kwargs["content_to_send"], io.BytesIO)
+        assert call_kwargs["mtype"] == "image/jpeg"
+        assert call_kwargs["attachment"] is False
+        assert call_kwargs["last_modified"] is None
+        assert call_kwargs["expiration"] == 300
 
-    @patch('filetypes.models.send_file_response')
+    @patch("filetypes.models.send_file_response")
     def test_send_thumbnail_with_no_mimetype(self, mock_send_file):
         """Test send_thumbnail uses default mimetype when None"""
-        ft = filetypes.objects.create(
-            fileext=".test",
-            icon_filename="test.png",
-            mimetype=None,
-            thumbnail=b"data"
-        )
+        ft = filetypes.objects.create(fileext=".test", icon_filename="test.png", mimetype=None, thumbnail=b"data")
 
         ft.send_thumbnail()
 
         call_kwargs = mock_send_file.call_args[1]
-        assert call_kwargs['mtype'] == "image/jpeg"
+        assert call_kwargs["mtype"] == "image/jpeg"
 
-    @patch('filetypes.models.send_file_response')
+    @patch("filetypes.models.send_file_response")
     def test_send_thumbnail_content_is_bytesio(self, mock_send_file):
         """Test send_thumbnail sends thumbnail as BytesIO"""
         self.ft.send_thumbnail()
 
         call_kwargs = mock_send_file.call_args[1]
-        content = call_kwargs['content_to_send']
+        content = call_kwargs["content_to_send"]
 
         assert isinstance(content, io.BytesIO)
         assert content.read() == self.test_thumbnail
@@ -364,9 +355,9 @@ class TestGetFtypeDict:
 
     def test_get_ftype_dict_with_data(self):
         """Test get_ftype_dict returns all filetypes"""
-        ft1 = filetypes.objects.create(fileext=".jpg")
-        ft2 = filetypes.objects.create(fileext=".png")
-        ft3 = filetypes.objects.create(fileext=".gif")
+        filetypes.objects.create(fileext=".jpg")
+        filetypes.objects.create(fileext=".png")
+        filetypes.objects.create(fileext=".gif")
 
         result = get_ftype_dict()
 
@@ -377,7 +368,7 @@ class TestGetFtypeDict:
 
     def test_get_ftype_dict_keyed_by_primary_key(self):
         """Test get_ftype_dict is keyed by primary key (fileext)"""
-        ft = filetypes.objects.create(fileext=".jpg", is_image=True)
+        filetypes.objects.create(fileext=".jpg", is_image=True)
 
         result = get_ftype_dict()
 
@@ -423,8 +414,6 @@ class TestReturnIdentifier:
         assert result == ""
 
 
-
-
 @pytest.mark.django_db
 class TestLoadFiletypes:
     """Test load_filetypes function"""
@@ -432,6 +421,7 @@ class TestLoadFiletypes:
     def setup_method(self):
         """Set up test fixtures"""
         import filetypes.models
+
         filetypes.models.FILETYPE_DATA = {}
         get_ftype_dict.cache_clear()
 
@@ -442,6 +432,7 @@ class TestLoadFiletypes:
         result = load_filetypes()
 
         import filetypes.models
+
         assert filetypes.models.FILETYPE_DATA != {}
         assert ".jpg" in result
 
@@ -449,7 +440,7 @@ class TestLoadFiletypes:
         """Test load_filetypes returns cached data without force"""
         filetypes.objects.create(fileext=".jpg")
 
-        result1 = load_filetypes()
+        load_filetypes()
         filetypes.objects.create(fileext=".png")
         result2 = load_filetypes()
 
@@ -460,20 +451,21 @@ class TestLoadFiletypes:
         """Test load_filetypes force reloads data"""
         filetypes.objects.create(fileext=".jpg")
 
-        result1 = load_filetypes()
+        load_filetypes()
         filetypes.objects.create(fileext=".png")
         result2 = load_filetypes(force=True)
 
         assert ".jpg" in result2
         assert ".png" in result2
 
-    @patch('filetypes.models.get_ftype_dict')
-    @patch('builtins.print')
+    @patch("filetypes.models.get_ftype_dict")
+    @patch("builtins.print")
     def test_load_filetypes_handles_exception(self, mock_print, mock_get_ftype):
         """Test load_filetypes handles exceptions gracefully"""
         mock_get_ftype.side_effect = Exception("Database error")
 
         import filetypes.models
+
         filetypes.models.FILETYPE_DATA = {}
 
         result = load_filetypes()
@@ -481,10 +473,11 @@ class TestLoadFiletypes:
         mock_print.assert_called()
         assert result == {}
 
-    @patch('builtins.print')
+    @patch("builtins.print")
     def test_load_filetypes_logs_loading_message(self, mock_print):
         """Test load_filetypes prints loading message"""
         import filetypes.models
+
         filetypes.models.FILETYPE_DATA = {}
 
         load_filetypes()
@@ -503,24 +496,24 @@ class TestFiletypesIndexes:
         indexed_fields = [field.name for field in meta.fields if field.db_index]
 
         expected_indexed = [
-            'fileext',  # Primary key, automatically indexed
-            'generic',
-            'icon_filename',
-            'filetype',
-            'is_image',
-            'is_archive',
-            'is_pdf',
-            'is_movie',
-            'is_audio',
-            'is_dir',
-            'is_text',
-            'is_html',
-            'is_markdown',
-            'is_link'
+            "fileext",  # Primary key, automatically indexed
+            "generic",
+            "icon_filename",
+            "filetype",
+            "is_image",
+            "is_archive",
+            "is_pdf",
+            "is_movie",
+            "is_audio",
+            "is_dir",
+            "is_text",
+            "is_html",
+            "is_markdown",
+            "is_link",
         ]
 
         for field in expected_indexed:
-            assert field in indexed_fields or field == 'fileext'
+            assert field in indexed_fields or field == "fileext"
 
 
 @pytest.mark.django_db
