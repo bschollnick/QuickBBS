@@ -38,46 +38,44 @@ class cache_startup(AppConfig):
         cache_watcher.models.Cache_Storage = cache_watcher.models.fs_Cache_Tracking()
 
         # Determine if we should start the watchdog
+        # Use file lock for ALL server types to prevent duplicate watchdog instances
+        # This handles both multi-worker production servers AND Django's auto-reloader
         should_start = False
+        lock_file_path = "/tmp/quickbbs_watchdog.lock"
 
-        # Check for Django/Werkzeug development servers
-        run_main = os.environ.get("WERKZEUG_RUN_MAIN") or os.environ.get("RUN_MAIN")
+        try:
+            # Create/open lock file
+            lock_fd = open(lock_file_path, "w")
 
-        if run_main == "true":
-            # Django development server or werkzeug - start in child process only
+            # Try to acquire exclusive, non-blocking lock
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+            # Success! This is the first/only process to acquire the lock
             should_start = True
-            logger.info("Starting watchdog in Django/Werkzeug development server")
-        else:
-            # Production servers (Gunicorn/Uvicorn/Hypercorn) with multiple workers
-            # Use file lock to ensure only ONE worker starts the watchdog
-            lock_file_path = "/tmp/quickbbs_watchdog.lock"
+            self._watchdog_lock_fd = lock_fd
 
+            # Write PID for debugging
+            lock_fd.write(f"{os.getpid()}\n")
+            lock_fd.flush()
+
+            # Register cleanup on process exit
+            atexit.register(self._cleanup_lock, lock_fd, lock_file_path)
+
+            # Determine server type for logging
+            run_main = os.environ.get("WERKZEUG_RUN_MAIN") or os.environ.get("RUN_MAIN")
+            if run_main == "true":
+                logger.info(f"Acquired watchdog lock (PID {os.getpid()}) - starting in Django/Werkzeug dev server")
+            else:
+                logger.info(f"Acquired watchdog lock (PID {os.getpid()}) - starting in production server worker")
+
+        except (IOError, OSError, BlockingIOError):
+            # Lock already held by another process - don't start
+            should_start = False
             try:
-                # Create/open lock file
-                lock_fd = open(lock_file_path, "w")
-
-                # Try to acquire exclusive, non-blocking lock
-                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-
-                # Success! This is the first worker
-                should_start = True
-                self._watchdog_lock_fd = lock_fd
-
-                # Write PID for debugging
-                lock_fd.write(f"{os.getpid()}\n")
-                lock_fd.flush()
-
-                # Register cleanup on process exit
-                atexit.register(self._cleanup_lock, lock_fd, lock_file_path)
-
-                logger.info(f"Acquired watchdog lock (PID {os.getpid()}) - starting watchdog in this worker")
-
-            except (IOError, OSError, BlockingIOError) as e:
-                # Lock already held by another worker - don't start
-                should_start = False
-                if hasattr(lock_fd, "close"):
-                    lock_fd.close()
-                logger.info(f"Watchdog already running in another worker (PID {os.getpid()}) - skipping startup")
+                lock_fd.close()
+            except:
+                pass
+            logger.info(f"Watchdog already running in another process (PID {os.getpid()}) - skipping startup")
 
         # Start watchdog if this is the designated process
         if should_start:
