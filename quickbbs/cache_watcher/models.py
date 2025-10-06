@@ -120,6 +120,11 @@ WATCHDOG_RESTART_INTERVAL = 4 * 60 * 60  # 4 hours in seconds
 watchdog_restart_timer = None
 watchdog_restart_lock = threading.Lock()
 
+# Global processing semaphore - shared across all handler instances
+# This ensures only one cache invalidation runs at a time, even across handler restarts
+# MUST use threading.Semaphore - accessed by watchdog threads (OS threads, not asyncio)
+processing_semaphore = threading.Semaphore(1)
+
 
 class WatchdogManager:
     """
@@ -263,6 +268,10 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
         self.event_timer = None
         # MUST be threading.Lock (see class docstring for why)
         self.timer_lock = threading.Lock()
+        self.instance_id = id(self)
+        # Timer generation counter - incremented each time a new timer is created
+        # Used to prevent old timers from processing if they fire after being cancelled
+        self.timer_generation = 0
 
     def on_created(self, event: FileSystemEvent) -> None:
         """Handle file/directory creation events."""
@@ -293,22 +302,51 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
 
             # Reset or create timer with thread safety
             with self.timer_lock:
+                # Cancel existing timer if present
                 if self.event_timer is not None:
                     self.event_timer.cancel()
+                    self.event_timer = None
 
-                self.event_timer = threading.Timer(EVENT_PROCESSING_DELAY, self._process_buffered_events)
+                # Increment generation counter - this invalidates any pending timers
+                self.timer_generation += 1
+                current_generation = self.timer_generation
+
+                # Create new timer with current generation captured in lambda
+                # If this timer fires after being superseded, it will detect the generation mismatch
+                self.event_timer = threading.Timer(EVENT_PROCESSING_DELAY, lambda: self._process_buffered_events(current_generation))
                 self.event_timer.daemon = True
                 self.event_timer.start()
 
         except Exception as e:
             logger.error(f"Error buffering event {event.src_path}: {e}")
 
-    def _process_buffered_events(self) -> None:
+    def _process_buffered_events(self, expected_generation: int) -> None:
         """Process all buffered events at once.
 
         This method runs in a background thread from the watchdog system.
-        Database operations are wrapped for ASGI compatibility using async_to_sync.
+
+        Uses both a generation counter and a global semaphore to prevent duplicate processing:
+        - Generation counter prevents old timers from processing after being superseded
+        - Semaphore ensures only one thread processes at a time across all handler instances
+
+        Args:
+            expected_generation: The timer generation this callback belongs to.
+                                If it doesn't match current generation, this timer was superseded.
         """
+        # Check if this timer has been superseded by a newer one
+        with self.timer_lock:
+            if expected_generation != self.timer_generation:
+                logger.debug(f"Timer generation {expected_generation} superseded by {self.timer_generation}, skipping")
+                return
+            # Clear timer reference now that we're executing
+            self.event_timer = None
+
+        # Try to acquire the global semaphore without blocking
+        # If we can't acquire it, another thread is already processing
+        if not processing_semaphore.acquire(blocking=False):
+            logger.debug("Already processing events, skipping duplicate call")
+            return
+
         try:
             # Get unique paths from lock-free buffer (automatic deduplication)
             paths_to_process = optimized_event_buffer.get_events_to_process()
@@ -328,6 +366,8 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
         except Exception as e:
             logger.error(f"Error processing buffered events: {e}")
         finally:
+            # Release the global semaphore to allow next processing run
+            processing_semaphore.release()
             # Watchdog runs in background thread - must close connections
             close_old_connections()
 
@@ -426,8 +466,6 @@ class fs_Cache_Tracking(models.Model):
         :return: True if successfully removed, False otherwise
         """
         try:
-            from frontend.views import layout_manager, layout_manager_cache
-
             from quickbbs.common import safe_get_with_callback
             from quickbbs.models import IndexDirs
 
@@ -482,9 +520,6 @@ class fs_Cache_Tracking(models.Model):
         """
         if not dir_names:
             return False
-        #
-        #        try:
-        from frontend.views import layout_manager, layout_manager_cache
 
         from quickbbs.models import IndexDirs
 
@@ -521,7 +556,12 @@ class fs_Cache_Tracking(models.Model):
         :param directory: The IndexDirs object for the directory
         """
         try:
-            from frontend.views import layout_manager, layout_manager_cache
+            # Import inside function to avoid circular dependency:
+            # frontend.managers may import cache_watcher.models
+            from frontend.managers import (  # pylint: disable=import-outside-toplevel
+                layout_manager,
+                layout_manager_cache,
+            )
 
             layout = layout_manager(directory=directory, sort_ordering=0)
             for page_number in range(1, layout["total_pages"] + 1):
