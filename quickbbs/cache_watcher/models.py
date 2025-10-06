@@ -10,31 +10,34 @@ Key Components:
     - fs_Cache_Tracking: Database model for tracking cache invalidation state
 
 The system buffers events for 5 seconds before processing to handle bulk operations efficiently.
+
+Known Behavior - macOS Duplicate Events:
+    macOS's FSEvents can send multiple waves of filesystem events for a single file operation,
+    resulting in duplicate cache invalidations. For example, deleting a file may trigger:
+    1. Initial deletion events (processed immediately after 5s debounce)
+    2. Delayed directory metadata update events (processed 5-10s later)
+
+    While this causes redundant database operations, it is functionally harmless as cache
+    invalidation is idempotent. The performance impact is negligible for typical use cases.
+    This is OS-level behavior and not a bug in the watchdog implementation.
 """
 
-import asyncio
 import collections
-import hashlib
 import logging
 import os
 import pathlib
-import sys
 import threading
 import time
-from collections import defaultdict
-from functools import lru_cache
 from typing import Any, Optional
 
-from asgiref.sync import async_to_sync, iscoroutinefunction
+from asgiref.sync import async_to_sync
 from cache_watcher.watchdogmon import watchdog
 from cachetools.keys import hashkey
-from django.apps import AppConfig
 from django.conf import settings
-from django.core.cache import cache
 from django.db import close_old_connections, models, transaction
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 
-from quickbbs.common import get_dir_sha, normalize_fqpn
+from quickbbs.common import get_dir_sha
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -115,11 +118,6 @@ optimized_event_buffer = LockFreeEventBuffer()
 EVENT_PROCESSING_DELAY = 5  # seconds
 WATCHDOG_RESTART_INTERVAL = 4 * 60 * 60  # 4 hours in seconds
 
-# Global watchdog restart timer
-# MUST use threading.Lock - accessed by threading.Timer callbacks in OS threads
-watchdog_restart_timer = None
-watchdog_restart_lock = threading.Lock()
-
 # Global processing semaphore - shared across all handler instances
 # This ensures only one cache invalidation runs at a time, even across handler restarts
 # MUST use threading.Semaphore - accessed by watchdog threads (OS threads, not asyncio)
@@ -175,6 +173,14 @@ class WatchdogManager:
         with self.lock:
             if self.is_running:
                 try:
+                    # Cancel any pending timers in the event handler before shutdown
+                    if self.event_handler:
+                        with self.event_handler.timer_lock:
+                            if self.event_handler.event_timer:
+                                self.event_handler.event_timer.cancel()
+                                self.event_handler.event_timer = None
+                                logger.debug("Cancelled pending event timer during watchdog stop")
+
                     watchdog.shutdown()
                     self.is_running = False
                     logger.info("Watchdog stopped")
@@ -268,10 +274,11 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
         self.event_timer = None
         # MUST be threading.Lock (see class docstring for why)
         self.timer_lock = threading.Lock()
-        self.instance_id = id(self)
         # Timer generation counter - incremented each time a new timer is created
         # Used to prevent old timers from processing if they fire after being cancelled
         self.timer_generation = 0
+        # Instance ID for debugging - helps track which handler is processing
+        self.instance_id = id(self)
 
     def on_created(self, event: FileSystemEvent) -> None:
         """Handle file/directory creation events."""
@@ -336,7 +343,6 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
         # Check if this timer has been superseded by a newer one
         with self.timer_lock:
             if expected_generation != self.timer_generation:
-                logger.debug(f"Timer generation {expected_generation} superseded by {self.timer_generation}, skipping")
                 return
             # Clear timer reference now that we're executing
             self.event_timer = None
@@ -344,7 +350,6 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
         # Try to acquire the global semaphore without blocking
         # If we can't acquire it, another thread is already processing
         if not processing_semaphore.acquire(blocking=False):
-            logger.debug("Already processing events, skipping duplicate call")
             return
 
         try:
@@ -352,7 +357,7 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
             paths_to_process = optimized_event_buffer.get_events_to_process()
 
             if paths_to_process:
-                logger.info(f"Processing {len(paths_to_process)} buffered directory changes")
+                logger.info(f"[Gen {expected_generation}] Processing {len(paths_to_process)} buffered directory changes")
                 # Convert set to list for cache removal function
                 # Wrap DB operation for ASGI compatibility - this ensures the operation
                 # works correctly whether running under WSGI or ASGI
@@ -483,7 +488,7 @@ class fs_Cache_Tracking(models.Model):
                 "invalidated": True,
             }
 
-            entry, created = fs_Cache_Tracking.objects.update_or_create(
+            fs_Cache_Tracking.objects.update_or_create(
                 directory_sha256=sha256,
                 defaults=defaults,
             )
@@ -575,16 +580,3 @@ class fs_Cache_Tracking(models.Model):
 
         except Exception as e:
             logger.error(f"Error clearing layout cache for directory: {e}")
-
-
-# Application startup/shutdown hooks removed - handled in apps.py
-
-
-def shutdown_watchdog() -> None:
-    """Graceful shutdown function - call this when the application shuts down."""
-    logger.info("Shutting down watchdog manager...")
-    watchdog_manager.stop()
-
-
-# Watchdog initialization removed - now handled exclusively by apps.py
-# This prevents duplicate startup attempts
