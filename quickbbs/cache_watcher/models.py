@@ -405,6 +405,17 @@ class fs_Cache_Tracking(models.Model):
     lastscan = models.FloatField(default=0, blank=True)  # Fixed: removed string default
     invalidated = models.BooleanField(default=False)
 
+    # OneToOne relationship to IndexDirs using dir_fqpn_sha256
+    directory = models.OneToOneField(
+        "quickbbs.IndexDirs",
+        on_delete=models.SET_NULL,
+        to_field="dir_fqpn_sha256",
+        db_column="directory_data",
+        related_name="Cache_Watcher",
+        null=True,
+        blank=True,
+    )
+
     class Meta:
         indexes = [
             models.Index(fields=["directory_sha256", "invalidated"]),
@@ -430,14 +441,29 @@ class fs_Cache_Tracking(models.Model):
         :param DirName: The fully qualified pathname of the directory
         :return: The cache tracking entry or None if error occurred
         """
+        # Reject empty directory names
+        if not DirName or not DirName.strip():
+            logger.warning("Attempted to add empty directory name to cache - rejected")
+            return None
+
         try:
+            from quickbbs.models import IndexDirs
+
             dir_sha = get_dir_sha(DirName)
             scan_time = time.time()
+
+            # Fetch the IndexDirs instance by dir_sha
+            try:
+                index_dir = IndexDirs.objects.get(dir_fqpn_sha256=dir_sha)
+            except IndexDirs.DoesNotExist:
+                index_dir = None
+
             defaults = {
                 "directory_sha256": dir_sha,
                 "lastscan": scan_time,
                 "invalidated": False,
                 "DirName": DirName,
+                "directory": index_dir,
             }
 
             entry, created = fs_Cache_Tracking.objects.update_or_create(
@@ -481,17 +507,8 @@ class fs_Cache_Tracking(models.Model):
                 dir_fqpn_sha256=sha256,
             )
 
-            # Update cache entry
-            scan_time = time.time()
-            defaults = {
-                "lastscan": scan_time,
-                "invalidated": True,
-            }
-
-            fs_Cache_Tracking.objects.update_or_create(
-                directory_sha256=sha256,
-                defaults=defaults,
-            )
+            # Update cache entry using helper method
+            self._invalidate_cache_entry(sha256)
 
             # Clear layout cache if needed
             if directory_found:
@@ -517,6 +534,38 @@ class fs_Cache_Tracking(models.Model):
             logger.error(f"Error removing {DirName} from cache: {e}")
             return False
 
+    def _invalidate_cache_entry(self, sha256: str) -> Optional["fs_Cache_Tracking"]:
+        """Set a cache entry to invalidated status with current timestamp.
+
+        Args:
+            sha256: The SHA256 hash of the directory
+
+        Returns:
+            The updated or created fs_Cache_Tracking entry, or None if sha256 is empty
+        """
+        # Reject empty SHA256 values
+        if not sha256 or not sha256.strip():
+            logger.warning("Attempted to invalidate cache with empty SHA256 - rejected")
+            return None
+
+        from quickbbs.models import IndexDirs
+
+        # Fetch the IndexDirs instance by dir_sha
+        try:
+            index_dir = IndexDirs.objects.get(dir_fqpn_sha256=sha256)
+        except IndexDirs.DoesNotExist:
+            index_dir = None
+
+        entry, _ = fs_Cache_Tracking.objects.update_or_create(
+            directory_sha256=sha256,
+            defaults={
+                "invalidated": True,
+                "lastscan": time.time(),
+                "directory": index_dir,
+            },
+        )
+        return entry
+
     def remove_multiple_from_cache(self, dir_names: list[str]) -> bool:
         """Remove multiple directories from cache in a single transaction.
 
@@ -540,11 +589,16 @@ class fs_Cache_Tracking(models.Model):
         directories = list(IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list).only("dir_fqpn_sha256", "id", "fqpndirectory"))
         fqpn_by_dir_sha = {d.dir_fqpn_sha256: d for d in directories}
 
-        # Update cache entries in a single transaction
+        # Update cache entries using helper method
+        update_count = 0
+
         with transaction.atomic():
-            update_count = fs_Cache_Tracking.objects.filter(directory_sha256__in=sha_list, invalidated=False).update(
-                invalidated=True, lastscan=time.time()
-            )
+            for sha in sha_list:
+                tracked_directory = self._invalidate_cache_entry(sha)
+                while tracked_directory.directory.parent_directory is not None:
+                    parent_sha = tracked_directory.directory.parent_directory.all().first()
+                    tracked_directory = self._invalidate_cache_entry(parent_sha)
+                update_count += 1
 
         # Clear layout caches for affected directories
         if update_count > 0:

@@ -1,10 +1,12 @@
+import asyncio
 import os
 import sys
 
+from asgiref.sync import sync_to_async
 from cache_watcher.models import Cache_Storage
 from django.conf import settings
 from django.core.management.base import BaseCommand
-from django.db import close_old_connections
+from django.db import close_old_connections, connections
 from frontend.utilities import sync_database_disk
 
 from quickbbs.models import IndexData, IndexDirs
@@ -16,23 +18,23 @@ def verify_directories():
     print("Starting Directory Count: ", start_count)
     albums_root = os.path.join(settings.ALBUMS_PATH, "albums") + os.sep
     print("Gathering Directories")
-    directories_to_scan = IndexDirs.objects.all().iterator(chunk_size=100)
+    directories_to_scan = IndexDirs.objects.all().iterator(chunk_size=1000)
     print("Starting Scan")
 
-    # Process directories with periodic connection cleanup
+    # Process directories WITHOUT closing connections during iteration
+    # Server-side cursors don't survive close_old_connections()
     batch_counter = 0
-    cleanup_interval = 50
 
     for directory in directories_to_scan:
         if not os.path.exists(directory.fqpndirectory):
             print(f"Directory: {directory.fqpndirectory} does not exist")
             directory.delete_directory(fqpn_directory=directory.fqpndirectory)
 
-        # Periodic connection cleanup
         batch_counter += 1
-        if batch_counter % cleanup_interval == 0:
-            close_old_connections()
+        if batch_counter % 1000 == 0:
+            print(f"Processed {batch_counter} directories...")
 
+    # Only close connections AFTER iteration is complete
     close_old_connections()
 
     end_count = IndexDirs.objects.count()
@@ -45,43 +47,53 @@ def verify_directories():
     print(f"Found {unlinked_parents.count()} directories with no parents")
 
     batch_counter = 0
-    for directory in unlinked_parents:
+    for directory in unlinked_parents.iterator(chunk_size=1000):
         IndexDirs.add_directory(directory.fqpndirectory)
 
-        # Periodic connection cleanup
         batch_counter += 1
-        if batch_counter % cleanup_interval == 0:
-            close_old_connections()
+        if batch_counter % 1000 == 0:
+            print(f"Processed {batch_counter} unlinked parents...")
 
+    # Close connections after second iteration is complete
     close_old_connections()
 
 
-def verify_files():
+async def _verify_files_async():
+    """Async implementation of verify_files."""
     print("Checking for invalid files in Database")
-    start_count = IndexData.objects.count()
+    start_count = await sync_to_async(IndexData.objects.count, thread_sensitive=True)()
     print("\tStarting File Count: ", start_count)
 
     # Process directories in batches with connection cleanup
     batch_counter = 0
-    cleanup_interval = 50  # Close connections every 50 directories
+    cleanup_interval = 25  # Close connections every 25 directories
 
-    for directory in IndexDirs.objects.all().iterator(chunk_size=100):
-        Cache_Storage.remove_from_cache_sha(sha256=directory.dir_fqpn_sha256)
-        sync_database_disk(directory.fqpndirectory)
+    # Fetch all directories first
+    directories = await sync_to_async(list, thread_sensitive=True)(IndexDirs.objects.all())
+
+    for directory in directories:
+        await sync_to_async(Cache_Storage.remove_from_cache_sha, thread_sensitive=True)(sha256=directory.dir_fqpn_sha256)
+        await sync_database_disk(directory.fqpndirectory)
 
         # Periodic connection cleanup to prevent exhaustion
         batch_counter += 1
         if batch_counter % cleanup_interval == 0:
-            close_old_connections()
+            # Close connections in async context
+            await sync_to_async(connections.close_all, thread_sensitive=True)()
             print(f"\tProcessed {batch_counter} directories...")
 
     # Final cleanup
-    close_old_connections()
+    await sync_to_async(connections.close_all, thread_sensitive=True)()
 
-    end_count = IndexData.objects.count()
+    end_count = await sync_to_async(IndexData.objects.count, thread_sensitive=True)()
     print("\tStarting File Count: ", start_count)
     print("\tEnding Count: ", end_count)
     print("\tDifference : ", start_count - end_count)
+
+
+def verify_files():
+    """Synchronous wrapper for verify_files."""
+    asyncio.run(_verify_files_async())
 
 
 class Command(BaseCommand):
