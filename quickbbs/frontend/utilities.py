@@ -867,7 +867,7 @@ async def sync_database_disk(directoryname: str) -> bool | None:
     await sync_to_async(_sync_files)(dirpath_info, fs_entries, BULK_SIZE)
 
     # Cache the result
-    await sync_to_async(Cache_Storage.add_to_cache)(dir_name=dirpath)
+    await sync_to_async(Cache_Storage.add_to_cache)(DirName=dirpath)
     logger.info(f"Cached directory: {dirpath}")
     print("Elapsed Time (Sync Database Disk): ", time.perf_counter() - start_time)
 
