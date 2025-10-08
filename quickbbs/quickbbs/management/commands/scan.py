@@ -3,7 +3,7 @@ import os
 import sys
 
 from asgiref.sync import sync_to_async
-from cache_watcher.models import Cache_Storage
+from cache_watcher.models import Cache_Storage, fs_Cache_Tracking
 from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import close_old_connections, connections
@@ -24,11 +24,17 @@ def verify_directories():
     # Process directories WITHOUT closing connections during iteration
     # Server-side cursors don't survive close_old_connections()
     batch_counter = 0
+    cache_instance = fs_Cache_Tracking()
 
     for directory in directories_to_scan:
         if not os.path.exists(directory.fqpndirectory):
             print(f"Directory: {directory.fqpndirectory} does not exist")
             directory.delete_directory(fqpn_directory=directory.fqpndirectory)
+        else:
+            # Check if directory exists in fs_Cache_Tracking
+            if not fs_Cache_Tracking.objects.filter(directory_sha256=directory.dir_fqpn_sha256).exists():
+                cache_instance.add_to_cache(directory.fqpndirectory)
+                print(f"Added directory to fs_Cache_Tracking: {directory.fqpndirectory}")
 
         batch_counter += 1
         if batch_counter % 1000 == 0:
