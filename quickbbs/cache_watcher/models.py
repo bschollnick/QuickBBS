@@ -541,7 +541,7 @@ class fs_Cache_Tracking(models.Model):
             sha256: The SHA256 hash of the directory
 
         Returns:
-            The updated or created fs_Cache_Tracking entry, or None if sha256 is empty
+            The updated or created fs_Cache_Tracking entry, or None if sha256 is empty or IndexDirs not found
         """
         # Reject empty SHA256 values
         if not sha256 or not sha256.strip():
@@ -550,11 +550,13 @@ class fs_Cache_Tracking(models.Model):
 
         from quickbbs.models import IndexDirs
 
-        # Fetch the IndexDirs instance by dir_sha
+        # Fetch the IndexDirs instance and directory name by dir_sha
         try:
             index_dir = IndexDirs.objects.get(dir_fqpn_sha256=sha256)
+            dirname = index_dir.fqpndirectory
         except IndexDirs.DoesNotExist:
-            index_dir = None
+            logger.warning(f"Cannot invalidate cache for SHA {sha256} - IndexDirs entry not found")
+            return None
 
         entry, _ = fs_Cache_Tracking.objects.update_or_create(
             directory_sha256=sha256,
@@ -562,6 +564,7 @@ class fs_Cache_Tracking(models.Model):
                 "invalidated": True,
                 "lastscan": time.time(),
                 "directory": index_dir,
+                "DirName": dirname,
             },
         )
         return entry
@@ -589,16 +592,61 @@ class fs_Cache_Tracking(models.Model):
         directories = list(IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list).only("dir_fqpn_sha256", "id", "fqpndirectory"))
         fqpn_by_dir_sha = {d.dir_fqpn_sha256: d for d in directories}
 
+        # Create mapping of SHA to directory path for missing entries
+        sha_to_path = {get_dir_sha(path): path for path in set(dir_names)}
+
+        # Check for missing IndexDirs entries and create them
+        missing_shas = set(sha_list) - set(fqpn_by_dir_sha.keys())
+        if missing_shas:
+            logger.info(f"Creating {len(missing_shas)} missing IndexDirs entries")
+            for missing_sha in missing_shas:
+                dir_path = sha_to_path.get(missing_sha)
+                if dir_path:
+                    try:
+                        found, new_dir = IndexDirs.add_directory(dir_path)
+                        fqpn_by_dir_sha[missing_sha] = new_dir
+                        logger.debug(f"Created IndexDirs entry for {dir_path}")
+                    except Exception as e:
+                        logger.error(f"Failed to create IndexDirs entry for {dir_path}: {e}")
+
+        # Collect all parent directories that need invalidation
+        # Use a set to prevent duplicates and track all directories to invalidate
+        all_dirs_to_invalidate = set(sha_list)
+
+        for sha in sha_list:
+            # Walk up parent chain and collect all parent SHAs
+            visited = {sha}
+            try:
+                current_dir = (
+                    IndexDirs.objects.only("dir_fqpn_sha256", "parent_directory").select_related("parent_directory").get(dir_fqpn_sha256=sha)
+                )
+
+                while current_dir and current_dir.parent_directory:
+                    parent_dir = current_dir.parent_directory
+                    parent_sha = parent_dir.dir_fqpn_sha256
+
+                    # Prevent infinite loops from circular references
+                    if parent_sha in visited:
+                        logger.warning(f"Circular parent reference detected for {sha}")
+                        break
+
+                    visited.add(parent_sha)
+                    all_dirs_to_invalidate.add(parent_sha)
+
+                    # Move to next parent
+                    current_dir = parent_dir
+            except IndexDirs.DoesNotExist:
+                # Directory not in database, just invalidate the cache entry
+                pass
+
         # Update cache entries using helper method
         update_count = 0
 
         with transaction.atomic():
-            for sha in sha_list:
-                tracked_directory = self._invalidate_cache_entry(sha)
-                while tracked_directory.directory.parent_directory is not None:
-                    parent_sha = tracked_directory.directory.parent_directory.all().first()
-                    tracked_directory = self._invalidate_cache_entry(parent_sha)
-                update_count += 1
+            for sha in all_dirs_to_invalidate:
+                entry = self._invalidate_cache_entry(sha)
+                if entry:
+                    update_count += 1
 
         # Clear layout caches for affected directories
         if update_count > 0:
