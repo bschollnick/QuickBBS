@@ -45,7 +45,7 @@ from frontend.utilities import (
 from PIL import Image
 from thumbnails.models import ThumbnailFiles
 
-from quickbbs.common import safe_get_or_error
+from quickbbs.common import normalize_fqpn, safe_get_or_error
 from quickbbs.models import IndexData, IndexDirs
 
 # download_cache = LRUCache(maxsize=1000)
@@ -542,9 +542,12 @@ def _process_request_path(request: WSGIRequest) -> dict:
         # Fallback to original behavior for malformed URLs
         request.path = request.path.lower().replace(os.sep, r"/")
 
+    # Normalize the album_viewing path to ensure consistent trailing slashes
+    album_viewing_path = normalize_fqpn(settings.ALBUMS_PATH + request.path)
+
     return {
         "webpath": request.path,
-        "album_viewing": settings.ALBUMS_PATH + request.path,
+        "album_viewing": album_viewing_path,
         "thumbpath": ensures_endswith(request.path.replace(r"/albums/", r"/thumbnails/"), "/"),
     }
 

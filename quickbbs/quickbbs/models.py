@@ -25,12 +25,11 @@ from django.urls import reverse
 # Local application imports
 from filetypes.models import filetypes, get_ftype_dict
 from frontend.serve_up import async_send_file_response
+from ranged_fileresponse import RangedFileResponse
 from thumbnails.models import ThumbnailFiles
 
 from quickbbs.common import get_dir_sha, normalize_fqpn
 from quickbbs.natsort_model import NaturalSortField
-
-from ranged_fileresponse import RangedFileResponse
 
 # Logger
 logger = logging.getLogger(__name__)
@@ -274,6 +273,19 @@ class IndexDirs(models.Model):
             String
         """
         return str(pathlib.Path(self.fqpndirectory).name)
+
+    @property
+    def is_cached(self) -> bool:
+        """
+        Check if this directory has a valid cache entry.
+
+        Uses the 1-to-1 relationship to fs_Cache_Tracking (Cache_Watcher)
+        to efficiently determine cache status without additional queries.
+
+        Returns:
+            True if directory is cached and not invalidated, False otherwise
+        """
+        return hasattr(self, "Cache_Watcher") and not self.Cache_Watcher.invalidated
 
     @staticmethod
     def delete_directory(fqpn_directory: str, cache_only: bool = False) -> None:
@@ -816,18 +828,19 @@ class IndexData(models.Model):
         try:
             # Only fetch fields needed for download: name, filetype.mimetype, filetype.is_movie, home_directory.fqpndirectory
             if unique:
-                return (IndexData.objects
-                    .select_related("filetype", "home_directory")
+                return (
+                    IndexData.objects.select_related("filetype", "home_directory")
                     .only("name", "filetype__mimetype", "filetype__is_movie", "home_directory__fqpndirectory")
-                    .get(unique_sha256=sha_value, delete_pending=False))
+                    .get(unique_sha256=sha_value, delete_pending=False)
+                )
             else:
-                return (IndexData.objects
-                    .select_related("filetype", "home_directory")
+                return (
+                    IndexData.objects.select_related("filetype", "home_directory")
                     .only("name", "filetype__mimetype", "filetype__is_movie", "home_directory__fqpndirectory")
-                    .get(file_sha256=sha_value, delete_pending=False))
+                    .get(file_sha256=sha_value, delete_pending=False)
+                )
         except IndexData.DoesNotExist:
             return None
-
 
     def get_file_sha(self, fqfn: str) -> tuple[str | None, str | None]:
         """

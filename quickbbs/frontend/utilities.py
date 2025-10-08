@@ -128,8 +128,10 @@ async def _get_or_create_directory(directory_sha256: str, dirpath: str) -> tuple
         Tuple of (directory object, is_cached) where is_cached indicates
         if the directory is already in cache
     """
-    found, dirpath_info = await sync_to_async(IndexDirs.search_for_directory_by_sha)(directory_sha256)
-    if not found:
+    # Use select_related to prefetch the Cache_Watcher relationship
+    dirpath_info = await sync_to_async(lambda: IndexDirs.objects.select_related("Cache_Watcher").filter(dir_fqpn_sha256=directory_sha256).first())()
+
+    if not dirpath_info:
         found, dirpath_info = await sync_to_async(IndexDirs.add_directory)(dirpath)
         if not found:
             logger.error(f"Failed to create directory record for {dirpath}")
@@ -137,8 +139,8 @@ async def _get_or_create_directory(directory_sha256: str, dirpath: str) -> tuple
         await sync_to_async(Cache_Storage.remove_from_cache_sha)(dirpath_info.dir_fqpn_sha256)
         return dirpath_info, False
 
-    # Check cache status
-    is_cached = await sync_to_async(Cache_Storage.sha_exists_in_cache)(sha256=directory_sha256)
+    # Use the is_cached property which leverages the 1-to-1 relationship
+    is_cached = dirpath_info.is_cached
     return dirpath_info, is_cached
 
 
@@ -222,17 +224,8 @@ async def _sync_directories(dirpath_info: object, fs_entries: dict) -> None:
 
             await update_dirs()
 
-    if entries_that_dont_exist_in_fs:
-        print(f"Directories to Delete: {len(entries_that_dont_exist_in_fs)}")
-        logger.info(f"Directories to Delete: {len(entries_that_dont_exist_in_fs)}")
-
-        @sync_to_async
-        def delete_dirs():
-            all_dirs_in_database.filter(fqpndirectory__in=entries_that_dont_exist_in_fs).delete()
-            Cache_Storage.remove_from_cache_sha(dirpath_info.dir_fqpn_sha256)
-
-        await delete_dirs()
-
+    # Create new directories BEFORE deleting old ones to prevent foreign key violations
+    # This ensures that if a directory is being moved/renamed, files can reference the new entry
     if entries_not_in_database:
         print(f"Directories to Add: {len(entries_not_in_database)}")
         logger.info(f"Directories to Add: {len(entries_not_in_database)}")
@@ -244,6 +237,18 @@ async def _sync_directories(dirpath_info: object, fs_entries: dict) -> None:
                     IndexDirs.add_directory(fqpn_directory=dir_to_create)
 
         await add_dirs()
+
+    if entries_that_dont_exist_in_fs:
+        print(f"Directories to Delete: {len(entries_that_dont_exist_in_fs)}")
+        logger.info(f"Directories to Delete: {len(entries_that_dont_exist_in_fs)}")
+
+        @sync_to_async
+        def delete_dirs():
+            # Cascade delete will handle related IndexData records
+            all_dirs_in_database.filter(fqpndirectory__in=entries_that_dont_exist_in_fs).delete()
+            Cache_Storage.remove_from_cache_sha(dirpath_info.dir_fqpn_sha256)
+
+        await delete_dirs()
 
 
 def _check_single_directory_update(db_dir_entry, fs_entries: dict) -> object | None:

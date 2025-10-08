@@ -18,7 +18,8 @@ def verify_directories():
     print("Starting Directory Count: ", start_count)
     albums_root = os.path.join(settings.ALBUMS_PATH, "albums") + os.sep
     print("Gathering Directories")
-    directories_to_scan = IndexDirs.objects.all().iterator(chunk_size=1000)
+    # Prefetch Cache_Watcher relationship to avoid N+1 queries
+    directories_to_scan = IndexDirs.objects.select_related("Cache_Watcher").all().iterator(chunk_size=1000)
     print("Starting Scan")
 
     # Process directories WITHOUT closing connections during iteration
@@ -31,8 +32,8 @@ def verify_directories():
             print(f"Directory: {directory.fqpndirectory} does not exist")
             directory.delete_directory(fqpn_directory=directory.fqpndirectory)
         else:
-            # Check if directory exists in fs_Cache_Tracking
-            if not fs_Cache_Tracking.objects.filter(directory_sha256=directory.dir_fqpn_sha256).exists():
+            # Check if directory exists in fs_Cache_Tracking using 1-to-1 relationship
+            if not hasattr(directory, "Cache_Watcher"):
                 cache_instance.add_to_cache(directory.fqpndirectory)
                 print(f"Added directory to fs_Cache_Tracking: {directory.fqpndirectory}")
 
