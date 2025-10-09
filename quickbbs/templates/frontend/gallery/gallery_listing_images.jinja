@@ -195,7 +195,7 @@
                    hx-get="{{ prev_uri }}?sort={{sort}}"
                    hx-push-url="true"
                    hx-target="body"
-                   hx-swap="outerHTML transition:true"
+                   hx-swap="innerHTML show:window:top transition:true"
                    hx-headers='{"Cache-Control": "max-age=300"}'>
                     <i class="fas fa-angle-left"></i>
                     {{ prev_uri.split("/")[-1][:25] }}
@@ -213,7 +213,7 @@
                    hx-get="{{ next_uri }}?sort={{sort}}"
                    hx-push-url="true"
                    hx-target="body"
-                   hx-swap="outerHTML transition:true"
+                   hx-swap="innerHTML show:window:top transition:true"
                    hx-headers='{"Cache-Control": "max-age=300"}'>
                     {{ next_uri.split("/")[-1][:25] }}
                     <i class="fas fa-angle-right"></i>

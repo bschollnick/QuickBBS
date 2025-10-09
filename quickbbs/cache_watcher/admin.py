@@ -5,15 +5,23 @@ from django.contrib import admin
 
 @admin.register(fs_Cache_Tracking)
 class Cache_dir_tracking_Index(admin.ModelAdmin):
-    list_display = ("DirName", "invalidated", "directory_sha256", "get_directory_sha", "lastscan")
-    fields = ("DirName", "invalidated", "directory_sha256", "get_directory_sha", "lastscan")
-    search_fields = ["DirName", "directory_sha256"]
+    list_display = ("get_directory_path", "invalidated", "get_directory_sha", "lastscan")
+    fields = ("directory", "invalidated", "lastscan", "get_directory_sha", "get_directory_path")
+    search_fields = ["directory__fqpndirectory", "directory__dir_fqpn_sha256"]
     readonly_fields = (
-        "directory_sha256",
         "get_directory_sha",
+        "get_directory_path",
     )
+    autocomplete_fields = ["directory"]  # Enable autocomplete for directory selection
 
-    @admin.display(description="Directory SHA (from 1-to-1)")
+    @admin.display(description="Directory Path")
+    def get_directory_path(self, obj):
+        """Display the fqpndirectory from the related IndexDirs."""
+        if obj.directory:
+            return obj.directory.fqpndirectory
+        return None
+
+    @admin.display(description="Directory SHA256")
     def get_directory_sha(self, obj):
         """Display the dir_fqpn_sha256 from the related IndexDirs."""
         if obj.directory:
