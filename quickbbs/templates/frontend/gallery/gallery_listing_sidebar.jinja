@@ -4,10 +4,10 @@
     
     <!-- Navigation Up Button -->
     <div class="sidebar-section">
-      <a class="button is-ghost is-fullwidth" 
-         hx-push-url="{{ up_uri }}?page=1&sort={{sort}}" 
-         hx-get="{{ up_uri }}?page=1&sort={{sort}}&newwin=True" 
-         hx-swap="outerHTML" 
+      <a class="button is-ghost is-fullwidth"
+         hx-push-url="{{ up_uri }}?page=1&sort={{sort}}"
+         hx-get="{{ up_uri }}?page=1&sort={{sort}}&newwin=True"
+         hx-swap="innerHTML show:window:top"
          hx-target="body"
          title="Go Up">
         {{ icon("arrow-up fa-2x") }}
@@ -19,9 +19,12 @@
       
       <!-- First Page -->
       <div class="nav-button">
-        <a class="button is-ghost is-fullwidth{% if current_page <= 1 %} is-disabled{% endif %}" 
-           href="?page=1&sort={{sort}}" 
-           hx-swap="outerHTML"
+        <a class="button is-ghost is-fullwidth{% if current_page <= 1 %} is-disabled{% endif %}"
+           href="?page=1&sort={{sort}}"
+           hx-get="?page=1&sort={{sort}}"
+           hx-target="body"
+           hx-swap="innerHTML show:window:top"
+           hx-push-url="true"
            {% if current_page <= 1 %}disabled{% endif %}
            title="First Page">
           {{ icon("angle-double-left fa-2x") }}
@@ -31,9 +34,12 @@
       <!-- Previous Page -->
       <div class="nav-button">
         {% if current_page > 1 %}
-          <a class="button is-ghost is-fullwidth" 
-             href="?page={{ current_page-1 }}&sort={{sort}}" 
-             hx-swap="outerHTML"
+          <a class="button is-ghost is-fullwidth"
+             href="?page={{ current_page-1 }}&sort={{sort}}"
+             hx-get="?page={{ current_page-1 }}&sort={{sort}}"
+             hx-target="body"
+             hx-swap="innerHTML show:window:top"
+             hx-push-url="true"
              title="Previous Page">
             {{ icon("angle-left fa-2x") }}
           </a>
@@ -47,9 +53,12 @@
       <!-- Next Page -->
       <div class="nav-button">
         {% if current_page < total_pages %}
-          <a class="button is-ghost is-fullwidth" 
-             href="?page={{ current_page+1 }}&sort={{sort}}" 
-             hx-swap="outerHTML"
+          <a class="button is-ghost is-fullwidth"
+             href="?page={{ current_page+1 }}&sort={{sort}}"
+             hx-get="?page={{ current_page+1 }}&sort={{sort}}"
+             hx-target="body"
+             hx-swap="innerHTML show:window:top"
+             hx-push-url="true"
              title="Next Page">
             {{ icon("angle-right fa-2x") }}
           </a>
@@ -62,9 +71,12 @@
 
       <!-- Last Page -->
       <div class="nav-button">
-        <a class="button is-ghost is-fullwidth{% if current_page >= total_pages %} is-disabled{% endif %}" 
-           href="?page={{ total_pages }}&sort={{sort}}" 
-           hx-swap="outerHTML"
+        <a class="button is-ghost is-fullwidth{% if current_page >= total_pages %} is-disabled{% endif %}"
+           href="?page={{ total_pages }}&sort={{sort}}"
+           hx-get="?page={{ total_pages }}&sort={{sort}}"
+           hx-target="body"
+           hx-swap="innerHTML show:window:top"
+           hx-push-url="true"
            {% if current_page >= total_pages %}disabled{% endif %}
            title="Last Page">
           {{ icon("angle-double-right fa-2x") }}

@@ -561,6 +561,7 @@ def _find_directory(paths: dict):
     Returns: Tuple of (found, directory) or raises Http404/HttpResponseBadRequest
     """
     try:
+        print(paths)
         found, directory = IndexDirs.search_for_directory(paths["album_viewing"])
         if not found:
             async_to_sync(sync_database_disk)(paths["album_viewing"])

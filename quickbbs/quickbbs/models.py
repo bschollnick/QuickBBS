@@ -161,30 +161,34 @@ class IndexDirs(models.Model):
 
         # Cache the albums path check
         albums_path_lower = os.path.join(settings.ALBUMS_PATH, "albums").lower()
+        albums_root = normalize_fqpn(os.path.join(settings.ALBUMS_PATH, "albums"))
         is_in_albums = fqpn_directory.lower().startswith(albums_path_lower)
 
         # Determine parent directory link
         if is_in_albums:
-            parent_dir = normalize_fqpn(str(pathlib.Path(fqpn_directory).parent))
-            parent_sha = get_dir_sha(parent_dir)
-            found, parent_dir_link = IndexDirs.search_for_directory_by_sha(parent_sha)
+            # Check if this IS the albums root directory - it has no parent
+            if fqpn_directory.lower() == albums_root.lower():
+                parent_dir_link = None
+            else:
+                # Regular subdirectory - find or create parent
+                parent_dir = normalize_fqpn(str(pathlib.Path(fqpn_directory).parent))
+                parent_sha = get_dir_sha(parent_dir)
+                found, parent_dir_link = IndexDirs.search_for_directory_by_sha(parent_sha)
 
-            if not found and parent_dir.lower().startswith(albums_path_lower):
-                print("Trying to create parent directory: ", parent_dir)
-                # If the parent directory is not found, create it
-                _, parent_dir_link = IndexDirs.add_directory(parent_dir)
+                if not found and parent_dir.lower().startswith(albums_path_lower):
+                    print("Trying to create parent directory: ", parent_dir)
+                    # If the parent directory is not found, create it
+                    _, parent_dir_link = IndexDirs.add_directory(parent_dir)
         else:
             parent_dir_link = None
 
-        # Prepare the defaults for fields that should be set on creation
-        print("Parent Directory Link: ", parent_dir_link)
-
+        
         # Use single stat call for both exists check and mtime
         dir_path = pathlib.Path(fqpn_directory)
         try:
             stat_info = dir_path.stat()
         except (FileNotFoundError, OSError):
-            return (False, IndexDirs.objects.none)
+            return (False, None)  # Return None when directory doesn't exist
 
         defaults = {
             "fqpndirectory": fqpn_directory,  # Already normalized
@@ -286,6 +290,63 @@ class IndexDirs(models.Model):
             True if directory is cached and not invalidated, False otherwise
         """
         return hasattr(self, "Cache_Watcher") and not self.Cache_Watcher.invalidated
+
+    @staticmethod
+    def get_all_parent_shas(sha_list: list[str]) -> set[str]:
+        """
+        Get all parent directory SHAs using optimized batch queries.
+
+        Pure Django ORM with no external dependencies. Uses iterative batch fetching
+        instead of recursive CTE, but still much more efficient than N*M approach.
+
+        Args:
+            sha_list: List of directory SHA256 hashes to find parents for
+
+        Returns:
+            Set containing all input SHAs plus all ancestor SHAs
+
+        Performance:
+            - Queries: O(D) where D = max directory depth (typically 5-10)
+            - Old approach: O(N + N*M) where N = dirs, M = avg depth
+            - Improvement: Batches all directories per level vs per-directory traversal
+
+        Example:
+            Input: ["sha_of_/albums/photos/2024", "sha_of_/albums/videos"]
+            Output: {"sha_of_/", "sha_of_/albums", "sha_of_/albums/photos",
+                     "sha_of_/albums/photos/2024", "sha_of_/albums/videos"}
+        """
+        if not sha_list:
+            return set()
+
+        all_shas = set(sha_list)
+        current_level_shas = set(sha_list)
+        max_iterations = 50  # Prevent infinite loops (max reasonable directory depth)
+
+        for iteration in range(max_iterations):
+            if not current_level_shas:
+                break
+
+            # Batch fetch ALL parents for current level in ONE query
+            parents = IndexDirs.objects.filter(
+                dir_fqpn_sha256__in=current_level_shas,
+                delete_pending=False,
+                parent_directory__isnull=False
+            ).select_related('parent_directory').values_list(
+                'parent_directory__dir_fqpn_sha256', flat=True
+            )
+
+            # Get unique parent SHAs from this level (only new ones)
+            parent_shas = set(parents) - all_shas
+
+            if not parent_shas:
+                break  # No more parents to traverse
+
+            all_shas.update(parent_shas)
+            current_level_shas = parent_shas  # Next iteration: process these parents
+
+            logger.debug(f"Parent traversal iteration {iteration + 1}: found {len(parent_shas)} new parents")
+
+        return all_shas
 
     @staticmethod
     def delete_directory(fqpn_directory: str, cache_only: bool = False) -> None:
@@ -394,7 +455,7 @@ class IndexDirs(models.Model):
             )
             return (True, record)
         except IndexDirs.DoesNotExist:
-            return (False, IndexDirs.objects.none())  # return an empty query set
+            return (False, None)  # Return None when not found
 
     @cached(indexdirs_cache)
     @staticmethod
