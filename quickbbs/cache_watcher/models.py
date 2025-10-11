@@ -603,8 +603,12 @@ class fs_Cache_Tracking(models.Model):
                 if dir_path:
                     try:
                         found, new_dir = IndexDirs.add_directory(dir_path)
-                        fqpn_by_dir_sha[missing_sha] = new_dir
-                        logger.debug(f"Created IndexDirs entry for {dir_path}")
+                        # Only add to dict if new_dir is valid and has required attributes
+                        if new_dir is not None and hasattr(new_dir, "pk") and new_dir.pk is not None:
+                            fqpn_by_dir_sha[missing_sha] = new_dir
+                            logger.debug(f"Created IndexDirs entry for {dir_path}")
+                        else:
+                            logger.warning(f"IndexDirs.add_directory returned invalid object for {dir_path}")
                     except Exception as e:
                         logger.error(f"Failed to create IndexDirs entry for {dir_path}: {e}")
 
@@ -623,11 +627,15 @@ class fs_Cache_Tracking(models.Model):
 
         # Clear layout caches for affected directories - BULK OPERATION
         if update_count > 0:
+            # Build list of affected directories, filtering out None values and objects without pk
             affected_directories = [
                 fqpn_by_dir_sha[sha]
                 for sha in set(sha_list) & fqpn_by_dir_sha.keys()
+                if fqpn_by_dir_sha[sha] is not None and hasattr(fqpn_by_dir_sha[sha], "pk") and fqpn_by_dir_sha[sha].pk is not None
             ]
-            self._clear_layout_cache_bulk(affected_directories)
+
+            if affected_directories:
+                self._clear_layout_cache_bulk(affected_directories)
 
             logger.info(f"Successfully invalidated {update_count} cache entries")
 
@@ -662,10 +670,18 @@ class fs_Cache_Tracking(models.Model):
 
         try:
             # Import inside function to avoid circular dependency
-            from frontend.managers import layout_manager_cache  # pylint: disable=import-outside-toplevel
+            from frontend.managers import (
+                layout_manager_cache,  # pylint: disable=import-outside-toplevel
+            )
 
-            # Create set of directory PKs for O(1) lookup
-            dir_pks = {d.pk for d in directories}
+            # Create set of directory PKs for O(1) lookup, filtering out None values
+            # and objects without pk attribute
+            dir_pks = {d.pk for d in directories if d is not None and hasattr(d, "pk") and d.pk is not None}
+
+            # If no valid PKs, nothing to clear
+            if not dir_pks:
+                logger.debug("No valid directory PKs to clear from layout cache")
+                return
 
             # Scan cache once and collect keys to delete
             keys_to_delete = []
@@ -675,7 +691,7 @@ class fs_Cache_Tracking(models.Model):
                 # Check if the directory in the key matches any of our directories
                 try:
                     for item in key:
-                        if hasattr(item, 'pk') and item.pk in dir_pks:
+                        if hasattr(item, "pk") and item.pk in dir_pks:
                             keys_to_delete.append(key)
                             break
                 except (TypeError, AttributeError):
