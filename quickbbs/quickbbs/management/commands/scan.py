@@ -9,6 +9,9 @@ from django.core.management.base import BaseCommand
 from django.db import close_old_connections, connections
 from frontend.utilities import sync_database_disk
 
+from quickbbs.management.commands.add_directories import add_directories
+from quickbbs.management.commands.add_files import add_files
+from quickbbs.management.commands.add_thumbnails import add_thumbnails
 from quickbbs.models import IndexData, IndexDirs
 
 
@@ -123,6 +126,27 @@ class Command(BaseCommand):
             action="store_true",
             help="Trigger a Verification/Validation scan on the existing files in the database",
         )
+        parser.add_argument(
+            "--add_directories",
+            action="store_true",
+            help="Walk albums directory and add any missing directories to IndexDirs and fs_Cache_Tracking",
+        )
+        parser.add_argument(
+            "--add_files",
+            action="store_true",
+            help="Walk albums directory and add any missing files to IndexData",
+        )
+        parser.add_argument(
+            "--add_thumbnails",
+            action="store_true",
+            help="Scan IndexData for files missing thumbnails and generate them (images, videos, PDFs)",
+        )
+        parser.add_argument(
+            "--max_count",
+            type=int,
+            default=0,
+            help="Maximum number of records to add (0 = unlimited). Used with --add_directories, --add_files, or --add_thumbnails",
+        )
 
         parser.add_argument(
             "--dir",
@@ -139,10 +163,18 @@ class Command(BaseCommand):
         # print(args)
         # print(options)
 
+        max_count = options.get("max_count", 0)
+
         if options["verify_directories"]:
             verify_directories()
         if options["verify_files"]:
             verify_files()
+        if options["add_directories"]:
+            add_directories(max_count=max_count)
+        if options["add_files"]:
+            add_files(max_count=max_count)
+        if options["add_thumbnails"]:
+            add_thumbnails(max_count=max_count)
 
         # if options["dir"]:
         #     self.scan_directory(directories_to_scan)

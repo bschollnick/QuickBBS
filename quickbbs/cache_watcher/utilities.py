@@ -41,10 +41,7 @@ def rebuild_cache_entries() -> int:
     """
     try:
         # Find IndexDirs without cache entries
-        dirs_without_cache = IndexDirs.objects.filter(
-            Cache_Watcher__isnull=True,
-            delete_pending=False
-        )
+        dirs_without_cache = IndexDirs.objects.filter(Cache_Watcher__isnull=True, delete_pending=False)
 
         created_count = 0
         for index_dir in dirs_without_cache:
@@ -53,7 +50,7 @@ def rebuild_cache_entries() -> int:
                 defaults={
                     "invalidated": True,
                     "lastscan": 0,
-                }
+                },
             )
             if created:
                 created_count += 1

@@ -182,7 +182,6 @@ class IndexDirs(models.Model):
         else:
             parent_dir_link = None
 
-        
         # Use single stat call for both exists check and mtime
         dir_path = pathlib.Path(fqpn_directory)
         try:
@@ -327,12 +326,10 @@ class IndexDirs(models.Model):
                 break
 
             # Batch fetch ALL parents for current level in ONE query
-            parents = IndexDirs.objects.filter(
-                dir_fqpn_sha256__in=current_level_shas,
-                delete_pending=False,
-                parent_directory__isnull=False
-            ).select_related('parent_directory').values_list(
-                'parent_directory__dir_fqpn_sha256', flat=True
+            parents = (
+                IndexDirs.objects.filter(dir_fqpn_sha256__in=current_level_shas, delete_pending=False, parent_directory__isnull=False)
+                .select_related("parent_directory")
+                .values_list("parent_directory__dir_fqpn_sha256", flat=True)
             )
 
             # Get unique parent SHAs from this level (only new ones)
