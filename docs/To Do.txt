@@ -1,6 +1,0 @@
-To Do List for Gallery
-
-* Add next item pop back to single file view
-* Add File count back to side bar in single file view
-* Add archive view
-* Add archive item view
