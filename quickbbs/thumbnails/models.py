@@ -27,11 +27,16 @@ v3 - Pilot changing the thumbnail storage to be a single table, with the small, 
 """
 
 import io
+from typing import TYPE_CHECKING
 
 from cachetools import LRUCache, cached
 from django.conf import settings
 from django.db import models, transaction
 from frontend.serve_up import send_file_response
+
+if TYPE_CHECKING:
+    from django.db.models.manager import RelatedManager
+    from quickbbs.models import IndexData
 
 # from .image_utils import resize_pil_image, return_image_obj
 from .thumbnail_engine import create_thumbnails_from_path
@@ -83,6 +88,9 @@ class ThumbnailFiles(models.Model):
     small_thumb = models.BinaryField(default=b"", null=True)
     medium_thumb = models.BinaryField(default=b"", null=True)
     large_thumb = models.BinaryField(default=b"", null=True)
+
+    # Reverse ForeignKey relationship
+    IndexData: "RelatedManager[IndexData]"  # From IndexData.new_ftnail
 
     class Meta:
         verbose_name = "Image File Thumbnails Cache"

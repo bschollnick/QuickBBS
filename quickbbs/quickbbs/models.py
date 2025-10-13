@@ -7,7 +7,7 @@ import logging
 import os
 import pathlib
 import time
-from typing import Any, Union
+from typing import TYPE_CHECKING, Any, Union
 
 # Third-party imports
 from asgiref.sync import sync_to_async
@@ -19,7 +19,7 @@ from django.contrib.auth.models import User
 from django.db import models
 from django.db.models import Count, Prefetch, Q
 from django.db.models.query import QuerySet
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.urls import reverse
 
 # Local application imports
@@ -30,6 +30,9 @@ from thumbnails.models import ThumbnailFiles
 
 from quickbbs.common import get_dir_sha, normalize_fqpn
 from quickbbs.natsort_model import NaturalSortField
+
+if TYPE_CHECKING:
+    from cache_watcher.models import fs_Cache_Tracking
 
 # Logger
 logger = logging.getLogger(__name__)
@@ -48,6 +51,9 @@ class Owners(models.Model):
     id = models.AutoField(primary_key=True)
     uuid = models.UUIDField(default=None, null=True, editable=False, blank=True, db_index=True)
     ownerdetails = models.OneToOneField(User, on_delete=models.CASCADE, db_index=True, default=None)
+
+    # Reverse one-to-one relationship
+    indexdata: "models.OneToOneRel[IndexData]"  # type: ignore[valid-type]  # From IndexData.ownership
 
     class Meta:
         verbose_name = "Ownership"
@@ -133,6 +139,16 @@ class IndexDirs(models.Model):
         related_name="file_links",
     )
 
+    # Reverse relationships
+    # From fs_Cache_Tracking.directory
+    Cache_Watcher: "models.OneToOneRel[fs_Cache_Tracking]"  # type: ignore[valid-type]
+    # From IndexDirs.parent_directory (self-referential)
+    parent_dir: "models.manager.RelatedManager[IndexDirs]"
+    # From IndexData.home_directory
+    IndexData_entries: "models.manager.RelatedManager[IndexData]"
+    # From IndexData.virtual_directory
+    Virtual_IndexData: "models.manager.RelatedManager[IndexData]"
+
     class Meta:
         verbose_name = "Master Directory Index"
         verbose_name_plural = "Master Directory Index"
@@ -153,8 +169,6 @@ class IndexDirs(models.Model):
         Returns:
             Database record
         """
-        from django.conf import settings
-
         # Normalize once and compute SHA once
         fqpn_directory = normalize_fqpn(fqpn_directory)
         dir_sha256 = get_dir_sha(fqpn_directory)
@@ -327,7 +341,11 @@ class IndexDirs(models.Model):
 
             # Batch fetch ALL parents for current level in ONE query
             parents = (
-                IndexDirs.objects.filter(dir_fqpn_sha256__in=current_level_shas, delete_pending=False, parent_directory__isnull=False)
+                IndexDirs.objects.filter(
+                    dir_fqpn_sha256__in=current_level_shas,
+                    delete_pending=False,
+                    parent_directory__isnull=False,
+                )
                 .select_related("parent_directory")
                 .values_list("parent_directory__dir_fqpn_sha256", flat=True)
             )
@@ -341,7 +359,7 @@ class IndexDirs(models.Model):
             all_shas.update(parent_shas)
             current_level_shas = parent_shas  # Next iteration: process these parents
 
-            logger.debug(f"Parent traversal iteration {iteration + 1}: found {len(parent_shas)} new parents")
+            logger.debug("Parent traversal iteration %d: found %d new parents", iteration + 1, len(parent_shas))
 
         return all_shas
 
@@ -445,10 +463,19 @@ class IndexDirs(models.Model):
 
         Returns: A boolean representing the success of the search, and the resultant record
         """
+        # Internal prefetch list - excludes filetype (uses select_related instead)
+        SEARCH_PREFETCH_LIST = [
+            "IndexData_entries",
+        ]
+
         try:
-            record = IndexDirs.objects.prefetch_related(*INDEXDIRS_PREFETCH_LIST).get(
-                dir_fqpn_sha256=sha_256,
-                delete_pending=False,
+            record = (
+                IndexDirs.objects.select_related("filetype")
+                .prefetch_related(*SEARCH_PREFETCH_LIST)
+                .get(
+                    dir_fqpn_sha256=sha_256,
+                    delete_pending=False,
+                )
             )
             return (True, record)
         except IndexDirs.DoesNotExist:
@@ -702,6 +729,10 @@ class IndexData(models.Model):
         blank=True,
     )
 
+    # Reverse relationships
+    dir_thumbnail: "models.manager.RelatedManager[IndexDirs]"  # From IndexDirs.thumbnail
+    file_links: "models.manager.RelatedManager[IndexDirs]"  # From IndexDirs.file_links (ManyToMany)
+
     @property
     def fqpndirectory(self) -> str:
         """
@@ -787,7 +818,9 @@ class IndexData(models.Model):
         Args:
             sha: The SHA256 hash of the file to find duplicates for
 
-        Returns: QuerySet containing summary data (file_sha256 + count) using .values() and .annotate() for files with 2+ duplicates
+        Returns:
+            QuerySet containing summary data (file_sha256 + count) using .values()
+            and .annotate() for files with 2+ duplicates
         """
         dupes = (
             IndexData.objects.filter(file_sha256=sha)
@@ -806,7 +839,9 @@ class IndexData(models.Model):
         Args:
             sha: The SHA256 hash of the file to search for
 
-        Returns: QuerySet with dictionary-like data containing only name and directory fields using .values() for identical files
+        Returns:
+            QuerySet with dictionary-like data containing only name and directory
+            fields using .values() for identical files
         """
         return IndexData.objects.values("name", "home_directory__fqpndirectory").filter(file_sha256=sha)
 
@@ -884,19 +919,28 @@ class IndexData(models.Model):
         Returns: IndexData object or None if not found
         """
         try:
-            # Only fetch fields needed for download: name, filetype.mimetype, filetype.is_movie, home_directory.fqpndirectory
+            # Only fetch fields needed for download
             if unique:
                 return (
                     IndexData.objects.select_related("filetype", "home_directory")
-                    .only("name", "filetype__mimetype", "filetype__is_movie", "home_directory__fqpndirectory")
+                    .only(
+                        "name",
+                        "filetype__mimetype",
+                        "filetype__is_movie",
+                        "home_directory__fqpndirectory",
+                    )
                     .get(unique_sha256=sha_value, delete_pending=False)
                 )
-            else:
-                return (
-                    IndexData.objects.select_related("filetype", "home_directory")
-                    .only("name", "filetype__mimetype", "filetype__is_movie", "home_directory__fqpndirectory")
-                    .get(file_sha256=sha_value, delete_pending=False)
+            return (
+                IndexData.objects.select_related("filetype", "home_directory")
+                .only(
+                    "name",
+                    "filetype__mimetype",
+                    "filetype__is_movie",
+                    "home_directory__fqpndirectory",
                 )
+                .get(file_sha256=sha_value, delete_pending=False)
+            )
         except IndexData.DoesNotExist:
             return None
 
@@ -1015,20 +1059,20 @@ class IndexData(models.Model):
                     response = HttpResponse(fh.read(), content_type=mtype)
                     response["Content-Disposition"] = f"inline; filename={self.name}"
                     response["Cache-Control"] = "public, max-age=300"
-            except FileNotFoundError:
-                raise Http404
+            except FileNotFoundError as exc:
+                raise Http404 from exc
         else:
             # Ranged request for video streaming
             try:
                 response = RangedFileResponse(
                     request,
-                    file=open(fqpn_filename, "rb"),
+                    file=open(fqpn_filename, "rb"),  # pylint: disable=consider-using-with
                     as_attachment=False,
                     filename=self.name,
                 )
                 response["Cache-Control"] = "public, max-age=300"
-            except FileNotFoundError:
-                raise Http404
+            except FileNotFoundError as exc:
+                raise Http404 from exc
         response["Content-Type"] = mtype
         return response
 
@@ -1069,10 +1113,14 @@ class IndexData(models.Model):
                 response["Content-Type"] = mtype
 
                 total_time = (time.perf_counter() - start) * 1000
-                logger.info("[PERF] async_inline_sendfile: file read=%.2fms, total=%.2fms", file_time, total_time)
+                logger.info(
+                    "[PERF] async_inline_sendfile: file read=%.2fms, total=%.2fms",
+                    file_time,
+                    total_time,
+                )
                 return response
-            except FileNotFoundError:
-                raise Http404
+            except FileNotFoundError as exc:
+                raise Http404 from exc
         else:
             # Ranged request for video streaming
             result = await async_send_file_response(

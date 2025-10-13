@@ -7,11 +7,12 @@ are marked as invalidated to ensure they are scanned when accessed via the web.
 """
 
 import os
+import time
 
+from cache_watcher.models import fs_Cache_Tracking
 from django.conf import settings
 from django.db import close_old_connections
 
-from cache_watcher.models import fs_Cache_Tracking
 from quickbbs.common import normalize_fqpn
 from quickbbs.models import IndexDirs
 
@@ -49,6 +50,7 @@ def add_directories(max_count: int = 0) -> None:
     added_count = 0
     scanned_count = 0
     cache_instance = fs_Cache_Tracking()
+    start_time = time.time()
 
     for root, _, _ in os.walk(albums_root):
         # Normalize the root path
@@ -57,7 +59,9 @@ def add_directories(max_count: int = 0) -> None:
 
         # Progress indicator every 1000 directories
         if scanned_count % 1000 == 0:
-            print(f"Scanned {scanned_count} directories, added {added_count}...")
+            elapsed_time = time.time() - start_time
+            scan_rate = scanned_count / elapsed_time if elapsed_time > 0 else 0
+            print(f"Scanned {scanned_count} directories, added {added_count} ({scan_rate:.1f} dirs/sec)...")
 
         # Check if directory exists in database
         if not IndexDirs.objects.filter(fqpndirectory=normalized_root).exists():
@@ -79,7 +83,9 @@ def add_directories(max_count: int = 0) -> None:
 
                     # Progress indicator
                     if added_count % 100 == 0:
-                        print(f"Added {added_count} directories...")
+                        elapsed_time = time.time() - start_time
+                        add_rate = added_count / elapsed_time if elapsed_time > 0 else 0
+                        print(f"Added {added_count} directories ({add_rate:.1f} added/sec)...")
                         # Close old connections periodically to prevent exhaustion
                         close_old_connections()
 
@@ -99,7 +105,15 @@ def add_directories(max_count: int = 0) -> None:
     # Final connection cleanup
     close_old_connections()
 
+    # Calculate final statistics
+    total_time = time.time() - start_time
+    scan_rate = scanned_count / total_time if total_time > 0 else 0
+    add_rate = added_count / total_time if total_time > 0 else 0
+
     print("=" * 60)
     print(f"Scanned {scanned_count} filesystem directories")
     print(f"Successfully added {added_count} directories to database")
+    print(f"Total time: {total_time:.1f} seconds")
+    print(f"Scan rate: {scan_rate:.1f} directories/sec")
+    print(f"Add rate: {add_rate:.1f} directories/sec")
     print("=" * 60)

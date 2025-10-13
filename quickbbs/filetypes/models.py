@@ -5,12 +5,17 @@ Utilities for QuickBBS, the python edition.
 # from asgiref.sync import async_to_sync
 import io
 import os
+from typing import TYPE_CHECKING
 
 from cachetools import LRUCache, cached
 from django.conf import settings
 from django.db import models
 from django.utils.functional import cached_property
 from frontend.serve_up import send_file_response
+
+if TYPE_CHECKING:
+    from django.db.models.manager import RelatedManager
+    from quickbbs.models import IndexData, IndexDirs
 
 FILETYPE_DATA = {}
 
@@ -46,6 +51,10 @@ class filetypes(models.Model):
     is_link = models.BooleanField(default=False, db_index=True)
 
     thumbnail = models.BinaryField(default=b"", null=True)
+
+    # Reverse ForeignKey relationships
+    dirs_filetype_data: "RelatedManager[IndexDirs]"  # From IndexDirs.filetype
+    file_filetype_data: "RelatedManager[IndexData]"  # From IndexData.filetype
 
     def __unicode__(self) -> str:
         return f"{self.fileext}"

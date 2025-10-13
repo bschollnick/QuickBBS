@@ -78,12 +78,15 @@ async def _verify_files_async():
     batch_counter = 0
     cleanup_interval = 25  # Close connections every 25 directories
 
-    # Fetch all directories first
-    directories = await sync_to_async(list, thread_sensitive=True)(IndexDirs.objects.all())
+    # Fetch all directories first with Cache_Watcher prefetched
+    # This prevents sync DB queries when accessing is_cached property
+    directories = await sync_to_async(list, thread_sensitive=True)(
+        IndexDirs.objects.select_related("Cache_Watcher").all()
+    )
 
     for directory in directories:
         await sync_to_async(Cache_Storage.remove_from_cache_sha, thread_sensitive=True)(sha256=directory.dir_fqpn_sha256)
-        await sync_database_disk(directory.fqpndirectory)
+        await sync_database_disk(directory)
 
         # Periodic connection cleanup to prevent exhaustion
         batch_counter += 1

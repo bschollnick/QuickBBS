@@ -5,6 +5,8 @@ This module scans IndexData for files missing thumbnails and generates them.
 Only processes files with non-generic filetypes (images, videos, PDFs).
 """
 
+import time
+
 from django.db import close_old_connections
 from django.db.models import Q
 from thumbnails.models import ThumbnailFiles
@@ -70,7 +72,7 @@ def add_thumbnails(max_count: int = 0) -> None:
         return
 
     # Apply max_count limit if specified
-    if max_count > 0 and total_files > max_count:
+    if 0 < max_count < total_files:
         print(f"Limiting to first {max_count} files (use max_count=0 for unlimited)")
         files_needing_thumbnails = files_needing_thumbnails[:max_count]
         total_files = max_count
@@ -81,6 +83,7 @@ def add_thumbnails(max_count: int = 0) -> None:
     success_count = 0
     skip_count = 0
     error_count = 0
+    start_time = time.time()
 
     for file_record in files_needing_thumbnails:
         try:
@@ -93,25 +96,26 @@ def add_thumbnails(max_count: int = 0) -> None:
             # Generate thumbnail using existing get_or_create_thumbnail_record
             # This function handles all the logic for creating thumbnails
             # Note: Files are already filtered to only include is_image, is_pdf, or is_movie
-            ThumbnailFiles.get_or_create_thumbnail_record(
-                file_sha256=file_record.file_sha256, suppress_save=False
-            )
+            ThumbnailFiles.get_or_create_thumbnail_record(file_sha256=file_record.file_sha256, suppress_save=False)
 
             success_count += 1
             processed_count += 1
 
             # Progress indicator
             if processed_count % 50 == 0:
+                elapsed_time = time.time() - start_time
+                success_rate = success_count / elapsed_time if elapsed_time > 0 else 0
                 print(
                     f"Processed {processed_count}/{total_files} files "
-                    f"(Success: {success_count}, Skipped: {skip_count}, Errors: {error_count})"
+                    f"(Success: {success_count}, Skipped: {skip_count}, Errors: {error_count}) "
+                    f"({success_rate:.1f} thumbnails/sec)"
                 )
 
             # Periodic connection cleanup to prevent exhaustion
             if processed_count % 100 == 0:
                 close_old_connections()
 
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             error_count += 1
             processed_count += 1
             print(f"Error generating thumbnail for {file_record.name}: {e}")
@@ -120,10 +124,16 @@ def add_thumbnails(max_count: int = 0) -> None:
     # Final connection cleanup
     close_old_connections()
 
+    # Calculate final statistics
+    total_time = time.time() - start_time
+    success_rate = success_count / total_time if total_time > 0 else 0
+
     print("=" * 60)
-    print(f"Thumbnail generation complete:")
+    print("Thumbnail generation complete:")
     print(f"  Total processed: {processed_count}")
     print(f"  Successfully generated: {success_count}")
     print(f"  Skipped: {skip_count}")
     print(f"  Errors: {error_count}")
+    print(f"  Total time: {total_time:.1f} seconds")
+    print(f"  Generation rate: {success_rate:.1f} thumbnails/sec")
     print("=" * 60)

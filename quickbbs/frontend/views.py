@@ -315,7 +315,7 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
         """
         files_in_directory = directory.files_in_dir(additional_filters={"filetype__is_image": True})
         if not files_in_directory.exists():
-            async_to_sync(sync_database_disk)(directory.fqpndirectory)
+            async_to_sync(sync_database_disk)(directory)
             files_in_directory = directory.files_in_dir(additional_filters={"filetype__is_image": True})
         return files_in_directory
 
@@ -327,6 +327,9 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
     if error:
         print(dir_sha256, error.content)
         return Http404
+
+    # Reload directory with Cache_Watcher relationship to avoid KeyError in sync_database_disk
+    directory = IndexDirs.objects.select_related("Cache_Watcher").get(pk=directory.pk)
 
     if directory.thumbnail and directory.thumbnail.new_ftnail:
         #
@@ -560,14 +563,26 @@ def _find_directory(paths: dict):
         paths: Dictionary containing path information
     Returns: Tuple of (found, directory) or raises Http404/HttpResponseBadRequest
     """
+    from cache_watcher.models import get_dir_sha
+
     try:
-        print(paths)
         found, directory = IndexDirs.search_for_directory(paths["album_viewing"])
         if not found:
-            async_to_sync(sync_database_disk)(paths["album_viewing"])
-            found, directory = IndexDirs.search_for_directory(paths["album_viewing"])
+            # Directory not in database - create it and sync from disk
+            dirpath = normalize_fqpn(paths["album_viewing"])
+            found, directory = IndexDirs.add_directory(dirpath)
 
-            if not found:
+            if not found or not directory:
+                logger.info("Directory not found: %s", paths["album_viewing"])
+                return HttpResponseNotFound("<h1>gallery not found</h1>")
+
+            # Reload directory with Cache_Watcher relationship to avoid KeyError in is_cached property
+            directory = IndexDirs.objects.select_related("Cache_Watcher").get(pk=directory.pk)
+
+            # Sync the newly created directory
+            directory = async_to_sync(sync_database_disk)(directory)
+
+            if not directory:
                 logger.info("Directory not found: %s", paths["album_viewing"])
                 return HttpResponseNotFound("<h1>gallery not found</h1>")
     except Exception as e:
@@ -578,14 +593,15 @@ def _find_directory(paths: dict):
 
     # Check if physical directory exists
     if not pathlib.Path(paths["album_viewing"]).exists():
-        parent_dir = directory.return_parent_directory() if found else None
+        parent_dir = directory.return_parent_directory() if directory else None
         if parent_dir:
             Cache_Storage.remove_from_cache_name(dir_name=parent_dir.fqpndirectory)
             Cache_Storage.remove_from_cache_name(dir_name=paths["album_viewing"])
-            async_to_sync(sync_database_disk)(paths["album_viewing"])
+            # Sync for cache invalidation (directory will be 404'd after this)
+            async_to_sync(sync_database_disk)(directory)
         return HttpResponseNotFound("<h1>gallery not found</h1>")
 
-    return found, directory
+    return True, directory
 
 
 def _build_gallery_context(request: WSGIRequest, paths: dict, directory) -> dict:  # pylint: disable=unused-argument

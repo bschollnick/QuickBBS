@@ -18,8 +18,8 @@ dynamic = ["dependencies"]
 Homepage = "https://github.com/bschollnick/quickbbs"
 Issues = "https://github.com/bschollnick/quickBBS/issues"
 
-[black]
-max-line-length = 120
+[tool.black]
+line-length = 150
 
 [tool.pyright]
 exclude = ["**/gallery/**", "**/albums/**"]
@@ -29,13 +29,13 @@ exclude = ["**/gallery/**", "**/albums/**"]
 
 [tool.mypy]
 python_version = "3.13"
-cache_dir = "/volumes/C-8tb/gallery/virtualenv"
 explicit_package_bases = true
 pretty = true
 color_output = true
 ignore_missing_imports = true
 plugins = ["mypy_django_plugin.main"]
 exclude = ["albums", "gallery"]
+mypy_path = "quickbbs"
 
 [tool.django-stubs]
 django_settings_module = "quickbbs.settings"
@@ -47,7 +47,6 @@ profile = "black"
 
 [tool.poetry.dependencies]
 python = "^3.12"
-aiofile = "^3.8.8"
 aiopath = "^0.7.7"
 pymupdf = "^1.24.14"
 django-icons = "^25.1"
@@ -55,7 +54,7 @@ django-htmx = "^1.21.0"
 humanize = "^4.11.0"
 django-jinja = "^2.11.0"
 django-grappelli = "^4.0.1"
-django-debug-toolbar = "^5.2.0"
+django-debug-toolbar = "^6.0.0"
 djangorestframework = "^3.15.2"
 django-filter = "^25.1"
 django-user-agents = "^0.4.0"
@@ -72,16 +71,15 @@ xattr = "^1.1.0"
 dhash = "^1.4"
 pathvalidate = "^3.2.1"
 black = "^25.1.0"
-isort = "^6.0.1"
+isort = "^6.0.0"
 mypy = "^1.13.0"
 natsort = "^8.4.0"
 psycopg = {extras = ["c"], version = "^3.2.3"}
 certifi = "^2025.4.26"
 gunicorn = "^23.0.0"
-pip = "^25.1.1"
 django-stubs = {extras = ["compatible-mypy"], version = "^5.1.1"}
 types-pyyaml = "^6.0.12.20240917"
-uvicorn = "^0.34.0"
+uvicorn = "^0.37.0"
 pylint-django = "^2.6.1"
 hypercorn = "^0.17.3"
 pdfrw = "^0.4"
@@ -96,14 +94,15 @@ django-db-connection-pool = "^1.2.6"
 urllib3 = "^2.4.0"
 cachecontrol = "^0.14.3"
 aiofiles = "^24.1.0"
-pyobjc-core = "^11.0"
-pyobjc = "^11.0"
-pyobjc-framework-uniformtypeidentifiers = "^11.1"
+# pyobjc-core = "^11.0"
+# pyobjc = "^11.0"
+# pyobjc-framework-uniformtypeidentifiers = "^11.1"
+pyobjc-framework-cocoa = "^11.0"
 ffmpeg-python = "^0.2.0"
 charset-normalizer = "^3.4.2"
-poetry = "^2.2"
 pytest = "^8.4.1"
 pytest-django = "^4.11.1"
+pytest-asyncio = "^0.24.0"
 pyscan-rs = "^0.1.8"
 pip-audit = "^2.9.0"
 pipdeptree = "^2.28.0"
@@ -111,3 +110,4 @@ django = {version = "^6.0a1", allow-prereleases = true}
 autoflake = "^2.3.1"
 unidecode = "^1.4.0"
 osxmetadata = {version = ">=1.4.0", python = ">=3.12,<3.14"}
+psycopg-pool = "^3.2.6"

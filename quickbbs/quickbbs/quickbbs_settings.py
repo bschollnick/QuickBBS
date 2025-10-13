@@ -6,6 +6,10 @@ IMAGE_SIZE = {
     "unknown": (200, 200),
 }
 
+# PIL/Pillow Configuration
+PIL_MAX_IMAGE_PIXELS = None  # Disable decompression bomb warning
+PIL_LOAD_TRUNCATED_IMAGES = True  # Allow loading truncated images
+
 QUICKBBS_REQUIRE_LOGIN = 0
 SITE_NAME = "The Gallery"
 GALLERY_ITEMS_PER_PAGE = 30
