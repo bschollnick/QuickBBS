@@ -144,36 +144,38 @@ async def _get_or_create_directory(directory_sha256: str, dirpath: str) -> tuple
         if the directory is already in cache
     """
     # Use select_related to prefetch the Cache_Watcher relationship
-    dirpath_info = await sync_to_async(lambda: IndexDirs.objects.select_related("Cache_Watcher").filter(dir_fqpn_sha256=directory_sha256).first())()
+    directory_record = await sync_to_async(
+        lambda: IndexDirs.objects.select_related("Cache_Watcher").filter(dir_fqpn_sha256=directory_sha256).first()
+    )()
 
-    if not dirpath_info:
-        found, dirpath_info = await sync_to_async(IndexDirs.add_directory)(dirpath)
+    if not directory_record:
+        found, directory_record = await sync_to_async(IndexDirs.add_directory)(dirpath)
         if not found:
             logger.error(f"Failed to create directory record for {dirpath}")
             return None, False
-        await sync_to_async(Cache_Storage.remove_from_cache_sha)(dirpath_info.dir_fqpn_sha256)
-        return dirpath_info, False
+        await sync_to_async(Cache_Storage.remove_from_cache_sha)(directory_record.dir_fqpn_sha256)
+        return directory_record, False
 
     # Use the is_cached property which leverages the 1-to-1 relationship
-    is_cached = dirpath_info.is_cached
-    return dirpath_info, is_cached
+    is_cached = directory_record.is_cached
+    return directory_record, is_cached
 
 
-async def _handle_missing_directory(dirpath_info: object) -> None:
+async def _handle_missing_directory(directory_record: object) -> None:
     """
     Handle case where directory doesn't exist on filesystem.
 
     Deletes the directory record and cleans up parent directory cache.
 
     Args:
-        dirpath_info: IndexDirs object for the missing directory
+        directory_record: IndexDirs object for the missing directory
 
     Returns:
         None
     """
     try:
-        parent_dir = await sync_to_async(dirpath_info.return_parent_directory)()
-        await sync_to_async(dirpath_info.delete_directory)(dirpath_info.fqpndirectory)
+        parent_dir = await sync_to_async(directory_record.return_parent_directory)()
+        await sync_to_async(directory_record.delete_directory)(directory_record.fqpndirectory)
 
         # Clean up parent directory cache if it exists
         if parent_dir:
@@ -182,7 +184,7 @@ async def _handle_missing_directory(dirpath_info: object) -> None:
         logger.error(f"Error handling missing directory: {e}")
 
 
-def _sync_directories(dirpath_info: object, fs_entries: dict) -> None:
+def _sync_directories(directory_record: object, fs_entries: dict) -> None:
     """
     Synchronize database directories with filesystem - simplified sync version.
 
@@ -202,7 +204,7 @@ def _sync_directories(dirpath_info: object, fs_entries: dict) -> None:
     - No thread pool usage = no connection leakage
 
     Args:
-        dirpath_info: IndexDirs object for the parent directory
+        directory_record: IndexDirs object for the parent directory
         fs_entries: Dictionary of filesystem entries (DirEntry objects)
 
     Returns:
@@ -210,10 +212,10 @@ def _sync_directories(dirpath_info: object, fs_entries: dict) -> None:
     """
     print("Synchronizing directories...")
     logger.info("Synchronizing directories...")
-    current_path = normalize_fqpn(dirpath_info.fqpndirectory)
+    current_path = normalize_fqpn(directory_record.fqpndirectory)
 
     # Get all database directories in one query
-    all_dirs_in_database = dirpath_info.dirs_in_dir()
+    all_dirs_in_database = directory_record.dirs_in_dir()
     all_database_dir_names_set = set(all_dirs_in_database.values_list("fqpndirectory", flat=True))
 
     # Build filesystem directory names
@@ -261,7 +263,7 @@ def _sync_directories(dirpath_info: object, fs_entries: dict) -> None:
         logger.info(f"Directories to Delete: {len(entries_that_dont_exist_in_fs)}")
         with transaction.atomic():
             all_dirs_in_database.filter(fqpndirectory__in=entries_that_dont_exist_in_fs).delete()
-            Cache_Storage.remove_from_cache_sha(dirpath_info.dir_fqpn_sha256)
+            Cache_Storage.remove_from_cache_sha(directory_record.dir_fqpn_sha256)
 
 
 def _check_single_directory_update(db_dir_entry, fs_entries: dict) -> object | None:
@@ -335,7 +337,7 @@ async def _check_directory_updates(fs_entries: dict, existing_directories_in_dat
     return records_to_update
 
 
-def _sync_files(dirpath_info: object, fs_entries: dict, bulk_size: int) -> None:
+def _sync_files(directory_record: object, fs_entries: dict, bulk_size: int) -> None:
     """
     Synchronize database files with filesystem - simplified for performance.
 
@@ -354,7 +356,7 @@ def _sync_files(dirpath_info: object, fs_entries: dict, bulk_size: int) -> None:
     - Transactions handled in _execute_batch_operations
 
     Args:
-        dirpath_info: IndexDirs object for the parent directory
+        directory_record: IndexDirs object for the parent directory
         fs_entries: Dictionary of filesystem entries (DirEntry objects)
         bulk_size: Size of batches for bulk operations (from BATCH_SIZES)
 
@@ -366,7 +368,7 @@ def _sync_files(dirpath_info: object, fs_entries: dict, bulk_size: int) -> None:
     fs_file_names = list(fs_file_names_dict.keys())
 
     # Get files with prefetch already configured in files_in_dir()
-    all_files_in_dir = dirpath_info.files_in_dir()
+    all_files_in_dir = directory_record.files_in_dir()
 
     # Batch fetch all filenames in one query
     all_db_filenames = set(all_files_in_dir.values_list("name", flat=True))
@@ -380,7 +382,7 @@ def _sync_files(dirpath_info: object, fs_entries: dict, bulk_size: int) -> None:
         updated_record = _check_file_updates(
             db_file_entry,
             fs_file_names_dict[db_file_entry.name],
-            dirpath_info,
+            directory_record,
         )
         if updated_record:
             records_to_update.append(updated_record)
@@ -392,7 +394,7 @@ def _sync_files(dirpath_info: object, fs_entries: dict, bulk_size: int) -> None:
     fs_file_names_for_creation = set(fs_file_names) - set(all_db_filenames)
     creation_fs_file_names_dict = {name: fs_file_names_dict[name] for name in fs_file_names_for_creation}
 
-    records_to_create = _process_new_files(dirpath_info, creation_fs_file_names_dict)
+    records_to_create = _process_new_files(directory_record, creation_fs_file_names_dict)
 
     # Execute batch operations with transactions
     _execute_batch_operations(records_to_update, records_to_create, files_to_delete_ids, bulk_size)
@@ -467,7 +469,7 @@ def _check_file_updates(db_record: object, fs_entry: Path, home_directory: objec
         return None
 
 
-def _process_new_files(dirpath_info: object, fs_file_names: dict) -> list[object]:
+def _process_new_files(directory_record: object, fs_file_names: dict) -> list[object]:
     """
     Process files that exist in filesystem but not in database.
 
@@ -479,7 +481,7 @@ def _process_new_files(dirpath_info: object, fs_file_names: dict) -> list[object
     Single pass through files is simpler and just as fast for typical counts.
 
     Args:
-        dirpath_info: IndexDirs object for the parent directory
+        directory_record: IndexDirs object for the parent directory
         fs_file_names: Dictionary mapping filenames to DirEntry objects
 
     Returns:
@@ -491,7 +493,7 @@ def _process_new_files(dirpath_info: object, fs_file_names: dict) -> list[object
     for _, fs_entry in fs_file_names.items():
         try:
             # Process new file
-            filedata = process_filedata(fs_entry, directory_id=dirpath_info)
+            filedata = process_filedata(fs_entry, directory_id=directory_record)
             if filedata is None:
                 continue
 
@@ -502,7 +504,7 @@ def _process_new_files(dirpath_info: object, fs_file_names: dict) -> list[object
 
             # Create record
             record = IndexData(**filedata)
-            record.home_directory = dirpath_info
+            record.home_directory = directory_record
             records_to_create.append(record)
 
         except Exception as e:
@@ -733,7 +735,13 @@ def process_filedata(fs_entry: Path, directory_id: str | None = None) -> dict[st
 
         # Check if it's a directory first
         if fs_entry.is_dir():
-            sync_database_disk(str(fs_entry))
+            # Subdirectories are handled by _sync_directories, not here
+            # Just skip processing directories in the file processing phase
+            # NOTE: Commented out recursive sync_database_disk call - it's problematic
+            # because it uses asyncio.run() from within a sync function that's already
+            # running in a thread pool via sync_to_async. This causes event loop conflicts.
+            # The _sync_directories function already handles subdirectories properly.
+            # asyncio.run(sync_database_disk(str(fs_entry)))
             return None
 
         # Extract file extension
@@ -824,79 +832,62 @@ def process_filedata(fs_entry: Path, directory_id: str | None = None) -> dict[st
         return None
 
 
-async def sync_database_disk(directoryname: str) -> bool | None:
+async def sync_database_disk(directory_record: IndexDirs) -> bool | None:
     """
     Synchronize database entries with filesystem for a given directory.
 
     Args:
-        directoryname: The directory path to synchronize
+        directory_record: IndexDirs record for the directory to synchronize
 
     Returns:
         None on completion, bool on early exit conditions
     """
-    print("Starting ...  Syncing database with disk for directory:", directoryname)
+    dirpath = directory_record.fqpndirectory
+    print("Starting ...  Syncing database with disk for directory:", dirpath)
     start_time = time.perf_counter()
     # Use simplified batch sizing
     BULK_SIZE = _get_batch_size("db_write")
 
-    #    try:
-    # Normalize directory path
-    if directoryname in [os.sep, r"/"]:
-        directoryname = settings.ALBUMS_PATH
-
-    dirpath = normalize_fqpn(os.path.abspath(directoryname.title().strip()))
-    directory_sha256 = get_dir_sha(dirpath)
-
-    # Find or create directory record
-    dirpath_info, is_cached = await _get_or_create_directory(directory_sha256, dirpath)
-    if dirpath_info is None:
-        return False
-
-    # Early return if cached
-    if is_cached:
+    # Check if directory is cached using the record's property
+    if directory_record.is_cached:
         print(f"Directory {dirpath} is already cached, skipping sync.")
         return None
 
     print(f"Rescanning directory: {dirpath}")
 
-    # Get filesystem entries
+    # Get filesystem entries using the directory path from the record
     success, fs_entries = await return_disk_listing(dirpath)
     if not success:
         print("File path doesn't exist, removing from cache and database.")
-        return await _handle_missing_directory(dirpath_info)
+        return await _handle_missing_directory(directory_record)
 
     # Batch process all operations
     # Both functions are sync and wrapped here for clean async/sync boundary
-    await sync_to_async(_sync_directories)(dirpath_info, fs_entries)
-    await sync_to_async(_sync_files)(dirpath_info, fs_entries, BULK_SIZE)
+    await sync_to_async(_sync_directories)(directory_record, fs_entries)
+    await sync_to_async(_sync_files)(directory_record, fs_entries, BULK_SIZE)
 
-    # Cache the result
+    # Cache the result using the directory path from the record
     await sync_to_async(Cache_Storage.add_to_cache)(dir_path=dirpath)
     logger.info(f"Cached directory: {dirpath}")
     print("Elapsed Time (Sync Database Disk): ", time.perf_counter() - start_time)
 
     # Close stale connections after expensive operation
     close_old_connections()
-    return None
-
-    # except Exception as e:
-    #     print(f"Error syncing directory {directoryname}: {e}")
-    #     logger.error(f"Error syncing directory {directoryname}: {e}")
-    #     return False
+    return directory_record
 
 
-# ASGI: Direct call to async sync_database_disk (no wrapper needed)
-async def async_sync_database_disk(directoryname: str) -> bool | None:
+# ASGI: Wrapper for backward compatibility with string parameter
+async def async_sync_database_disk(directory_record: IndexDirs) -> bool | None:
     """
-    Direct call to sync_database_disk which is now natively async.
+    Wrapper that calls sync_database_disk with an IndexDirs record.
 
     Args:
-        directoryname: The full directory name to synchronize with the database
+        directory_record: IndexDirs record for the directory to synchronize
 
     Returns:
         None on success, False on error
     """
-    return await sync_database_disk(directoryname)
+    return await sync_database_disk(directory_record)
 
 
 def read_from_disk(dir_to_scan: str, skippable: bool = True) -> None:
@@ -916,12 +907,12 @@ def read_from_disk(dir_to_scan: str, skippable: bool = True) -> None:
         This is a compatibility shim. New code should use sync_database_disk directly.
         WARNING: This function calls the async sync_database_disk. Use async_read_from_disk instead.
     """
-    if not Path(dir_to_scan).exists():
-        if dir_to_scan.startswith("/"):
-            dir_to_scan = dir_to_scan[1:]
-        Path(os.path.join(settings.ALBUMS_PATH, dir_to_scan))
-    else:
-        Path(ensures_endswith(dir_to_scan, os.sep))
+    # if not Path(dir_to_scan).exists():
+    #     if dir_to_scan.startswith("/"):
+    #         dir_to_scan = dir_to_scan[1:]
+    #     Path(os.path.join(settings.ALBUMS_PATH, dir_to_scan))
+    # else:
+    #     Path(ensures_endswith(dir_to_scan, os.sep))
 
     # Note: This is problematic - sync_database_disk is now async
     # This will fail in production. Use async_read_from_disk instead.
@@ -949,7 +940,16 @@ async def async_read_from_disk(dir_to_scan: str, skippable: bool = True) -> None
     else:
         dir_path = Path(ensures_endswith(dir_to_scan, os.sep))
 
-    return await sync_database_disk(str(dir_path))
+    # Normalize directory path
+    dirpath = normalize_fqpn(os.path.abspath(str(dir_path)))
+    directory_sha256 = get_dir_sha(dirpath)
+
+    # Find or create directory record
+    directory_record, _ = await _get_or_create_directory(directory_sha256, dirpath)
+    if directory_record is None:
+        return False
+
+    return await sync_database_disk(directory_record)
 
 
 from Foundation import (  # NSData,; NSError,

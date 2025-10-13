@@ -158,12 +158,12 @@ class WatchdogManager:
                         event_handler=self.event_handler,
                     )
                     self.is_running = True
-                    logger.info(f"Watchdog started monitoring: {self.monitor_path}")
+                    logger.info("Watchdog started monitoring: %s", self.monitor_path)
                     # Always schedule restart when we start successfully
                     logger.debug("Scheduling restart timer...")
                     self._schedule_restart()
                 except Exception as e:
-                    logger.error(f"Failed to start watchdog: {e}", exc_info=True)
+                    logger.error("Failed to start watchdog: %s", e, exc_info=True)
                     raise
             else:
                 logger.info("Watchdog already running")
@@ -185,7 +185,7 @@ class WatchdogManager:
                     self.is_running = False
                     logger.info("Watchdog stopped")
                 except Exception as e:
-                    logger.error(f"Error stopping watchdog: {e}")
+                    logger.error("Error stopping watchdog: %s", e)
 
     def shutdown(self) -> None:
         """Complete shutdown - stop watchdog and cancel restart timer."""
@@ -200,7 +200,7 @@ class WatchdogManager:
                     self.is_running = False
                     logger.info("Watchdog completely shut down")
                 except Exception as e:
-                    logger.error(f"Error stopping watchdog: {e}")
+                    logger.error("Error stopping watchdog: %s", e)
 
     def restart(self) -> None:
         """Restart the watchdog process and schedule the next restart."""
@@ -217,7 +217,7 @@ class WatchdogManager:
             restart_successful = True
             logger.info("Watchdog restart completed successfully")
         except Exception as e:
-            logger.error(f"Error during watchdog restart: {e}", exc_info=True)
+            logger.error("Error during watchdog restart: %s", e, exc_info=True)
 
         # Always try to schedule next restart, even if this restart failed
         if not restart_successful:
@@ -232,7 +232,7 @@ class WatchdogManager:
             if self.restart_timer:
                 was_alive = self.restart_timer.is_alive()
                 self.restart_timer.cancel()
-                logger.debug(f"Cancelled existing restart timer (was_alive: {was_alive})")
+                logger.debug("Cancelled existing restart timer (was_alive: %s)", was_alive)
                 self.restart_timer = None
 
             # Create new timer
@@ -242,13 +242,13 @@ class WatchdogManager:
 
             # Verify timer started successfully
             if self.restart_timer.is_alive():
-                logger.info(f"✓ Next watchdog restart scheduled in {WATCHDOG_RESTART_INTERVAL/3600:.1f} hours")
-                logger.debug(f"Timer object: {self.restart_timer}, thread name: {self.restart_timer.name}")
+                logger.info("✓ Next watchdog restart scheduled in %.1f hours", WATCHDOG_RESTART_INTERVAL / 3600)
+                logger.debug("Timer object: %s, thread name: %s", self.restart_timer, self.restart_timer.name)
             else:
                 logger.error("⚠ Timer failed to start!")
 
         except Exception as e:
-            logger.error(f"Error scheduling restart: {e}", exc_info=True)
+            logger.error("Error scheduling restart: %s", e, exc_info=True)
 
 
 # Global watchdog manager instance
@@ -325,7 +325,7 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
                 self.event_timer.start()
 
         except Exception as e:
-            logger.error(f"Error buffering event {event.src_path}: {e}")
+            logger.error("Error buffering event %s: %s", event.src_path, e)
 
     def _process_buffered_events(self, expected_generation: int) -> None:
         """Process all buffered events at once.
@@ -357,7 +357,7 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
             paths_to_process = optimized_event_buffer.get_events_to_process()
 
             if paths_to_process:
-                logger.info(f"[Gen {expected_generation}] Processing {len(paths_to_process)} buffered directory changes")
+                logger.info("[Gen %d] Processing %d buffered directory changes", expected_generation, len(paths_to_process))
                 # Convert set to list for cache removal function
                 # Wrap DB operation for ASGI compatibility - this ensures the operation
                 # works correctly whether running under WSGI or ASGI
@@ -369,7 +369,7 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
                     Cache_Storage.remove_multiple_from_cache(list(paths_to_process))
 
         except Exception as e:
-            logger.error(f"Error processing buffered events: {e}")
+            logger.error("Error processing buffered events: %s", e)
         finally:
             # Release the global semaphore to allow next processing run
             processing_semaphore.release()
@@ -425,10 +425,10 @@ class fs_Cache_Tracking(models.Model):
         """
         try:
             updated_count = fs_Cache_Tracking.objects.all().update(invalidated=True)
-            logger.info(f"Invalidated {updated_count} cache records")
+            logger.info("Invalidated %d cache records", updated_count)
             return updated_count
         except Exception as e:
-            logger.error(f"Error clearing all cache records: {e}")
+            logger.error("Error clearing all cache records: %s", e)
             return 0
 
     def add_to_cache(self, dir_path: str) -> Optional["fs_Cache_Tracking"]:
@@ -451,11 +451,10 @@ class fs_Cache_Tracking(models.Model):
             dir_sha = get_dir_sha(dir_path)
             scan_time = time.time()
 
-            # Fetch the IndexDirs instance by dir_sha
-            try:
-                index_dir = IndexDirs.objects.get(dir_fqpn_sha256=dir_sha)
-            except IndexDirs.DoesNotExist:
-                logger.warning(f"Cannot add cache entry for {dir_path} - IndexDirs entry not found")
+            # Fetch the IndexDirs instance by dir_sha using optimized cached lookup
+            found, index_dir = IndexDirs.search_for_directory_by_sha(dir_sha)
+            if not found:
+                logger.warning("Cannot add cache entry for %s - IndexDirs entry not found", dir_path)
                 return None
 
             defaults = {
@@ -468,11 +467,11 @@ class fs_Cache_Tracking(models.Model):
                 defaults=defaults,
             )
             action = "Created" if created else "Updated"
-            logger.debug(f"{action} cache entry for: {dir_path}")
+            logger.debug("%s cache entry for: %s", action, dir_path)
             return entry
 
         except Exception as e:
-            logger.error(f"Error adding {dir_path} to cache: {e}")
+            logger.error("Error adding %s to cache: %s", dir_path, e)
             return None
 
     def sha_exists_in_cache(self, sha256: str) -> bool:
@@ -487,7 +486,7 @@ class fs_Cache_Tracking(models.Model):
         try:
             return fs_Cache_Tracking.objects.filter(directory__dir_fqpn_sha256=sha256, invalidated=False).exists()
         except Exception as e:
-            logger.error(f"Error checking SHA existence in cache: {e}")
+            logger.error("Error checking SHA existence in cache: %s", e)
             return False
 
     def remove_from_cache_sha(self, sha256: str) -> bool:
@@ -514,11 +513,11 @@ class fs_Cache_Tracking(models.Model):
             if directory_found:
                 self._clear_layout_cache(directory)
 
-            logger.debug(f"Removed cache entry for SHA: {sha256}")
+            logger.debug("Removed cache entry for SHA: %s", sha256)
             return True
 
         except Exception as e:
-            logger.error(f"Error removing SHA {sha256} from cache: {e}")
+            logger.error("Error removing SHA %s from cache: %s", sha256, e)
             return False
 
     def remove_from_cache_name(self, dir_path: str) -> bool:
@@ -534,7 +533,7 @@ class fs_Cache_Tracking(models.Model):
             sha256 = get_dir_sha(dir_path)
             return self.remove_from_cache_sha(sha256)
         except Exception as e:
-            logger.error(f"Error removing {dir_path} from cache: {e}")
+            logger.error("Error removing %s from cache: %s", dir_path, e)
             return False
 
     def _invalidate_cache_entry(self, sha256: str) -> Optional["fs_Cache_Tracking"]:
@@ -553,11 +552,10 @@ class fs_Cache_Tracking(models.Model):
 
         from quickbbs.models import IndexDirs
 
-        # Fetch the IndexDirs instance by dir_sha
-        try:
-            index_dir = IndexDirs.objects.get(dir_fqpn_sha256=sha256)
-        except IndexDirs.DoesNotExist:
-            logger.warning(f"Cannot invalidate cache for SHA {sha256} - IndexDirs entry not found")
+        # Fetch the IndexDirs instance by dir_sha using optimized cached lookup
+        found, index_dir = IndexDirs.search_for_directory_by_sha(sha256)
+        if not found:
+            logger.warning("Cannot invalidate cache for SHA %s - IndexDirs entry not found", sha256)
             return None
 
         entry, _ = fs_Cache_Tracking.objects.update_or_create(
@@ -588,7 +586,7 @@ class fs_Cache_Tracking(models.Model):
         if not sha_list:
             return False
 
-        logger.info(f"Removing {len(sha_list)} directories from cache")
+        logger.info("Removing %d directories from cache", len(sha_list))
 
         # Get affected directories (only load fields needed for cache clearing)
         directories = list(IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list).only("dir_fqpn_sha256", "id", "fqpndirectory"))
@@ -597,20 +595,20 @@ class fs_Cache_Tracking(models.Model):
         # Check for missing IndexDirs entries and create them
         missing_shas = set(sha_list) - set(fqpn_by_dir_sha.keys())
         if missing_shas:
-            logger.info(f"Creating {len(missing_shas)} missing IndexDirs entries")
+            logger.info("Creating %d missing IndexDirs entries", len(missing_shas))
             for missing_sha in missing_shas:
                 dir_path = sha_to_path.get(missing_sha)
                 if dir_path:
                     try:
-                        found, new_dir = IndexDirs.add_directory(dir_path)
+                        _, new_dir = IndexDirs.add_directory(dir_path)
                         # Only add to dict if new_dir is valid and has required attributes
                         if new_dir is not None and hasattr(new_dir, "pk") and new_dir.pk is not None:
                             fqpn_by_dir_sha[missing_sha] = new_dir
-                            logger.debug(f"Created IndexDirs entry for {dir_path}")
+                            logger.debug("Created IndexDirs entry for %s", dir_path)
                         else:
-                            logger.warning(f"IndexDirs.add_directory returned invalid object for {dir_path}")
+                            logger.warning("IndexDirs.add_directory returned invalid object for %s", dir_path)
                     except Exception as e:
-                        logger.error(f"Failed to create IndexDirs entry for {dir_path}: {e}")
+                        logger.error("Failed to create IndexDirs entry for %s: %s", dir_path, e)
 
         # Collect all parent directories using efficient batch query approach
         # This replaces the N*M loop with D queries (where D = max directory depth)
@@ -631,13 +629,13 @@ class fs_Cache_Tracking(models.Model):
             affected_directories = [
                 fqpn_by_dir_sha[sha]
                 for sha in set(sha_list) & fqpn_by_dir_sha.keys()
-                if fqpn_by_dir_sha[sha] is not None and hasattr(fqpn_by_dir_sha[sha], "pk") and fqpn_by_dir_sha[sha].pk is not None
+                if (fqpn_by_dir_sha[sha] is not None and hasattr(fqpn_by_dir_sha[sha], "pk") and fqpn_by_dir_sha[sha].pk is not None)
             ]
 
             if affected_directories:
                 self._clear_layout_cache_bulk(affected_directories)
 
-            logger.info(f"Successfully invalidated {update_count} cache entries")
+            logger.info("Successfully invalidated %d cache entries", update_count)
 
         return update_count > 0
 
@@ -701,7 +699,7 @@ class fs_Cache_Tracking(models.Model):
             for key in keys_to_delete:
                 del layout_manager_cache[key]
 
-            logger.debug(f"Cleared {len(keys_to_delete)} layout cache entries for {len(directories)} directories")
+            logger.debug("Cleared %d layout cache entries for %d directories", len(keys_to_delete), len(directories))
 
         except Exception as e:
-            logger.error(f"Error clearing layout cache for directories: {e}")
+            logger.error("Error clearing layout cache for directories: %s", e)
