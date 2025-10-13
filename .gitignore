@@ -58,7 +58,7 @@ db.sqlite3
 quickbbs/db.sqlite3-journal
 benchmarks/
 quickbbs/logfile
-quickbbs/secrets.py
+quickbbs/quickbbs/secrets.py
 *$py.class
 downloads/
 .eggs/
