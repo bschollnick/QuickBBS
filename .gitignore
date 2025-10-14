@@ -50,6 +50,7 @@ docs/_build/
 
 # QuickBBS specific
 albums/
+backups/
 *.passwdfile
 db.sqlite3
 *.sqlite3
