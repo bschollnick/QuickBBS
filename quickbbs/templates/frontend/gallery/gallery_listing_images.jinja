@@ -96,8 +96,9 @@
 }
 
 .thumbnail-image {
-    object-fit: cover;
-    max-width: 100%;
+    object-fit: contain;
+    max-width: {{small_width}}px;
+    max-height: {{small_height}}px;
     height: auto;
 }
 
@@ -121,7 +122,8 @@
 }
 
 .thumbnail {
-    max-width: 100%;
+    max-width: {{small_width}}px;
+    max-height: {{small_height}}px;
     height: auto;
     border-radius: 4px;
 }
@@ -225,55 +227,51 @@
     <!-- Gallery Grid -->
     <div class="gallery-grid">
         {%- for item in items_to_display -%}
+            {# Cache URLs and set HTMX attributes once #}
+            {% set item_url = item.virtual_directory.get_view_url() if item.filetype.is_link else item.get_view_url() + "?sort=" + sort|string %}
+            {% set htmx_attrs = 'hx-push-url="true" hx-target="body" hx-swap="outerHTML transition:true"' %}
+
+            {# Note: background-color must remain inline as it's dynamic based on filetype #}
             <div class="gallery-item" style="background-color: #{{ item.filetype.color }};">
                 <!-- Item Header -->
                 <div class="item-header">
                     <span class="item-index">{{ loop.index }}</span>
                     <div class="item-title">
-                        {% if item.filetype.is_link %}
-                            <a href="{{ item.virtual_directory.get_view_url() }}"
-                               hx-get="{{ item.virtual_directory.get_view_url() }}"
-                               hx-push-url="true"
-                               hx-target="body"
-                               hx-swap="outerHTML transition:true"
-                               class="gallery-item-link">
+                        <a href="{{ item_url }}"
+                           hx-get="{{ item_url }}"
+                           {{ htmx_attrs|safe }}
+                           class="gallery-item-link">
+                            {% if item.filetype.is_link %}
                                 {{ item.name.split("*")[0] }}
-                            </a>
-                        {% else %}
-                            <a href="{{ item.get_view_url() }}?sort={{sort}}"
-                               hx-get="{{ item.get_view_url() }}?sort={{sort}}"
-                               hx-push-url="true"
-                               hx-target="body"
-                               hx-swap="outerHTML transition:true"
-                               class="gallery-item-link">
+                            {% else %}
                                 {{ item.name|wordwrap(width=24, break_long_words=True) }}
-                            </a>
-                        {% endif %}
-                        
+                            {% endif %}
+                        </a>
+
                         {% if item.is_animated %}
                             <i class="fas fa-film film-indicator"></i>
                         {% endif %}
                     </div>
                 </div>
-                
+
                 <!-- Thumbnail Container -->
                 <div class="thumbnail-container">
-                    <a href="{{ item.get_view_url() }}?sort={{sort}}"
-                       hx-get="{{ item.get_view_url() }}?sort={{sort}}"
-                       hx-push-url="true"
-                       hx-target="body"
-                       hx-swap="outerHTML transition:true"
-                       class="gallery-item-link">
-                        <img data-src="{{ item.get_thumbnail_url() }}"
-                             src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3C/svg%3E"
-                             alt="{{ item.name }}"
-                             class="thumbnail thumbnail-image lazy-image gallery-item"
-                             loading="lazy"
-                             data-loaded="false"
-                             onerror="this.src='/resources/images/default-thumbnail.png'">
-                    </a>
+                    <figure class="image">
+                        <a href="{{ item_url }}"
+                           hx-get="{{ item_url }}"
+                           {{ htmx_attrs|safe }}
+                           class="gallery-item-link">
+                            <img data-src="{{ item.get_thumbnail_url() }}"
+                                 src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3C/svg%3E"
+                                 alt="{{ item.name }}"
+                                 class="thumbnail thumbnail-image lazy-image gallery-item"
+                                 loading="lazy"
+                                 data-loaded="false"
+                                 onerror="this.src='/resources/images/default-thumbnail.png'">
+                        </a>
+                    </figure>
                     <!-- External Link -->
-                    <a href="{{ item.get_view_url() }}?sort={{sort}}"
+                    <a href="{{ item_url }}"
                         target="_blank"
                         class="external-link"
                         hx-boost="false">

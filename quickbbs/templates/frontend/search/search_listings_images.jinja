@@ -1,126 +1,304 @@
-<image_block id="image_block">
-<div class="column is-12 g-0 p-0 m-0 mt-4"> 
-     <!-- Folder Navigation & Breadcrumbs -->
-    <div class="columns is-mobile is-centered is-gapless m-0 p-0">
-        <div class="column is-2"></div>
-        <div class="column is-one-third has-text-centered is-gapless m-0 p-0">
+
+<style>
+/* Gallery Container */
+.gallery-container {
+    max-width: 93%;
+    margin-left: 7%;
+    margin-right: 0px;
+    margin-top: 0px;
+    padding: 0.25rem;
+}
+
+/* Navigation Header */
+.nav-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 1rem;
+    margin-bottom: .5rem;
+    gap: .5rem;
+}
+
+.nav-breadcrumb {
+    flex: 1;
+    text-align: center;
+}
+
+.nav-controls {
+    display: flex;
+    gap: 1rem;
+    min-width: 120px;
+}
+
+.nav-link {
+    font-size: 0.875rem;
+    color: #3273dc;
+    text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 150px;
+}
+
+/* Gallery Grid */
+.gallery-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1px;
+    border: 1px solid #000;
+    padding: 1px;
+}
+
+.gallery-item {
+    flex: 1 1 calc(33.333% - 2px);
+    min-width: 200px;
+    border: 0px;
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+/* Item Header */
+.item-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 0.0rem;
+    margin-top: 0.0rem;
+}
+
+.item-index {
+    font-weight: bold;
+    margin-right: 0.5rem;
+    min-width: 20px;
+}
+
+.item-title {
+    flex: 1;
+    font-size: 1.0rem;
+    line-height: 1.0;
+    word-wrap: break-word;
+    text-align: center;
+    width: 100%;
+    margin-bottom: 0.0 rem;
+}
+
+.item-title a {
+    color: black !important;
+    text-decoration: none;
+}
+
+/* Additional CSS optimizations */
+.gallery-item-link {
+    color: black !important;
+    text-decoration: none;
+}
+
+.thumbnail-image {
+    object-fit: contain;
+    max-width: {{small_width}}px;
+    max-height: {{small_height}}px;
+    height: auto;
+}
+
+/* Use CSS containment for performance */
+.gallery-item {
+    contain: layout style paint;
+}
+
+.film-indicator {
+    margin-left: 0.25rem;
+}
+
+/* Thumbnail Container */
+.thumbnail-container {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0.25rem 0;
+    position: relative;
+}
+
+.thumbnail {
+    max-width: {{small_width}}px;
+    max-height: {{small_height}}px;
+    height: auto;
+    border-radius: 4px;
+}
+
+.external-link {
+    position: absolute;
+    top: -15px;
+    right: -5px;
+    background: transparent;
+    border-radius: 50%;
+    padding: 6px;
+    font-size: 1.25rem;
+    color: #3273dc;
+    text-decoration: none;
+}
+
+/* Metadata */
+.item-metadata {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    font-size: 1.00rem;
+    margin-top: auto;
+    width:100%;
+}
+
+.metadata-item {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    color: #000;
+}
+
+.metadata-item i {
+    width: 12px;
+    text-align: center;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .gallery-item {
+        flex: 1 1 calc(50% - 2px);
+        min-width: 150px;
+    }
+
+    .nav-header {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .nav-controls {
+        width: 100%;
+        justify-content: space-between;
+    }
+}
+
+@media (max-width: 480px) {
+    .gallery-item {
+        flex: 1 1 100%;
+    }
+}
+</style>
+
+<div class="gallery-container">
+    <!-- Navigation Header -->
+    <nav class="nav-header">
+        <div class="nav-controls">
+            <!-- Search results don't have prev directory navigation -->
+        </div>
+
+        <div class="nav-breadcrumb">
             {% include 'components/breadcrumb.jinja' %}
         </div>
-        <div class="column is-one-third has-text-left is-gapless m-0 p-0">
-                <!-- Search results don't have prev/next directory navigation -->
-        </div>
-        <div class="column is-one-third has-text-left is-gapless m-0 p-0">
-                <!-- Search results don't have prev/next directory navigation -->
-        </div>
-    </div><!-- Folder Navigation & Breadcrumbs -->
 
-    <div class="columns is-mobile is-gapless is-centered has-text-centered m-0 p-0"  style="margin-bottom:1px;margin-top:1px;">
-        <div class="column is-1">
+        <div class="nav-controls">
+            <!-- Search results don't have next directory navigation -->
         </div>
-        <div class="column is-11 is-narrow is-gapless" style="border:1px solid black;margin-bottom:1px;margin-top:1px;">
-            <div class="columns is-mobile  is-multiline is-gapless is-centered has-text-centered"  style="margin-bottom:1px;margin-top:1px;">
-                {%- for item in items_to_display -%}
-                    {# Cache expensive function calls #}
-                    {% set item_bg_color = item.filetype.color %}
-                    {% set item_view_url = item.get_view_url() %}
-                    {% set item_thumbnail_url = item.get_thumbnail_url() %}
-                    <div class="column is-one-third" style="border:1px solid black;background-color:#{{item_bg_color}};">
-                        <span class="has-text-weight-bold">{{ loop.index }}</span> <br>
-<!-- title -->
-                        {% if item.filetype.is_link %}
-                            <span class="is-size-7"><a href="{{ item.fqpndirectory if item.fqpndirectory is defined else '#' }}"
-                                                        style="background-color:#{{item_bg_color}}; color: black !important;"
-                                                        hx-get="{{ item.fqpndirectory if item.fqpndirectory is defined else '#' }}"
-                                                        hx-push-url="true"
-                                                        hx-target="body"
-                                                        hx-swap="outerHTML transition:true"
-                                                        hx-headers='{"Cache-Control": "max-age=300"}'>
-                            {{ item.name.split("*")[0] }}</a></span><br>
-                            <img loading='lazy' data-src="{{item_thumbnail_url}}" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3C/svg%3E" class="img-responsive lazy-image" style="width:auto;max-width:100%" data-loaded="false"/>
-                        {% elif item.fqpndirectory is defined %}
-                            <!-- This is a directory (IndexDirs) -->
-                            <span class="is-size-7"><a href="{{item_view_url}}?sort={{sort}}"
-                                                        style="background-color:#{{item_bg_color}}; color: black !important;"
-                                                        hx-get="{{item_view_url}}?sort={{sort}}"
-                                                        hx-push-url="true"
-                                                        hx-target="body"
-                                                        hx-swap="outerHTML transition:true"
-                                                        hx-headers='{"Cache-Control": "max-age=300"}'>
-                            {{ item.name|wordwrap(width=24, break_long_words=True)}}</a></span>
-                            <br>
-                            <img loading='lazy' data-src="{{item_thumbnail_url}}" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3C/svg%3E" class="img-responsive lazy-image" style="width:auto;max-width:100%" data-loaded="false"/>
-                        {% else %}
-                            <!-- This is a file (IndexData) -->
-                            <span class="is-size-7"><a href="{{item_view_url}}?sort={{sort}}"
-                                                        style="background-color:#{{item_bg_color}}; color: black !important;"
-                                                        hx-get="{{item_view_url}}?sort={{sort}}"
-                                                        hx-push-url="true"
-                                                        hx-target="body"
-                                                        hx-swap="outerHTML transition:true"
-                                                        hx-headers='{"Cache-Control": "max-age=300"}'>
-                            {{ item.name|wordwrap(width=24, break_long_words=True)}}</a></span>
-                            {% if item.is_animated -%} {{ icon("fa-solid fa-film") }} {% endif%}
-                            <br>
-                            <img loading='lazy' data-src="{{item_thumbnail_url}}" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3C/svg%3E" class="img-responsive lazy-image" style="width:auto;max-width:100%" data-loaded="false"/>
-                        {% endif %}
-<!-- Display thumbnail  -->
+    </nav>
+
+    <!-- Gallery Grid -->
+    <div class="gallery-grid">
+        {%- for item in items_to_display -%}
+            {# Cache URLs and set HTMX attributes once #}
+            {% set item_url = item.virtual_directory.get_view_url() if item.filetype.is_link else item.get_view_url() + "?sort=" + sort|string %}
+            {% set htmx_attrs = 'hx-push-url="true" hx-target="body" hx-swap="outerHTML transition:true"' %}
+
+            {# Note: background-color must remain inline as it's dynamic based on filetype #}
+            <div class="gallery-item" style="background-color: #{{ item.filetype.color }};">
+                <!-- Item Header -->
+                <div class="item-header">
+                    <span class="item-index">{{ loop.index }}</span>
+                    <div class="item-title">
+                        <a href="{{ item_url }}"
+                           hx-get="{{ item_url }}"
+                           {{ htmx_attrs|safe }}
+                           class="gallery-item-link">
+                            {% if item.filetype.is_link %}
+                                {{ item.name.split("*")[0] }}
+                            {% else %}
+                                {{ item.name|wordwrap(width=24, break_long_words=True) }}
+                            {% endif %}
                         </a>
 
-                        <div class="cell flex-shrink">
-                            {% if item.filetype.is_link %}
-                                <a href="{{ item.fqpndirectory if item.fqpndirectory is defined else '#' }}" target="_blank" style="m-0;p-0;margin-top:-20px;display: flex; justify-content: flex-end;margin-right:10px;">
-                                    {{ icon("external-link-alt fa-xl") }}
-                                </a>
-                            {% else %}
-                                <a href="{{item_view_url}}?sort={{sort}}" target="_blank" style="m-0;p-0;margin-top:-20px;display: flex; justify-content: flex-end;margin-right:10px;">
-                                    {{ icon("external-link-alt fa-xl") }}
-                                </a>
-                            {% endif %}
-                            <br>
-                        </div>
-
-                        <div class="fixed-grid has-3-cols is-gapless is-column-gap-0 is-row-gap-0 m-0 p-0">
-                            <div class="grid is-gapless is-column-gap-0 is-row-gap-0 m-0 p-0">
-                                {% if item.filetype.is_dir and item.get_dir_counts is defined %}
-                                <div class="cell flex-shrink">
-                                    {{ icon("fa-regular fa-folder")}}
-                                    {% set dir_counts = item.dir_count_cached if item.dir_count_cached is defined else item.get_dir_counts() %}
-                                        {% if dir_counts not in [0, None, "", -1]  %}
-                                            <span class="is-size-6" style="color:black">{{ dir_counts | intcomma }}
-                                            </span>
-                                        {% endif %}
-                                </div>
-                                <div class="cell flex-shrink">
-                                    {{ icon("fa-regular fa-file")}}
-                                    {% set file_counts = item.file_count_cached if item.file_count_cached is defined else item.get_file_counts() %}
-                                    {% if file_counts not in [0, None, "", -1]  %}
-                                        <span class="is-size-6"  style="color:black">{{ file_counts | intcomma }}
-                                        </span>
-                                    {% endif %}
-                                </div>
-                                {% endif %}
-                                <div class="cell flex-shrink">
-                                    {{ icon("fa-regular fa-calendar")}}
-                                    <span class="is-size-7 has-text-weight-bold"  style="color:black">{{ fromtimestamp( item.lastmod).strftime("%m/%d/%y %H:%M") }}</span>
-                                </div>
-                            <div class="cell flex-shrink">
-                                {% if item.size is defined and item.size and not item.filetype.is_movie and not item.filetype.is_dir %}
-                                    {{ icon("fa-regular fa-ruler")}}
-                                    <span class="is-size-7 has-text-weight-bold m-0 p-0" style="color:black"> {{ naturalsize(item.size, gnu=True) }}</span>
-                                {% endif %}
-                                {% if item.duration is defined and item.filetype.is_movie %}
-                                    {{ icon("fa-regular fa-clock")}}
-                                <span class="is-size-7 has-text-weight-bold m-0 p-0" style="color:black"> {{ precisedelta(item.duration) }}</span>
-                                {% endif %}
-                            </div>
-                        </div>
-                        </div>
-
+                        {% if item.is_animated %}
+                            <i class="fas fa-film film-indicator"></i>
+                        {% endif %}
                     </div>
-                {% endfor %}
-            </div>
-        </div>
-    </div>
+                </div>
 
+                <!-- Thumbnail Container -->
+                <div class="thumbnail-container">
+                    <figure class="image">
+                        <a href="{{ item_url }}"
+                           hx-get="{{ item_url }}"
+                           {{ htmx_attrs|safe }}
+                           class="gallery-item-link">
+                            <img data-src="{{ item.get_thumbnail_url() }}"
+                                 src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3C/svg%3E"
+                                 alt="{{ item.name }}"
+                                 class="thumbnail thumbnail-image lazy-image gallery-item"
+                                 loading="lazy"
+                                 data-loaded="false"
+                                 onerror="this.src='/resources/images/default-thumbnail.png'">
+                        </a>
+                    </figure>
+                    <!-- External Link -->
+                    <a href="{{ item_url }}"
+                        target="_blank"
+                        class="external-link"
+                        hx-boost="false">
+                        <i class="fas fa-external-link-alt"></i>
+                    </a>
+                </div>
+
+                <!-- Metadata -->
+                <div class="item-metadata">
+                    {% if item.filetype.is_dir %}
+                        {% set dir_counts = item.dir_count_cached if item.dir_count_cached is defined else item.get_dir_counts() %}
+                        {% if dir_counts not in [0, None, "", -1] %}
+                            <div class="metadata-item">
+                                <i class="far fa-folder"></i>
+                                <span>{{ dir_counts | intcomma }}</span>
+                            </div>
+                        {% endif %}
+
+                        {% set file_counts = item.file_count_cached if item.file_count_cached is defined else item.get_file_counts() %}
+                        {% if file_counts not in [0, None, "", -1] %}
+                            <div class="metadata-item">
+                                <i class="far fa-file"></i>
+                                <span>{{ file_counts | intcomma }}</span>
+                            </div>
+                        {% endif %}
+                    {% endif %}
+
+                    <div class="metadata-item">
+                        <i class="far fa-calendar"></i>
+                        <span>{{ fromtimestamp(item.lastmod).strftime("%m/%d/%y %H:%M") }}</span>
+                    </div>
+
+                    {% if item.size and not item.filetype.is_movie and not item.filetype.is_dir %}
+                        <div class="metadata-item">
+                            <i class="far fa-ruler"></i>
+                            <span>{{ naturalsize(item.size, gnu=True) }}</span>
+                        </div>
+                    {% endif %}
+
+                    {% if item.filetype.is_movie %}
+                        <div class="metadata-item">
+                            <i class="far fa-clock"></i>
+                            <span>{{ precisedelta(item.duration) }}</span>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        {% endfor %}
+    </div>
 </div>
-</image_block>

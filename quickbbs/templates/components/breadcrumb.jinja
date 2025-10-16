@@ -1,6 +1,6 @@
 {% autoescape off %}
-<nav hx-boost="true" class="breadcrumb is-small" aria-label="breadcrumbs" style="margin:0px; overflow-wrap: break-word;">
-    <ul style="word-wrap: break-word; word-break: break-word; overflow-wrap: break-word;">
+<nav hx-boost="true" class="breadcrumb is-small breadcrumb-compact" aria-label="breadcrumbs">
+    <ul>
         {%- for breadcrumb in breadcrumbs -%}
             <li><a href='{{breadcrumb.url}}'
                    hx-get='{{breadcrumb.url}}'

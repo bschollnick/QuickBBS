@@ -1,0 +1,299 @@
+<style>
+/* Gallery Container */
+.gallery-container {
+    max-width: 93%;
+    margin-left: 7%;
+    margin-right: 0px;
+    margin-top: 0px;
+    padding: 0.25rem;
+}
+
+/* Navigation Header */
+.nav-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 1rem;
+    margin-bottom: .5rem;
+    gap: .5rem;
+}
+
+.nav-breadcrumb {
+    flex: 1;
+    text-align: center;
+}
+
+.nav-controls {
+    display: flex;
+    gap: 1rem;
+    min-width: 120px;
+}
+
+.nav-link {
+    font-size: 0.875rem;
+    color: #3273dc;
+    text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 150px;
+}
+
+/* Gallery Grid */
+.gallery-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1px;
+    border: 1px solid #000;
+    padding: 1px;
+}
+
+.gallery-item {
+    flex: 1 1 calc(33.333% - 2px);
+    min-width: 200px;
+    border: 0px;
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+/* Item Header */
+.item-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 0.0rem;
+    margin-top: 0.0rem;
+}
+
+.item-index {
+    font-weight: bold;
+    margin-right: 0.5rem;
+    min-width: 20px;
+}
+
+.item-title {
+    flex: 1;
+    font-size: 1.0rem;
+    line-height: 1.0;
+    word-wrap: break-word;
+    text-align: center;
+    width: 100%;
+    margin-bottom: 0.0 rem;
+}
+
+.item-title a {
+    color: black !important;
+    text-decoration: none;
+}
+
+/* Additional CSS optimizations */
+.gallery-item-link {
+    color: black !important;
+    text-decoration: none;
+}
+
+.thumbnail-image {
+    object-fit: contain;
+    max-width: {{small_width}}px;
+    max-height: {{small_height}}px;
+    height: auto;
+}
+
+/* Use CSS containment for performance */
+.gallery-item {
+    contain: layout style paint;
+}
+
+.film-indicator {
+    margin-left: 0.25rem;
+}
+
+/* Thumbnail Container */
+.thumbnail-container {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0.25rem 0;
+    position: relative;
+}
+
+.thumbnail {
+    max-width: {{small_width}}px;
+    max-height: {{small_height}}px;
+    height: auto;
+    border-radius: 4px;
+}
+
+.external-link {
+    position: absolute;
+    top: -15px;
+    right: -5px;
+    background: transparent;
+    border-radius: 50%;
+    padding: 6px;
+    font-size: 1.25rem;
+    color: #3273dc;
+    text-decoration: none;
+}
+
+/* Metadata */
+.item-metadata {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    font-size: 1.00rem;
+    margin-top: auto;
+    width:100%;
+}
+
+.metadata-item {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    color: #000;
+}
+
+.metadata-item i {
+    width: 12px;
+    text-align: center;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .gallery-item {
+        flex: 1 1 calc(50% - 2px);
+        min-width: 150px;
+    }
+
+    .nav-header {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .nav-controls {
+        width: 100%;
+        justify-content: space-between;
+    }
+}
+
+@media (max-width: 480px) {
+    .gallery-item {
+        flex: 1 1 100%;
+    }
+}
+
+/* Breadcrumb Navigation */
+.breadcrumb-compact {
+    margin: 0;
+    overflow-wrap: break-word;
+}
+
+.breadcrumb-compact ul {
+    word-wrap: break-word;
+    word-break: break-word;
+    overflow-wrap: break-word;
+}
+
+/* Title Display */
+.title-centered {
+    margin: 5px 0;
+}
+
+.title-text {
+    color: black !important;
+    max-width: 60vw;
+    display: inline-block;
+    word-wrap: break-word;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    white-space: normal;
+    hyphens: auto;
+    line-height: 1.2;
+    text-align: center;
+}
+
+/* Filetype Container */
+.filetype-main-container {
+    margin-bottom: 1px;
+    margin-top: 10px;
+    margin-left: 90px;
+    margin-right: 0;
+    padding-right: 0;
+    padding-left: 0;
+}
+
+.filetype-content-container {
+    margin-left: 1px;
+    margin-right: 1px;
+    border: 1px solid;
+    padding-left: 2px;
+    padding-right: 2px;
+}
+
+/* Sidebar Navigation */
+.sidebar-fixed {
+    border: 2px solid black;
+    position: fixed;
+    width: 85px;
+}
+
+.sidebar-separator {
+    padding: 2px;
+    margin: 2px;
+}
+
+.sidebar-container {
+    margin-left: 0;
+    padding-left: 2px;
+    padding-right: 2px;
+}
+
+/* Item View Layout */
+.item-text-frame {
+    text-align: left;
+}
+
+.item-columns {
+    padding: 0;
+    margin-left: 2px;
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+.item-column-half {
+    padding: 1px;
+}
+
+.item-column-full {
+    padding: 1px;
+}
+
+.word-break-all {
+    word-break: break-word;
+}
+
+/* Logout Form */
+.logout-form {
+    margin: 0;
+}
+
+.logout-button {
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.5rem 1rem;
+}
+
+/* Partial Container */
+.partial-container {
+    gap: 0;
+    margin: 0;
+    padding: 0;
+}
+</style>
