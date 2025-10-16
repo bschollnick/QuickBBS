@@ -9,25 +9,15 @@
     padding: 0.25rem;
 }
 
-/* Navigation Header */
-.nav-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+/* Navigation customizations for Bulma level */
+.level {
     margin-top: 1rem;
-    margin-bottom: .5rem;
-    gap: .5rem;
+    margin-bottom: 0.5rem;
 }
 
-.nav-breadcrumb {
-    flex: 1;
-    text-align: center;
-}
-
-.nav-controls {
-    display: flex;
-    gap: 1rem;
-    min-width: 120px;
+.level-item.is-breadcrumb {
+    flex-grow: 1;
+    justify-content: center;
 }
 
 .nav-link {
@@ -151,55 +141,55 @@
     width:100%;
 }
 
-.metadata-item {
-    display: flex;
-    align-items: center;
-    gap: .5rem;
+.item-metadata .icon-text {
     color: #000;
 }
 
-.metadata-item i {
-    width: 12px;
-    text-align: center;
+.item-metadata .icon {
+    width: 20px;
 }
 
-/* Responsive Design */
-@media (max-width: 768px) {
+/* Responsive Design - Using Bulma breakpoints */
+/* Bulma tablet breakpoint: 769px */
+@media screen and (max-width: 768px) {
     .gallery-item {
         flex: 1 1 calc(50% - 2px);
         min-width: 150px;
     }
 
-    .nav-header {
+    /* Level component stacks on mobile by default */
+    .level {
+        display: flex;
         flex-direction: column;
-        gap: 0.5rem;
-    }
-
-    .nav-controls {
-        width: 100%;
-        justify-content: space-between;
     }
 }
 
-@media (max-width: 480px) {
+/* Bulma mobile breakpoint: 480px */
+@media screen and (max-width: 480px) {
     .gallery-item {
         flex: 1 1 100%;
+    }
+
+    .gallery-container {
+        max-width: 100%;
+        margin-left: 0;
+        padding: 0.5rem;
     }
 }
 </style>
 
 <div class="gallery-container">
-    <!-- Navigation Header -->
-    <nav class="nav-header">
-        <div class="nav-controls">
+    <!-- Navigation Header using Bulma Level -->
+    <nav class="level">
+        <div class="level-left">
             <!-- Search results don't have prev directory navigation -->
         </div>
 
-        <div class="nav-breadcrumb">
+        <div class="level-item is-breadcrumb">
             {% include 'components/breadcrumb.jinja' %}
         </div>
 
-        <div class="nav-controls">
+        <div class="level-right">
             <!-- Search results don't have next directory navigation -->
         </div>
     </nav>
@@ -264,38 +254,38 @@
                     {% if item.filetype.is_dir %}
                         {% set dir_counts = item.dir_count_cached if item.dir_count_cached is defined else item.get_dir_counts() %}
                         {% if dir_counts not in [0, None, "", -1] %}
-                            <div class="metadata-item">
-                                <i class="far fa-folder"></i>
+                            <span class="icon-text">
+                                <span class="icon"><i class="far fa-folder"></i></span>
                                 <span>{{ dir_counts | intcomma }}</span>
-                            </div>
+                            </span>
                         {% endif %}
 
                         {% set file_counts = item.file_count_cached if item.file_count_cached is defined else item.get_file_counts() %}
                         {% if file_counts not in [0, None, "", -1] %}
-                            <div class="metadata-item">
-                                <i class="far fa-file"></i>
+                            <span class="icon-text">
+                                <span class="icon"><i class="far fa-file"></i></span>
                                 <span>{{ file_counts | intcomma }}</span>
-                            </div>
+                            </span>
                         {% endif %}
                     {% endif %}
 
-                    <div class="metadata-item">
-                        <i class="far fa-calendar"></i>
+                    <span class="icon-text">
+                        <span class="icon"><i class="far fa-calendar"></i></span>
                         <span>{{ fromtimestamp(item.lastmod).strftime("%m/%d/%y %H:%M") }}</span>
-                    </div>
+                    </span>
 
                     {% if item.size and not item.filetype.is_movie and not item.filetype.is_dir %}
-                        <div class="metadata-item">
-                            <i class="far fa-ruler"></i>
+                        <span class="icon-text">
+                            <span class="icon"><i class="far fa-ruler"></i></span>
                             <span>{{ naturalsize(item.size, gnu=True) }}</span>
-                        </div>
+                        </span>
                     {% endif %}
 
                     {% if item.filetype.is_movie %}
-                        <div class="metadata-item">
-                            <i class="far fa-clock"></i>
+                        <span class="icon-text">
+                            <span class="icon"><i class="far fa-clock"></i></span>
                             <span>{{ precisedelta(item.duration) }}</span>
-                        </div>
+                        </span>
                     {% endif %}
                 </div>
             </div>
