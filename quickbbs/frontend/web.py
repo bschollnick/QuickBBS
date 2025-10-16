@@ -81,22 +81,6 @@ def g_option(request, option_name, def_value):
 #     return return_img_attach(filename, binaryblob, fext_override="JPEG")
 
 
-def detect_mobile(request):
-    """
-    Is this a mobile browser?
-
-    Args:
-        request (obj) - Django Request object
-
-    Returns:
-        boolean::
-            `True` if Mobile is found in the request's META headers
-            specifically in HTTP USER AGENT.  If not found, returns False.
-
-    """
-    return "Mobile" in request.headers["user-agent"]
-
-
 # def return_img_attach(filename, binaryblob, fext_override=None, use_ranged=False):
 #     """
 #      Output a http response header, for an image attachment.
