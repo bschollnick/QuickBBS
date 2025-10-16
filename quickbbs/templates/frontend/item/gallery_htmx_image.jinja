@@ -1,11 +1,11 @@
 {% autoescape off %}
-<div class="column is-10 is-gapless is-centered filetype-bg filetype-main-container">
+<div class="filetype-bg filetype-main-container">
 
     {% include 'components/breadcrumb.jinja' %}
 
     {% include 'components/title_display.jinja' %}
 
-    <div class="container filetype-content-container" width="98%">
+    <div class="filetype-content-container" width="98%">
         <div hx-boost="true">
                 {% if any([filetype.is_html, filetype.is_text, filetype.is_markdown]) %}
                 <div class="has-text-left filetype-bg item-text-frame" id="text_frame">

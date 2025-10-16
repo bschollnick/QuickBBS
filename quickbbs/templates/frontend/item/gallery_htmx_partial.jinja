@@ -7,10 +7,6 @@ document.title = '{{ filename }}'
 {% endif %}
 
 {% include 'frontend/item/gallery_htmx_menu.jinja' %}
-<aside id="sidebar">
 {% include 'frontend/item/gallery_htmx_sidebar.jinja' %}
-</aside>
-<section id="image_block">
 {% include 'frontend/item/gallery_htmx_image.jinja' %}
-</section>
 {% endautoescape %}
