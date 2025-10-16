@@ -56,7 +56,6 @@ from frontend.utilities import (  # SORT_MATRIX,
     return_breadcrumbs,
     sort_order,
 )
-from frontend.web import detect_mobile  # , g_option
 
 from quickbbs.models import IndexData
 
@@ -328,13 +327,11 @@ def build_context_info(request: WSGIRequest, unique_file_sha256: str) -> dict | 
 
     start_time = time.perf_counter()
     sort_order_value = sort_order(request) if request else 0
-    mobile = detect_mobile(request) if request else False
     webpath = _normalize_webpath(entry.fqpndirectory)
     directory_entry = entry.home_directory
 
     # Build entire context in single operation for optimal performance
     pathmaster = Path(entry.full_filepathname)
-    size = "medium" if mobile else "large"
     lastmod_timestamp = entry.lastmod
     all_shas = _get_all_shas_cached(directory_entry.pk, sort_order_value)
 
@@ -348,13 +345,15 @@ def build_context_info(request: WSGIRequest, unique_file_sha256: str) -> dict | 
     next_sha = all_shas[current_page] if current_page < all_shas_count else ""
     previous_sha = all_shas[current_page - 2] if current_page > 1 else ""
 
+    # Get user agent for debugging/display purposes
+    user_agent = request.headers.get("user-agent", "Unknown") if request else "Unknown"
+
     # Single comprehensive dictionary creation
     context = {
         # Core data
         "unique_file_sha256": unique_file_sha256,
         "file_sha256": entry.file_sha256,
         "sort": sort_order_value,
-        "mobile": mobile,
         "html": _process_file_content(entry, webpath),
         # Navigation (inline breadcrumb processing)
         "breadcrumbs": return_breadcrumbs(webpath),
@@ -372,8 +371,9 @@ def build_context_info(request: WSGIRequest, unique_file_sha256: str) -> dict | 
         "lastmod_ds": datetime.datetime.fromtimestamp(lastmod_timestamp).strftime("%m/%d/%y %H:%M:%S"),
         "ft_filename": entry.filetype.icon_filename,
         "download_uri": entry.get_download_url(),
-        "thumbnail_uri": entry.get_thumbnail_url(size=size),
-        "size": size,
+        "thumbnail_uri": entry.get_thumbnail_url(size="large"),
+        # Browser/device info for debugging
+        "user_agent": user_agent,
         # Pagination (computed inline)
         "page": current_page,
         "pagecount": all_shas_count,

@@ -85,13 +85,17 @@ def _create_base_context(request: WSGIRequest) -> dict:
         request: Django WSGIRequest object
     Returns: Base context dictionary
     """
-    from frontend.web import detect_mobile, g_option
+    from frontend.web import g_option
+
+    small_size = settings.IMAGE_SIZE["small"]
+    small_width, small_height = small_size
 
     return {
         "debug": settings.DEBUG,
-        "small": g_option(request, "size", settings.IMAGE_SIZE["small"]),
+        "small": g_option(request, "size", small_size),
+        "small_width": small_width,
+        "small_height": small_height,
         "user": request.user,
-        "mobile": detect_mobile(request),
         "sort": sort_order(request),
         "fromtimestamp": datetime.datetime.fromtimestamp,
         "current_page": int(request.GET.get("page", 1)),
