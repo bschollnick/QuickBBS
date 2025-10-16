@@ -1,0 +1,95 @@
+{# Gallery Item Card - Reusable component for displaying gallery items #}
+{# Parameters expected: item, sort, loop.index #}
+
+{# Cache URLs and set HTMX attributes once #}
+{% set item_url = item.virtual_directory.get_view_url() if item.filetype.is_link else item.get_view_url() + "?sort=" + sort|string %}
+{% set htmx_attrs = 'hx-push-url="true" hx-target="body" hx-swap="outerHTML transition:true"' %}
+
+{# Note: background-color must remain inline as it's dynamic based on filetype #}
+<div class="gallery-item" style="background-color: #{{ item.filetype.color }};">
+    <!-- Item Header -->
+    <div class="item-header">
+        <span class="item-index">{{ loop.index }}</span>
+        <div class="item-title">
+            <a href="{{ item_url }}"
+               hx-get="{{ item_url }}"
+               {{ htmx_attrs|safe }}
+               class="gallery-item-link">
+                {% if item.filetype.is_link %}
+                    {{ item.name.split("*")[0] }}
+                {% else %}
+                    {{ item.name|wordwrap(width=24, break_long_words=True) }}
+                {% endif %}
+            </a>
+
+            {% if item.is_animated %}
+                <i class="fas fa-film film-indicator"></i>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Thumbnail Container -->
+    <div class="thumbnail-container">
+        <figure class="image">
+            <a href="{{ item_url }}"
+               hx-get="{{ item_url }}"
+               {{ htmx_attrs|safe }}
+               class="gallery-item-link">
+                <img data-src="{{ item.get_thumbnail_url() }}"
+                     src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3C/svg%3E"
+                     alt="{{ item.name }}"
+                     class="thumbnail thumbnail-image lazy-image gallery-item"
+                     loading="lazy"
+                     data-loaded="false"
+                     onerror="this.src='/resources/images/default-thumbnail.png'">
+            </a>
+        </figure>
+        <!-- External Link -->
+        <a href="{{ item_url }}"
+            target="_blank"
+            class="external-link"
+            hx-boost="false">
+            <i class="fas fa-external-link-alt"></i>
+        </a>
+    </div>
+
+    <!-- Metadata -->
+    <div class="item-metadata">
+        {% if item.filetype.is_dir %}
+            {% set dir_counts = item.dir_count_cached if item.dir_count_cached is defined else item.get_dir_counts() %}
+            {% if dir_counts not in [0, None, "", -1] %}
+                <div class="metadata-item">
+                    <i class="far fa-folder"></i>
+                    <span>{{ dir_counts | intcomma }}</span>
+                </div>
+            {% endif %}
+
+            {% set file_counts = item.file_count_cached if item.file_count_cached is defined else item.get_file_counts() %}
+            {% if file_counts not in [0, None, "", -1] %}
+                <div class="metadata-item">
+                    <i class="far fa-file"></i>
+                    <span>{{ file_counts | intcomma }}</span>
+                </div>
+            {% endif %}
+        {% endif %}
+
+        <div class="metadata-item">
+            <i class="far fa-calendar"></i>
+            <span>{{ fromtimestamp(item.lastmod).strftime("%m/%d/%y %H:%M") }}</span>
+        </div>
+
+        {% if item.size and not item.filetype.is_movie and not item.filetype.is_dir %}
+            <div class="metadata-item">
+                <i class="far fa-ruler"></i>
+                <span>{{ naturalsize(item.size, gnu=True) }}</span>
+            </div>
+        {% endif %}
+
+        {% if item.filetype.is_movie %}
+            <div class="metadata-item">
+                <i class="far fa-clock"></i>
+                <span>{{ precisedelta(item.duration) }}</span>
+            </div>
+        {% endif %}
+    </div>
+</div>

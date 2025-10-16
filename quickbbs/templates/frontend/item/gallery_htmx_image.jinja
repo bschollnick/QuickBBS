@@ -1,58 +1,65 @@
 {% autoescape off %}
-<div class="column is-10 is-gapless is-centered filetype-bg"
-     style="margin-bottom:1px;margin-top:10px;margin-left:90px;margin-right:0px;padding-right:0px;padding-left:0px;!important;">
+<div class="column is-10 is-gapless is-centered filetype-bg filetype-main-container">
 
     {% include 'components/breadcrumb.jinja' %}
 
     {% include 'components/title_display.jinja' %}
 
-    <div class="container" width="98%" style="margin-left: 1px;margin-right:1px;border: 1px solid;left-pad:2px;right-pad:2px;">
+    <div class="container filetype-content-container" width="98%">
         <div hx-boost="true">
                 {% if any([filetype.is_html, filetype.is_text, filetype.is_markdown]) %}
-                <div class="has-text-left filetype-bg" id="text_frame" style="text-align:left;!important;">
-                    <p class="has-text-left" style="text-align:left !important;" id="text_frame" defer>
+                <div class="has-text-left filetype-bg item-text-frame" id="text_frame">
+                    <p class="has-text-left" id="text_frame" defer>
                         {{html}}
                     </p>
                 {% endif %}
                 {% if any([filetype.is_image, filetype.is_dir, filetype.is_link, filetype.is_archive]) %}
                 <div class="thumbnail filetype-bg" id="thumbnail_frame">
                     <div class="has-text-centered">
-                        <a href="{{ download_uri }}" hx-boost="false" id="image_link">
-                            {% if not is_animated %}
-                                <img id="display_image" class="lazy-image" data-src="{{thumbnail_uri}}" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3C/svg%3E" style="object-fit:cover;" loading="lazy" data-loaded="false"/>
-                            {% else %}
-                                <img id="display_image" class="lazy-image" src="{{download_uri}}" hx-boost="false" style="object-fit:cover;" loading="lazy"/>
-                            {% endif %}
-                        </a>
+                        <figure class="image">
+                            <a href="{{ download_uri }}" hx-boost="false" id="image_link">
+                                {% if not is_animated %}
+                                    <img id="display_image" class="lazy-image responsive-image" data-src="{{thumbnail_uri}}" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3C/svg%3E" loading="lazy" data-loaded="false"/>
+                                {% else %}
+                                    <img id="display_image" class="lazy-image responsive-image" src="{{download_uri}}" hx-boost="false" loading="lazy"/>
+                                {% endif %}
+                            </a>
+                        </figure>
                     </div>
                 {% elif filetype.is_pdf %}
                 <div class="thumbnail filetype-bg" id="thumbnail_frame">
                     <div class="has-text-centered">
-                        <a href="/resources/javascript/pdfjs/web/viewer.html?file={{ download_uri }}" hx-boost="false" id="image_link">
-                            <img id="display_image" class="lazy-image" data-src="{{thumbnail_uri}}" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3C/svg%3E" style="object-fit:cover;" loading="lazy" data-loaded="false"/>
-                        </a>
+                        <figure class="image">
+                            <a href="/resources/javascript/pdfjs/web/viewer.html?file={{ download_uri }}" hx-boost="false" id="image_link">
+                                <img id="display_image" class="lazy-image responsive-image" data-src="{{thumbnail_uri}}" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3C/svg%3E" loading="lazy" data-loaded="false"/>
+                            </a>
+                        </figure>
                     </div>
 
                 {% elif filetype.is_movie %}
                 <div class="thumbnail filetype-bg" id="movie_frame" hx-boost="false">
                     <div class="has-text-centered">
-                        <video width="auto" height="auto" controls poster="{{ thumbnail_uri }}" preload="metadata" hx-boost="false">
+                        <video class="responsive-video" controls poster="{{ thumbnail_uri }}" preload="metadata" hx-boost="false">
                             <source src="{{ download_uri }}" type="video/mp4" />
                           Your browser does not support the video tag.
                         </video>
 
                     </div>
                 {% endif %}
-                    <div class="columns is-multiline" style="padding:0px;margin-left:2px;margin-top:0px;margin-bottom:0px;">
-                        <div class="column is-one-half" style="padding:1px">
+                    <div class="columns is-multiline item-columns">
+                        <div class="column is-one-half item-column-half">
                             <span class="is-size-7"><span class="has-text-weight-bold" id="last_mod_head">Last Modified: </span></span>
                             <span class="is-size-7">{{lastmod_ds}}</span>
                         </div>
-                        <div class="column is-one-half"  style="padding:1px">
+                        <div class="column is-one-half item-column-half">
                             <span class="is-size-7"><span class="has-text-weight-bold" id="file_size_head">File Size: </span></span>
                             <span class="is-size-7">{{ filesize }}</span>
                         </div>
-                        <div class="column is-11 is-narrow" style="padding:1px" id="uuid_head">
+                        <div class="column is-full item-column-full">
+                            <span class="is-size-7"><span class="has-text-weight-bold">User Agent: </span></span>
+                            <span class="is-size-7 word-break-all">{{ user_agent }}</span>
+                        </div>
+                        <div class="column is-11 is-narrow item-column-full" id="uuid_head">
                             <span class="is-size-7"> <div class="has-text-centered"><span class="has-text-weight-bold">UUID:</span><span id="uuid">{{uuid}}</span></div>
                         </div>
                 </div> <!--- Thumbnail --->

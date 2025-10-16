@@ -164,7 +164,7 @@
         <hr class="user-divider">
         <div class="user-options">
           <a href="{{ url('admin:password_change') }}" class="user-button" hx-boost="false">Change Password</a>
-          <form method="post" action="{{ url('admin:logout') }}" style="margin: 0;" hx-boost="false">
+          <form method="post" action="{{ url('admin:logout') }}" class="logout-form" hx-boost="false">
             {% csrf_token %}
             <button type="submit" class="user-button logout-button">Logout</button>
           </form>

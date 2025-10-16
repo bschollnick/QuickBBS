@@ -30,9 +30,9 @@
         </span>
       </a>
       <hr class="navbar-divider">
-      <form method="post" action="{{ url('admin:logout') }}" style="margin: 0;" hx-boost="false">
+      <form method="post" action="{{ url('admin:logout') }}" class="logout-form" hx-boost="false">
         {% csrf_token %}
-        <button type="submit" class="navbar-item" style="width: 100%; text-align: left; background: none; border: none; cursor: pointer; padding: 0.5rem 1rem;">
+        <button type="submit" class="navbar-item logout-button">
           <span class="icon-text">
             <span class="icon">
               <i class="fas fa-sign-out-alt"></i>
