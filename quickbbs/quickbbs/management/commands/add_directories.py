@@ -17,7 +17,7 @@ from quickbbs.common import normalize_fqpn
 from quickbbs.models import IndexDirs
 
 
-def add_directories(max_count: int = 0) -> None:
+def add_directories(max_count: int = 0, start_path: str | None = None) -> None:
     """
     Walk the albums directory and add any missing directories to the database.
 
@@ -27,6 +27,7 @@ def add_directories(max_count: int = 0) -> None:
 
     Args:
         max_count: Maximum number of directories to add (0 = unlimited)
+        start_path: Starting directory path to walk from (default: ALBUMS_PATH/albums)
 
     Returns:
         None
@@ -36,8 +37,11 @@ def add_directories(max_count: int = 0) -> None:
     print("=" * 60)
 
     # Get the albums root directory
-    albums_root = os.path.join(settings.ALBUMS_PATH, "albums")
-    albums_root = normalize_fqpn(albums_root)
+    if start_path:
+        albums_root = normalize_fqpn(start_path)
+    else:
+        albums_root = os.path.join(settings.ALBUMS_PATH, "albums")
+        albums_root = normalize_fqpn(albums_root)
 
     if not os.path.exists(albums_root):
         print(f"ERROR: Albums root does not exist: {albums_root}")

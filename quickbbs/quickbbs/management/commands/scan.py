@@ -1,28 +1,47 @@
 import asyncio
 import os
-import sys
 
 from asgiref.sync import sync_to_async
 from cache_watcher.models import Cache_Storage, fs_Cache_Tracking
 from django.conf import settings
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import close_old_connections, connections
 from frontend.utilities import sync_database_disk
 
+from quickbbs.common import normalize_fqpn
 from quickbbs.management.commands.add_directories import add_directories
 from quickbbs.management.commands.add_files import add_files
 from quickbbs.management.commands.add_thumbnails import add_thumbnails
 from quickbbs.models import IndexData, IndexDirs
 
 
-def verify_directories():
+def verify_directories(start_path: str | None = None):
+    """
+    Verify directories in the database against the filesystem.
+
+    Args:
+        start_path: Starting directory path to verify from (default: ALBUMS_PATH/albums)
+
+    Returns:
+        None
+    """
     print("Checking for invalid directories in Database (eg. Deleted, Moved, etc).")
     start_count = IndexDirs.objects.count()
     print("Starting Directory Count: ", start_count)
     albums_root = os.path.join(settings.ALBUMS_PATH, "albums") + os.sep
-    print("Gathering Directories")
-    # Prefetch Cache_Watcher relationship to avoid N+1 queries
-    directories_to_scan = IndexDirs.objects.select_related("Cache_Watcher").all().iterator(chunk_size=1000)
+
+    # Filter directories to only those under start_path if specified
+    if start_path:
+        normalized_start = normalize_fqpn(start_path)
+        print(f"Filtering directories under: {normalized_start}")
+        directories_to_scan = (
+            IndexDirs.objects.select_related("Cache_Watcher").filter(fqpndirectory__startswith=normalized_start).iterator(chunk_size=1000)
+        )
+    else:
+        print("Gathering Directories")
+        # Prefetch Cache_Watcher relationship to avoid N+1 queries
+        directories_to_scan = IndexDirs.objects.select_related("Cache_Watcher").all().iterator(chunk_size=1000)
+
     print("Starting Scan")
 
     # Process directories WITHOUT closing connections during iteration
@@ -68,8 +87,16 @@ def verify_directories():
     close_old_connections()
 
 
-async def _verify_files_async():
-    """Async implementation of verify_files."""
+async def _verify_files_async(start_path: str | None = None):
+    """
+    Async implementation of verify_files.
+
+    Args:
+        start_path: Starting directory path to verify from (default: ALBUMS_PATH/albums)
+
+    Returns:
+        None
+    """
     print("Checking for invalid files in Database")
     start_count = await sync_to_async(IndexData.objects.count, thread_sensitive=True)()
     print("\tStarting File Count: ", start_count)
@@ -80,9 +107,15 @@ async def _verify_files_async():
 
     # Fetch all directories first with Cache_Watcher prefetched
     # This prevents sync DB queries when accessing is_cached property
-    directories = await sync_to_async(list, thread_sensitive=True)(
-        IndexDirs.objects.select_related("Cache_Watcher").all()
-    )
+    # Filter directories to only those under start_path if specified
+    if start_path:
+        normalized_start = normalize_fqpn(start_path)
+        print(f"\tFiltering directories under: {normalized_start}")
+        directories = await sync_to_async(list, thread_sensitive=True)(
+            IndexDirs.objects.select_related("Cache_Watcher").filter(fqpndirectory__startswith=normalized_start).all()
+        )
+    else:
+        directories = await sync_to_async(list, thread_sensitive=True)(IndexDirs.objects.select_related("Cache_Watcher").all())
 
     for directory in directories:
         await sync_to_async(Cache_Storage.remove_from_cache_sha, thread_sensitive=True)(sha256=directory.dir_fqpn_sha256)
@@ -104,9 +137,17 @@ async def _verify_files_async():
     print("\tDifference : ", start_count - end_count)
 
 
-def verify_files():
-    """Synchronous wrapper for verify_files."""
-    asyncio.run(_verify_files_async())
+def verify_files(start_path: str | None = None):
+    """
+    Synchronous wrapper for verify_files.
+
+    Args:
+        start_path: Starting directory path to verify from (default: ALBUMS_PATH/albums)
+
+    Returns:
+        None
+    """
+    asyncio.run(_verify_files_async(start_path=start_path))
 
 
 class Command(BaseCommand):
@@ -150,6 +191,12 @@ class Command(BaseCommand):
             default=0,
             help="Maximum number of records to add (0 = unlimited). Used with --add_directories, --add_files, or --add_thumbnails",
         )
+        parser.add_argument(
+            "--start",
+            type=str,
+            default=None,
+            help="Starting directory path to walk from (default: ALBUMS_PATH/albums). Used with --verify_directories, --verify_files, --add_directories, or --add_files",
+        )
 
         parser.add_argument(
             "--dir",
@@ -167,23 +214,42 @@ class Command(BaseCommand):
         # print(options)
 
         max_count = options.get("max_count", 0)
+        start_path = options.get("start", None)
+
+        # Validate start_path if provided
+        if start_path:
+            # Normalize the provided path
+            normalized_start_path = normalize_fqpn(start_path)
+
+            # Get the albums root directory
+            albums_root = normalize_fqpn(os.path.join(settings.ALBUMS_PATH, "albums"))
+
+            # Ensure the start_path is within the albums directory
+            if not normalized_start_path.startswith(albums_root):
+                raise CommandError(
+                    f"Invalid --start path: '{start_path}'\n"
+                    f"The path must be within the albums directory: '{albums_root}'\n"
+                    f"Normalized path provided: '{normalized_start_path}'"
+                )
+
+            # Ensure the path exists
+            if not os.path.exists(normalized_start_path):
+                raise CommandError(f"Invalid --start path: '{start_path}'\n" f"The directory does not exist: '{normalized_start_path}'")
+
+            # Ensure it's a directory
+            if not os.path.isdir(normalized_start_path):
+                raise CommandError(f"Invalid --start path: '{start_path}'\n" f"The path is not a directory: '{normalized_start_path}'")
 
         if options["verify_directories"]:
-            verify_directories()
+            verify_directories(start_path=start_path)
         if options["verify_files"]:
-            verify_files()
+            verify_files(start_path=start_path)
         if options["add_directories"]:
-            add_directories(max_count=max_count)
+            add_directories(max_count=max_count, start_path=start_path)
         if options["add_files"]:
-            add_files(max_count=max_count)
+            add_files(max_count=max_count, start_path=start_path)
         if options["add_thumbnails"]:
             add_thumbnails(max_count=max_count)
-
-        # if options["dir"]:
-        #     self.scan_directory(directories_to_scan)
-        sys.exit()
-        if options["files"]:
-            self.scan_files(directories_to_scan)
 
 
 # # Use
