@@ -149,19 +149,23 @@ class ThumbnailFiles(models.Model):
                 sha256_hash=file_sha256, defaults=defaults
             )
 
-            # Use prefetched data to avoid additional queries
-            prefetched_indexdata = list(thumbnail.IndexData.all())
+            # Check if there are any unlinked IndexData records for this SHA256
+            # We need to check ALL records, not just prefetched ones
+            has_unlinked = IndexData.objects.filter(
+                file_sha256=file_sha256, new_ftnail__isnull=True
+            ).exists()
 
+            # Get an IndexData record for file path (prefer prefetched)
+            prefetched_indexdata = list(thumbnail.IndexData.all())
             if prefetched_indexdata:
                 index_data_item = prefetched_indexdata[0]
-                make_link = any(item.new_ftnail_id is None for item in prefetched_indexdata)
             else:
-                index_data_item = IndexData.objects.prefetch_related("filetype").filter(file_sha256=file_sha256).first()
-                make_link = True
+                index_data_item = IndexData.objects.prefetch_related("filetype").filter(
+                    file_sha256=file_sha256
+                ).first()
 
-            make_link = make_link or created
-
-            if make_link:
+            # Link if: newly created OR has unlinked records
+            if created or has_unlinked:
                 thumbnail.save()
                 IndexData.objects.filter(
                     file_sha256=file_sha256,

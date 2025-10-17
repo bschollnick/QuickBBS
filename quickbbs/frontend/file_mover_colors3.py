@@ -70,10 +70,11 @@ def scan_destination_directory(dst_dir: str, use_shas: bool) -> dict[str, str]:
     file_map = {}
 
     try:
-        # Use os.walk for consistency, only process the immediate directory
+        # Use os.walk for consistency, scan recursively to find files in subdirectories
         for root, _, files in os.walk(dst_dir):
-            if root != dst_dir:  # Skip subdirectories
-                continue
+            # REMOVED: Skip subdirectories - we now scan recursively like old test_colors3.py
+            # if root != dst_dir:  # Skip subdirectories
+            #     continue
 
             for filename in files:
                 filepath = os.path.join(root, filename)
@@ -88,7 +89,8 @@ def scan_destination_directory(dst_dir: str, use_shas: bool) -> dict[str, str]:
                         pass  # sha_value remains None
 
                 file_map[filename] = sha_value
-            break  # Only process the first (target) directory
+            # REMOVED: No longer breaking after first directory - scan all subdirectories recursively
+            # break  # Only process the first (target) directory
     except (OSError, PermissionError):
         pass  # Return empty dict if directory can't be read
 
@@ -107,6 +109,7 @@ class ProcessingStats:
         self.errors_encountered = 0
         self.start_time = None
         self.end_time = None
+        self.max_count_reached = False
 
     def start_timing(self):
         """Start the timing counter."""
@@ -140,7 +143,8 @@ class ProcessingStats:
     def print_summary(self):
         """Print comprehensive processing summary."""
         duration = self.get_duration()
-        print(f"\nProcessing complete in {self.format_duration()}")
+        status = "Maximum file count reached" if self.max_count_reached else "Processing complete"
+        print(f"\n{status} in {self.format_duration()}")
         print(f"Files scanned: {self.total_files_scanned:,}")
         print(f"Files with color tags: {self.files_with_color_tags:,}")
         print(f"Files processed: {self.files_actually_processed:,}")
@@ -211,7 +215,10 @@ def process_folder(src_dir, dst_dir, files, config):
         src_dir: Source directory path
         dst_dir: Destination directory path
         files: List of filenames to process
-        config: Dictionary with 'use_shas' and 'operation' keys
+        config: Dictionary with 'use_shas', 'operation', and 'max_count' keys
+
+    Returns:
+        True if processing should continue, False if max_count reached
     """
     # Scan destination directory for existing files (per-directory scope) - only if it exists
     existing_file_map = scan_destination_directory(dst_dir, config["use_shas"]) if os.path.exists(dst_dir) else {}
@@ -219,6 +226,10 @@ def process_folder(src_dir, dst_dir, files, config):
     stats.total_files_scanned += len(files)
 
     for file_ in files:
+        # Check if max_count has been reached
+        if config["max_count"] and stats.files_actually_processed >= config["max_count"]:
+            stats.max_count_reached = True
+            return False
         src_file = os.path.join(src_dir, file_)
         fext = os.path.splitext(file_)[1].lower()
 
@@ -272,6 +283,8 @@ def process_folder(src_dir, dst_dir, files, config):
             print(f"Error processing {src_file}: {e}")
             stats.errors_encountered += 1
 
+    return True  # Continue processing
+
 
 def main(args):
     """Main function to process files with color labels.
@@ -282,6 +295,7 @@ def main(args):
     use_shas = getattr(args, "use_shas", False)
     operation = getattr(args, "operation", "copy")
     max_threads = getattr(args, "threads", MAX_THREADS)
+    max_count = getattr(args, "max_count", None)
 
     root_src_dir = Path(args.source).resolve()
     root_target_dir = Path(args.target).resolve()
@@ -291,6 +305,8 @@ def main(args):
     print(f"Operation: {operation}")
     print(f"Threads: {max_threads}")
     print(f"SHA hashing: {'enabled' if use_shas else 'disabled'}")
+    if max_count:
+        print(f"Maximum files to process: {max_count}")
 
     stats.start_timing()
 
@@ -309,20 +325,24 @@ def main(args):
     print("Processing directories...")
 
     # Create config dictionary to reduce function arguments
-    config = {"use_shas": use_shas, "operation": operation}
+    config = {"use_shas": use_shas, "operation": operation, "max_count": max_count}
 
     def process_wrapper(folder_info):
         """Process a single directory with error handling.
 
         :Args:
             folder_info: Tuple of (src_dir, dst_dir, files) to process
+
+        Returns:
+            True if processing should continue, False if max_count reached
         """
         src_dir, dst_dir, files = folder_info
         try:
-            process_folder(src_dir, dst_dir, files, config)
+            return process_folder(src_dir, dst_dir, files, config)
         except (OSError, IOError, PermissionError, FileNotFoundError) as e:
             print(f"Error processing {src_dir}: {e}")
             stats.errors_encountered += 1
+            return True  # Continue despite errors
 
     def directory_generator():
         """Generate directory information for processing.
@@ -332,16 +352,19 @@ def main(args):
 
         Uses os.walk to traverse the source directory tree and yields processing
         information for directories that contain files. Destination paths are
-        transformed to title case with spaces replaced by underscores.
+        transformed to title case while preserving spaces in directory names.
         """
         for src_dir, _, files in os.walk(str(root_src_dir)):
             if files:  # Only yield directories with files
                 dst_dir = Path(src_dir.replace(str(root_src_dir), str(root_target_dir))).resolve()
-                dst_dir = dst_dir.parent / dst_dir.name.title().replace(" ", "_")
+                dst_dir = dst_dir.parent / dst_dir.name.title()
                 yield (src_dir, str(dst_dir), files)
 
     with ThreadPoolExecutor(max_workers=max_threads) as executor:
-        executor.map(process_wrapper, directory_generator())
+        # Process directories and stop if max_count is reached
+        for result in executor.map(process_wrapper, directory_generator()):
+            if not result:  # False means max_count reached
+                break
 
     stats.stop_timing()
     stats.print_summary()
@@ -369,6 +392,12 @@ if __name__ == "__main__":
         type=int,
         default=MAX_THREADS,
         help=f"Number of worker threads (default: {MAX_THREADS})",
+    )
+    parser.add_argument(
+        "--max-count",
+        type=int,
+        default=None,
+        help="Maximum number of files to copy/move (stops after this limit)",
     )
 
     print("QuickBBS File Mover v3.0 - Performance Optimized")

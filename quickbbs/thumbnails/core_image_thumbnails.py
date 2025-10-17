@@ -1,7 +1,38 @@
 # Core Image imports (macOS only)
+"""Core Image backend for thumbnail generation using macOS GPU acceleration."""
+
+import io
+
+from PIL import Image, ImageOps
+
+# Try to import Core Image and related macOS frameworks
+try:
+    from Foundation import NSData, NSURL
+    from Quartz import (
+        CGColorSpaceCreateDeviceRGB,
+        CGImageDestinationAddImage,
+        CGImageDestinationCreateWithData,
+        CGImageDestinationFinalize,
+        CIContext,
+        CIFilter,
+        CIImage,
+        UTType,
+        kCGImageDestinationLossyCompressionQuality,
+        kCIContextUseSoftwareRenderer,
+        kCIContextWorkingColorSpace,
+    )
+
+    CORE_IMAGE_AVAILABLE = True
+except ImportError:
+    CORE_IMAGE_AVAILABLE = False
+
+try:
+    from .Abstractbase_thumbnails import AbstractBackend
+except ImportError:
+    from Abstractbase_thumbnails import AbstractBackend
 
 
-class CoreImageBackend(ImageBackend):
+class CoreImageBackend(AbstractBackend):
     """Core Image backend for Apple Silicon GPU acceleration."""
 
     def __init__(self):
@@ -12,19 +43,30 @@ class CoreImageBackend(ImageBackend):
         self.context = CIContext.contextWithOptions_(
             {
                 # Use GPU acceleration
-                "kCIContextUseSoftwareRenderer": False,
+                kCIContextUseSoftwareRenderer: False,
                 # Use wide color gamut
                 kCIContextWorkingColorSpace: CGColorSpaceCreateDeviceRGB(),
             }
         )
 
-    def process_image_file(
+    def process_from_file(
         self,
         file_path: str,
         sizes: dict[str, tuple[int, int]],
         output_format: str,
         quality: int,
     ) -> dict[str, bytes]:
+        """
+        Process image file and generate thumbnails using Core Image.
+
+        :Args:
+            file_path: Path to the image file
+            sizes: Dictionary mapping size names to (width, height) tuples
+            output_format: Output format (JPEG, PNG, WEBP)
+            quality: Image quality (1-100)
+
+        :return: Dictionary mapping size names to thumbnail bytes
+        """
         # Load image using Core Image
         file_url = NSURL.fileURLWithPath_(file_path)
         ci_image = CIImage.imageWithContentsOfURL_(file_url)
@@ -34,13 +76,24 @@ class CoreImageBackend(ImageBackend):
 
         return self._process_ci_image(ci_image, sizes, output_format, quality)
 
-    def process_image_bytes(
+    def process_from_memory(
         self,
         image_bytes: bytes,
         sizes: dict[str, tuple[int, int]],
         output_format: str,
         quality: int,
     ) -> dict[str, bytes]:
+        """
+        Process image from memory and generate thumbnails using Core Image.
+
+        :Args:
+            image_bytes: Image data as bytes
+            sizes: Dictionary mapping size names to (width, height) tuples
+            output_format: Output format (JPEG, PNG, WEBP)
+            quality: Image quality (1-100)
+
+        :return: Dictionary mapping size names to thumbnail bytes
+        """
         # Convert bytes to NSData
         ns_data = NSData.dataWithBytes_length_(image_bytes, len(image_bytes))
         ci_image = CIImage.imageWithData_(ns_data)
@@ -50,13 +103,24 @@ class CoreImageBackend(ImageBackend):
 
         return self._process_ci_image(ci_image, sizes, output_format, quality)
 
-    def process_pil_image(
+    def process_data(
         self,
         pil_image: Image.Image,
         sizes: dict[str, tuple[int, int]],
         output_format: str,
         quality: int,
     ) -> dict[str, bytes]:
+        """
+        Process PIL Image object and generate thumbnails using Core Image.
+
+        :Args:
+            pil_image: PIL Image object to process
+            sizes: Dictionary mapping size names to (width, height) tuples
+            output_format: Output format (JPEG, PNG, WEBP)
+            quality: Image quality (1-100)
+
+        :return: Dictionary mapping size names to thumbnail bytes
+        """
         # Convert PIL image to bytes, then to Core Image
         buffer = io.BytesIO()
 
@@ -71,7 +135,7 @@ class CoreImageBackend(ImageBackend):
         pil_image.save(buffer, format="PNG")
         image_bytes = buffer.getvalue()
 
-        return self.process_image_bytes(image_bytes, sizes, output_format, quality)
+        return self.process_from_memory(image_bytes, sizes, output_format, quality)
 
     def _process_ci_image(
         self,
@@ -80,6 +144,17 @@ class CoreImageBackend(ImageBackend):
         output_format: str,
         quality: int,
     ) -> dict[str, bytes]:
+        """
+        Process Core Image and generate thumbnails in multiple sizes.
+
+        :Args:
+            ci_image: Core Image CIImage object
+            sizes: Dictionary mapping size names to (width, height) tuples
+            output_format: Output format (JPEG, PNG, WEBP)
+            quality: Image quality (1-100)
+
+        :return: Dictionary mapping size names to thumbnail bytes
+        """
         results = {}
 
         # Get original image dimensions
@@ -108,10 +183,23 @@ class CoreImageBackend(ImageBackend):
             image_bytes = self._render_to_bytes(scaled_image, output_format, quality)
             results[size_name] = image_bytes
 
+            # Explicit cleanup to help with memory management
+            scaled_image = None
+            scale_filter = None
+
         return results
 
     def _render_to_bytes(self, ci_image: "CIImage", output_format: str, quality: int) -> bytes:
-        """Render CIImage to bytes in specified format."""
+        """
+        Render CIImage to bytes in specified format.
+
+        :Args:
+            ci_image: Core Image CIImage object to render
+            output_format: Output format (JPEG, PNG, WEBP)
+            quality: Image quality (1-100)
+
+        :return: Image data as bytes
+        """
         # Get image extent
         extent = ci_image.extent()
 
@@ -121,36 +209,46 @@ class CoreImageBackend(ImageBackend):
         if cg_image is None:
             raise RuntimeError("Failed to create CGImage from CIImage")
 
-        # Determine UTI type
-        if output_format.upper() == "JPEG":
-            uti_type = UTType.typeWithIdentifier_("public.jpeg")
-        elif output_format.upper() == "PNG":
-            uti_type = UTType.typeWithIdentifier_("public.png")
-        elif output_format.upper() == "WEBP":
-            uti_type = UTType.typeWithIdentifier_("org.webmproject.webp")
-        else:
-            raise ValueError(f"Unsupported output format: {output_format}")
+        try:
+            # Determine UTI type
+            if output_format.upper() == "JPEG":
+                uti_type = UTType.typeWithIdentifier_("public.jpeg")
+            elif output_format.upper() == "PNG":
+                uti_type = UTType.typeWithIdentifier_("public.png")
+            elif output_format.upper() == "WEBP":
+                uti_type = UTType.typeWithIdentifier_("org.webmproject.webp")
+            else:
+                raise ValueError(f"Unsupported output format: {output_format}")
 
-        # Create mutable data for output
-        output_data = NSData.data().mutableCopy()
+            # Create mutable data for output
+            output_data = NSData.data().mutableCopy()
 
-        # Create image destination
-        destination = CGImageDestinationCreateWithData(output_data, uti_type.identifier(), 1, None)  # image count
+            # Create image destination
+            destination = CGImageDestinationCreateWithData(output_data, uti_type.identifier(), 1, None)
 
-        if destination is None:
-            raise RuntimeError(f"Failed to create image destination for {output_format}")
+            if destination is None:
+                raise RuntimeError(f"Failed to create image destination for {output_format}")
 
-        # Set properties
-        properties = {}
-        if output_format.upper() == "JPEG":
-            properties[kCGImageDestinationLossyCompressionQuality] = quality / 100.0
+            try:
+                # Set properties
+                properties = {}
+                if output_format.upper() == "JPEG":
+                    properties[kCGImageDestinationLossyCompressionQuality] = quality / 100.0
 
-        # Add image to destination
-        CGImageDestinationAddImage(destination, cg_image, properties)
+                # Add image to destination
+                CGImageDestinationAddImage(destination, cg_image, properties)
 
-        # Finalize
-        if not CGImageDestinationFinalize(destination):
-            raise RuntimeError("Failed to finalize image destination")
+                # Finalize
+                if not CGImageDestinationFinalize(destination):
+                    raise RuntimeError("Failed to finalize image destination")
 
-        # Convert NSData to Python bytes
-        return bytes(output_data)
+                # Convert NSData to Python bytes
+                return bytes(output_data)
+
+            finally:
+                # Clean up destination (helps prevent memory leaks)
+                del destination
+
+        finally:
+            # Clean up CGImage explicitly (critical for memory management)
+            del cg_image

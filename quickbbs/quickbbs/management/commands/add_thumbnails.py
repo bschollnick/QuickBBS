@@ -18,12 +18,14 @@ def add_thumbnails(max_count: int = 0) -> None:
     """
     Scan IndexData for files missing thumbnails and generate them.
 
+    Two-pass approach:
+    1. Ensure all thumbnailable files have a ThumbnailFiles record
+    2. Generate thumbnails for records with empty thumbnail data
+
     Only processes files with thumbnailable filetypes:
     - is_image=True (images: jpg, png, gif, etc.)
     - is_pdf=True (PDF documents)
     - is_movie=True (videos: mp4, avi, etc.)
-
-    Skips files marked as generic icons or pending deletion.
 
     Args:
         max_count: Maximum number of thumbnails to generate (0 = unlimited)
@@ -35,105 +37,117 @@ def add_thumbnails(max_count: int = 0) -> None:
     print("Adding missing thumbnails for files in database")
     print("=" * 60)
 
-    # Query for files that need thumbnails:
-    # - Not marked as generic icon
-    # - Not marked for deletion
-    # - File type supports thumbnails (is_image, is_pdf, or is_movie)
-    # - Either no thumbnail reference OR thumbnail exists but has no data
-    print("Finding files missing thumbnails...")
+    # ========================================================================
+    # PASS 1: Ensure all thumbnailable files have a ThumbnailFiles record
+    # ========================================================================
+    print("\nPASS 1: Ensuring ThumbnailFiles records exist...")
 
-    files_needing_thumbnails = (
-        IndexData.objects.select_related("new_ftnail", "filetype", "home_directory")
-        .filter(
-            Q(is_generic_icon=False)
-            & Q(delete_pending=False)
-            & (Q(filetype__is_image=True) | Q(filetype__is_pdf=True) | Q(filetype__is_movie=True))
-            & (
-                Q(new_ftnail__isnull=True)  # No thumbnail record at all
-                | Q(new_ftnail__small_thumb__in=[b"", None])  # Has record but no thumbnail data
-            )
-        )
-        .only(
-            "file_sha256",
-            "name",
-            "new_ftnail",
-            "filetype__is_image",
-            "filetype__is_movie",
-            "filetype__is_pdf",
-            "home_directory__fqpndirectory",
-        )
+    # Get thumbnailable files with no thumbnail record
+    # Note: Don't use distinct() - we want ALL unlinked records to get linked
+    # to their existing ThumbnailFiles record (by SHA256)
+    files_without_records = IndexData.objects.filter(
+        Q(new_ftnail__isnull=True)
+        & Q(is_generic_icon=False)
+        & Q(delete_pending=False)
+        & (Q(filetype__is_image=True) | Q(filetype__is_pdf=True) | Q(filetype__is_movie=True))
     )
 
-    total_files = files_needing_thumbnails.count()
-    print(f"Found {total_files} files missing thumbnails")
+    count = files_without_records.count()
+    print(f"Found {count} files without ThumbnailFiles records")
 
-    if total_files == 0:
-        print("No files need thumbnails - database is up to date")
+    if count > 0:
+        print("Creating ThumbnailFiles records and generating thumbnails...")
+        processed = 0
+
+        # Fetch all records without using iterator to avoid server-side cursor issues
+        for file_record in files_without_records.all():
+            try:
+                # Create ThumbnailFiles record and generate thumbnail
+                # (automatically skips if thumbnail already exists)
+                ThumbnailFiles.get_or_create_thumbnail_record(file_sha256=file_record.file_sha256, suppress_save=False)
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                print(f"ERROR processing {file_record.name}: {e}")
+
+            processed += 1
+
+            if processed % 1000 == 0:
+                print(f"  Processed {processed} files...")
+                close_old_connections()
+
+        print(f"Total processed: {processed} files")
+        close_old_connections()
+    else:
+        print("All thumbnailable files already have ThumbnailFiles records")
+
+    # ========================================================================
+    # PASS 2: Generate thumbnails for empty ThumbnailFiles records
+    # ========================================================================
+    print("\nPASS 2: Generating missing thumbnails...")
+
+    # Find ThumbnailFiles with empty small_thumb
+    empty_thumbnails = ThumbnailFiles.objects.filter(Q(small_thumb__in=[b"", None]))
+
+    if max_count > 0:
+        empty_thumbnails = empty_thumbnails[:max_count]
+        print(f"Limiting to {max_count} thumbnails...")
+
+    count = empty_thumbnails.count()
+    print(f"Found {count} thumbnails to generate")
+
+    if count == 0:
+        print("All thumbnails are already generated")
         return
 
-    # Apply max_count limit if specified
-    if 0 < max_count < total_files:
-        print(f"Limiting to first {max_count} files (use max_count=0 for unlimited)")
-        files_needing_thumbnails = files_needing_thumbnails[:max_count]
-        total_files = max_count
-
-    # Process files and generate thumbnails
-    print(f"\nGenerating thumbnails for {total_files} files...")
-    processed_count = 0
-    success_count = 0
-    skip_count = 0
-    error_count = 0
+    # Generate thumbnails
+    print(f"\nGenerating {count} thumbnails...")
+    processed = 0
+    success = 0
+    errors = 0
     start_time = time.time()
 
-    for file_record in files_needing_thumbnails:
+    # Fetch all records without using iterator to avoid server-side cursor issues
+    for thumbnail in empty_thumbnails.all():
         try:
-            # Skip if no file_sha256 (shouldn't happen but be defensive)
-            if not file_record.file_sha256:
-                print(f"Skipping {file_record.name} - no file SHA256")
-                skip_count += 1
+            # Get any IndexData record for this SHA256 (for file path)
+            index_record = IndexData.objects.filter(file_sha256=thumbnail.sha256_hash).first()
+
+            if not index_record:
+                print(f"Warning: No IndexData for SHA256 {thumbnail.sha256_hash}")
+                errors += 1
+                processed += 1
                 continue
 
-            # Generate thumbnail using existing get_or_create_thumbnail_record
-            # This function handles all the logic for creating thumbnails
-            # Note: Files are already filtered to only include is_image, is_pdf, or is_movie
-            ThumbnailFiles.get_or_create_thumbnail_record(file_sha256=file_record.file_sha256, suppress_save=False)
+            # Generate thumbnail (this will populate small/medium/large)
+            ThumbnailFiles.get_or_create_thumbnail_record(file_sha256=thumbnail.sha256_hash, suppress_save=False)
+            success += 1
+            processed += 1
 
-            success_count += 1
-            processed_count += 1
+            # Progress
+            if processed % 50 == 0:
+                elapsed = time.time() - start_time
+                rate = success / elapsed if elapsed > 0 else 0
+                print(f"  {processed}/{count} " f"(Success: {success}, Errors: {errors}) " f"({rate:.1f}/sec)")
 
-            # Progress indicator
-            if processed_count % 50 == 0:
-                elapsed_time = time.time() - start_time
-                success_rate = success_count / elapsed_time if elapsed_time > 0 else 0
-                print(
-                    f"Processed {processed_count}/{total_files} files "
-                    f"(Success: {success_count}, Skipped: {skip_count}, Errors: {error_count}) "
-                    f"({success_rate:.1f} thumbnails/sec)"
-                )
-
-            # Periodic connection cleanup to prevent exhaustion
-            if processed_count % 100 == 0:
+            # Cleanup - close connections every 1000 entries
+            if processed % 1000 == 0:
                 close_old_connections()
 
         except Exception as e:  # pylint: disable=broad-exception-caught
-            error_count += 1
-            processed_count += 1
-            print(f"Error generating thumbnail for {file_record.name}: {e}")
-            continue
+            errors += 1
+            processed += 1
+            print(f"Error: {e}")
 
-    # Final connection cleanup
     close_old_connections()
 
-    # Calculate final statistics
+    # Statistics
     total_time = time.time() - start_time
-    success_rate = success_count / total_time if total_time > 0 else 0
+    rate = success / total_time if total_time > 0 else 0
 
     print("=" * 60)
-    print("Thumbnail generation complete:")
-    print(f"  Total processed: {processed_count}")
-    print(f"  Successfully generated: {success_count}")
-    print(f"  Skipped: {skip_count}")
-    print(f"  Errors: {error_count}")
-    print(f"  Total time: {total_time:.1f} seconds")
-    print(f"  Generation rate: {success_rate:.1f} thumbnails/sec")
+    print("Complete:")
+    print(f"  Total processed: {processed}")
+    print(f"  Success: {success}")
+    print(f"  Errors: {errors}")
+    print(f"  Time: {total_time:.1f}s")
+    print(f"  Rate: {rate:.1f} thumbnails/sec")
     print("=" * 60)

@@ -19,7 +19,7 @@ from quickbbs.common import normalize_fqpn
 from quickbbs.models import IndexData, IndexDirs
 
 
-async def _add_files_async(max_count: int = 0) -> None:
+async def _add_files_async(max_count: int = 0, start_path: str | None = None) -> None:
     """
     Async implementation of add_files.
 
@@ -28,6 +28,7 @@ async def _add_files_async(max_count: int = 0) -> None:
 
     Args:
         max_count: Maximum number of directories to process (0 = unlimited)
+        start_path: Starting directory path to walk from (default: ALBUMS_PATH/albums)
 
     Returns:
         None
@@ -37,8 +38,11 @@ async def _add_files_async(max_count: int = 0) -> None:
     print("=" * 60)
 
     # Get the albums root directory
-    albums_root = os.path.join(settings.ALBUMS_PATH, "albums")
-    albums_root = normalize_fqpn(albums_root)
+    if start_path:
+        albums_root = normalize_fqpn(start_path)
+    else:
+        albums_root = os.path.join(settings.ALBUMS_PATH, "albums")
+        albums_root = normalize_fqpn(albums_root)
 
     if not os.path.exists(albums_root):
         print(f"ERROR: Albums root does not exist: {albums_root}")
@@ -68,9 +72,13 @@ async def _add_files_async(max_count: int = 0) -> None:
 
     # Fetch all directories first with Cache_Watcher prefetched
     # This prevents sync DB queries when accessing is_cached property
-    directories = await sync_to_async(list, thread_sensitive=True)(
-        IndexDirs.objects.select_related("Cache_Watcher").all()
-    )
+    # Filter directories to only those under the albums_root if start_path was specified
+    if start_path:
+        directories = await sync_to_async(list, thread_sensitive=True)(
+            IndexDirs.objects.select_related("Cache_Watcher").filter(fqpndirectory__startswith=albums_root).all()
+        )
+    else:
+        directories = await sync_to_async(list, thread_sensitive=True)(IndexDirs.objects.select_related("Cache_Watcher").all())
 
     for directory in directories:
         try:
@@ -85,10 +93,7 @@ async def _add_files_async(max_count: int = 0) -> None:
                 files_added = current_file_count - initial_file_count
                 elapsed_time = time.time() - start_time
                 file_rate = files_added / elapsed_time if elapsed_time > 0 else 0
-                print(
-                    f"Processed {processed_count} directories, "
-                    f"added {files_added} files ({file_rate:.1f} files/sec)..."
-                )
+                print(f"Processed {processed_count} directories, " f"added {files_added} files ({file_rate:.1f} files/sec)...")
 
             # Check if we've hit the max_count limit
             if 0 < max_count <= processed_count:
@@ -116,7 +121,7 @@ async def _add_files_async(max_count: int = 0) -> None:
     print("=" * 60)
 
 
-def add_files(max_count: int = 0) -> None:
+def add_files(max_count: int = 0, start_path: str | None = None) -> None:
     """
     Synchronous wrapper for add_files.
 
@@ -125,8 +130,9 @@ def add_files(max_count: int = 0) -> None:
 
     Args:
         max_count: Maximum number of directories to process (0 = unlimited)
+        start_path: Starting directory path to walk from (default: ALBUMS_PATH/albums)
 
     Returns:
         None
     """
-    asyncio.run(_add_files_async(max_count=max_count))
+    asyncio.run(_add_files_async(max_count=max_count, start_path=start_path))
