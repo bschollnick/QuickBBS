@@ -1,3 +1,5 @@
+"""Multi-backend thumbnail generation engine with automatic backend selection."""
+
 import platform
 from typing import Literal
 
@@ -14,12 +16,54 @@ except ImportError:
     from pil_thumbnails import ImageBackend
     from video_thumbnails import VideoBackend
 
-# from quickbbs.frontend.core_image_thumbnails import CoreAbstractBackend
-# In testing, a Memory leak message keeps arising when using Core Image.
-# So we are disabling it for now.
+# Try to import Core Image and AVFoundation backends (macOS only)
 CORE_IMAGE_AVAILABLE = False
+AVFOUNDATION_AVAILABLE = False
+PDFKIT_AVAILABLE = False
 
-BackendType = Literal["image", "coreimage", "auto", "video"]
+try:
+    from .core_image_thumbnails import CORE_IMAGE_AVAILABLE as _CI_AVAIL
+    from .core_image_thumbnails import CoreImageBackend
+
+    CORE_IMAGE_AVAILABLE = _CI_AVAIL
+except ImportError:
+    try:
+        from core_image_thumbnails import CORE_IMAGE_AVAILABLE as _CI_AVAIL
+        from core_image_thumbnails import CoreImageBackend
+
+        CORE_IMAGE_AVAILABLE = _CI_AVAIL
+    except ImportError:
+        CoreImageBackend = None
+
+try:
+    from .avfoundation_video_thumbnails import AVFOUNDATION_AVAILABLE as _AV_AVAIL
+    from .avfoundation_video_thumbnails import AVFoundationVideoBackend
+
+    AVFOUNDATION_AVAILABLE = _AV_AVAIL
+except ImportError:
+    try:
+        from avfoundation_video_thumbnails import AVFOUNDATION_AVAILABLE as _AV_AVAIL
+        from avfoundation_video_thumbnails import AVFoundationVideoBackend
+
+        AVFOUNDATION_AVAILABLE = _AV_AVAIL
+    except ImportError:
+        AVFoundationVideoBackend = None
+
+try:
+    from .pdfkit_thumbnails import PDFKIT_AVAILABLE as _PDF_AVAIL
+    from .pdfkit_thumbnails import PDFKitBackend
+
+    PDFKIT_AVAILABLE = _PDF_AVAIL
+except ImportError:
+    try:
+        from pdfkit_thumbnails import PDFKIT_AVAILABLE as _PDF_AVAIL
+        from pdfkit_thumbnails import PDFKitBackend
+
+        PDFKIT_AVAILABLE = _PDF_AVAIL
+    except ImportError:
+        PDFKitBackend = None
+
+BackendType = Literal["image", "coreimage", "auto", "video", "corevideo", "pdf", "pdfkit"]
 
 
 class FastImageProcessor:
@@ -49,30 +93,42 @@ class FastImageProcessor:
         match self.backend_type:
             case "image":
                 return ImageBackend()
+            case "coreimage":
+                if not CORE_IMAGE_AVAILABLE:
+                    raise ImportError("Core Image backend not available on this system")
+                return CoreImageBackend()
             case "video":
                 return VideoBackend()
+            case "corevideo":
+                if not AVFOUNDATION_AVAILABLE:
+                    raise ImportError("AVFoundation backend not available on this system")
+                return AVFoundationVideoBackend()
             case "pdf":
-                return PDFBackend()
+                # Auto-select: Prefer PDFKit on Apple Silicon if available, fallback to PyMuPDF
+                if PDFKIT_AVAILABLE and self._is_apple_silicon():
+                    try:
+                        return PDFKitBackend()
+                    except Exception:
+                        # Fall back to PyMuPDF if PDFKit initialization fails
+                        return PDFBackend()
+                else:
+                    return PDFBackend()
+            case "pdfkit":
+                if not PDFKIT_AVAILABLE:
+                    raise ImportError("PDFKit backend not available on this system")
+                return PDFKitBackend()
+            case "auto":
+                # Auto-select: Prefer Core Image on Apple Silicon if available, fallback to PIL
+                if CORE_IMAGE_AVAILABLE and self._is_apple_silicon():
+                    try:
+                        return CoreImageBackend()
+                    except Exception:
+                        # Fall back to PIL if Core Image initialization fails
+                        return ImageBackend()
+                else:
+                    return ImageBackend()
             case _:
-                raise ValueError("Unknown backend type specified")
-
-            # Uncomment when Core Image backend is ready
-        # elif self.backend_type == "coreimage":
-        #     if not CORE_IMAGE_AVAILABLE:
-        #         raise ImportError("Core Image backend not available on this system")
-        #     return CoreAbstractBackend()
-        # if self.backend_type == "auto":
-        #     # Auto-select: Core Image on macOS with Apple Silicon, Pillow elsewhere
-        #     if CORE_IMAGE_AVAILABLE and self._is_apple_silicon():
-        #         try:
-        #             raise ValueError(f"{self.backend_type} is unavailable.")
-        #             # return CoreAbstractBackend()
-        #         except Exception:
-        #             # Fall back to Pillow if Core Image setup fails
-        #             return PillowBackend()
-        #     else:
-        #         return PillowBackend()
-        # raise ValueError(f"Unknown backend: {self.backend_type}")
+                raise ValueError(f"Unknown backend type: {self.backend_type}")
 
     def _is_apple_silicon(self) -> bool:
         """Check if running on Apple Silicon."""
@@ -120,8 +176,8 @@ def create_thumbnails_from_path(
     backend: BackendType = "auto",
 ) -> dict[str, bytes]:
     """Create thumbnails from file path with processor caching."""
-    processor = _get_cached_processor(sizes, backend)
-    return processor.process_image_file(file_path, output, quality)
+    proc = _get_cached_processor(sizes, backend)
+    return proc.process_image_file(file_path, output, quality)
 
 
 def create_thumbnails_from_pil(
@@ -132,8 +188,8 @@ def create_thumbnails_from_pil(
     backend: BackendType = "auto",
 ) -> dict[str, bytes]:
     """Create thumbnails from PIL Image with processor caching."""
-    processor = _get_cached_processor(sizes, backend)
-    return processor.process_pil_image(pil_image, output, quality)
+    proc = _get_cached_processor(sizes, backend)
+    return proc.process_pil_image(pil_image, output, quality)
 
 
 def create_thumbnails_from_bytes(
@@ -144,8 +200,8 @@ def create_thumbnails_from_bytes(
     backend: BackendType = "auto",
 ) -> dict[str, bytes]:
     """Create thumbnails from image bytes with processor caching."""
-    processor = _get_cached_processor(sizes, backend)
-    return processor.process_image_bytes(image_bytes, output, quality)
+    proc = _get_cached_processor(sizes, backend)
+    return proc.process_image_bytes(image_bytes, output, quality)
 
 
 if __name__ == "__main__":
@@ -154,32 +210,91 @@ if __name__ == "__main__":
         """Helper function to write bytes to a file."""
         with open(filename, "wb") as f:
             f.write(data)
-        print(f"Saved {filename} with {len(data)} bytes.")
+        print(f"Saved {filename} with {len(data):,} bytes.")
 
-    image_filename = "image.png"
-    IMAGE_SIZES = {"large": (800, 600), "medium": (400, 300), "small": (200, 150)}
+    print("=" * 60)
+    print("Backend Availability")
+    print("=" * 60)
+    print(f"Core Image Available: {CORE_IMAGE_AVAILABLE}")
+    print(f"AVFoundation Available: {AVFOUNDATION_AVAILABLE}")
+    print(f"PDFKit Available: {PDFKIT_AVAILABLE}")
+    print()
 
-    thumbnails_pillow = create_thumbnails_from_path(image_filename, IMAGE_SIZES, output="JPEG", backend="image")
-    print("CORE_IMAGE_AVAILABLE:", CORE_IMAGE_AVAILABLE)
-    # On macOS with Core Image available
+    # Test image processing
+    image_filename = "test.png"
+    IMAGE_SIZES = {"large": (1024, 1024), "medium": (740, 740), "small": (200, 200)}
+
+    print("=" * 60)
+    print("Testing Image Backends")
+    print("=" * 60)
+
+    # Test PIL backend
+    thumbnails_pil = create_thumbnails_from_path(image_filename, IMAGE_SIZES, output="JPEG", backend="image")
+    print(f"PIL Backend: {len(thumbnails_pil['small']):,} / {len(thumbnails_pil['medium']):,} / {len(thumbnails_pil['large']):,} bytes")
+    output_disk("test_thumb_pil_small.jpg", thumbnails_pil["small"])
+    output_disk("test_thumb_pil_medium.jpg", thumbnails_pil["medium"])
+    output_disk("test_thumb_pil_large.jpg", thumbnails_pil["large"])
+
+    # Test Core Image backend if available
     if CORE_IMAGE_AVAILABLE:
         thumbnails_ci = create_thumbnails_from_path(image_filename, IMAGE_SIZES, output="JPEG", backend="coreimage")
+        print(f"Core Image Backend: {len(thumbnails_ci['small']):,} / {len(thumbnails_ci['medium']):,} / {len(thumbnails_ci['large']):,} bytes")
+        output_disk("test_thumb_ci_small.jpg", thumbnails_ci["small"])
+        output_disk("test_thumb_ci_medium.jpg", thumbnails_ci["medium"])
+        output_disk("test_thumb_ci_large.jpg", thumbnails_ci["large"])
 
-    # Access the binary data
-    small_thumb_bytes = thumbnails_pillow["small"]
-    medium_thumb_bytes = thumbnails_pillow["medium"]
-    large_thumb_bytes = thumbnails_pillow["large"]
+    # Test auto backend
+    thumbnails_auto = create_thumbnails_from_path(image_filename, IMAGE_SIZES, output="JPEG", backend="auto")
+    processor = _get_cached_processor(IMAGE_SIZES, "auto")
     print(
-        f"Generated thumbnails: {len(small_thumb_bytes)} bytes (small), "
-        f"{len(medium_thumb_bytes)} bytes (medium), "
-        f"{len(large_thumb_bytes)} bytes (large)"
+        f"Auto Backend (using {processor.current_backend}): {len(thumbnails_auto['small']):,} / {len(thumbnails_auto['medium']):,} / {len(thumbnails_auto['large']):,} bytes"
     )
-    # Output to disk for verification
-    print(small_thumb_bytes[:20], medium_thumb_bytes[:20], large_thumb_bytes[:20])
-    output_disk("small_thumb.jpg", small_thumb_bytes)
-    output_disk("medium_thumb.jpg", medium_thumb_bytes)
-    output_disk("large_thumb.jpg", large_thumb_bytes)
-    if CORE_IMAGE_AVAILABLE:
-        output_disk("small_thumb_ci.jpg", thumbnails_ci["small"])
-        output_disk("medium_thumb_ci.jpg", thumbnails_ci["medium"])
-        output_disk("large_thumb_ci.jpg", thumbnails_ci["large"])
+
+    print()
+    print("=" * 60)
+    print("Testing Video Backends")
+    print("=" * 60)
+
+    # Test video processing
+    video_filename = "test.mp4"
+    VIDEO_SIZES = {"large": (1024, 1024), "medium": (740, 740), "small": (200, 200)}
+
+    # Test FFmpeg backend
+    processor_ffmpeg = FastImageProcessor(VIDEO_SIZES, backend="video")
+    thumbnails_ffmpeg = processor_ffmpeg.process_image_file(video_filename, output_format="JPEG", quality=85)
+    print(
+        f"FFmpeg Backend: Duration={thumbnails_ffmpeg.get('duration', 'N/A')}s, Sizes: {len(thumbnails_ffmpeg['small']):,} / {len(thumbnails_ffmpeg['medium']):,} / {len(thumbnails_ffmpeg['large']):,} bytes"
+    )
+    output_disk("test_thumb_ffmpeg_small.jpg", thumbnails_ffmpeg["small"])
+    output_disk("test_thumb_ffmpeg_medium.jpg", thumbnails_ffmpeg["medium"])
+    output_disk("test_thumb_ffmpeg_large.jpg", thumbnails_ffmpeg["large"])
+
+    # Test AVFoundation backend if available
+    if AVFOUNDATION_AVAILABLE:
+        processor_av = FastImageProcessor(VIDEO_SIZES, backend="corevideo")
+        thumbnails_av = processor_av.process_image_file(video_filename, output_format="JPEG", quality=85)
+        print(
+            f"AVFoundation Backend: Duration={thumbnails_av.get('duration', 'N/A')}s, Sizes: {len(thumbnails_av['small']):,} / {len(thumbnails_av['medium']):,} / {len(thumbnails_av['large']):,} bytes"
+        )
+        output_disk("test_thumb_av_small.jpg", thumbnails_av["small"])
+        output_disk("test_thumb_av_medium.jpg", thumbnails_av["medium"])
+        output_disk("test_thumb_av_large.jpg", thumbnails_av["large"])
+
+    print()
+    print("=" * 60)
+    print("Testing PDF Backends")
+    print("=" * 60)
+
+    # Test PDF processing
+    pdf_filename = "test.pdf"
+    PDF_SIZES = {"large": (1024, 1024), "medium": (740, 740), "small": (200, 200)}
+
+    # Test PDF backend (auto-selects PDFKit on Apple Silicon, PyMuPDF otherwise)
+    processor_pdf = FastImageProcessor(PDF_SIZES, backend="pdf")
+    thumbnails_pdf = processor_pdf.process_image_file(pdf_filename, output_format="JPEG", quality=85)
+    print(
+        f"PDF Backend (using {processor_pdf.current_backend}): Sizes: {len(thumbnails_pdf['small']):,} / {len(thumbnails_pdf['medium']):,} / {len(thumbnails_pdf['large']):,} bytes"
+    )
+    output_disk("test_thumb_pdf_small.jpg", thumbnails_pdf["small"])
+    output_disk("test_thumb_pdf_medium.jpg", thumbnails_pdf["medium"])
+    output_disk("test_thumb_pdf_large.jpg", thumbnails_pdf["large"])
