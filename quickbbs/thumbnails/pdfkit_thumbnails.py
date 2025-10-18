@@ -7,7 +7,7 @@ from pathlib import Path
 
 # Try to import PDFKit (part of Quartz) and related macOS frameworks
 try:
-    from Foundation import NSData, NSURL
+    from Foundation import NSURL, NSData
     from Quartz import CIImage, PDFDocument
 
     PDFKIT_AVAILABLE = True
@@ -37,6 +37,18 @@ class PDFKitBackend(AbstractBackend):
         """
         if not PDFKIT_AVAILABLE:
             raise ImportError("PDFKit not available. This backend requires macOS with pyobjc-framework-quartz.")
+
+        # Prevent dock icon from appearing (PDFKit uses NSImage which triggers AppKit)
+        try:
+            from AppKit import (
+                NSApplication,
+                NSApplicationActivationPolicyProhibited,
+            )
+
+            app = NSApplication.sharedApplication()
+            app.setActivationPolicy_(NSApplicationActivationPolicyProhibited)
+        except ImportError:
+            pass  # AppKit not available
 
         # Cache CoreImageBackend instance for reuse
         self._image_backend = CoreImageBackend()

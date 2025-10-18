@@ -297,7 +297,10 @@ async def return_prev_next2(directory: "IndexDirs", sorder: int) -> tuple[str | 
 
 def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pylint: disable=unused-argument
     """
-    Serve directory thumbnail by finding the first image in the directory.
+    Serve directory thumbnail using prioritized cover image selection.
+
+    Uses IndexDirs.get_cover_image() to select thumbnails based on priority filenames
+    (e.g., "cover", "title") before falling back to the first available file.
 
     Args:
         request: Django Request object
@@ -309,20 +312,6 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
     Raises:
         HttpResponseBadRequest: If the directory cannot be found
     """
-
-    def get_image_files(directory):
-        """
-        Get image files in the directory for thumbnail generation.
-
-        :param directory: IndexDirs object representing the directory
-        :return: QuerySet of image files in the directory
-        """
-        files_in_directory = directory.files_in_dir(additional_filters={"filetype__is_image": True})
-        if not files_in_directory.exists():
-            async_to_sync(sync_database_disk)(directory)
-            files_in_directory = directory.files_in_dir(additional_filters={"filetype__is_image": True})
-        return files_in_directory
-
     directory, error = safe_get_or_error(
         IndexDirs,
         error_message="Directory not found - No records returned.",
@@ -335,20 +324,24 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
     # Reload directory with Cache_Watcher relationship to avoid KeyError in sync_database_disk
     directory = IndexDirs.objects.select_related("Cache_Watcher").get(pk=directory.pk)
 
+    # If directory already has a thumbnail set, return it
     if directory.thumbnail and directory.thumbnail.new_ftnail:
-        #
-        return directory.thumbnail.new_ftnail.send_thumbnail(
-            fext_override=".jpg", size="small", index_data_item=directory.thumbnail
-        )  # Send existing thumbnail
+        return directory.thumbnail.new_ftnail.send_thumbnail(fext_override=".jpg", size="small", index_data_item=directory.thumbnail)
 
-    files_in_directory = get_image_files(directory)
+    # Use get_cover_image to find the best cover image for this directory
+    cover_image = directory.get_cover_image()
 
-    # If no image files found, return default directory icon
-    if not files_in_directory.exists():
+    # If no cover image found, try syncing from disk and retry
+    if not cover_image:
+        async_to_sync(sync_database_disk)(directory)
+        cover_image = directory.get_cover_image()
+
+    # If still no cover image found, return default directory icon
+    if not cover_image:
         return directory.filetype.send_thumbnail()
 
-    # Set directory thumbnail to first image file
-    directory.thumbnail = files_in_directory.first()
+    # Set directory thumbnail to the selected cover image
+    directory.thumbnail = cover_image
     directory.is_generic_icon = False
     directory.save()
 

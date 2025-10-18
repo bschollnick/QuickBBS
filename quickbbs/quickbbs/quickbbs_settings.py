@@ -10,6 +10,10 @@ IMAGE_SIZE = {
 PIL_MAX_IMAGE_PIXELS = None  # Disable decompression bomb warning
 PIL_LOAD_TRUNCATED_IMAGES = True  # Allow loading truncated images
 
+# Directory thumbnail priority filenames (without extensions)
+# Files matching these names will be prioritized when selecting thumbnails for directories
+DIRECTORY_COVER_NAMES = ["cover", "title"]
+
 QUICKBBS_REQUIRE_LOGIN = 0
 SITE_NAME = "The Gallery"
 GALLERY_ITEMS_PER_PAGE = 30

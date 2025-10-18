@@ -12,20 +12,20 @@ module's in-memory file caching system, NOT actual database queries.
 
 import argparse
 import os
-import re
 import shutil
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha224
 from pathlib import Path
 from struct import unpack
 
 import xattr
+from colorama import Fore, Style, init
+
+# Initialize colorama for cross-platform color support
+init(autoreset=True)
 
 # Simple file processing without external dependencies
-
-MAX_THREADS = 4  # Optimal for I/O-bound operations
 
 # Archive extensions to skip (replaces filedb._archives)
 ARCHIVE_EXTENSIONS = {".zip", ".rar", ".7z", ".lzh", ".gz"}
@@ -57,44 +57,54 @@ def calculate_sha224(filepath: str) -> str:
         return None
 
 
-def scan_destination_directory(dst_dir: str, use_shas: bool) -> dict[str, str]:
-    """Scan destination directory for existing files.
+def build_global_filename_index(root_target_dir: str) -> set[str]:
+    """Build set of all filenames anywhere in target tree.
+
+    This prevents duplicates across the entire target tree - if a file exists
+    in Target/Alice/, it won't be copied again to Target/ or Target/Bob/.
 
     Args:
-        dst_dir: Destination directory path
-        use_shas: Whether to calculate SHA224 hashes
+        root_target_dir: Root target directory path
 
     Returns:
-        Dictionary with filename as key, value is None (no SHA) or SHA224 hash
+        Set of sanitized filenames found anywhere in target tree
     """
-    file_map = {}
+    filenames = set()
+
+    if not os.path.exists(root_target_dir):
+        print(f"{Fore.YELLOW}Target directory does not exist yet - starting fresh{Style.RESET_ALL}")
+        return filenames
+
+    print(f"{Fore.CYAN}Scanning target tree for existing files...{Style.RESET_ALL}")
+    file_count = 0
+    start_time = time.time()
 
     try:
-        # Use os.walk for consistency, scan recursively to find files in subdirectories
-        for root, _, files in os.walk(dst_dir):
-            # REMOVED: Skip subdirectories - we now scan recursively like old test_colors3.py
-            # if root != dst_dir:  # Skip subdirectories
-            #     continue
-
+        for root, _, files in os.walk(root_target_dir):
             for filename in files:
-                filepath = os.path.join(root, filename)
-                sha_value = None
+                # Sanitize filename the same way we do for source files
+                sanitized = filename.translate(FILENAME_TRANS)
+                filenames.add(sanitized)
 
-                if use_shas:
-                    try:
-                        file_size = os.path.getsize(filepath)
-                        if file_size <= MAX_SHA_SIZE:
-                            sha_value = calculate_sha224(filepath)
-                    except OSError:
-                        pass  # sha_value remains None
+                file_count += 1
+                if file_count % 1000 == 0:
+                    elapsed = time.time() - start_time
+                    rate = file_count / elapsed if elapsed > 0 else 0
+                    # \r returns cursor to start of line for overwriting
+                    print(
+                        f"\r{Fore.GREEN}  Scanned: {file_count:,} files " f"({rate:.0f} files/sec){Style.RESET_ALL}",
+                        end="",
+                        flush=True,
+                    )
 
-                file_map[filename] = sha_value
-            # REMOVED: No longer breaking after first directory - scan all subdirectories recursively
-            # break  # Only process the first (target) directory
-    except (OSError, PermissionError):
-        pass  # Return empty dict if directory can't be read
+    except (OSError, PermissionError) as e:
+        print(f"\n{Fore.RED}Warning: Could not scan {root_target_dir}: {e}{Style.RESET_ALL}")
 
-    return file_map
+    # Final newline after progress indicator
+    print()
+    elapsed = time.time() - start_time
+    print(f"{Fore.GREEN}Found {len(filenames):,} unique filenames in target tree " f"({elapsed:.1f}s){Style.RESET_ALL}")
+    return filenames
 
 
 class ProcessingStats:
@@ -170,6 +180,9 @@ colornames = {
     7: "orange",
 }
 
+# Filename sanitization translation table (faster than regex)
+FILENAME_TRANS = str.maketrans({"?": "", "/": "", ":": "", "#": "_", " ": "_"})
+
 
 def get_color(filename):
     """Get macOS Finder color label for a file using xattr method.
@@ -190,24 +203,6 @@ def get_color(filename):
         return (0, colornames[0])
 
 
-# Pre-compile regex for filename sanitization
-replacements = {"?": "", "/": "", ":": "", "#": "_"}
-regex = re.compile(f"({'|'.join(map(re.escape, replacements.keys()))})")
-
-
-def multiple_replace(dictdata, text):
-    """Replace multiple characters in filename using regex.
-
-    Args:
-        dictdata: Dictionary mapping characters to replace with their replacements
-        text: Text string to perform replacements on
-
-    Returns:
-        String with specified characters replaced according to dictdata mapping
-    """
-    return regex.sub(lambda mo: dictdata[mo.string[mo.start() : mo.end()]], text)
-
-
 def process_folder(src_dir, dst_dir, files, config):
     """Process files in a folder, copying/moving only those with color labels.
 
@@ -215,14 +210,11 @@ def process_folder(src_dir, dst_dir, files, config):
         src_dir: Source directory path
         dst_dir: Destination directory path
         files: List of filenames to process
-        config: Dictionary with 'use_shas', 'operation', and 'max_count' keys
+        config: Dictionary with 'existing_files', 'operation', and 'max_count' keys
 
     Returns:
         True if processing should continue, False if max_count reached
     """
-    # Scan destination directory for existing files (per-directory scope) - only if it exists
-    existing_file_map = scan_destination_directory(dst_dir, config["use_shas"]) if os.path.exists(dst_dir) else {}
-
     stats.total_files_scanned += len(files)
 
     for file_ in files:
@@ -244,28 +236,18 @@ def process_folder(src_dir, dst_dir, files, config):
 
         stats.files_with_color_tags += 1
 
-        # Ensure destination directory exists (only when we have files with color labels)
-        os.makedirs(dst_dir, exist_ok=True)
+        # Sanitize destination filename using str.translate (faster than regex)
+        dst_filename = file_.translate(FILENAME_TRANS)
 
-        # Sanitize destination filename
-        dst_filename = multiple_replace(replacements, file_).replace(" ", "_")
-        dst_file = os.path.join(dst_dir, dst_filename)
-
-        # Check if file already exists
-        if dst_filename in existing_file_map:
+        # Check global index - prevents duplicates anywhere in target tree
+        if dst_filename in config["existing_files"]:
             stats.files_skipped_existing += 1
             continue
 
-        # Check SHA if enabled
-        src_sha = None
-        if config["use_shas"]:
-            try:
-                src_sha = calculate_sha224(src_file)
-                if src_sha and src_sha in existing_file_map.values():
-                    stats.files_skipped_sha += 1
-                    continue
-            except (OSError, IOError, PermissionError):
-                src_sha = None
+        # Ensure destination directory exists (only when we have files with color labels)
+        os.makedirs(dst_dir, exist_ok=True)
+
+        dst_file = os.path.join(dst_dir, dst_filename)
 
         # Perform file operation
         try:
@@ -274,8 +256,8 @@ def process_folder(src_dir, dst_dir, files, config):
             elif config["operation"] == "move":
                 shutil.move(src_file, dst_file)
 
-            # Update local tracking for this directory (no persistent cache needed)
-            existing_file_map[dst_filename] = src_sha if config["use_shas"] else None
+            # Update global index after successful operation
+            config["existing_files"].add(dst_filename)
 
             stats.files_actually_processed += 1
 
@@ -294,7 +276,6 @@ def main(args):
     """
     use_shas = getattr(args, "use_shas", False)
     operation = getattr(args, "operation", "copy")
-    max_threads = getattr(args, "threads", MAX_THREADS)
     max_count = getattr(args, "max_count", None)
 
     root_src_dir = Path(args.source).resolve()
@@ -303,7 +284,6 @@ def main(args):
     print(f"Starting with: {root_src_dir}")
     print(f"Target path: {root_target_dir}")
     print(f"Operation: {operation}")
-    print(f"Threads: {max_threads}")
     print(f"SHA hashing: {'enabled' if use_shas else 'disabled'}")
     if max_count:
         print(f"Maximum files to process: {max_count}")
@@ -318,36 +298,23 @@ def main(args):
         print(f"Error: Source path '{root_src_dir}' is not a directory.")
         sys.exit(1)
 
-    #    root_target_dir.mkdir(parents=True, exist_ok=True)
-
-    # No persistent cache needed - using per-directory processing
+    # Build global filename index to prevent duplicates across entire target tree
+    existing_files = build_global_filename_index(str(root_target_dir))
 
     print("Processing directories...")
 
     # Create config dictionary to reduce function arguments
-    config = {"use_shas": use_shas, "operation": operation, "max_count": max_count}
-
-    def process_wrapper(folder_info):
-        """Process a single directory with error handling.
-
-        :Args:
-            folder_info: Tuple of (src_dir, dst_dir, files) to process
-
-        Returns:
-            True if processing should continue, False if max_count reached
-        """
-        src_dir, dst_dir, files = folder_info
-        try:
-            return process_folder(src_dir, dst_dir, files, config)
-        except (OSError, IOError, PermissionError, FileNotFoundError) as e:
-            print(f"Error processing {src_dir}: {e}")
-            stats.errors_encountered += 1
-            return True  # Continue despite errors
+    config = {
+        "use_shas": use_shas,
+        "operation": operation,
+        "max_count": max_count,
+        "existing_files": existing_files,  # Global index shared across all processing
+    }
 
     def directory_generator():
         """Generate directory information for processing.
 
-        :Yields:
+        Yields:
             Tuple of (src_dir, dst_dir, files) for each directory containing files
 
         Uses os.walk to traverse the source directory tree and yields processing
@@ -360,11 +327,15 @@ def main(args):
                 dst_dir = dst_dir.parent / dst_dir.name.title()
                 yield (src_dir, str(dst_dir), files)
 
-    with ThreadPoolExecutor(max_workers=max_threads) as executor:
-        # Process directories and stop if max_count is reached
-        for result in executor.map(process_wrapper, directory_generator()):
-            if not result:  # False means max_count reached
-                break
+    # Process directories sequentially (no threading - simpler and prevents race conditions)
+    for src_dir, dst_dir, files in directory_generator():
+        try:
+            if not process_folder(src_dir, dst_dir, files, config):
+                break  # max_count reached
+        except (OSError, IOError, PermissionError, FileNotFoundError) as e:
+            print(f"Error processing {src_dir}: {e}")
+            stats.errors_encountered += 1
+            # Continue despite errors
 
     stats.stop_timing()
     stats.print_summary()
@@ -384,23 +355,17 @@ if __name__ == "__main__":
     parser.add_argument(
         "--use-shas",
         action="store_true",
-        help="Use SHA224 hashing for duplicate detection",
-    )
-    parser.add_argument(
-        "--threads",
-        "-t",
-        type=int,
-        default=MAX_THREADS,
-        help=f"Number of worker threads (default: {MAX_THREADS})",
+        help="Use SHA224 hashing for duplicate detection (currently unused)",
     )
     parser.add_argument(
         "--max-count",
+        "--max_count",
         type=int,
         default=None,
         help="Maximum number of files to copy/move (stops after this limit)",
     )
 
-    print("QuickBBS File Mover v3.0 - Performance Optimized")
+    print("QuickBBS File Mover v3.1 - Optimized Edition")
     print("=" * 45)
     args = parser.parse_args()
 
