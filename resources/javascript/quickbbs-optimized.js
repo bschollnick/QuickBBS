@@ -10,7 +10,8 @@
     const CONFIG = {
         SPINNER_DELAY: 100,
         LAZY_LOAD_THRESHOLD: '10px',
-        CACHE_DURATION: 300000 // 5 minutes
+        CACHE_DURATION: 300000, // 5 minutes
+        LAZY_LOAD_TIMEOUT: 10000 // 10 seconds - force load all images after this delay
     };
 
     // Spinner Management with HTMX Content Replacement Handling
@@ -86,6 +87,7 @@
     class LazyLoadManager {
         constructor() {
             this.observer = null;
+            this.forceLoadTimeout = null;
             this.init();
         }
 
@@ -99,6 +101,7 @@
                     }
                 );
                 this.observeImages();
+                this.startForceLoadTimer();
             } else {
                 // Fallback for older browsers
                 this.loadAllImages();
@@ -116,7 +119,7 @@
         }
 
         loadImage(img) {
-            if (img.dataset.src) {
+            if (img.dataset.src && img.dataset.loaded !== 'true') {
                 img.src = img.dataset.src;
                 img.dataset.loaded = 'true';
                 img.removeAttribute('data-src');
@@ -135,10 +138,45 @@
             });
         }
 
+        startForceLoadTimer() {
+            // Clear any existing timer
+            this.clearForceLoadTimer();
+
+            // Set timeout to force load all remaining lazy images
+            this.forceLoadTimeout = setTimeout(() => {
+                const unloadedImages = document.querySelectorAll('img[data-src]');
+                if (unloadedImages.length > 0) {
+                    console.log(`Force loading ${unloadedImages.length} lazy images after timeout`);
+                    this.loadAllImages();
+                }
+            }, CONFIG.LAZY_LOAD_TIMEOUT);
+        }
+
+        clearForceLoadTimer() {
+            if (this.forceLoadTimeout) {
+                clearTimeout(this.forceLoadTimeout);
+                this.forceLoadTimeout = null;
+            }
+        }
+
         refresh() {
             if (this.observer) {
                 this.observeImages();
+                this.startForceLoadTimer();
             }
+        }
+
+        handleBFCache() {
+            // Handle browser back/forward cache restoration
+            const unloadedImages = document.querySelectorAll('img[data-loaded="false"][data-src]');
+            if (unloadedImages.length > 0) {
+                console.log(`BFCache restore: loading ${unloadedImages.length} lazy images`);
+                unloadedImages.forEach(img => this.loadImage(img));
+            }
+        }
+
+        cleanup() {
+            this.clearForceLoadTimer();
         }
     }
 
@@ -248,6 +286,11 @@
                 this.lazyLoader.refresh();
             });
 
+            document.addEventListener("htmx:beforeSwap", () => {
+                // Clean up timers before content swap
+                this.lazyLoader.cleanup();
+            });
+
             // Regular link clicks (non-HTMX)
             document.addEventListener("click", (evt) => {
                 const target = evt.target.closest('a');
@@ -269,6 +312,10 @@
             // Browser navigation events (back/forward button)
             window.addEventListener("pageshow", (evt) => {
                 this.spinner.forceHide();
+                // If page was restored from bfcache, reload lazy images
+                if (evt.persisted) {
+                    this.lazyLoader.handleBFCache();
+                }
             });
 
             window.addEventListener("pagehide", () => {
@@ -278,6 +325,8 @@
             // HTMX history events
             document.addEventListener("htmx:historyRestore", () => {
                 this.spinner.forceHide();
+                // Reload lazy images when HTMX restores from history
+                this.lazyLoader.handleBFCache();
             });
 
             // Additional safety net - check for stuck spinners periodically

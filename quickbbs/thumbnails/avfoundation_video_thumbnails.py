@@ -1,4 +1,5 @@
 """AVFoundation backend for video thumbnail generation (macOS native)."""
+
 # pylint: disable=no-name-in-module  # pyobjc uses dynamic imports
 
 import io
@@ -14,7 +15,7 @@ try:
         AVAssetImageGeneratorApertureModeCleanAperture,
     )
     from CoreMedia import CMTimeMake
-    from Foundation import NSData, NSURL
+    from Foundation import NSURL, NSData
     from Quartz import (
         CGImageDestinationAddImage,
         CGImageDestinationCreateWithData,
@@ -50,6 +51,18 @@ class AVFoundationVideoBackend(AbstractBackend):
         """
         if not AVFOUNDATION_AVAILABLE:
             raise ImportError("AVFoundation not available. This backend requires macOS with pyobjc-framework-avfoundation.")
+
+        # Prevent dock icon from appearing (AVFoundation can trigger AppKit in some cases)
+        try:
+            from AppKit import (
+                NSApplication,
+                NSApplicationActivationPolicyProhibited,
+            )
+
+            app = NSApplication.sharedApplication()
+            app.setActivationPolicy_(NSApplicationActivationPolicyProhibited)
+        except ImportError:
+            pass  # AppKit not available
 
         # Cache CoreImageBackend instance for reuse
         self._image_backend = CoreImageBackend()

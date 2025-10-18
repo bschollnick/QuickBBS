@@ -111,3 +111,4 @@ unidecode = "^1.4.0"
 osxmetadata = {version = ">=1.4.0", python = ">=3.12,<3.14"}
 psycopg-pool = "^3.2.6"
 django-dbbackup = "^5.0.0"
+colorama = "^0.4.6"
