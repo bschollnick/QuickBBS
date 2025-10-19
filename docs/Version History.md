@@ -161,17 +161,83 @@ Version 3.5 represents the **current state-of-the-art** implementation with full
 - **Real-time Monitoring**: Instant cache invalidation
 - **High Performance**: Database-optimized with intelligent caching
 
+## Version 3.75 (2025)
+**Technology**: Django 6.0 Alpha, HTMX, macOS Native Integration
+
+Version 3.75 builds on the v3.5 foundation with enhanced thumbnail generation, better WSGI/ASGI compatibility, and comprehensive UI improvements.
+
+### Major Enhancements:
+
+**Thumbnails:**
+
+In addition to PIL/FFMPEG/PyMuPDF thumbnail support, **macOS Native Thumbnail Generation** has been added for systems running under Mac OS.  This uses the Native Mac OS frameworks  optimal performance if running under Mac OS.
+	- **AVFoundation**: Native video thumbnail generation without triggering GUI Python dock icon
+	- **PDFKit**: macOS-native PDF thumbnail generation
+	- **Core Image Exploration**: Investigation of Core Image as PIL replacement for better performance
+- **Virtual Directory Support**: Thumbnails are now supported for alias/link directories
+
+**ASGI/Async Compatibility:**
+- **Multi-Server Support**: better compatibility with WSGI (Gunicorn) and ASGI (Uvicorn, Hypercorn, Daphne)
+- **Connection Management**: Enhanced database connection handling to prevent leaks
+- **Removed ThreadPoolExecutor**: Replaced with `sync_to_async` wrappers to prevent database connection leaks and transaction bleeding
+
+**Template System & UI Improvements:**
+- **Bulma Standardization**: Refactored utilize more core Bulma CSS components
+- **Template Consolidation**: Reduced duplication between `search_listings` and `gallery_listing` templates
+- **Component Architecture**: Better separation of navbar, breadcrumb, and sidebar components
+- **CSS Cleanup**: Eliminated majority of inline styles in favor of external CSS
+- **Mobile-First Design**: Removed device detection in favor of pure CSS responsive design
+- **HTMX Enhancements**:
+  - Added `show:window:top` for proper viewport scrolling
+  - Improved spinner behavior with browser navigation handling
+  - Better partial page update patterns
+
+**Database & Performance Optimizations:**
+- **1-to-1 Relationships**: Optimized `fs_Cache_Tracking` ↔ `IndexDirs` linkage
+- **Query Optimization**: Multiple rounds of N+1 query elimination
+- **Memory Efficiency**: Improved batch processing and pagination strategies
+
+**File System Management:**
+- **Enhanced Scan Command**:
+	  - New `--add_directories`, `--add_files`, `--add_thumbnails` options
+	  - Performance metrics for all operations
+	  - `--max_count` parameter for incremental processing
+	  - Improved `--verify_files` and `--verify_directories` options
+- **Watchdog Improvements**:
+	  - Event debouncing (5-second buffer for bulk operations)
+	  - Automatic watchdog reset mechanism for long-running stability
+	  - Better connection cleanup in event handlers
+- **macOS Alias Support**: .link support is still available, but mac OS Native alias resolution is an alternative to the `.link` functionality
+- **URI Parsing**: Fixed special character handling in file paths
+
+**File Operations:**
+- **file_mover_colors3 Rewrite**: Performance optimized, eliminated complexity
+- **Colorama Integration**: Enhanced terminal output with color support
+- **Directory Name Consistency**: Fixed edge cases in path handling
+
+**Code Quality & Infrastructure:**
+- **Import Cleanup**: Removed unnecessary and wildcard imports
+- **Type Hints**: Corrected Union type hints and added comprehensive typing
+- **Docstring Updates**: Enhanced documentation across codebase
+- **Database Backups**: Added `django-dbbackup` for automated backups
+
+**Bug Fixes:**
+- Fixed text file encoding detection regression
+- Resolved thumbnail foreign key updates with duplicate SHA256 hashes
+- Fixed directory count display issues in templates
+- Corrected resource path loading issues
+- Multiple edge case fixes in scanning, caching, and thumbnail generation
+
 ---
 
 ## Performance Evolution Summary:
 
-| Version | Storage | Thumbnails | Monitoring | Performance |
-|---------|---------|------------|------------|-------------|
-| Pre-v1  | File System | None | Manual | Basic |
-| v1      | File System + Memory Cache | Disk Files | Manual | Limited |
-| v2      | SQLite Database | Disk Files | Manual | Good |
-| v3.0    | PostgreSQL | Database BLOBs | Watchdog | Excellent |
-| v3.5    | PostgreSQL | Database BLOBs | Watchdog + HTMX | Outstanding |
-
-The evolution from a simple Twisted file server to a high-performance, database-optimized gallery system with real-time monitoring represents over a decade of continuous architectural improvement and performance optimization.  
+| Version | Storage                    | Thumbnails     | Monitoring             |
+| ------- | -------------------------- | -------------- | ---------------------- |
+| Pre-v1  | File System                | None           | Manual                 |
+| v1      | File System + Memory Cache | Disk Files     | Manual                 |
+| v2      | SQLite Database            | Disk Files     | Manual                 |
+| v3.0    | PostgreSQL                 | Database BLOBs | Watchdog               |
+| v3.5    | PostgreSQL                 | Database BLOBs | Watchdog + HTMX        |
+| v3.75   | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI |
 
