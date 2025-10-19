@@ -80,7 +80,7 @@ def build_global_filename_index(root_target_dir: str) -> set[str]:
     start_time = time.time()
 
     try:
-        for root, _, files in os.walk(root_target_dir):
+        for _, _, files in os.walk(root_target_dir):
             for filename in files:
                 # Sanitize filename the same way we do for source files
                 sanitized = filename.translate(FILENAME_TRANS)
@@ -203,6 +203,32 @@ def get_color(filename):
         return (0, colornames[0])
 
 
+def copy_with_metadata(src: str, dst: str) -> None:
+    """Copy file preserving all metadata including extended attributes.
+
+    This function preserves:
+    - File content
+    - Permissions and timestamps (via shutil.copy2)
+    - Extended attributes (xattrs) - critical for macOS aliases
+
+    Args:
+        src: Source file path
+        dst: Destination file path
+    """
+    # Copy file + basic metadata (timestamps, permissions)
+    shutil.copy2(src, dst)
+
+    # Copy extended attributes (preserves aliases, Finder info, etc.)
+    try:
+        src_attrs = xattr.xattr(src)
+        dst_attrs = xattr.xattr(dst)
+        for attr in src_attrs.list():
+            dst_attrs.set(attr, src_attrs.get(attr))
+    except (OSError, IOError):
+        # Silently continue if xattr copy fails - file is still copied
+        pass
+
+
 def process_folder(src_dir, dst_dir, files, config):
     """Process files in a folder, copying/moving only those with color labels.
 
@@ -252,9 +278,11 @@ def process_folder(src_dir, dst_dir, files, config):
         # Perform file operation
         try:
             if config["operation"] == "copy":
-                shutil.copy2(src_file, dst_file)
+                copy_with_metadata(src_file, dst_file)
             elif config["operation"] == "move":
-                shutil.move(src_file, dst_file)
+                # Move preserves xattrs on same filesystem, but copy+delete for cross-filesystem
+                copy_with_metadata(src_file, dst_file)
+                os.remove(src_file)
 
             # Update global index after successful operation
             config["existing_files"].add(dst_filename)

@@ -793,15 +793,29 @@ def process_filedata(fs_entry: Path, directory_id: str | None = None) -> dict[st
                     dot_index = redirect.rfind(".")
                     if dot_index != -1:
                         redirect = redirect[:dot_index]
-                    record["fqpndirectory"] = f"/{redirect}"
+                    redirect_path = f"/{redirect}"
+
+                    # Find or create the target directory and set virtual_directory
+                    found, virtual_dir = IndexDirs.search_for_directory(redirect_path)
+                    if not found:
+                        found, virtual_dir = IndexDirs.add_directory(redirect_path)
+                    if found and virtual_dir:
+                        record["virtual_directory"] = virtual_dir
                 except ValueError:
                     print(f"Invalid link format in file: {record['name']}")
                     return None
 
             elif filetype.fileext == ".alias":
                 try:
-                    record["fqpndirectory"] = resolve_alias_path(str(fs_entry))
+                    alias_target_path = resolve_alias_path(str(fs_entry))
                     record["file_sha256"], record["unique_sha256"] = get_file_sha(str(fs_entry))
+
+                    # Find or create the target directory and set virtual_directory
+                    found, virtual_dir = IndexDirs.search_for_directory(alias_target_path)
+                    if not found:
+                        found, virtual_dir = IndexDirs.add_directory(alias_target_path)
+                    if found and virtual_dir:
+                        record["virtual_directory"] = virtual_dir
                 except ValueError as e:
                     print(f"Error with alias file: {e}")
                     return None
