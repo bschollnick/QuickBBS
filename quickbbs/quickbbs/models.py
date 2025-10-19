@@ -544,6 +544,47 @@ class IndexDirs(models.Model):
         )
         return files
 
+    def get_cover_image(self) -> Union["IndexData", None]:
+        """
+        Return the cover image for the directory based on priority filename matching.
+
+        Args:
+            None
+
+        Returns:
+            IndexData record if a suitable cover image is found, None otherwise
+
+        Logic:
+            1. Get files in directory that can be thumbnailed (images, movies, PDFs)
+            2. If no files exist, return None
+            3. Check for files matching DIRECTORY_COVER_NAMES (case-insensitive)
+            4. If match found, return that file's IndexData record
+            5. If no match, return the first file in the query
+        """
+        # Get thumbnailable files (images, movies, PDFs)
+        thumbnailable_filters = Q(filetype__is_image=True) | Q(filetype__is_movie=True) | Q(filetype__is_pdf=True)
+
+        files = self.files_in_dir(sort=0).filter(thumbnailable_filters)
+
+        # If no files exist, return None
+        if not files.exists():
+            return None
+
+        # Check for priority cover names from settings
+        cover_names = getattr(settings, "DIRECTORY_COVER_NAMES", ["cover", "title"])
+
+        # Try to find a file matching the cover names (case-insensitive)
+        for cover_name in cover_names:
+            # Case-insensitive match on filename without extension
+            for file_obj in files:
+                # Get filename without extension
+                name_without_ext = os.path.splitext(file_obj.name)[0].lower()
+                if name_without_ext == cover_name.lower():
+                    return file_obj
+
+        # No match found, return first file
+        return files.first()
+
     def dirs_in_dir(self, sort: int = 0) -> "QuerySet[IndexDirs]":
         """
         Return the directories in the current directory
@@ -763,27 +804,31 @@ class IndexData(models.Model):
             - delete_pending: Whether this file is pending deletion
             - cover_image: Whether this image is a cover image for the directory
             - filetype: The type of the file (e.g., .jpg, .mp4)
+            - home_directory: IndexDirs object for the parent directory
 
         Args:
             unique_file_sha256: The unique SHA256 hash of the file (unused parameter)
-            dir_sha256: The SHA256 hash of the directory containing the file (legacy parameter)
+            dir_sha256: The SHA256 hash of the directory containing the file (legacy parameter, unused)
 
         Returns: Tuple (found, new_rec) where found is a boolean indicating if the record was found,
                  and new_rec is the IndexData object.
         """
         defaults = {
             "name": fs_record["name"],
-            "fqpndirectory": normalize_fqpn(fs_record["fqpndirectory"]),
+            # "fqpndirectory": normalize_fqpn(fs_record["fqpndirectory"]),  # fqpndirectory is a read-only property
+            "home_directory": fs_record["home_directory"],  # Use home_directory ForeignKey instead
             "size": int(fs_record["size"]),
             "lastmod": float(fs_record["lastmod"]),
+            "lastscan": float(fs_record.get("lastscan", time.time())),  # Added lastscan
             "file_sha256": fs_record.get("file_sha256", None),
             "unique_sha256": fs_record.get("unique_sha256", None),
             "is_animated": bool(fs_record.get("is_animated", False)),
             "ignore": bool(fs_record.get("ignore", False)),
             "delete_pending": bool(fs_record.get("delete_pending", False)),
-            "index_image": bool(fs_record.get("index_image", False)),
+            # "index_image": bool(fs_record.get("index_image", False)),  # Field doesn't exist in model
+            "cover_image": bool(fs_record.get("cover_image", False)),  # Use cover_image instead
             "filetype": fs_record["filetype"],
-            "dir_sha256": dir_sha256,
+            # "dir_sha256": dir_sha256,  # Field doesn't exist in model (replaced by home_directory FK)
         }
 
         # Create or update the IndexData record
@@ -1022,7 +1067,9 @@ class IndexData(models.Model):
         if size is None:
             size = "small"
         size = size.lower()
-
+        if self.virtual_directory:
+            if self.virtual_directory:
+                return self.virtual_directory.get_thumbnail_url(size=size)
         url = reverse(r"thumbnail2_file", args=(self.file_sha256,)) + f"?size={size}"
         return url
 
