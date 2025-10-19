@@ -1,6 +1,6 @@
 [project]
 name = "QuickBBS"
-version = "3.5.0"
+version = "3.75.0"
 authors = [
   { name="Benjamin Schollnick", email="Benjamin@schollnick.net" },
 ]
