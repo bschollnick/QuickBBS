@@ -28,13 +28,15 @@ BENCHMARKS_DIR = Path(__file__).parent
 THUMBNAILS_DIR = BENCHMARKS_DIR.parent
 sys.path.insert(0, str(THUMBNAILS_DIR.parent))
 
-# Import after path modification
 from thumbnails.thumbnail_engine import (
     AVFOUNDATION_AVAILABLE,
     CORE_IMAGE_AVAILABLE,
     PDFKIT_AVAILABLE,
     create_thumbnails_from_path,
 )
+
+# Import after path modification
+from quickbbs.quickbbs_settings import CORE_IMAGE_QUALITY, PIL_IMAGE_QUALITY
 
 # ============================================================================
 # Configuration
@@ -50,9 +52,6 @@ TEST_PDF = "test.pdf"
 
 # Thumbnail sizes
 IMAGE_SIZES = {"large": (1024, 1024), "medium": (740, 740), "small": (200, 200)}
-
-# Output quality
-JPEG_QUALITY = 85
 
 # Save output files (disable for pure speed test)
 SAVE_OUTPUT = True
@@ -171,7 +170,7 @@ def save_thumbnails(thumbnails: dict[str, bytes], prefix: str, iteration: int) -
 # ============================================================================
 
 
-def benchmark_backend(backend_name: str, backend_type: str, test_file: str, iterations: int) -> tuple[float, list[float]]:
+def benchmark_backend(backend_name: str, backend_type: str, test_file: str, iterations: int, quality: int) -> tuple[float, list[float]]:
     """
     Benchmark a specific thumbnail generation backend.
 
@@ -180,6 +179,7 @@ def benchmark_backend(backend_name: str, backend_type: str, test_file: str, iter
         backend_type: Backend type string ("image", "coreimage", "video", etc.)
         test_file: Path to test file
         iterations: Number of iterations to run
+        quality: JPEG quality setting (1-100)
 
     Returns:
         Tuple of (total_time, list_of_iteration_times)
@@ -188,6 +188,7 @@ def benchmark_backend(backend_name: str, backend_type: str, test_file: str, iter
     tee_print(f"  Backend:     {backend_type}")
     tee_print(f"  Test file:   {test_file}")
     tee_print(f"  Iterations:  {iterations:,}")
+    tee_print(f"  Quality:     {quality}")
 
     iteration_times = []
     start_total = time.perf_counter()
@@ -196,7 +197,7 @@ def benchmark_backend(backend_name: str, backend_type: str, test_file: str, iter
         start_iter = time.perf_counter()
 
         try:
-            thumbnails = create_thumbnails_from_path(test_file, IMAGE_SIZES, output="JPEG", quality=JPEG_QUALITY, backend=backend_type)
+            thumbnails = create_thumbnails_from_path(test_file, IMAGE_SIZES, output="JPEG", quality=quality, backend=backend_type)
 
             # Optionally save first and last iteration for verification
             if SAVE_OUTPUT and (i == 0 or i == iterations - 1):
@@ -236,7 +237,7 @@ def benchmark_image_backends(test_image: str, iterations: int) -> dict[str, Any]
     tee_print("\n" + "=" * 70)
     tee_print("PIL/Pillow Backend")
     tee_print("=" * 70)
-    pil_total, pil_times = benchmark_backend("PIL/Pillow", "image", test_image, iterations)
+    pil_total, pil_times = benchmark_backend("PIL/Pillow", "image", test_image, iterations, PIL_IMAGE_QUALITY)
     print_statistics("PIL/Pillow", pil_total, pil_times)
     results["pil"] = {"total": pil_total, "times": pil_times}
 
@@ -245,7 +246,7 @@ def benchmark_image_backends(test_image: str, iterations: int) -> dict[str, Any]
         tee_print("\n" + "=" * 70)
         tee_print("Core Image Backend (macOS)")
         tee_print("=" * 70)
-        ci_total, ci_times = benchmark_backend("Core Image", "coreimage", test_image, iterations)
+        ci_total, ci_times = benchmark_backend("Core Image", "coreimage", test_image, iterations, CORE_IMAGE_QUALITY)
         print_statistics("Core Image", ci_total, ci_times)
         results["coreimage"] = {"total": ci_total, "times": ci_times}
 
@@ -288,13 +289,13 @@ def benchmark_video_backends(test_video: str, iterations: int) -> dict[str, Any]
     tee_print("=" * 70)
 
     # Test FFmpeg backend
-    ffmpeg_total, ffmpeg_times = benchmark_backend("FFmpeg", "video", test_video, iterations)
+    ffmpeg_total, ffmpeg_times = benchmark_backend("FFmpeg", "video", test_video, iterations, PIL_IMAGE_QUALITY)
     print_statistics("FFmpeg", ffmpeg_total, ffmpeg_times)
     results["ffmpeg"] = {"total": ffmpeg_total, "times": ffmpeg_times}
 
     # Test AVFoundation backend (if available)
     if AVFOUNDATION_AVAILABLE:
-        av_total, av_times = benchmark_backend("AVFoundation", "corevideo", test_video, iterations)
+        av_total, av_times = benchmark_backend("AVFoundation", "corevideo", test_video, iterations, CORE_IMAGE_QUALITY)
         print_statistics("AVFoundation", av_total, av_times)
         results["avfoundation"] = {"total": av_total, "times": av_times}
 
@@ -330,13 +331,13 @@ def benchmark_pdf_backends(test_pdf: str, iterations: int) -> dict[str, Any]:
     tee_print("=" * 70)
 
     # Test PyMuPDF backend (always available)
-    pymupdf_total, pymupdf_times = benchmark_backend("PyMuPDF", "pymupdf", test_pdf, iterations)
+    pymupdf_total, pymupdf_times = benchmark_backend("PyMuPDF", "pymupdf", test_pdf, iterations, PIL_IMAGE_QUALITY)
     print_statistics("PyMuPDF", pymupdf_total, pymupdf_times)
     results["pymupdf"] = {"total": pymupdf_total, "times": pymupdf_times}
 
     # Test PDFKit backend (if available)
     if PDFKIT_AVAILABLE:
-        pdfkit_total, pdfkit_times = benchmark_backend("PDFKit", "pdfkit", test_pdf, iterations)
+        pdfkit_total, pdfkit_times = benchmark_backend("PDFKit", "pdfkit", test_pdf, iterations, CORE_IMAGE_QUALITY)
         print_statistics("PDFKit", pdfkit_total, pdfkit_times)
         results["pdfkit"] = {"total": pdfkit_total, "times": pdfkit_times}
 
@@ -380,7 +381,8 @@ def main() -> None:
     tee_print("=" * 70)
     tee_print(f"Iterations per backend: {ITERATIONS:,}")
     tee_print(f"Thumbnail sizes: {IMAGE_SIZES}")
-    tee_print(f"JPEG quality: {JPEG_QUALITY}")
+    tee_print(f"PIL image quality: {PIL_IMAGE_QUALITY}")
+    tee_print(f"Core Image quality: {CORE_IMAGE_QUALITY}")
     tee_print(f"Working directory: {Path.cwd()}")
     tee_print()
     tee_print("Backend Availability:")

@@ -8,6 +8,17 @@ This script and cached_exists.py are standalone file manipulation utilities that
 
 Any references to "database operations" in this context refer to the cached_exists
 module's in-memory file caching system, NOT actual database queries.
+
+PATH AND FILENAME NORMALIZATION:
+- Source directories can have leading/trailing whitespace in their names
+- Target directories will have all whitespace stripped from each path component
+- Filenames will have leading/trailing whitespace stripped
+- Internal spaces in filenames are converted to underscores
+- All directory names are converted to title case in the target
+
+Example:
+  Source: /albums/alice - tifa /subdir/ file.jpg
+  Target: /target/Alice - Tifa/Subdir/file.jpg
 """
 
 import argparse
@@ -82,8 +93,10 @@ def build_global_filename_index(root_target_dir: str) -> set[str]:
     try:
         for _, _, files in os.walk(root_target_dir):
             for filename in files:
-                # Sanitize filename the same way we do for source files
-                sanitized = filename.translate(FILENAME_TRANS)
+                # Normalize and sanitize filename the same way we do for source files
+                # Strip whitespace first, then sanitize
+                normalized = filename.strip()
+                sanitized = normalized.translate(FILENAME_TRANS)
                 filenames.add(sanitized)
 
                 file_count += 1
@@ -262,8 +275,10 @@ def process_folder(src_dir, dst_dir, files, config):
 
         stats.files_with_color_tags += 1
 
-        # Sanitize destination filename using str.translate (faster than regex)
-        dst_filename = file_.translate(FILENAME_TRANS)
+        # Normalize filename: strip leading/trailing whitespace first, then sanitize
+        # This handles files like " file.jpg " -> "file.jpg" -> sanitized
+        normalized_filename = file_.strip()
+        dst_filename = normalized_filename.translate(FILENAME_TRANS)
 
         # Check global index - prevents duplicates anywhere in target tree
         if dst_filename in config["existing_files"]:
@@ -347,12 +362,24 @@ def main(args):
 
         Uses os.walk to traverse the source directory tree and yields processing
         information for directories that contain files. Destination paths are
-        transformed to title case while preserving spaces in directory names.
+        transformed to title case and all path components are stripped of
+        leading/trailing whitespace.
         """
         for src_dir, _, files in os.walk(str(root_src_dir)):
             if files:  # Only yield directories with files
                 dst_dir = Path(src_dir.replace(str(root_src_dir), str(root_target_dir))).resolve()
-                dst_dir = dst_dir.parent / dst_dir.name.title()
+
+                # Normalize path: strip whitespace from each component and apply title case
+                # This handles directories like "alice_with_cats - tifa /" -> "alice_with_cats - tifa/"
+                parts = dst_dir.parts
+                normalized_parts = [parts[0]]  # Keep root as-is
+                for part in parts[1:]:
+                    # Strip leading/trailing whitespace and apply title case
+                    normalized_part = part.strip().title()
+                    if normalized_part:  # Only add non-empty parts
+                        normalized_parts.append(normalized_part)
+
+                dst_dir = Path(*normalized_parts) if len(normalized_parts) > 1 else Path(normalized_parts[0])
                 yield (src_dir, str(dst_dir), files)
 
     # Process directories sequentially (no threading - simpler and prevents race conditions)

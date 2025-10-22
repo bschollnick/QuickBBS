@@ -35,12 +35,15 @@ def verify_directories(start_path: str | None = None):
         normalized_start = normalize_fqpn(start_path)
         print(f"Filtering directories under: {normalized_start}")
         directories_to_scan = (
-            IndexDirs.objects.select_related("Cache_Watcher").filter(fqpndirectory__startswith=normalized_start).iterator(chunk_size=1000)
+            IndexDirs.objects.select_related("Cache_Watcher")
+            .filter(fqpndirectory__startswith=normalized_start)
+            .order_by("fqpndirectory")
+            .iterator(chunk_size=1000)
         )
     else:
         print("Gathering Directories")
         # Prefetch Cache_Watcher relationship to avoid N+1 queries
-        directories_to_scan = IndexDirs.objects.select_related("Cache_Watcher").all().iterator(chunk_size=1000)
+        directories_to_scan = IndexDirs.objects.select_related("Cache_Watcher").order_by("fqpndirectory").all().iterator(chunk_size=1000)
 
     print("Starting Scan")
 
@@ -75,8 +78,11 @@ def verify_directories(start_path: str | None = None):
     # exclude the albums_root, since that is suppose to have no parent.  You can't tranverse below the albums_root
     print(f"Found {unlinked_parents.count()} directories with no parents")
 
+    # CRITICAL: Order by fqpndirectory to process parent directories before children
+    # Shallower paths (fewer separators) naturally sort before deeper paths
     batch_counter = 0
-    for directory in unlinked_parents.iterator(chunk_size=1000):
+    for directory in unlinked_parents.order_by("fqpndirectory").iterator(chunk_size=1000):
+        print(f"Fixing Parent directory for {directory.fqpndirectory}")
         IndexDirs.add_directory(directory.fqpndirectory)
 
         batch_counter += 1
@@ -112,10 +118,15 @@ async def _verify_files_async(start_path: str | None = None):
         normalized_start = normalize_fqpn(start_path)
         print(f"\tFiltering directories under: {normalized_start}")
         directories = await sync_to_async(list, thread_sensitive=True)(
-            IndexDirs.objects.select_related("Cache_Watcher").filter(fqpndirectory__startswith=normalized_start).all()
+            IndexDirs.objects.select_related("Cache_Watcher")
+            .filter(fqpndirectory__startswith=normalized_start)
+            .order_by("fqpndirectory")
+            .all()
         )
     else:
-        directories = await sync_to_async(list, thread_sensitive=True)(IndexDirs.objects.select_related("Cache_Watcher").all())
+        directories = await sync_to_async(list, thread_sensitive=True)(
+            IndexDirs.objects.select_related("Cache_Watcher").order_by("fqpndirectory").all()
+        )
 
     for directory in directories:
         await sync_to_async(Cache_Storage.remove_from_cache_sha, thread_sensitive=True)(sha256=directory.dir_fqpn_sha256)
