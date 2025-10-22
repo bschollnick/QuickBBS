@@ -36,6 +36,7 @@ from frontend.serve_up import send_file_response
 
 if TYPE_CHECKING:
     from django.db.models.manager import RelatedManager
+
     from quickbbs.models import IndexData
 
 # from .image_utils import resize_pil_image, return_image_obj
@@ -151,18 +152,14 @@ class ThumbnailFiles(models.Model):
 
             # Check if there are any unlinked IndexData records for this SHA256
             # We need to check ALL records, not just prefetched ones
-            has_unlinked = IndexData.objects.filter(
-                file_sha256=file_sha256, new_ftnail__isnull=True
-            ).exists()
+            has_unlinked = IndexData.objects.filter(file_sha256=file_sha256, new_ftnail__isnull=True).exists()
 
             # Get an IndexData record for file path (prefer prefetched)
             prefetched_indexdata = list(thumbnail.IndexData.all())
             if prefetched_indexdata:
                 index_data_item = prefetched_indexdata[0]
             else:
-                index_data_item = IndexData.objects.prefetch_related("filetype").filter(
-                    file_sha256=file_sha256
-                ).first()
+                index_data_item = IndexData.objects.prefetch_related("filetype").filter(file_sha256=file_sha256).first()
 
             # Link if: newly created OR has unlinked records
             if created or has_unlinked:
@@ -180,11 +177,30 @@ class ThumbnailFiles(models.Model):
         filetype = index_data_item.filetype
 
         if filetype.is_image:
-            thumbnails = create_thumbnails_from_path(filename, settings.IMAGE_SIZE, output="JPEG", backend="image")
+            # Use backend="auto" to get best performance (Core Image on macOS, PIL elsewhere)
+            thumbnails = create_thumbnails_from_path(
+                filename,
+                settings.IMAGE_SIZE,
+                output="JPEG",
+                quality=settings.CORE_IMAGE_QUALITY,
+                backend="auto",
+            )
         elif filetype.is_movie:
-            thumbnails = create_thumbnails_from_path(filename, settings.IMAGE_SIZE, output="JPEG", backend="video")
+            thumbnails = create_thumbnails_from_path(
+                filename,
+                settings.IMAGE_SIZE,
+                output="JPEG",
+                quality=settings.PIL_IMAGE_QUALITY,
+                backend="video",
+            )
         elif filetype.is_pdf:
-            thumbnails = create_thumbnails_from_path(filename, settings.IMAGE_SIZE, output="JPEG", backend="pdf")
+            thumbnails = create_thumbnails_from_path(
+                filename,
+                settings.IMAGE_SIZE,
+                output="JPEG",
+                quality=settings.PIL_IMAGE_QUALITY,
+                backend="pdf",
+            )
         else:
             print("Unable to create thumbnails for this file type.")
             thumbnails = {

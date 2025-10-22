@@ -138,7 +138,7 @@ class Command(BaseCommand):
                 {
                     "fileext": ext,
                     "defaults": {
-                        "generic": True,
+                        "generic": False,
                         "icon_filename": "redirecting-link.png",
                         "color": "FDEDB1",
                         "filetype": settings.FTYPES["link"],

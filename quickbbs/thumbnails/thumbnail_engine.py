@@ -63,7 +63,7 @@ except ImportError:
     except ImportError:
         PDFKitBackend = None
 
-BackendType = Literal["image", "coreimage", "auto", "video", "corevideo", "pdf", "pdfkit"]
+BackendType = Literal["image", "coreimage", "auto", "video", "corevideo", "pdf", "pymupdf", "pdfkit"]
 
 
 class FastImageProcessor:
@@ -113,6 +113,8 @@ class FastImageProcessor:
                         return PDFBackend()
                 else:
                     return PDFBackend()
+            case "pymupdf":
+                return PDFBackend()
             case "pdfkit":
                 if not PDFKIT_AVAILABLE:
                     raise ImportError("PDFKit backend not available on this system")
