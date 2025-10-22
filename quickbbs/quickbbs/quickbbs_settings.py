@@ -12,7 +12,7 @@ PIL_LOAD_TRUNCATED_IMAGES = True  # Allow loading truncated images
 
 # Thumbnail Quality Settings (1-100, where 100 is highest quality)
 PIL_IMAGE_QUALITY = 85  # Quality for PIL/Pillow thumbnail generation
-CORE_IMAGE_QUALITY = 85  # Quality for Core Image thumbnail generation (macOS)
+CORE_IMAGE_QUALITY = 55  # Quality for Core Image thumbnail generation (macOS)
 
 # Directory thumbnail priority filenames (without extensions)
 # Files matching these names will be prioritized when selecting thumbnails for directories
