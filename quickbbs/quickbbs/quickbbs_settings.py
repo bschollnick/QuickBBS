@@ -10,6 +10,10 @@ IMAGE_SIZE = {
 PIL_MAX_IMAGE_PIXELS = None  # Disable decompression bomb warning
 PIL_LOAD_TRUNCATED_IMAGES = True  # Allow loading truncated images
 
+# Thumbnail Quality Settings (1-100, where 100 is highest quality)
+PIL_IMAGE_QUALITY = 85  # Quality for PIL/Pillow thumbnail generation
+CORE_IMAGE_QUALITY = 85  # Quality for Core Image thumbnail generation (macOS)
+
 # Directory thumbnail priority filenames (without extensions)
 # Files matching these names will be prioritized when selecting thumbnails for directories
 DIRECTORY_COVER_NAMES = ["cover", "title"]
@@ -124,3 +128,20 @@ MARKDOWN_FILE_TYPES = [
 LINK_FILE_TYPES = [".link", ".alias"]
 
 ARCHIVE_FILE_TYPES = RAR_FILE_TYPES + ZIP_FILE_TYPES
+
+# Combined list of all supported file types (duplicates removed, sorted)
+ALL_SUPPORTED_FILETYPES = sorted(
+    set(
+        GRAPHIC_FILE_TYPES
+        + PDF_FILE_TYPES
+        + RAR_FILE_TYPES
+        + ZIP_FILE_TYPES
+        + HTML_FILE_TYPES
+        + TEXT_FILE_TYPES
+        + MOVIE_FILE_TYPES
+        + AUDIO_FILE_TYPES
+        + BOOK_FILE_TYPES
+        + MARKDOWN_FILE_TYPES
+        + LINK_FILE_TYPES
+    )
+)
