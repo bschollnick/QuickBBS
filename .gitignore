@@ -57,7 +57,9 @@ db.sqlite3
 *.cprofile
 .DS_Store
 quickbbs/db.sqlite3-journal
-benchmarks/
+# benchmarks/
+benchmark_results/
+test_output/
 quickbbs/logfile
 quickbbs/quickbbs/secrets.py
 *$py.class
@@ -129,6 +131,9 @@ venv.bak/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# obsidian
+.obsidian/
 
 # Pyre type checker
 .pyre/
