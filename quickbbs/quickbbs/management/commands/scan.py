@@ -1,17 +1,36 @@
+"""
+Django management command for file system integrity and maintenance.
+
+Provides commands to verify and maintain the integrity of the QuickBBS gallery
+database against the actual file system. Includes functionality for:
+- Verifying directories and files exist and are valid
+- Adding missing directories and files to the database
+- Generating missing thumbnails
+- Maintaining database consistency with the file system
+
+Usage:
+    python manage.py scan --verify_directories
+    python manage.py scan --verify_files
+    python manage.py scan --add_directories [--max_count N] [--start PATH]
+    python manage.py scan --add_files [--max_count N] [--start PATH]
+    python manage.py scan --add_thumbnails [--max_count N]
+"""
+
 import asyncio
 import os
 
 from asgiref.sync import sync_to_async
-from cache_watcher.models import Cache_Storage, fs_Cache_Tracking
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import close_old_connections, connections
-from frontend.utilities import sync_database_disk
 
+from cache_watcher.models import Cache_Storage, fs_Cache_Tracking
+from frontend.utilities import sync_database_disk
 from quickbbs.common import normalize_fqpn
 from quickbbs.management.commands.add_directories import add_directories
 from quickbbs.management.commands.add_files import add_files
 from quickbbs.management.commands.add_thumbnails import add_thumbnails
+from quickbbs.management.commands.management_helper import invalidate_empty_directories
 from quickbbs.models import IndexData, IndexDirs
 
 
@@ -29,6 +48,12 @@ def verify_directories(start_path: str | None = None):
     start_count = IndexDirs.objects.count()
     print("Starting Directory Count: ", start_count)
     albums_root = os.path.join(settings.ALBUMS_PATH, "albums") + os.sep
+
+    # Invalidate empty directories before verification begins
+    print("-" * 30)
+    print("Invalidating empty directories (before verification)...")
+    invalidate_empty_directories(start_path=start_path, verbose=True)
+    print("-" * 30)
 
     # Filter directories to only those under start_path if specified
     if start_path:
@@ -55,11 +80,11 @@ def verify_directories(start_path: str | None = None):
     for directory in directories_to_scan:
         if not os.path.exists(directory.fqpndirectory):
             print(f"Directory: {directory.fqpndirectory} does not exist")
-            directory.delete_directory(fqpn_directory=directory.fqpndirectory)
+            IndexDirs.delete_directory_record(directory)
         else:
             # Check if directory exists in fs_Cache_Tracking using 1-to-1 relationship
             if not hasattr(directory, "Cache_Watcher"):
-                cache_instance.add_to_cache(directory.fqpndirectory)
+                cache_instance.add_from_indexdirs(directory)
                 print(f"Added directory to fs_Cache_Tracking: {directory.fqpndirectory}")
 
         batch_counter += 1
@@ -92,6 +117,12 @@ def verify_directories(start_path: str | None = None):
     # Close connections after second iteration is complete
     close_old_connections()
 
+    # Invalidate empty directories after all verification operations
+    print("-" * 30)
+    print("Invalidating empty directories (after verification)...")
+    invalidate_empty_directories(start_path=start_path, verbose=True)
+    print("-" * 30)
+
 
 async def _verify_files_async(start_path: str | None = None):
     """
@@ -118,10 +149,7 @@ async def _verify_files_async(start_path: str | None = None):
         normalized_start = normalize_fqpn(start_path)
         print(f"\tFiltering directories under: {normalized_start}")
         directories = await sync_to_async(list, thread_sensitive=True)(
-            IndexDirs.objects.select_related("Cache_Watcher")
-            .filter(fqpndirectory__startswith=normalized_start)
-            .order_by("fqpndirectory")
-            .all()
+            IndexDirs.objects.select_related("Cache_Watcher").filter(fqpndirectory__startswith=normalized_start).order_by("fqpndirectory").all()
         )
     else:
         directories = await sync_to_async(list, thread_sensitive=True)(
@@ -162,13 +190,14 @@ def verify_files(start_path: str | None = None):
 
 
 class Command(BaseCommand):
+    """
+    Django management command for file system integrity and maintenance.
+
+    Provides various scanning and validation operations for the QuickBBS gallery
+    database to ensure consistency with the file system.
+    """
+
     help = "Perform a Directory Validation/Integrity Scan"
-
-    def scan_directory(self, directory_paths=None):
-        pass
-
-    def scan_files(self, directory_paths=None):
-        pass
 
     def add_arguments(self, parser):
         parser.add_argument(

@@ -431,6 +431,40 @@ class fs_Cache_Tracking(models.Model):
             logger.error("Error clearing all cache records: %s", e)
             return 0
 
+    def add_from_indexdirs(self, index_dir: Any) -> "fs_Cache_Tracking | None":
+        """Add or update a directory in the cache using an IndexDirs record.
+
+        Args:
+            index_dir: The IndexDirs instance containing directory information
+
+        Returns:
+            The cache tracking entry or None if error occurred
+        """
+        # Validate the IndexDirs record
+        if not index_dir or not hasattr(index_dir, "dir_fqpn_sha256") or not index_dir.dir_fqpn_sha256:
+            logger.warning("Attempted to add invalid IndexDirs record to cache - rejected")
+            return None
+
+        try:
+            scan_time = time.time()
+
+            defaults = {
+                "lastscan": scan_time,
+                "invalidated": False,
+            }
+
+            entry, created = fs_Cache_Tracking.objects.update_or_create(
+                directory=index_dir,
+                defaults=defaults,
+            )
+            action = "Created" if created else "Updated"
+            logger.debug("%s cache entry for: %s", action, index_dir.fqpndirectory)
+            return entry
+
+        except Exception as e:
+            logger.error("Error adding IndexDirs record to cache: %s", e)
+            return None
+
     def add_to_cache(self, dir_path: str) -> Optional["fs_Cache_Tracking"]:
         """Add or update a directory in the cache.
 
@@ -489,6 +523,39 @@ class fs_Cache_Tracking(models.Model):
             logger.error("Error checking SHA existence in cache: %s", e)
             return False
 
+    def remove_from_cache_indexdirs(self, index_dir: Any) -> bool:
+        """Remove a directory from cache using an IndexDirs record.
+
+        Optimized version that accepts an IndexDirs record directly,
+        avoiding redundant database lookups when the record is already available.
+
+        Args:
+            index_dir: The IndexDirs instance to remove from cache
+
+        Returns:
+            True if successfully removed, False otherwise
+        """
+        try:
+            if not index_dir or not hasattr(index_dir, "dir_fqpn_sha256"):
+                logger.warning("Invalid IndexDirs record provided to remove_from_cache_indexdirs")
+                return False
+
+            # Invalidate thumbnail
+            index_dir.invalidate_thumb()
+
+            # Update cache entry using optimized helper method
+            self._invalidate_cache_entry_indexdirs(index_dir)
+
+            # Clear layout cache
+            self._clear_layout_cache(index_dir)
+
+            logger.debug("Removed cache entry for: %s", index_dir.fqpndirectory)
+            return True
+
+        except Exception as e:
+            logger.error("Error removing directory from cache: %s", e)
+            return False
+
     def remove_from_cache_sha(self, sha256: str) -> bool:
         """Remove a directory from cache by SHA256.
 
@@ -535,6 +602,31 @@ class fs_Cache_Tracking(models.Model):
         except Exception as e:
             logger.error("Error removing %s from cache: %s", dir_path, e)
             return False
+
+    def _invalidate_cache_entry_indexdirs(self, index_dir: Any) -> Optional["fs_Cache_Tracking"]:
+        """Set a cache entry to invalidated status using an IndexDirs record.
+
+        Optimized version that accepts an IndexDirs record directly,
+        avoiding redundant database lookups.
+
+        Args:
+            index_dir: The IndexDirs instance
+
+        Returns:
+            The updated or created fs_Cache_Tracking entry, or None if invalid
+        """
+        if not index_dir or not hasattr(index_dir, "dir_fqpn_sha256"):
+            logger.warning("Invalid IndexDirs record provided to _invalidate_cache_entry_indexdirs")
+            return None
+
+        entry, _ = fs_Cache_Tracking.objects.update_or_create(
+            directory=index_dir,
+            defaults={
+                "invalidated": True,
+                "lastscan": time.time(),
+            },
+        )
+        return entry
 
     def _invalidate_cache_entry(self, sha256: str) -> Optional["fs_Cache_Tracking"]:
         """Set a cache entry to invalidated status with current timestamp.

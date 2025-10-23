@@ -36,6 +36,7 @@ class AdminMaster_Index(admin.ModelAdmin):
         "id",
         "file_sha256",
         "unique_sha256",
+        "virtual_directory",
         "has_thumbs",
         "name",
         "lastscan",

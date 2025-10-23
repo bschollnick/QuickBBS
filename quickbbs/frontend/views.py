@@ -16,7 +16,6 @@ import urllib.parse
 import warnings
 
 from asgiref.sync import async_to_sync, sync_to_async
-from cache_watcher.models import Cache_Storage
 from cachetools.keys import hashkey
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
@@ -34,6 +33,9 @@ from django.http import (
 from django.shortcuts import render
 from django.views.decorators.vary import vary_on_headers
 from django_htmx.middleware import HtmxDetails
+from PIL import Image
+
+from cache_watcher.models import Cache_Storage
 from frontend.managers import layout_manager_cache
 from frontend.utilities import (
     SORT_MATRIX,
@@ -42,11 +44,9 @@ from frontend.utilities import (
     sort_order,
     sync_database_disk,
 )
-from PIL import Image
-from thumbnails.models import ThumbnailFiles
-
 from quickbbs.common import normalize_fqpn, safe_get_or_error
 from quickbbs.models import IndexData, IndexDirs
+from thumbnails.models import ThumbnailFiles
 
 # download_cache = LRUCache(maxsize=1000)
 
@@ -642,7 +642,6 @@ async def new_viewgallery(request: WSGIRequest):
     Returns: Django response
     """
     from frontend.managers import async_layout_manager
-    from frontend.utilities import async_read_from_disk
 
     print("NEW VIEW GALLERY for ", request.path)
     start_time = time.perf_counter()
@@ -659,7 +658,7 @@ async def new_viewgallery(request: WSGIRequest):
     _, directory = directory_result
 
     # Ensure directory data is up to date
-    await async_read_from_disk(paths["album_viewing"], skippable=True)
+    await sync_database_disk(directory)
 
     # Build initial context
     context = _build_gallery_context(request, paths, directory)
