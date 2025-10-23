@@ -76,7 +76,7 @@ def add_directories(max_count: int = 0, start_path: str | None = None) -> None:
                 if dir_record:
                     # Add to fs_Cache_Tracking and mark as invalidated
                     # This ensures the directory will be scanned when accessed
-                    cache_entry = cache_instance.add_to_cache(normalized_root)
+                    cache_entry = cache_instance.add_from_indexdirs(dir_record)
 
                     if cache_entry:
                         # Mark as invalidated so it will be scanned

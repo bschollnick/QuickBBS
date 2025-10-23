@@ -6,7 +6,6 @@ ASGI Support:
 - All functions with ORM queries can be wrapped with sync_to_async
 """
 
-import asyncio
 import logging
 import os
 import os.path
@@ -18,19 +17,24 @@ from functools import lru_cache  # , wraps
 from pathlib import Path
 from typing import Any
 
-import filetypes.models as filetype_models
 from asgiref.sync import sync_to_async
-from cache_watcher.models import Cache_Storage, get_dir_sha
 from django.conf import settings
 from django.db import close_old_connections, transaction  # connection
 
 # from django.db.models import Case, F, Value, When, BooleanField
-from frontend.file_listings import return_disk_listing
+from Foundation import (  # NSData,; NSError,
+    NSURL,
+    NSURLBookmarkResolutionWithoutMounting,
+    NSURLBookmarkResolutionWithoutUI,
+)
 from PIL import Image
-from thumbnails.video_thumbnails import _get_video_info
 
+import filetypes.models as filetype_models
+from cache_watcher.models import Cache_Storage
+from frontend.file_listings import return_disk_listing
 from quickbbs.common import get_file_sha, normalize_fqpn, normalize_string_title
 from quickbbs.models import IndexData, IndexDirs
+from thumbnails.video_thumbnails import _get_video_info
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +157,7 @@ async def _get_or_create_directory(directory_sha256: str, dirpath: str) -> tuple
         if not found:
             logger.error(f"Failed to create directory record for {dirpath}")
             return None, False
-        await sync_to_async(Cache_Storage.remove_from_cache_sha)(directory_record.dir_fqpn_sha256)
+        await sync_to_async(Cache_Storage.remove_from_cache_indexdirs)(directory_record)
         return directory_record, False
 
     # Use the is_cached property which leverages the 1-to-1 relationship
@@ -175,11 +179,11 @@ async def _handle_missing_directory(directory_record: object) -> None:
     """
     try:
         parent_dir = await sync_to_async(directory_record.return_parent_directory)()
-        await sync_to_async(directory_record.delete_directory)(directory_record.fqpndirectory)
+        await sync_to_async(IndexDirs.delete_directory_record)(directory_record)
 
         # Clean up parent directory cache if it exists
         if parent_dir:
-            await sync_to_async(parent_dir.delete_directory)(parent_dir.fqpndirectory, cache_only=True)
+            await sync_to_async(IndexDirs.delete_directory_record)(parent_dir, cache_only=True)
     except Exception as e:
         logger.error(f"Error handling missing directory: {e}")
 
@@ -247,7 +251,7 @@ def _sync_directories(directory_record: object, fs_entries: dict) -> None:
                     locked_entry.lastmod = db_dir_entry.lastmod
                     locked_entry.size = db_dir_entry.size
                     locked_entry.save()
-                    Cache_Storage.remove_from_cache_sha(locked_entry.dir_fqpn_sha256)
+                    Cache_Storage.remove_from_cache_indexdirs(locked_entry)
             logger.info(f"Processing {len(updated_records)} directory updates")
 
     # Create new directories BEFORE deleting old ones to prevent foreign key violations
@@ -263,7 +267,7 @@ def _sync_directories(directory_record: object, fs_entries: dict) -> None:
         logger.info(f"Directories to Delete: {len(entries_that_dont_exist_in_fs)}")
         with transaction.atomic():
             all_dirs_in_database.filter(fqpndirectory__in=entries_that_dont_exist_in_fs).delete()
-            Cache_Storage.remove_from_cache_sha(directory_record.dir_fqpn_sha256)
+            Cache_Storage.remove_from_cache_indexdirs(directory_record)
 
 
 def _check_single_directory_update(db_dir_entry, fs_entries: dict) -> object | None:
@@ -424,7 +428,8 @@ def _check_file_updates(db_record: object, fs_entry: Path, home_directory: objec
         update_needed = False
 
         # Extract file extension using pathlib for consistency
-        fext = Path(db_record.name).suffix.lower() if Path(db_record.name).suffix else ""
+        path_obj = Path(db_record.name)
+        fext = path_obj.suffix.lower() if path_obj.suffix else ""
         if fext:  # Only process files with extensions
             # Use prefetched filetype from select_related
             filetype = db_record.filetype if hasattr(db_record, "filetype") else filetype_models.filetypes.return_filetype(fileext=fext)
@@ -799,8 +804,15 @@ def process_filedata(fs_entry: Path, directory_id: str | None = None) -> dict[st
                     found, virtual_dir = IndexDirs.search_for_directory(redirect_path)
                     if not found:
                         found, virtual_dir = IndexDirs.add_directory(redirect_path)
-                    if found and virtual_dir:
-                        record["virtual_directory"] = virtual_dir
+
+                    # Check if resolution succeeded - if not, skip this file
+                    if not found or virtual_dir is None:
+                        error_msg = f"Skipping .link file with broken target: {record['name']} → {redirect_path} (target directory not found)"
+                        print(error_msg)
+                        logger.warning(error_msg)
+                        return None  # Don't add to database - will retry on next scan
+
+                    record["virtual_directory"] = virtual_dir
                 except ValueError:
                     print(f"Invalid link format in file: {record['name']}")
                     return None
@@ -814,8 +826,15 @@ def process_filedata(fs_entry: Path, directory_id: str | None = None) -> dict[st
                     found, virtual_dir = IndexDirs.search_for_directory(alias_target_path)
                     if not found:
                         found, virtual_dir = IndexDirs.add_directory(alias_target_path)
-                    if found and virtual_dir:
-                        record["virtual_directory"] = virtual_dir
+
+                    # Check if resolution succeeded - if not, skip this file
+                    if not found or virtual_dir is None:
+                        error_msg = f"Skipping .alias file with broken target: {record['name']} → {alias_target_path} (target directory not found)"
+                        print(error_msg)
+                        logger.warning(error_msg)
+                        return None  # Don't add to database - will retry on next scan
+
+                    record["virtual_directory"] = virtual_dir
                 except ValueError as e:
                     print(f"Error with alias file: {e}")
                     return None
@@ -880,8 +899,8 @@ async def sync_database_disk(directory_record: IndexDirs) -> bool | None:
     await sync_to_async(_sync_directories)(directory_record, fs_entries)
     await sync_to_async(_sync_files)(directory_record, fs_entries, BULK_SIZE)
 
-    # Cache the result using the directory path from the record
-    await sync_to_async(Cache_Storage.add_to_cache)(dir_path=dirpath)
+    # Cache the result using the directory record
+    await sync_to_async(Cache_Storage.add_from_indexdirs)(directory_record)
     logger.info(f"Cached directory: {dirpath}")
     print("Elapsed Time (Sync Database Disk): ", time.perf_counter() - start_time)
 
@@ -902,75 +921,6 @@ async def async_sync_database_disk(directory_record: IndexDirs) -> bool | None:
         None on success, False on error
     """
     return await sync_database_disk(directory_record)
-
-
-def read_from_disk(dir_to_scan: str, skippable: bool = True) -> None:
-    """
-    Bridge function to sync database with disk.
-
-    Legacy interface that redirects to sync_database_disk for backward compatibility.
-
-    Args:
-        dir_to_scan: Fully qualified pathname of the directory to scan
-        skippable: Legacy parameter, deprecated and unused
-
-    Returns:
-        None
-
-    Note:
-        This is a compatibility shim. New code should use sync_database_disk directly.
-        WARNING: This function calls the async sync_database_disk. Use async_read_from_disk instead.
-    """
-    # if not Path(dir_to_scan).exists():
-    #     if dir_to_scan.startswith("/"):
-    #         dir_to_scan = dir_to_scan[1:]
-    #     Path(os.path.join(settings.ALBUMS_PATH, dir_to_scan))
-    # else:
-    #     Path(ensures_endswith(dir_to_scan, os.sep))
-
-    # Note: This is problematic - sync_database_disk is now async
-    # This will fail in production. Use async_read_from_disk instead.
-    import warnings
-
-    warnings.warn("read_from_disk calls async sync_database_disk. Use async_read_from_disk instead.", DeprecationWarning, stacklevel=2)
-
-
-# ASGI: Async wrapper for read_from_disk
-async def async_read_from_disk(dir_to_scan: str, skippable: bool = True) -> None:
-    """
-    Async wrapper for read_from_disk to support ASGI views.
-
-    Args:
-        dir_to_scan: Fully qualified pathname of the directory to scan
-        skippable: Legacy parameter, deprecated and unused
-
-    Returns:
-        None
-    """
-    if not Path(dir_to_scan).exists():
-        if dir_to_scan.startswith("/"):
-            dir_to_scan = dir_to_scan[1:]
-        dir_path = Path(os.path.join(settings.ALBUMS_PATH, dir_to_scan))
-    else:
-        dir_path = Path(ensures_endswith(dir_to_scan, os.sep))
-
-    # Normalize directory path
-    dirpath = normalize_fqpn(os.path.abspath(str(dir_path)))
-    directory_sha256 = get_dir_sha(dirpath)
-
-    # Find or create directory record
-    directory_record, _ = await _get_or_create_directory(directory_sha256, dirpath)
-    if directory_record is None:
-        return False
-
-    return await sync_database_disk(directory_record)
-
-
-from Foundation import (  # NSData,; NSError,
-    NSURL,
-    NSURLBookmarkResolutionWithoutMounting,
-    NSURLBookmarkResolutionWithoutUI,
-)
 
 
 @lru_cache(maxsize=500)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)

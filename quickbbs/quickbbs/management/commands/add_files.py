@@ -16,6 +16,7 @@ from django.db import close_old_connections
 from frontend.utilities import sync_database_disk
 
 from quickbbs.common import normalize_fqpn
+from quickbbs.management.commands.management_helper import invalidate_empty_directories
 from quickbbs.models import IndexData, IndexDirs
 
 
@@ -36,6 +37,12 @@ async def _add_files_async(max_count: int = 0, start_path: str | None = None) ->
     print("=" * 60)
     print("Adding missing files from filesystem to database")
     print("=" * 60)
+
+    # Invalidate empty directories before adding files
+    print("-" * 30)
+    print("Invalidating empty directories (before adding files)...")
+    await sync_to_async(invalidate_empty_directories, thread_sensitive=True)(start_path=start_path, verbose=True)
+    print("-" * 30)
 
     # Get the albums root directory
     if start_path:
@@ -75,10 +82,7 @@ async def _add_files_async(max_count: int = 0, start_path: str | None = None) ->
     # Filter directories to only those under the albums_root if start_path was specified
     if start_path:
         directories = await sync_to_async(list, thread_sensitive=True)(
-            IndexDirs.objects.select_related("Cache_Watcher")
-            .filter(fqpndirectory__startswith=albums_root)
-            .order_by("fqpndirectory")
-            .all()
+            IndexDirs.objects.select_related("Cache_Watcher").filter(fqpndirectory__startswith=albums_root).order_by("fqpndirectory").all()
         )
     else:
         directories = await sync_to_async(list, thread_sensitive=True)(
@@ -117,6 +121,12 @@ async def _add_files_async(max_count: int = 0, start_path: str | None = None) ->
     total_files_added = final_file_count - initial_file_count
     total_time = time.time() - start_time
     file_rate = total_files_added / total_time if total_time > 0 else 0
+
+    # Invalidate empty directories after all file additions
+    print("-" * 30)
+    print("Invalidating empty directories (after adding files)...")
+    await sync_to_async(invalidate_empty_directories, thread_sensitive=True)(start_path=start_path, verbose=True)
+    print("-" * 30)
 
     print("=" * 60)
     print(f"Successfully processed {processed_count} directories")
