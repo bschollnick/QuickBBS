@@ -557,7 +557,9 @@ class IndexDirs(models.Model):
         )
         return dirs
 
-    def files_in_dir(self, sort: int = 0, distinct: bool = False, additional_filters: dict[str, Any] | None = None) -> "QuerySet[IndexData]":
+    def files_in_dir(
+        self, sort: int = 0, distinct: bool = False, additional_filters: dict[str, Any] | None = None
+    ) -> "QuerySet[IndexData] | list[IndexData]":
         """
         Return the files in the current directory
 
@@ -566,11 +568,13 @@ class IndexDirs(models.Model):
             distinct: If True, return distinct files based on file_sha256 (deduplicates identical files)
             additional_filters: Additional Django ORM filters to apply (e.g., filetype, status filters)
 
-        Returns: The sorted query of files
+        Returns: QuerySet[IndexData] when distinct=False, list[IndexData] when distinct=True
 
         Note:
-            When distinct=True, file_sha256 becomes the primary sort field to satisfy PostgreSQL's
-            DISTINCT ON requirement. The requested sort order is applied as secondary ordering.
+            When distinct=True, PostgreSQL DISTINCT ON requires file_sha256 to be the first
+            ORDER BY field, which disrupts the user's intended sort order. This method
+            re-sorts the results in Python to maintain the correct order while still
+            benefiting from PostgreSQL's fast DISTINCT ON operation.
         """
         # necessary to prevent circular references on startup
         # pylint: disable-next=import-outside-toplevel
@@ -579,17 +583,40 @@ class IndexDirs(models.Model):
         if additional_filters is None:
             additional_filters = {}
 
-        files = self.IndexData_entries.select_related(*INDEXDATA_SELECT_RELATED_LIST).filter(
-            delete_pending=False, **additional_filters
-        )
+        files = self.IndexData_entries.select_related(*INDEXDATA_SELECT_RELATED_LIST).filter(delete_pending=False, **additional_filters)
 
         if distinct:
-            # PostgreSQL DISTINCT ON requires matching ORDER BY
-            # file_sha256 must be first, then apply user's sort preference
+            # Step 1: Get deduplicated records (PostgreSQL orders by file_sha256 first)
             files = files.order_by("file_sha256", *SORT_MATRIX[sort]).distinct("file_sha256")
-        else:
-            files = files.order_by(*SORT_MATRIX[sort])
 
+            # Step 2: Convert to list (need full objects for re-sorting)
+            files_list = list(files)
+
+            # Step 3: Re-sort in Python using user's preference
+            # Apply sort fields in reverse order for stable multi-field sorting
+            sort_fields = SORT_MATRIX[sort]
+
+            # Helper function to extract sort key from related field paths
+            def make_sort_key(field_path):
+                """Create a sort key function for the given field path."""
+                parts = field_path.split("__")
+
+                def get_value(obj):
+                    value = obj
+                    for part in parts:
+                        value = getattr(value, part)
+                    return value
+
+                return get_value
+
+            for field in reversed(sort_fields):
+                is_reverse = field.startswith("-")
+                field_name = field.lstrip("-")
+                files_list.sort(key=make_sort_key(field_name), reverse=is_reverse)
+
+            return files_list
+
+        files = files.order_by(*SORT_MATRIX[sort])
         return files
 
     def get_cover_image(self) -> IndexData | None:

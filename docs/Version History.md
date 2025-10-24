@@ -82,7 +82,7 @@ http://example.com/view_arc_item/7109b28a-80f6-4a8f-8b48-ae86e052cdaa?page=4  # 
 - Modular plugin architecture
 - Enhanced thumbnail management
 
-## Version 3.0 (December 2022 - March 2024)
+## Version 3.0 (December 2022 - July 2024)
 **Technology**: Django 5+, PostgreSQL, Modern Python
 
 Version 3 introduced **revolutionary performance optimizations** and modern architectural patterns.
@@ -122,7 +122,7 @@ quickbbs/
 └── thumbnails/        # PostgreSQL thumbnail storage
 ```
 
-## Version 3.5 (2025)
+## Version 3.5 (September 26, 2025)
 **Technology**: Django 6.0 Alpha, HTMX, Advanced Performance
 
 Version 3.5 represents the **current state-of-the-art** implementation with full HTMX integration and advanced performance optimizations.
@@ -161,7 +161,7 @@ Version 3.5 represents the **current state-of-the-art** implementation with full
 - **Real-time Monitoring**: Instant cache invalidation
 - **High Performance**: Database-optimized with intelligent caching
 
-## Version 3.75 (2025)
+## Version 3.75 (October 19, 2025)
 **Technology**: Django 6.0 Alpha, HTMX, macOS Native Integration
 
 Version 3.75 builds on the v3.5 foundation with enhanced thumbnail generation, better WSGI/ASGI compatibility, and comprehensive UI improvements.
@@ -228,16 +228,53 @@ In addition to PIL/FFMPEG/PyMuPDF thumbnail support, **macOS Native Thumbnail Ge
 - Corrected resource path loading issues
 - Multiple edge case fixes in scanning, caching, and thumbnail generation
 
+## Version 3.80 (October 24, 2025)
+**Technology**: Django 6.0 Alpha, HTMX, Duplicate File Detection
+
+Version 3.80 introduces intelligent duplicate file detection with user-configurable preferences, significant performance optimizations through architectural improvements, and enhanced thumbnail generation benchmarking capabilities.
+
+### Major Enhancements:
+
+**Duplicate File Detection & Management:**
+- **SHA256-Based Duplicate Detection**: Added ability to detect duplicate files based on SHA256 hash comparison
+- **User Preference Toggle**: New user preference setting to show or hide duplicate files in gallery listings
+- **Distinct Query Support**: Added `distinct` parameter to `files_in_dir()` function to optionally filter duplicate files from results
+- **Smart Filtering**: Different filenames with identical content are recognized and can be hidden from view
+
+**Performance Optimizations:**
+- **IndexDirs Object Architecture**: Eliminated string-based FQPN (Fully Qualified Path Names) in favor of passing `IndexDirs` objects throughout the codebase
+- **Query Optimization**: Improved database query efficiency through better object-based parameter passing
+- **Smart Cache Invalidation**: Automatically invalidate cache for directories containing 0 files to force proper rescanning
+- **General Code Cleanup**: Streamlined function signatures and optimized query patterns
+
+**Thumbnail Generation Benchmarking:**
+- **Benchmark Application**: Added comprehensive thumbnail benchmark application comparing Core Image vs PIL performance
+- **Quality Tuning**: Adjusted Core Image quality settings to match approximate file sizes produced by PIL
+- **Performance Metrics**: Infrastructure for collecting and comparing thumbnail generation performance across different backends
+- **Test Suite**: Added `thumbnail_benchmark` test application with sample media files
+
+**Bug Fixes:**
+- **SHA256 Generation**: Fixed issue where certain file types were not receiving SHA256 hashes during indexing
+- **Distinct Query Issues**: Resolved database distinct query edge cases that caused duplicate filtering to fail
+- **File Mover Enhancements**: Fixed `file_mover_colors3` to properly handle directory names with leading/trailing whitespace
+- **Sort Order Fix**: Corrected sort order logic to ensure proper parent directory relinking during `verify_directories` operations
+
+**Development Infrastructure:**
+- **Updated .gitignore**: Modified to allow `benchmark/` directories while excluding `benchmark_results/`
+- **Benchmark Results**: Added initial thumbnail benchmark results for Core Image vs PIL comparison
+- **Code Organization**: Improved separation of benchmarking infrastructure from production code
+
 ---
 
 ## Performance Evolution Summary:
 
-| Version | Storage                    | Thumbnails     | Monitoring             |
-| ------- | -------------------------- | -------------- | ---------------------- |
-| Pre-v1  | File System                | None           | Manual                 |
-| v1      | File System + Memory Cache | Disk Files     | Manual                 |
-| v2      | SQLite Database            | Disk Files     | Manual                 |
-| v3.0    | PostgreSQL                 | Database BLOBs | Watchdog               |
-| v3.5    | PostgreSQL                 | Database BLOBs | Watchdog + HTMX        |
-| v3.75   | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI |
+| Version | Release Date       | Storage                    | Thumbnails     | Monitoring             |
+| ------- | ------------------ | -------------------------- | -------------- | ---------------------- |
+| Pre-v1  | 2014 and earlier   | File System                | None           | Triggered by access    |
+| v1      | 2014-2016          | File System + Memory Cache | Disk Files     | Triggered by access    |
+| v2      | April 25, 2018     | SQLite Database            | Disk Files     | Triggered by access    |
+| v3.0    | July 13, 2024      | PostgreSQL                 | Database BLOBs | Watchdog               |
+| v3.5    | September 26, 2025 | PostgreSQL                 | Database BLOBs | Watchdog + HTMX        |
+| v3.75   | October 19, 2025   | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI |
+| v3.80   | October 24, 2025   | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI |
 
