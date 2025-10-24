@@ -290,58 +290,27 @@ def _get_all_shas_cached(directory_id: str, sort_ordering: int, distinct: bool =
     """
     Cache expensive all_shas query by directory and sort order.
 
-    When distinct=True, PostgreSQL DISTINCT ON requires file_sha256 to be the first
-    ORDER BY field, which disrupts the user's intended sort order. This function
-    re-sorts the results in Python to maintain the correct order while still
-    benefiting from PostgreSQL's fast DISTINCT ON operation.
-
     Args:
         directory_id: Directory identifier for caching
         sort_ordering: Sort order to apply (0=name, 1=date, 2=name only)
-        distinct: If True, deduplicate files and re-sort to maintain user's order
+        distinct: If True, deduplicate files (sorting handled by files_in_dir)
     Returns: List of unique_sha256 hashes in the user's requested sort order
     """
     # Import locally to avoid circular imports
     from quickbbs.models import IndexDirs  # pylint: disable=import-outside-toplevel
-    from frontend.utilities import SORT_MATRIX  # pylint: disable=import-outside-toplevel
 
     directory = IndexDirs.objects.get(pk=directory_id)
+    files_result = directory.files_in_dir(sort=sort_ordering, distinct=distinct)
 
     if distinct:
-        # Step 1: Get deduplicated records (PostgreSQL orders by file_sha256 first)
-        files_qs = directory.files_in_dir(sort=sort_ordering, distinct=True)
+        # files_in_dir returns a list when distinct=True (already sorted correctly)
+        return [f.unique_sha256 for f in files_result]
 
-        # Step 2: Convert to list (need full objects for re-sorting)
-        files_list = list(files_qs)
-
-        # Step 3: Re-sort in Python using user's preference
-        # Apply sort fields in reverse order for stable multi-field sorting
-        sort_fields = SORT_MATRIX[sort_ordering]
-
-        # Helper function to extract sort key from related field paths
-        def make_sort_key(field_path):
-            """Create a sort key function for the given field path."""
-            parts = field_path.split('__')
-            def get_value(obj):
-                value = obj
-                for part in parts:
-                    value = getattr(value, part)
-                return value
-            return get_value
-
-        for field in reversed(sort_fields):
-            reverse = field.startswith('-')
-            field_name = field.lstrip('-')
-            files_list.sort(key=make_sort_key(field_name), reverse=reverse)
-
-        # Step 4: Extract unique_sha256 values in correct order
-        return [f.unique_sha256 for f in files_list]
-    else:
-        # No deduplication - use simple query
-        return list(directory.files_in_dir(sort=sort_ordering).values_list("unique_sha256", flat=True))
+    # files_in_dir returns a QuerySet when distinct=False
+    return list(files_result.values_list("unique_sha256", flat=True))
 
 
-#@cached(build_context_info_cache)
+@cached(build_context_info_cache)
 def build_context_info(request: WSGIRequest, unique_file_sha256: str, show_duplicates: bool = False) -> dict | HttpResponseBadRequest:
     """
     Build context information for item view using optimized single-pass dictionary creation.
@@ -373,7 +342,7 @@ def build_context_info(request: WSGIRequest, unique_file_sha256: str, show_dupli
     # Build entire context in single operation for optimal performance
     pathmaster = Path(entry.full_filepathname)
     lastmod_timestamp = entry.lastmod
-    all_shas = _get_all_shas_cached(directory_entry.pk, sort_order_value, distinct= not show_duplicates)
+    all_shas = _get_all_shas_cached(directory_entry.pk, sort_order_value, distinct=not show_duplicates)
 
     # Get pagination data inline
     try:
@@ -586,11 +555,12 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
 
     # Get base querysets first (more efficient for subsequent operations)
     directories_qs = directory.dirs_in_dir(sort=sort_ordering)
-    files_qs = directory.files_in_dir(sort=sort_ordering, distinct=not show_duplicates)
+    files_result = directory.files_in_dir(sort=sort_ordering, distinct=not show_duplicates)
 
-    # Get counts from existing querysets to avoid duplicate query construction
+    # Get counts - handle both QuerySet and list return types
     dirs_count = directories_qs.count()
-    files_count = files_qs.count()
+    # files_in_dir returns list when distinct=True, QuerySet when distinct=False
+    files_count = len(files_result) if isinstance(files_result, list) else files_result.count()
     total_items = dirs_count + files_count
 
     # Calculate pagination
@@ -611,7 +581,13 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
 
     if bounds["files_slice"]:
         start, end = bounds["files_slice"]
-        page_files = list(files_qs[start:end].values_list("unique_sha256", flat=True))
+        # Handle both list and QuerySet return types from files_in_dir
+        if isinstance(files_result, list):
+            # files_in_dir returned a list (distinct=True case)
+            page_files = [f.unique_sha256 for f in files_result[start:end]]
+        else:
+            # files_in_dir returned a QuerySet (distinct=False case)
+            page_files = list(files_result[start:end].values_list("unique_sha256", flat=True))
         page_data["files"] = page_files
         page_data["cnt_files"] = len(page_files)
     else:
@@ -657,4 +633,6 @@ async def async_layout_manager(page_number: int = 1, directory=None, sort_orderi
         sort_ordering: Sort order to apply (0-2)
     Returns: Dictionary containing pagination data and current page items
     """
-    return await sync_to_async(layout_manager)(page_number=page_number, directory=directory, sort_ordering=sort_ordering, show_duplicates=show_duplicates)
+    return await sync_to_async(layout_manager)(
+        page_number=page_number, directory=directory, sort_ordering=sort_ordering, show_duplicates=show_duplicates
+    )

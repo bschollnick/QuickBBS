@@ -324,9 +324,10 @@ The application automatically selects templates based on request type:
 ## Roadmap
 
 - ✅ **v3.0 Core Features** - Gallery system, thumbnail caching, Watchdog monitoring
-- ✅ **v3.5 Current Release** - Full HTMX support, performance optimizations, code cleanup
-- 🔄 **Active Development** - Enhanced search capabilities, UI improvements, performance optimization
-- 🔮 **Future Plans** - Forum features, advanced file management, API endpoints
+- ✅ **v3.5 Release** - Full HTMX support, performance optimizations, code cleanup
+- ✅ **v3.75 Release** - Enhance Bulma Framework utilization, enhance HTMX support, performance optimizations, code cleanup
+- ✅ **v3.80 Release** - Major code cleanup, reducing redundant string operations, utilizing more functionality from the move to SHA256 based identifiers, adding the ability to hide duplicate images in a gallery via user-preferences.
+- 🔄 **Active Development** - Further cleanup of legacy code, Enhanced search capabilities, UI improvements, performance optimization
 
 [Detailed Version History](Version%20History.md)
 
@@ -345,8 +346,5 @@ MIT License - See license.txt for details
 
 ## Version History
 
-- **Pre-v1** - Twisted Matrix Framework (legacy)
-- **v1** - Initial Django implementation (2014)
-- **v2** - Enhanced gallery features (2017)
-- **v3.0** - Watchdog monitoring and PostgreSQL thumbnails (2024)
-- **v3.5** - Full HTMX support and performance optimizations (2025)  
+[See Detailed Version History](Version%20History.md)
+

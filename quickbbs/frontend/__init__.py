@@ -4,7 +4,7 @@
 #
 #   Boot strap by loading the configuration path data
 #
-__version__ = "2.9"
+__version__ = "3.80"
 
 __author__ = "Benjamin Schollnick"
 __email__ = "Benjamin@schollnick.net"
