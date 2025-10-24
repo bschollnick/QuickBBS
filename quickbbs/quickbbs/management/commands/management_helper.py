@@ -11,8 +11,9 @@ import time
 
 from django.db.models import Count
 
+from cache_watcher.models import Cache_Storage
 from quickbbs.common import normalize_fqpn
-from quickbbs.models import IndexDirs
+from quickbbs.models import IndexData, IndexDirs
 
 
 def invalidate_empty_directories(start_path: str | None = None, verbose: bool = True) -> int:
@@ -62,5 +63,75 @@ def invalidate_empty_directories(start_path: str | None = None, verbose: bool = 
 
     if verbose:
         print(f"Invalidated {invalidated_count} empty directories in cache")
+
+    return invalidated_count
+
+
+def invalidate_directories_with_null_sha256(start_path: str | None = None, verbose: bool = True) -> int:
+    """
+    Find files with NULL SHA256 and invalidate their parent directories.
+
+    This ensures that directories containing files without SHA256 hashes
+    will be rescanned and have their files' hashes calculated.
+
+    Args:
+        start_path: Optional starting directory path to filter files
+        verbose: Whether to print progress messages (default: True)
+
+    Returns:
+        Number of directories invalidated
+    """
+    if verbose:
+        print("-" * 60)
+        print("Checking for files with NULL SHA256...")
+
+    # Query for files with NULL SHA256
+    files_without_sha = IndexData.objects.filter(
+        file_sha256__isnull=True,
+        delete_pending=False
+    )
+
+    # Filter by start_path if provided
+    if start_path:
+        normalized_start = normalize_fqpn(start_path)
+        files_without_sha = files_without_sha.filter(
+            home_directory__fqpndirectory__startswith=normalized_start
+        )
+
+    # Count before getting directories
+    file_count = files_without_sha.count()
+    if verbose:
+        print(f"Found {file_count} files with NULL SHA256")
+
+    if file_count == 0:
+        if verbose:
+            print("No directories need invalidation.")
+            print("-" * 60)
+        return 0
+
+    # Get distinct list of directories containing files without SHA256
+    # Use values_list to get just the directory IDs efficiently
+    directory_ids = files_without_sha.values_list(
+        'home_directory_id',
+        flat=True
+    ).distinct()
+
+    directory_count = len(list(directory_ids))
+    if verbose:
+        print(f"Found {directory_count} directories containing files without SHA256")
+
+    # Invalidate each directory in fs_Cache_Tracking
+    directories_to_invalidate = IndexDirs.objects.filter(id__in=directory_ids)
+
+    invalidated_count = 0
+    for directory in directories_to_invalidate:
+        Cache_Storage.remove_from_cache_indexdirs(directory)
+        invalidated_count += 1
+        if verbose:
+            print(f"  Invalidated: {directory.fqpndirectory}")
+
+    if verbose:
+        print(f"Invalidated {invalidated_count} directories in fs_Cache_Tracking")
+        print("-" * 60)
 
     return invalidated_count

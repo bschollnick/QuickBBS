@@ -92,10 +92,21 @@ IGNORE_DOT_FILES = True
 REGISTRATION_OPEN = True
 
 #
-#   **NOTE** if you make any changes to the entries below, re-run manage.py refresh-filetypes
-#           to ensure that the filetype database table is updated with your changes
+#   ┌──────────────────────────────────────────────────────────────────────────────┐
+#   │ FILETYPE DEFINITIONS - FOR refresh-filetypes COMMAND ONLY                    │
+#   ├──────────────────────────────────────────────────────────────────────────────┤
+#   │ These lists are ONLY used by the `manage.py refresh-filetypes` command      │
+#   │ to seed/update the `filetypes` database table.                              │
+#   │                                                                              │
+#   │ ⚠️  IMPORTANT: The Django application does NOT use these lists directly!     │
+#   │    All filetype decisions are made by querying the `filetypes` table.       │
+#   │                                                                              │
+#   │ To add support for a new file type:                                         │
+#   │   1. Add the extension to the appropriate list below                        │
+#   │   2. Run: python manage.py refresh-filetypes                                │
+#   │   3. The extension will be added to the database and recognized by the app  │
+#   └──────────────────────────────────────────────────────────────────────────────┘
 #
-# TBD: Verify, Haven't these already been moved to FileTypes?
 GRAPHIC_FILE_TYPES = [".bmp", ".gif", ".jpg", ".jpeg", ".png", ".webp"]
 PDF_FILE_TYPES = [
     ".pdf",

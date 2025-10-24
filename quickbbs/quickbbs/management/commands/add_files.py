@@ -16,7 +16,10 @@ from django.db import close_old_connections
 from frontend.utilities import sync_database_disk
 
 from quickbbs.common import normalize_fqpn
-from quickbbs.management.commands.management_helper import invalidate_empty_directories
+from quickbbs.management.commands.management_helper import (
+    invalidate_empty_directories,
+    invalidate_directories_with_null_sha256,
+)
 from quickbbs.models import IndexData, IndexDirs
 
 
@@ -37,6 +40,9 @@ async def _add_files_async(max_count: int = 0, start_path: str | None = None) ->
     print("=" * 60)
     print("Adding missing files from filesystem to database")
     print("=" * 60)
+
+    # Invalidate directories containing files with NULL SHA256
+    await sync_to_async(invalidate_directories_with_null_sha256, thread_sensitive=True)(start_path=start_path, verbose=True)
 
     # Invalidate empty directories before adding files
     print("-" * 30)

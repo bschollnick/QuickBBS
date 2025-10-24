@@ -290,20 +290,59 @@ def _get_all_shas_cached(directory_id: str, sort_ordering: int, distinct: bool =
     """
     Cache expensive all_shas query by directory and sort order.
 
+    When distinct=True, PostgreSQL DISTINCT ON requires file_sha256 to be the first
+    ORDER BY field, which disrupts the user's intended sort order. This function
+    re-sorts the results in Python to maintain the correct order while still
+    benefiting from PostgreSQL's fast DISTINCT ON operation.
+
     Args:
         directory_id: Directory identifier for caching
-        sort_ordering: Sort order to apply
-    Returns: List of SHA256 hashes in sorted order
+        sort_ordering: Sort order to apply (0=name, 1=date, 2=name only)
+        distinct: If True, deduplicate files and re-sort to maintain user's order
+    Returns: List of unique_sha256 hashes in the user's requested sort order
     """
     # Import locally to avoid circular imports
     from quickbbs.models import IndexDirs  # pylint: disable=import-outside-toplevel
+    from frontend.utilities import SORT_MATRIX  # pylint: disable=import-outside-toplevel
 
     directory = IndexDirs.objects.get(pk=directory_id)
-    return list(directory.files_in_dir(sort=sort_ordering, distinct=distinct).values_list("unique_sha256", flat=True))
+
+    if distinct:
+        # Step 1: Get deduplicated records (PostgreSQL orders by file_sha256 first)
+        files_qs = directory.files_in_dir(sort=sort_ordering, distinct=True)
+
+        # Step 2: Convert to list (need full objects for re-sorting)
+        files_list = list(files_qs)
+
+        # Step 3: Re-sort in Python using user's preference
+        # Apply sort fields in reverse order for stable multi-field sorting
+        sort_fields = SORT_MATRIX[sort_ordering]
+
+        # Helper function to extract sort key from related field paths
+        def make_sort_key(field_path):
+            """Create a sort key function for the given field path."""
+            parts = field_path.split('__')
+            def get_value(obj):
+                value = obj
+                for part in parts:
+                    value = getattr(value, part)
+                return value
+            return get_value
+
+        for field in reversed(sort_fields):
+            reverse = field.startswith('-')
+            field_name = field.lstrip('-')
+            files_list.sort(key=make_sort_key(field_name), reverse=reverse)
+
+        # Step 4: Extract unique_sha256 values in correct order
+        return [f.unique_sha256 for f in files_list]
+    else:
+        # No deduplication - use simple query
+        return list(directory.files_in_dir(sort=sort_ordering).values_list("unique_sha256", flat=True))
 
 
-@cached(build_context_info_cache)
-def build_context_info(request: WSGIRequest, unique_file_sha256: str) -> dict | HttpResponseBadRequest:
+#@cached(build_context_info_cache)
+def build_context_info(request: WSGIRequest, unique_file_sha256: str, show_duplicates: bool = False) -> dict | HttpResponseBadRequest:
     """
     Build context information for item view using optimized single-pass dictionary creation.
 
@@ -315,12 +354,9 @@ def build_context_info(request: WSGIRequest, unique_file_sha256: str) -> dict | 
     Args:
         request: Django WSGIRequest object
         unique_file_sha256: The unique SHA256 hash of the item
+        show_duplicates: Whether to show duplicate files (affects navigation list)
     Returns: Dictionary containing context data or HttpResponseBadRequest on error
     """
-    show_duplicates = False
-    if request.user.is_authenticated:
-        show_duplicates = request.user.preferences.show_duplicates
-    
     if not unique_file_sha256:
         return HttpResponseBadRequest(content="No SHA256 provided.")
 
@@ -395,7 +431,7 @@ def build_context_info(request: WSGIRequest, unique_file_sha256: str) -> dict | 
 
 
 # ASGI: Async wrapper for build_context_info
-async def async_build_context_info(request: WSGIRequest, unique_file_sha256: str) -> dict | HttpResponseBadRequest:
+async def async_build_context_info(request: WSGIRequest, unique_file_sha256: str, show_duplicates: bool = False) -> dict | HttpResponseBadRequest:
     """
     Async wrapper for build_context_info to support ASGI views.
 
@@ -404,9 +440,10 @@ async def async_build_context_info(request: WSGIRequest, unique_file_sha256: str
     Args:
         request: Django WSGIRequest object
         unique_file_sha256: The unique SHA256 hash of the item
+        show_duplicates: Whether to show duplicate files (affects navigation list)
     Returns: Dictionary containing context data or HttpResponseBadRequest on error
     """
-    return await sync_to_async(build_context_info)(request, unique_file_sha256)
+    return await sync_to_async(build_context_info)(request, unique_file_sha256, show_duplicates)
 
 
 def _process_file_content(entry: IndexData, webpath: str) -> str:
