@@ -434,10 +434,8 @@ def _check_file_updates(db_record: object, fs_entry: Path, home_directory: objec
             # Use prefetched filetype from select_related
             filetype = db_record.filetype if hasattr(db_record, "filetype") else filetype_models.filetypes.return_filetype(fileext=fext)
 
-            # Only calculate hash if file changed AND hash is missing
-            file_changed = db_record.lastmod != fs_stat.st_mtime or db_record.size != fs_stat.st_size
-
-            if not db_record.file_sha256 and not filetype.is_link and file_changed:
+            # Calculate hash if missing (for all files including links)
+            if not db_record.file_sha256:
                 try:
                     db_record.file_sha256, db_record.unique_sha256 = db_record.get_file_sha(fqfn=fs_entry)
                     update_needed = True
@@ -786,6 +784,9 @@ def process_filedata(fs_entry: Path, directory_id: str | None = None) -> dict[st
         if filetype.is_link:
             if filetype.fileext == ".link":
                 try:
+                    # Calculate SHA256 for .link files
+                    record["file_sha256"], record["unique_sha256"] = get_file_sha(str(fs_entry))
+
                     # Optimize link parsing with single-pass processing
                     name_lower = record["name"].lower()
                     star_index = name_lower.find("*")
@@ -839,12 +840,9 @@ def process_filedata(fs_entry: Path, directory_id: str | None = None) -> dict[st
                     print(f"Error with alias file: {e}")
                     return None
         else:
-            # Calculate file hashes for non-link files - only if needed
+            # Calculate file hashes for all non-link files
             try:
-                # Only calculate hash for files that will likely be accessed
-                if filetype.is_image or filetype.is_pdf or filetype.is_movie:
-                    record["file_sha256"], record["unique_sha256"] = get_file_sha(str(fs_entry))
-                # For other file types, defer hash calculation until needed
+                record["file_sha256"], record["unique_sha256"] = get_file_sha(str(fs_entry))
             except Exception as e:
                 print(f"Error calculating SHA for {fs_entry}: {e}")
                 # Continue processing even if SHA calculation fails

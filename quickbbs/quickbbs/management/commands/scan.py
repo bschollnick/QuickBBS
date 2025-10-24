@@ -30,7 +30,10 @@ from quickbbs.common import normalize_fqpn
 from quickbbs.management.commands.add_directories import add_directories
 from quickbbs.management.commands.add_files import add_files
 from quickbbs.management.commands.add_thumbnails import add_thumbnails
-from quickbbs.management.commands.management_helper import invalidate_empty_directories
+from quickbbs.management.commands.management_helper import (
+    invalidate_empty_directories,
+    invalidate_directories_with_null_sha256,
+)
 from quickbbs.models import IndexData, IndexDirs
 
 
@@ -134,6 +137,9 @@ async def _verify_files_async(start_path: str | None = None):
     Returns:
         None
     """
+    # Invalidate directories containing files with NULL SHA256
+    await sync_to_async(invalidate_directories_with_null_sha256, thread_sensitive=True)(start_path=start_path)
+
     print("Checking for invalid files in Database")
     start_count = await sync_to_async(IndexData.objects.count, thread_sensitive=True)()
     print("\tStarting File Count: ", start_count)

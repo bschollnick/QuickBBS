@@ -108,6 +108,31 @@ def _create_base_context(request: WSGIRequest) -> dict:
     }
 
 
+async def _get_show_duplicates_preference(request: WSGIRequest) -> bool:
+    """
+    Get show_duplicates preference for the current user (async-safe).
+
+    This function safely accesses the user's preferences from the database
+    in an async context, preventing async-safety warnings and ensuring
+    fresh data is retrieved.
+
+    Args:
+        request: Django WSGIRequest object
+
+    Returns:
+        bool: True if user wants to show duplicates, False otherwise
+    """
+    def get_preference():
+        if not request.user.is_authenticated:
+            return False
+        try:
+            return request.user.preferences.show_duplicates
+        except Exception:
+            return False
+
+    return await sync_to_async(get_preference)()
+
+
 def create_search_regex_pattern(text: str) -> str:
     """
     Create a regex pattern for separator-agnostic search.
@@ -404,6 +429,9 @@ async def search_viewresults(request: WSGIRequest):
     print("NEW search GALLERY")
     start_time = time.perf_counter()
 
+    # Get show_duplicates preference (async-safe)
+    show_duplicates = await _get_show_duplicates_preference(request)
+
     # Use standardized template selection
     template_name = _determine_template(request, "search")
 
@@ -413,6 +441,7 @@ async def search_viewresults(request: WSGIRequest):
 
     # Build base context using shared function
     context = _create_base_context(request)
+    context["show_duplicates"] = show_duplicates
 
     # Add search-specific context
     from frontend.web import g_option
@@ -647,16 +676,7 @@ async def new_viewgallery(request: WSGIRequest):
     start_time = time.perf_counter()
 
     # Get show_duplicates preference (async-safe)
-    def get_show_duplicates():
-        if not request.user.is_authenticated:
-            return False
-        try:
-            return request.user.preferences.show_duplicates
-        except Exception:
-            return False
-
-    show_duplicates = await sync_to_async(get_show_duplicates)()
-    print(f"DEBUG: show_duplicates = {show_duplicates} for user {request.user}")
+    show_duplicates = await _get_show_duplicates_preference(request)
 
     # Use standardized template selection
     template_name = _determine_template(request, "gallery")
@@ -729,6 +749,7 @@ async def new_viewgallery(request: WSGIRequest):
         links_list = []
 
     context["items_to_display"] = list(dirs_to_display) + links_list + files_list
+    context["show_duplicates"] = show_duplicates
     # print("elapsed view gallery (pre-thumb) time - ", time.time() - start_time)
     if layout["no_thumbnails"]:
         no_thumb_start = time.time()
@@ -835,16 +856,21 @@ async def htmx_view_item(request: HtmxHttpRequest, sha256: str):
     """
     from frontend.managers import async_build_context_info
 
+    # Get show_duplicates preference (async-safe)
+    show_duplicates = await _get_show_duplicates_preference(request)
+
     # Use standardized template selection
     template_name = _determine_template(request, "item")
 
     # Use managers.py for context building (async wrapped)
-    context = await async_build_context_info(request, sha256)
+    # Pass show_duplicates to ensure navigation uses same distinct mode as gallery
+    context = await async_build_context_info(request, sha256, show_duplicates)
     if isinstance(context, HttpResponseBadRequest):
         return context
 
     # Ensure user is in context (standardized pattern)
     context["user"] = request.user
+    context["show_duplicates"] = show_duplicates
 
     return await async_render(request, template_name, context, using="Jinja2")
 
