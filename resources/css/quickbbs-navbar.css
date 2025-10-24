@@ -28,11 +28,13 @@
 }
 
 .navbar-start {
-    margin-right: auto;
+    margin-right: 1rem;
 }
 
 .navbar-end {
-    margin-left: auto;
+    margin-left: 1rem;
+    display: flex;
+    gap: 0.5rem;
 }
 
 .navbar-item,
@@ -54,6 +56,21 @@
     background-color: whitesmoke;
 }
 
+/* Search input sizing */
+.navbar-item .control .input {
+    width: 300px;
+    font-size: 1rem;
+}
+
+/* User menu - prevent text wrapping */
+.navbar-link {
+    white-space: nowrap;
+}
+
+.navbar-link .icon-text {
+    white-space: nowrap;
+}
+
 /* Responsive - compact layout for smaller screens */
 @media screen and (max-width: 1023px) {
     .navbar-item,
@@ -63,7 +80,7 @@
     }
 
     .navbar-item .control .input {
-        width: 120px;
+        width: 200px;
         font-size: 0.875rem;
     }
 

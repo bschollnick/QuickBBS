@@ -128,8 +128,6 @@ if not DEBUG:
         }
     }
 
-# USER_AGENTS_CACHE = 'default'
-
 # Before using the database cache, you must create the cache table with this command:
 # python manage.py createcachetable
 
@@ -168,7 +166,6 @@ INSTALLED_APPS += [
     "django.contrib.messages",
     "rest_framework",
     "django.contrib.sites",
-    "django_user_agents",
     "django_jinja",
 ]
 
@@ -188,6 +185,7 @@ INSTALLED_APPS += [
     "frontend",
     "quickbbs",
     "thumbnails",
+    "user_preferences",
     "django_htmx",
 ]
 
@@ -209,7 +207,6 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.cache.FetchFromCacheMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "django_user_agents.middleware.UserAgentMiddleware",
     "django_htmx.middleware.HtmxMiddleware",
     "debug_toolbar.middleware.DebugToolbarMiddleware",
 ]

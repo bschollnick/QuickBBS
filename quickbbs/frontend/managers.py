@@ -286,7 +286,7 @@ async def async_process_text_file(filename: str, is_markdown: bool = False) -> s
 
 
 @cached(all_shas_cache)
-def _get_all_shas_cached(directory_id: str, sort_ordering: int) -> list[str]:
+def _get_all_shas_cached(directory_id: str, sort_ordering: int, distinct: bool = False) -> list[str]:
     """
     Cache expensive all_shas query by directory and sort order.
 
@@ -299,7 +299,7 @@ def _get_all_shas_cached(directory_id: str, sort_ordering: int) -> list[str]:
     from quickbbs.models import IndexDirs  # pylint: disable=import-outside-toplevel
 
     directory = IndexDirs.objects.get(pk=directory_id)
-    return list(directory.files_in_dir(sort=sort_ordering).values_list("unique_sha256", flat=True))
+    return list(directory.files_in_dir(sort=sort_ordering, distinct=distinct).values_list("unique_sha256", flat=True))
 
 
 @cached(build_context_info_cache)
@@ -317,6 +317,10 @@ def build_context_info(request: WSGIRequest, unique_file_sha256: str) -> dict | 
         unique_file_sha256: The unique SHA256 hash of the item
     Returns: Dictionary containing context data or HttpResponseBadRequest on error
     """
+    show_duplicates = False
+    if request.user.is_authenticated:
+        show_duplicates = request.user.preferences.show_duplicates
+    
     if not unique_file_sha256:
         return HttpResponseBadRequest(content="No SHA256 provided.")
 
@@ -333,7 +337,7 @@ def build_context_info(request: WSGIRequest, unique_file_sha256: str) -> dict | 
     # Build entire context in single operation for optimal performance
     pathmaster = Path(entry.full_filepathname)
     lastmod_timestamp = entry.lastmod
-    all_shas = _get_all_shas_cached(directory_entry.pk, sort_order_value)
+    all_shas = _get_all_shas_cached(directory_entry.pk, sort_order_value, distinct= not show_duplicates)
 
     # Get pagination data inline
     try:
@@ -454,19 +458,19 @@ async def async_process_file_content(entry: IndexData, webpath: str) -> str:
     return ""
 
 
-def _get_directory_counts(directory) -> dict:
-    """
-    Get directory and file counts efficiently using optimized queries.
+# def _get_directory_counts(directory) -> dict:
+#     """
+#     Get directory and file counts efficiently using optimized queries.
 
-    Args:
-        directory: IndexDirs object
-    Returns: Dictionary with dirs_count and files_count
-    """
-    # Use values() with count to reduce query overhead
-    dirs_count = directory.dirs_in_dir().values("pk").count()
-    files_count = directory.files_in_dir().values("pk").count()
+#     Args:
+#         directory: IndexDirs object
+#     Returns: Dictionary with dirs_count and files_count
+#     """
+#     # Use values() with count to reduce query overhead
+#     dirs_count = directory.dirs_in_dir().values("pk").count()
+#     files_count = directory.files_in_dir().values("pk").count()
 
-    return {"dirs_count": dirs_count, "files_count": files_count}
+#     return {"dirs_count": dirs_count, "files_count": files_count}
 
 
 def _get_no_thumbnails(directory, sort_ordering: int) -> list[str]:
@@ -520,7 +524,7 @@ def calculate_page_bounds(page_number: int, chunk_size: int, dirs_count: int) ->
 
 
 @cached(layout_manager_cache)
-def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | None = None) -> dict:
+def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | None = None, show_duplicates: bool = False) -> dict:
     """
     Manage gallery layout with optimized database-level pagination.
 
@@ -541,9 +545,11 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
 
     chunk_size = settings.GALLERY_ITEMS_PER_PAGE
 
+    print(f"DEBUG layout_manager: show_duplicates={show_duplicates}, distinct={not show_duplicates}")
+
     # Get base querysets first (more efficient for subsequent operations)
     directories_qs = directory.dirs_in_dir(sort=sort_ordering)
-    files_qs = directory.files_in_dir(sort=sort_ordering)
+    files_qs = directory.files_in_dir(sort=sort_ordering, distinct=not show_duplicates)
 
     # Get counts from existing querysets to avoid duplicate query construction
     dirs_count = directories_qs.count()
@@ -602,7 +608,7 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
 
 
 # ASGI: Async wrapper for layout_manager
-async def async_layout_manager(page_number: int = 1, directory=None, sort_ordering: int | None = None) -> dict:
+async def async_layout_manager(page_number: int = 1, directory=None, sort_ordering: int | None = None, show_duplicates: bool = False) -> dict:
     """
     Async wrapper for layout_manager to support ASGI views.
 
@@ -614,4 +620,4 @@ async def async_layout_manager(page_number: int = 1, directory=None, sort_orderi
         sort_ordering: Sort order to apply (0-2)
     Returns: Dictionary containing pagination data and current page items
     """
-    return await sync_to_async(layout_manager)(page_number=page_number, directory=directory, sort_ordering=sort_ordering)
+    return await sync_to_async(layout_manager)(page_number=page_number, directory=directory, sort_ordering=sort_ordering, show_duplicates=show_duplicates)

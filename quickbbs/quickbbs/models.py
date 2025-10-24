@@ -557,15 +557,20 @@ class IndexDirs(models.Model):
         )
         return dirs
 
-    def files_in_dir(self, sort: int = 0, additional_filters: dict[str, Any] | None = None) -> "QuerySet[IndexData]":
+    def files_in_dir(self, sort: int = 0, distinct: bool = False, additional_filters: dict[str, Any] | None = None) -> "QuerySet[IndexData]":
         """
         Return the files in the current directory
 
         Args:
             sort: The sort order of the files (0-2)
+            distinct: If True, return distinct files based on file_sha256 (deduplicates identical files)
             additional_filters: Additional Django ORM filters to apply (e.g., filetype, status filters)
 
         Returns: The sorted query of files
+
+        Note:
+            When distinct=True, file_sha256 becomes the primary sort field to satisfy PostgreSQL's
+            DISTINCT ON requirement. The requested sort order is applied as secondary ordering.
         """
         # necessary to prevent circular references on startup
         # pylint: disable-next=import-outside-toplevel
@@ -574,11 +579,17 @@ class IndexDirs(models.Model):
         if additional_filters is None:
             additional_filters = {}
 
-        files = (
-            self.IndexData_entries.select_related(*INDEXDATA_SELECT_RELATED_LIST)
-            .filter(delete_pending=False, **additional_filters)
-            .order_by(*SORT_MATRIX[sort])
+        files = self.IndexData_entries.select_related(*INDEXDATA_SELECT_RELATED_LIST).filter(
+            delete_pending=False, **additional_filters
         )
+
+        if distinct:
+            # PostgreSQL DISTINCT ON requires matching ORDER BY
+            # file_sha256 must be first, then apply user's sort preference
+            files = files.order_by("file_sha256", *SORT_MATRIX[sort]).distinct("file_sha256")
+        else:
+            files = files.order_by(*SORT_MATRIX[sort])
+
         return files
 
     def get_cover_image(self) -> IndexData | None:
