@@ -16,6 +16,7 @@ Including another URLconf
 
 import frontend.serve_up
 import frontend.views
+import user_preferences.views
 from django.conf import settings
 from django.conf.urls.static import static
 
@@ -34,6 +35,11 @@ if settings.DEBUG_TOOLBAR:
 
 urlpatterns += [
     path("search/", frontend.views.search_viewresults, name="search_viewresults"),
+    path(
+        "preferences/toggle-duplicates/",
+        user_preferences.views.toggle_show_duplicates,
+        name="toggle_show_duplicates",
+    ),
     #    re_path("^download/", frontend.views.download_file, name="download"),
     # re_path("^download/", frontend.views.download_item, name="download"),
     re_path("^download_file/", frontend.views.download_file, name="download_file"),

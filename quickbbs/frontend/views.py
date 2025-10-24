@@ -646,6 +646,18 @@ async def new_viewgallery(request: WSGIRequest):
     print("NEW VIEW GALLERY for ", request.path)
     start_time = time.perf_counter()
 
+    # Get show_duplicates preference (async-safe)
+    def get_show_duplicates():
+        if not request.user.is_authenticated:
+            return False
+        try:
+            return request.user.preferences.show_duplicates
+        except Exception:
+            return False
+
+    show_duplicates = await sync_to_async(get_show_duplicates)()
+    print(f"DEBUG: show_duplicates = {show_duplicates} for user {request.user}")
+
     # Use standardized template selection
     template_name = _determine_template(request, "gallery")
     paths = _process_request_path(request)
@@ -668,6 +680,7 @@ async def new_viewgallery(request: WSGIRequest):
         page_number=context["current_page"],
         directory=directory,
         sort_ordering=context["sort"],
+        show_duplicates=show_duplicates,
     )
 
     # Update context with layout data efficiently
@@ -744,6 +757,11 @@ async def new_viewgallery(request: WSGIRequest):
         context,
         using="Jinja2",
     )
+
+    # Prevent browser caching when user preferences might change
+    if request.user.is_authenticated:
+        response["Cache-Control"] = "private, no-cache, must-revalidate"
+
     print("Gallery View, processing time: ", time.perf_counter() - start_time)
     return response
 
