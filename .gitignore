@@ -158,3 +158,5 @@ poetry.lock
 
 # SSL Certs
 certs/
+*.key
+*.pem
