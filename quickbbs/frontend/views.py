@@ -44,7 +44,7 @@ from frontend.utilities import (
     sort_order,
     sync_database_disk,
 )
-from quickbbs.common import normalize_fqpn, safe_get_or_error
+from quickbbs.common import normalize_fqpn
 from quickbbs.models import IndexData, IndexDirs
 from thumbnails.models import ThumbnailFiles
 
@@ -122,6 +122,7 @@ async def _get_show_duplicates_preference(request: WSGIRequest) -> bool:
     Returns:
         bool: True if user wants to show duplicates, False otherwise
     """
+
     def get_preference():
         if not request.user.is_authenticated:
             return False
@@ -337,17 +338,11 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
     Raises:
         HttpResponseBadRequest: If the directory cannot be found
     """
-    directory, error = safe_get_or_error(
-        IndexDirs,
-        error_message="Directory not found - No records returned.",
-        dir_fqpn_sha256=dir_sha256,
-    )
-    if error:
-        print(dir_sha256, error.content)
+    # Use optimized model method with prefetched relationships
+    success, directory = IndexDirs.search_for_directory_by_sha(dir_sha256)
+    if not success:
+        print(f"Directory not found: {dir_sha256}")
         return Http404
-
-    # Reload directory with Cache_Watcher relationship to avoid KeyError in sync_database_disk
-    directory = IndexDirs.objects.select_related("Cache_Watcher").get(pk=directory.pk)
 
     # If directory already has a thumbnail set, return it
     if directory.thumbnail and directory.thumbnail.new_ftnail:
@@ -583,47 +578,61 @@ def _process_request_path(request: WSGIRequest) -> dict:
 
 def _find_directory(paths: dict):
     """
-    Find and validate directory existence.
+    Find directory in database, create if missing, validate physical existence, and sync from disk.
+
+    This function handles the complete workflow for accessing a gallery directory:
+    1. Search for directory in database (optimized query with prefetched relationships)
+    2. If not in database: create directory record, then sync from filesystem
+    3. Validate that physical directory exists on disk
+    4. If physical directory missing: invalidate cache and return 404
 
     Args:
-        paths: Dictionary containing path information
-    Returns: Tuple of (found, directory) or raises Http404/HttpResponseBadRequest
+        paths: Dictionary containing path information (must have 'album_viewing' key)
+
+    Returns:
+        Tuple of (True, directory) on success
+        HttpResponseNotFound if directory doesn't exist physically
+        HttpResponseBadRequest on invalid path or other errors
     """
-    from cache_watcher.models import get_dir_sha
-
     try:
+        # Step 1: Search for directory in database (with optimized prefetches)
         found, directory = IndexDirs.search_for_directory(paths["album_viewing"])
-        if not found:
-            # Directory not in database - create it and sync from disk
-            dirpath = normalize_fqpn(paths["album_viewing"])
-            found, directory = IndexDirs.add_directory(dirpath)
 
-            if not found or not directory:
-                logger.info("Directory not found: %s", paths["album_viewing"])
+        if not found:
+            # Step 2a: Directory not in database - create database record
+            dirpath = normalize_fqpn(paths["album_viewing"])
+            created, directory = IndexDirs.add_directory(dirpath)
+
+            if not created and not directory:
+                # Physical directory doesn't exist on filesystem
+                logger.info("Directory not found on filesystem: %s", paths["album_viewing"])
                 return HttpResponseNotFound("<h1>gallery not found</h1>")
 
-            # Reload directory with Cache_Watcher relationship to avoid KeyError in is_cached property
-            directory = IndexDirs.objects.select_related("Cache_Watcher").get(pk=directory.pk)
+            # Step 2b: Reload directory with optimized query (includes Cache_Watcher, filetype, IndexData_entries)
+            # add_directory returns bare object from update_or_create - need prefetched relationships
+            _, directory = IndexDirs.search_for_directory_by_sha(directory.dir_fqpn_sha256)
 
-            # Sync the newly created directory
+            # Step 2c: Sync newly created directory from filesystem to populate file entries
             directory = async_to_sync(sync_database_disk)(directory)
 
             if not directory:
-                logger.info("Directory not found: %s", paths["album_viewing"])
+                logger.info("Directory sync failed: %s", paths["album_viewing"])
                 return HttpResponseNotFound("<h1>gallery not found</h1>")
+
     except Exception as e:
         logger.error("Error searching for directory '%s': %s", paths["album_viewing"], e)
         return HttpResponseBadRequest("<h1>Invalid path specified</h1>")
 
     logger.info("Viewing: %s", paths["album_viewing"])
 
-    # Check if physical directory exists
+    # Step 3: Validate physical directory still exists on disk
     if not pathlib.Path(paths["album_viewing"]).exists():
+        # Physical directory was deleted - invalidate cache and return 404
         parent_dir = directory.return_parent_directory() if directory else None
         if parent_dir:
             Cache_Storage.remove_from_cache_name(dir_name=parent_dir.fqpndirectory)
             Cache_Storage.remove_from_cache_name(dir_name=paths["album_viewing"])
-            # Sync for cache invalidation (directory will be 404'd after this)
+            # Sync to mark directory as deleted in database
             async_to_sync(sync_database_disk)(directory)
         return HttpResponseNotFound("<h1>gallery not found</h1>")
 
@@ -892,27 +901,29 @@ async def download_file(request: WSGIRequest):  # , filename=None):
         #     see the uuid, and use that as the filename (which is an issue that was
         #     found during v2 development).
 
+    Raises:
+        Http404: If file not found or no identifier provided
+        asyncio.CancelledError: Re-raised if client disconnects (normal operation)
     """
+    import asyncio
+
     start_total = time.perf_counter()
 
     sha_value = request.GET.get("usha", None) or request.GET.get("USHA", None)
-
     if sha_value in ["", None]:
         raise Http404("No Identifier provided for download.")
     sha_value = sha_value.strip().lower()
 
-    # Wrap database query - use optimized download method
-    start_db = time.perf_counter()
-    file_to_send = await sync_to_async(IndexData.get_by_sha256_for_download)(sha_value, unique=True)
-    db_time = (time.perf_counter() - start_db) * 1000
-    logging.info("[PERF] DB query: %.2fms", db_time)
-
-    if file_to_send:
-        # Use async sendfile method to avoid sync iterator warning
-        start_send = time.perf_counter()
-        response = await file_to_send.async_inline_sendfile(request, ranged=file_to_send.filetype.is_movie)
-        send_time = (time.perf_counter() - start_send) * 1000
-        total_time = (time.perf_counter() - start_total) * 1000
-        logging.info("[PERF] File send: %.2fms, Total: %.2fms", send_time, total_time)
-        return response
-    raise Http404("No File to Send")
+    try:
+        # Wrap database query - use optimized download method
+        file_to_send = await sync_to_async(IndexData.get_by_sha256_for_download)(sha_value, unique=True)
+        if file_to_send:
+            # Use async sendfile method to avoid sync iterator warning
+            response = await file_to_send.async_inline_sendfile(request, ranged=file_to_send.filetype.is_movie)
+            return response
+        raise Http404("No File to Send")
+    except asyncio.CancelledError:
+        # Client disconnected (timeout, network issue, etc.) - this is expected
+        # Re-raise to let Django's async machinery handle cleanup
+        # Don't log as error since it's normal for clients to disconnect
+        raise

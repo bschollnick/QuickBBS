@@ -66,7 +66,7 @@ ignored-modules=
 
 # Python code to execute, usually for sys.path manipulation such as
 # pygtk.require().
-init-hook=sys.path.extend(["/Volumes/C-8TB/Gallery/quickbbs/quickbbs", "/Volumes/C-8TB/Gallery/quickbbs/quickbbs/quickbbs"])
+init-hook=import sys; sys.path.extend(["/Volumes/C-8TB/gallery/quickbbs/quickbbs", "/Volumes/C-8TB/gallery/quickbbs/quickbbs/quickbbs"])
 
 # Use multiple processes to speed up Pylint. Specifying 0 will auto-detect the
 # number of processors available to use, and will cap the count on Windows to
@@ -96,7 +96,7 @@ recursive=no
 # source root is an absolute path or a path relative to the current working
 # directory used to determine a package namespace for modules located under the
 # source root.
-source-roots=/Volumes/C-8TB/Gallery/quickbbs/quickbbs
+source-roots=/Volumes/C-8TB/gallery/quickbbs/quickbbs
 
 # When enabled, pylint would attempt to guess common misconfiguration and emit
 # user-friendly hints instead of false-positive error messages.
@@ -631,3 +631,9 @@ init-import=no
 # List of qualified module names which can have objects that can redefine
 # builtins.
 redefining-builtins-modules=six.moves,past.builtins,future.builtins,builtins,io
+
+
+[PYLINT_DJANGO]
+
+# The path to the Django settings module to use for pylint analysis
+django-settings-module=quickbbs.settings

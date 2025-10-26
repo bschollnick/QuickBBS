@@ -6,7 +6,6 @@ import io
 import os.path
 
 import aiofiles
-from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.http import FileResponse, Http404
 # TODO: Examine django-sage-streaming as a replacement for RangedFileResponse
@@ -129,36 +128,13 @@ def _build_file_response(content_to_send, filename: str, mtype: str, attachment:
             filename=filename,
         )
     response["Cache-Control"] = f"public, max-age={expiration}"
+
+    # Skip ETag generation to avoid ConditionalGetMiddleware overhead
+    # ETags for large files require reading content, which is expensive
+    if "ETag" in response:
+        del response["ETag"]
+
     return response
-
-
-async def async_send_file_response(filename: str, filepath: str, mtype: str, attachment: bool, expiration: int = 300, request=None):
-    """
-    Send a file response with appropriate headers and caching (async version).
-
-    Uses sync I/O in thread pool for better performance with OS-cached files.
-
-    Args:
-        filename: Name of the file to send
-        filepath: Path to the file to send
-        mtype: MIME type of the file
-        attachment: Whether to send as attachment (download) or inline
-        expiration: Cache expiration time in seconds (default: 300)
-        request: Optional Django request object for range requests
-
-    Returns:
-        FileResponse or RangedFileResponse with the file content
-    """
-
-    def _read_file():
-        with open(filepath, "rb") as f:
-            return f.read()
-
-    # Read file synchronously in thread pool - faster for OS-cached files
-    content = await sync_to_async(_read_file)()
-
-    # Use shared response builder with in-memory content
-    return _build_file_response(io.BytesIO(content), filename, mtype, attachment, expiration, request)
 
 
 def send_file_response(filename: str, content_to_send, mtype: str, attachment: bool, expiration: int = 300, request=None):
