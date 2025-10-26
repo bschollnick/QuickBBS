@@ -42,6 +42,10 @@ django_settings_module = "quickbbs.settings"
 
 [tool.poetry]
 
+[tool.poetry.group.dev.dependencies]
+locust = "^2.42.0"
+httpx = {extras = ["http2"], version = "^0.28.1"}
+
 [tool.isort]
 profile = "black"
 
@@ -120,3 +124,5 @@ pyobjc-framework-coremedia = "^12.0"
 pyobjc-framework-coreaudio = "^12.0"
 pyobjc-framework-avfoundation = "^12.0"
 py-applescript = "^1.0.3"
+httptools = "^0.7.1"
+uvloop = "^0.22.1"

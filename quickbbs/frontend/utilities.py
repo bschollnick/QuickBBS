@@ -17,19 +17,22 @@ from functools import lru_cache  # , wraps
 from pathlib import Path
 from typing import Any
 
+# Third-party imports
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.db import close_old_connections, transaction  # connection
 
 # from django.db.models import Case, F, Value, When, BooleanField
-from Foundation import (  # NSData,; NSError,
+from Foundation import (  # pylint: disable=no-name-in-module  # NSData,; NSError,
     NSURL,
     NSURLBookmarkResolutionWithoutMounting,
     NSURLBookmarkResolutionWithoutUI,
 )
 from PIL import Image
 
+# First-party imports
 import filetypes.models as filetype_models
+
 from cache_watcher.models import Cache_Storage
 from frontend.file_listings import return_disk_listing
 from quickbbs.common import get_file_sha, normalize_fqpn, normalize_string_title
@@ -37,33 +40,6 @@ from quickbbs.models import IndexData, IndexDirs
 from thumbnails.video_thumbnails import _get_video_info
 
 logger = logging.getLogger(__name__)
-
-
-def _get_file_extension(path_or_name) -> str:
-    """
-    Get normalized file extension from path or filename.
-
-    Simplifies file extension handling throughout the codebase by providing
-    a single consistent method. Always returns lowercase extension with dot,
-    or ".none" for files without extensions.
-
-    Args:
-        path_or_name: Path object, string path, or filename
-
-    Returns:
-        str: Lowercase file extension including dot (e.g. ".jpg", ".pdf")
-             Returns ".none" for files without extensions
-
-    Examples:
-        >>> _get_file_extension("photo.JPG")
-        '.jpg'
-        >>> _get_file_extension(Path("/path/to/document.pdf"))
-        '.pdf'
-        >>> _get_file_extension("README")
-        '.none'
-    """
-    ext = Path(path_or_name).suffix.lower()
-    return ext if ext else ".none"
 
 
 # Batch sizes for database operations - kept simple for performance
@@ -74,23 +50,6 @@ BATCH_SIZES = {
     "db_write": 250,  # Writing/updating records to database
     "file_io": 100,  # File system operations (stat, hash calculation)
 }
-
-
-def _get_batch_size(operation_type: str) -> int:
-    """
-    Get batch size for database operations.
-
-    Simplified from dynamic calculation - static values perform better than
-    repeated CPU detection and complex logic. These values are tuned for
-    typical gallery operations (1-1000 files per directory).
-
-    Args:
-        operation_type: Type of operation ('db_read', 'db_write', 'file_io')
-
-    Returns:
-        int: Batch size for the operation type
-    """
-    return BATCH_SIZES.get(operation_type, 100)
 
 
 SORT_MATRIX = {
@@ -877,7 +836,7 @@ async def sync_database_disk(directory_record: IndexDirs) -> bool | None:
     print("Starting ...  Syncing database with disk for directory:", dirpath)
     start_time = time.perf_counter()
     # Use simplified batch sizing
-    BULK_SIZE = _get_batch_size("db_write")
+    bulk_size = BATCH_SIZES.get("db_write", 100)
 
     # Check if directory is cached using the record's property
     if directory_record.is_cached:
@@ -895,7 +854,7 @@ async def sync_database_disk(directory_record: IndexDirs) -> bool | None:
     # Batch process all operations
     # Both functions are sync and wrapped here for clean async/sync boundary
     await sync_to_async(_sync_directories)(directory_record, fs_entries)
-    await sync_to_async(_sync_files)(directory_record, fs_entries, BULK_SIZE)
+    await sync_to_async(_sync_files)(directory_record, fs_entries, bulk_size)
 
     # Cache the result using the directory record
     await sync_to_async(Cache_Storage.add_from_indexdirs)(directory_record)

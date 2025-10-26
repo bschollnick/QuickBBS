@@ -31,12 +31,12 @@ import time
 from typing import Any, Optional
 
 from asgiref.sync import async_to_sync
-from cache_watcher.watchdogmon import watchdog
-from cachetools.keys import hashkey
 from django.conf import settings
 from django.db import close_old_connections, models, transaction
+from django.db.utils import DatabaseError
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 
+from cache_watcher.watchdogmon import watchdog
 from quickbbs.common import get_dir_sha
 
 # Configure logging
@@ -163,6 +163,7 @@ class WatchdogManager:
                     logger.debug("Scheduling restart timer...")
                     self._schedule_restart()
                 except Exception as e:
+                    # TODO: Research specific watchdog library exceptions
                     logger.error("Failed to start watchdog: %s", e, exc_info=True)
                     raise
             else:
@@ -185,6 +186,7 @@ class WatchdogManager:
                     self.is_running = False
                     logger.info("Watchdog stopped")
                 except Exception as e:
+                    # TODO: Research specific watchdog library exceptions
                     logger.error("Error stopping watchdog: %s", e)
 
     def shutdown(self) -> None:
@@ -200,6 +202,7 @@ class WatchdogManager:
                     self.is_running = False
                     logger.info("Watchdog completely shut down")
                 except Exception as e:
+                    # TODO: Research specific watchdog library exceptions
                     logger.error("Error stopping watchdog: %s", e)
 
     def restart(self) -> None:
@@ -217,6 +220,7 @@ class WatchdogManager:
             restart_successful = True
             logger.info("Watchdog restart completed successfully")
         except Exception as e:
+            # TODO: Research specific watchdog library exceptions
             logger.error("Error during watchdog restart: %s", e, exc_info=True)
 
         # Always try to schedule next restart, even if this restart failed
@@ -248,6 +252,7 @@ class WatchdogManager:
                 logger.error("⚠ Timer failed to start!")
 
         except Exception as e:
+            # TODO: Research threading.Timer exceptions
             logger.error("Error scheduling restart: %s", e, exc_info=True)
 
 
@@ -325,6 +330,7 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
                 self.event_timer.start()
 
         except Exception as e:
+            # TODO: Research FileSystemEvent and threading.Timer exceptions
             logger.error("Error buffering event %s: %s", event.src_path, e)
 
     def _process_buffered_events(self, expected_generation: int) -> None:
@@ -368,7 +374,7 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
                     # Fallback to direct call if not in async context
                     Cache_Storage.remove_multiple_from_cache(list(paths_to_process))
 
-        except Exception as e:
+        except (RuntimeError, DatabaseError, OSError, AttributeError) as e:
             logger.error("Error processing buffered events: %s", e)
         finally:
             # Release the global semaphore to allow next processing run
@@ -379,9 +385,11 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
     async def _remove_from_cache_async(self, paths: list[str]) -> None:
         """Async wrapper for cache removal to support ASGI mode.
 
-        :param paths: List of directory paths to remove from cache
+        Args:
+            paths: List of directory paths to remove from cache
         """
-        from asgiref.sync import sync_to_async
+        # Import inside async method - not needed at module level
+        from asgiref.sync import sync_to_async  # pylint: disable=import-outside-toplevel
 
         # Run the synchronous database operation in a thread pool
         await sync_to_async(Cache_Storage.remove_multiple_from_cache)(paths)
@@ -427,7 +435,7 @@ class fs_Cache_Tracking(models.Model):
             updated_count = fs_Cache_Tracking.objects.all().update(invalidated=True)
             logger.info("Invalidated %d cache records", updated_count)
             return updated_count
-        except Exception as e:
+        except DatabaseError as e:
             logger.error("Error clearing all cache records: %s", e)
             return 0
 
@@ -461,7 +469,7 @@ class fs_Cache_Tracking(models.Model):
             logger.debug("%s cache entry for: %s", action, index_dir.fqpndirectory)
             return entry
 
-        except Exception as e:
+        except DatabaseError as e:
             logger.error("Error adding IndexDirs record to cache: %s", e)
             return None
 
@@ -480,7 +488,8 @@ class fs_Cache_Tracking(models.Model):
             return None
 
         try:
-            from quickbbs.models import IndexDirs
+            # Import inside function to avoid circular dependency
+            from quickbbs.models import IndexDirs  # pylint: disable=import-outside-toplevel
 
             dir_sha = get_dir_sha(dir_path)
             scan_time = time.time()
@@ -504,7 +513,7 @@ class fs_Cache_Tracking(models.Model):
             logger.debug("%s cache entry for: %s", action, dir_path)
             return entry
 
-        except Exception as e:
+        except DatabaseError as e:
             logger.error("Error adding %s to cache: %s", dir_path, e)
             return None
 
@@ -519,7 +528,7 @@ class fs_Cache_Tracking(models.Model):
         """
         try:
             return fs_Cache_Tracking.objects.filter(directory__dir_fqpn_sha256=sha256, invalidated=False).exists()
-        except Exception as e:
+        except DatabaseError as e:
             logger.error("Error checking SHA existence in cache: %s", e)
             return False
 
@@ -552,38 +561,43 @@ class fs_Cache_Tracking(models.Model):
             logger.debug("Removed cache entry for: %s", index_dir.fqpndirectory)
             return True
 
-        except Exception as e:
+        except (DatabaseError, AttributeError) as e:
             logger.error("Error removing directory from cache: %s", e)
             return False
 
     def remove_from_cache_sha(self, sha256: str) -> bool:
         """Remove a directory from cache by SHA256.
 
-        :param sha256: The SHA256 hash of the directory
-        :return: True if successfully removed, False otherwise
+        Args:
+            sha256: The SHA256 hash of the directory
+
+        Returns:
+            True if successfully removed, False otherwise
         """
         try:
-            from quickbbs.common import safe_get_with_callback
-            from quickbbs.models import IndexDirs
+            # Import inside function to avoid circular dependency
+            from quickbbs.models import IndexDirs  # pylint: disable=import-outside-toplevel
 
-            # Get the directory information before updating
-            directory_found, directory = safe_get_with_callback(
-                IndexDirs,
-                found_callback=lambda d: d.invalidate_thumb(),
-                dir_fqpn_sha256=sha256,
-            )
+            # Single optimized lookup with prefetched relationships
+            found, directory = IndexDirs.search_for_directory_by_sha(sha256)
 
-            # Update cache entry using helper method
-            self._invalidate_cache_entry(sha256)
+            if not found:
+                logger.warning("Cannot remove cache for SHA %s - IndexDirs not found", sha256)
+                return False
 
-            # Clear layout cache if needed
-            if directory_found:
-                self._clear_layout_cache(directory)
+            # Invalidate thumbnail
+            directory.invalidate_thumb()
+
+            # Update cache entry using optimized helper method (no additional lookup)
+            self._invalidate_cache_entry_indexdirs(directory)
+
+            # Clear layout cache
+            self._clear_layout_cache(directory)
 
             logger.debug("Removed cache entry for SHA: %s", sha256)
             return True
 
-        except Exception as e:
+        except (DatabaseError, AttributeError) as e:
             logger.error("Error removing SHA %s from cache: %s", sha256, e)
             return False
 
@@ -599,7 +613,7 @@ class fs_Cache_Tracking(models.Model):
         try:
             sha256 = get_dir_sha(dir_path)
             return self.remove_from_cache_sha(sha256)
-        except Exception as e:
+        except (OSError, DatabaseError, AttributeError) as e:
             logger.error("Error removing %s from cache: %s", dir_path, e)
             return False
 
@@ -642,7 +656,8 @@ class fs_Cache_Tracking(models.Model):
             logger.warning("Attempted to invalidate cache with empty SHA256 - rejected")
             return None
 
-        from quickbbs.models import IndexDirs
+        # Import inside function to avoid circular dependency
+        from quickbbs.models import IndexDirs  # pylint: disable=import-outside-toplevel
 
         # Fetch the IndexDirs instance by dir_sha using optimized cached lookup
         found, index_dir = IndexDirs.search_for_directory_by_sha(sha256)
@@ -668,7 +683,8 @@ class fs_Cache_Tracking(models.Model):
         if not dir_names:
             return False
 
-        from quickbbs.models import IndexDirs
+        # Import inside function to avoid circular dependency
+        from quickbbs.models import IndexDirs  # pylint: disable=import-outside-toplevel
 
         # Convert all directory names to SHA256 hashes (deduplicate first for efficiency)
         # Compute SHA→path mapping ONCE, then extract SHAs to avoid duplicate computation
@@ -681,8 +697,9 @@ class fs_Cache_Tracking(models.Model):
         logger.info("Removing %d directories from cache", len(sha_list))
 
         # Get affected directories (only load fields needed for cache clearing)
-        directories = list(IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list).only("dir_fqpn_sha256", "id", "fqpndirectory"))
-        fqpn_by_dir_sha = {d.dir_fqpn_sha256: d for d in directories}
+        fqpn_by_dir_sha = {
+            d.dir_fqpn_sha256: d for d in IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list).only("dir_fqpn_sha256", "id", "fqpndirectory")
+        }
 
         # Check for missing IndexDirs entries and create them
         missing_shas = set(sha_list) - set(fqpn_by_dir_sha.keys())
@@ -699,7 +716,7 @@ class fs_Cache_Tracking(models.Model):
                             logger.debug("Created IndexDirs entry for %s", dir_path)
                         else:
                             logger.warning("IndexDirs.add_directory returned invalid object for %s", dir_path)
-                    except Exception as e:
+                    except (DatabaseError, OSError) as e:
                         logger.error("Failed to create IndexDirs entry for %s: %s", dir_path, e)
 
         # Collect all parent directories using efficient batch query approach
@@ -711,8 +728,7 @@ class fs_Cache_Tracking(models.Model):
 
         with transaction.atomic():
             for sha in all_dirs_to_invalidate:
-                entry = self._invalidate_cache_entry(sha)
-                if entry:
+                if self._invalidate_cache_entry(sha):
                     update_count += 1
 
         # Clear layout caches for affected directories - BULK OPERATION
@@ -760,8 +776,8 @@ class fs_Cache_Tracking(models.Model):
 
         try:
             # Import inside function to avoid circular dependency
-            from frontend.managers import (
-                layout_manager_cache,  # pylint: disable=import-outside-toplevel
+            from frontend.managers import (  # pylint: disable=import-outside-toplevel
+                layout_manager_cache,
             )
 
             # Create set of directory PKs for O(1) lookup, filtering out None values
@@ -793,5 +809,5 @@ class fs_Cache_Tracking(models.Model):
 
             logger.debug("Cleared %d layout cache entries for %d directories", len(keys_to_delete), len(directories))
 
-        except Exception as e:
+        except (KeyError, ImportError, AttributeError) as e:
             logger.error("Error clearing layout cache for directories: %s", e)

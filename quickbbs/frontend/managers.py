@@ -73,17 +73,6 @@ MAX_TEXT_FILE_SIZE = 1024 * 1024
 _markdown_processor = markdown2.Markdown()
 
 
-def _normalize_webpath(path: str) -> str:
-    """
-    Normalize web path by cleaning up double slashes and ensuring consistent format.
-
-    Args:
-        path: Raw path string to normalize
-    Returns: Normalized path string
-    """
-    return path.lower().replace("//", "/")
-
-
 def _webpath_to_filepath(webpath: str, filename: str) -> str:
     """
     Convert webpath and filename to filesystem path.
@@ -336,7 +325,7 @@ def build_context_info(request: WSGIRequest, unique_file_sha256: str, show_dupli
 
     start_time = time.perf_counter()
     sort_order_value = sort_order(request) if request else 0
-    webpath = _normalize_webpath(entry.fqpndirectory)
+    webpath = entry.fqpndirectory.lower().replace("//", "/")
     directory_entry = entry.home_directory
 
     # Build entire context in single operation for optimal performance

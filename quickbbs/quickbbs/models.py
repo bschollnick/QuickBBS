@@ -17,16 +17,15 @@ from cachetools import LRUCache, cached
 
 # Django imports
 from django.conf import settings
-from django.contrib.auth.models import User
+from django.contrib.auth.models import User  # pylint: disable=imported-auth-user
 from django.db import models
 from django.db.models import Count, Prefetch, Q
 from django.db.models.query import QuerySet
-from django.http import Http404, HttpResponse
+from django.http import FileResponse, Http404, HttpResponse
 from django.urls import reverse
 
 # Local application imports
 from filetypes.models import filetypes, get_ftype_dict
-from frontend.serve_up import async_send_file_response
 
 # TODO: Examine django-sage-streaming as a replacement for RangedFileResponse
 # https://github.com/sageteamorg/django-sage-streaming
@@ -168,13 +167,13 @@ class IndexDirs(models.Model):
         ]
 
     @staticmethod
-    def add_directory(fqpn_directory: str, thumbnail: bytes = b"") -> tuple[bool, "IndexDirs"]:
+    def add_directory(fqpn_directory: str, thumbnail: bytes = b"") -> tuple[bool, "IndexDirs"]:  # pylint: disable=unused-argument
         """
         Create a new directory entry or get existing one
 
         Args:
             fqpn_directory: The fully qualified pathname for the directory
-            thumbnail: thumbnail image to store for the thumbnail/cover art
+            thumbnail: thumbnail image to store for the thumbnail/cover art (currently unused)
 
         Returns:
             Database record
@@ -707,14 +706,6 @@ class IndexDirs(models.Model):
         """
         return self.filetype.color
 
-    @cached(indexdirs_cache)
-    def return_identifier(self) -> str:
-        """
-        Return the unique identifier for the directory
-        Returns: The SHA256 hash of the directory's fully qualified pathname
-        """
-        return self.dir_fqpn_sha256
-
     # pylint: disable-next=unused-argument
     def get_thumbnail_url(self, size=None) -> str:
         """
@@ -857,13 +848,6 @@ class IndexData(models.Model):
         Returns: String representing the full file path by concatenating directory + filename
         """
         return self.fqpndirectory + self.name
-
-    def return_unique_identifier(self) -> str:
-        """
-        Return the unique identifier for the file
-        Returns: The unique SHA256 hash of the file + fully qualified filename
-        """
-        return self.unique_sha256
 
     @staticmethod
     def return_identical_files_count(sha: str) -> int:
@@ -1019,13 +1003,6 @@ class IndexData(models.Model):
 
         return get_file_sha(fqfn)
 
-    def get_webpath(self) -> str:
-        """
-        Convert the fqpndirectory to an web path
-        Returns:
-        """
-        return self.fqpndirectory.removeprefix(IndexDirs.get_albums_prefix())
-
     def get_file_counts(self) -> None:
         """
         Stub method to allow the same behavior between a Index_Dir objects and IndexData object.
@@ -1093,17 +1070,6 @@ class IndexData(models.Model):
         """
         return reverse("download_file") + self.name + f"?usha={self.unique_sha256}"
 
-    def _get_mimetype_and_filepath(self) -> tuple[str, str]:
-        """
-        Get MIME type with fallback and full file path.
-
-        Returns:
-            Tuple of (mimetype, filepath) where mimetype defaults to
-            "application/octet-stream" if not defined in filetype
-        """
-        mtype = self.filetype.mimetype or "application/octet-stream"
-        return mtype, self.full_filepathname
-
     def inline_sendfile(self, request: Any, ranged: bool = False) -> Any:
         """
         Helper function to send data to remote - matches original fast implementation.
@@ -1113,7 +1079,8 @@ class IndexData(models.Model):
 
         Uses HttpResponse for non-ranged, RangedFileResponse for ranged (videos).
         """
-        mtype, fqpn_filename = self._get_mimetype_and_filepath()
+        mtype = self.filetype.mimetype or "application/octet-stream"
+        fqpn_filename = self.full_filepathname
 
         if not ranged:
             # Load entire file into memory - matches old fast code
@@ -1143,56 +1110,81 @@ class IndexData(models.Model):
         """
         Helper function to send data to remote (ASGI async version).
 
-        Uses aiofiles to open file handle asynchronously, avoiding sync iterator warnings.
+        Uses aiofiles for true async file I/O to avoid sync iterator warnings.
+        For non-ranged requests, loads file into memory for optimal async serving.
+        For ranged requests (videos), uses sync file handle as RangedFileResponse
+        requires seekable files.
 
-        :Args:
+        Args:
             request: Django request object
             ranged: Whether to support HTTP range requests for video streaming
 
-        :Return:
-            HttpResponse with async file content
+        Returns:
+            FileResponse or RangedFileResponse with file content
+
+        Raises:
+            Http404: If file not found
+            asyncio.CancelledError: Re-raised if client disconnects (file handle cleaned up)
         """
-        start = time.perf_counter()
-        mtype, fqpn_filename = self._get_mimetype_and_filepath()
+        import asyncio
+        import io
 
-        if not ranged:
-            # Use sync file I/O in thread pool - faster than aiofiles for OS-cached files
-            def _read_file():
-                with open(fqpn_filename, "rb", buffering=8196) as fh:
-                    return fh.read()
+        import aiofiles
 
-            try:
-                start_file = time.perf_counter()
-                content = await sync_to_async(_read_file)()
-                file_time = (time.perf_counter() - start_file) * 1000
+        mtype = self.filetype.mimetype or "application/octet-stream"
+        fqpn_filename = self.full_filepathname
+        file_handle = None
 
-                response = HttpResponse(content, content_type=mtype)
-                response["Content-Disposition"] = f"inline; filename={self.name}"
-                response["Cache-Control"] = "public, max-age=300"
+        try:
+            if not ranged:
+                # Non-ranged: Load file async and serve from memory (eliminates sync iterator warning)
+                async with aiofiles.open(fqpn_filename, "rb") as f:
+                    content = await f.read()
+
+                response = FileResponse(
+                    io.BytesIO(content),
+                    content_type=mtype,
+                    as_attachment=False,
+                    filename=self.name,
+                )
+            else:
+                # Ranged request for video streaming - requires seekable sync file handle
+                # RangedFileResponse needs seek() which aiofiles doesn't support
+                #
+                # IMPORTANT: RangedFileResponse takes ownership of the file handle and closes it
+                # when the response completes. Do NOT use context manager (with open()) as it
+                # would close the handle prematurely before streaming completes.
+                #
+                # Handle lifecycle:
+                # - Normal operation: RangedFileResponse closes handle when streaming completes
+                # - Errors: Exception handlers below close handle (FileNotFoundError, CancelledError)
+                # - Concurrent streams: 50+ simultaneous open handles is safe (system limit ~1024)
+                def _open_file():
+                    return open(fqpn_filename, "rb")
+
+                file_handle = await sync_to_async(_open_file)()
+                response = RangedFileResponse(
+                    request,
+                    file=file_handle,
+                    as_attachment=False,
+                    filename=self.name,
+                )
                 response["Content-Type"] = mtype
 
-                total_time = (time.perf_counter() - start) * 1000
-                logger.info(
-                    "[PERF] async_inline_sendfile: file read=%.2fms, total=%.2fms",
-                    file_time,
-                    total_time,
-                )
-                return response
-            except FileNotFoundError as exc:
-                raise Http404 from exc
-        else:
-            # Ranged request for video streaming
-            result = await async_send_file_response(
-                request=request,
-                filename=self.name,
-                filepath=fqpn_filename,
-                mtype=mtype or "image/jpeg",
-                attachment=False,
-                expiration=300,
-            )
-            total_time = (time.perf_counter() - start) * 1000
-            logger.info("[PERF] async_inline_sendfile (ranged): %.2fms", total_time)
-            return result
+            response["Cache-Control"] = "public, max-age=300"
+            return response
+
+        except FileNotFoundError as exc:
+            # Clean up file handle if opened
+            if file_handle is not None:
+                file_handle.close()
+            raise Http404 from exc
+        except asyncio.CancelledError:
+            # Client disconnected - clean up file handle if opened
+            if file_handle is not None:
+                file_handle.close()
+            # Re-raise to let Django handle the cancellation
+            raise
 
     class Meta:
         verbose_name = "Master Files Index"

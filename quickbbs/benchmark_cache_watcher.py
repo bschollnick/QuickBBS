@@ -76,9 +76,7 @@ class BenchmarkResult:
         )
 
 
-def benchmark_query(
-    name: str, query_func: Callable, iterations: int = BENCHMARK_ITERATIONS, samples: list = None
-) -> BenchmarkResult:
+def benchmark_query(name: str, query_func: Callable, iterations: int = BENCHMARK_ITERATIONS, samples: list = None) -> BenchmarkResult:
     """
     Benchmark a database query function.
 
