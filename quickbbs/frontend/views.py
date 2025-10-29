@@ -549,33 +549,6 @@ def _determine_template(request: WSGIRequest, template_type: str = "gallery") ->
     return template_set["partial"] if is_partial else template_set["complete"]
 
 
-def _process_request_path(request: WSGIRequest) -> dict:
-    """
-    Process and normalize the request path for gallery viewing.
-
-    Args:
-        request: Django WSGIRequest object
-    Returns: Dictionary containing processed paths
-    """
-    # Properly decode URL before processing to handle special characters like #
-    try:
-        decoded_path = urllib.parse.unquote(request.path)
-        request.path = decoded_path.lower().replace(os.sep, r"/")
-    except (ValueError, UnicodeDecodeError) as e:
-        logger.warning("Failed to decode URL path '%s': %s", request.path, e)
-        # Fallback to original behavior for malformed URLs
-        request.path = request.path.lower().replace(os.sep, r"/")
-
-    # Normalize the album_viewing path to ensure consistent trailing slashes
-    album_viewing_path = normalize_fqpn(settings.ALBUMS_PATH + request.path)
-
-    return {
-        "webpath": request.path,
-        "album_viewing": album_viewing_path,
-        "thumbpath": ensures_endswith(request.path.replace(r"/albums/", r"/thumbnails/"), "/"),
-    }
-
-
 def _find_directory(paths: dict):
     """
     Find directory in database, create if missing, validate physical existence, and sync from disk.
@@ -639,37 +612,6 @@ def _find_directory(paths: dict):
     return True, directory
 
 
-def _build_gallery_context(request: WSGIRequest, paths: dict, directory) -> dict:  # pylint: disable=unused-argument
-    """
-    Build gallery-specific context using shared base context.
-
-    Args:
-        request: Django WSGIRequest object
-        paths: Dictionary containing path information
-        directory: IndexDirs object for the directory
-    Returns: Context dictionary
-    """
-    # Start with shared base context
-    context = _create_base_context(request)
-
-    # Add gallery-specific context
-    context.update(
-        {
-            "webpath": ensures_endswith(paths["webpath"], os.sep),
-            "breadcrumbs": return_breadcrumbs(paths["webpath"])[:-1],
-            "thumbpath": paths["thumbpath"],
-            "gallery_name": pathlib.Path(paths["webpath"]).name,
-            "up_uri": "/".join(request.build_absolute_uri().split("/")[0:-1]),
-            "search": False,
-            "prev_uri": None,
-            "next_uri": None,
-            "pagelist": [],
-        }
-    )
-
-    return context
-
-
 @vary_on_headers("HX-Request")
 async def new_viewgallery(request: WSGIRequest):
     """
@@ -689,20 +631,46 @@ async def new_viewgallery(request: WSGIRequest):
 
     # Use standardized template selection
     template_name = _determine_template(request, "gallery")
-    paths = _process_request_path(request)
-    directory_result = await sync_to_async(_find_directory)(paths)
 
-    # Handle early returns from directory lookup
-    if isinstance(directory_result, (HttpResponseNotFound, HttpResponseBadRequest)):
-        return directory_result
+    # Process and normalize request path
+    try:
+        request.path = urllib.parse.unquote(request.path).lower().replace(os.sep, r"/")
+    except (ValueError, UnicodeDecodeError) as e:
+        logger.warning("Failed to decode URL path '%s': %s", request.path, e)
+        request.path = request.path.lower().replace(os.sep, r"/")
 
-    _, directory = directory_result
+    paths = {
+        "webpath": request.path,
+        "album_viewing": normalize_fqpn(settings.ALBUMS_PATH + request.path),
+        "thumbpath": ensures_endswith(request.path.replace(r"/albums/", r"/thumbnails/"), "/"),
+    }
+
+    # Get directory and handle early returns
+    result = await sync_to_async(_find_directory)(paths)
+    if isinstance(result, (HttpResponseNotFound, HttpResponseBadRequest)):
+        return result
+    _, directory = result
 
     # Ensure directory data is up to date
     await sync_database_disk(directory)
 
-    # Build initial context
-    context = _build_gallery_context(request, paths, directory)
+    # Build initial context - start with shared base context
+    context = _create_base_context(request)
+
+    # Add gallery-specific context
+    context.update(
+        {
+            "webpath": ensures_endswith(paths["webpath"], os.sep),
+            "breadcrumbs": return_breadcrumbs(paths["webpath"])[:-1],
+            "thumbpath": paths["thumbpath"],
+            "gallery_name": pathlib.Path(paths["webpath"]).name,
+            "up_uri": "/".join(request.build_absolute_uri().split("/")[0:-1]),
+            "search": False,
+            "prev_uri": None,
+            "next_uri": None,
+            "pagelist": [],
+        }
+    )
 
     # Get layout data and update context (async wrapped)
     layout = await async_layout_manager(
@@ -723,14 +691,11 @@ async def new_viewgallery(request: WSGIRequest):
     # Set navigation URIs (async function)
     context["prev_uri"], context["next_uri"] = await return_prev_next2(directory, sorder=context["sort"])
 
-    # Get current page data and build display items with optimized queries
-    data_for_current_page = layout["data"]
-
     # Only fetch directories if there are any on this page (async wrapped)
-    if data_for_current_page["directories"]:
+    if layout["data"]["directories"]:
         dirs_to_display = await sync_to_async(list)(
             directory.dirs_in_dir(sort=context["sort"])
-            .filter(dir_fqpn_sha256__in=data_for_current_page["directories"])
+            .filter(dir_fqpn_sha256__in=layout["data"]["directories"])
             .select_related("filetype", "thumbnail__new_ftnail")
             .annotate(
                 file_count_cached=Count(
@@ -743,16 +708,15 @@ async def new_viewgallery(request: WSGIRequest):
         dirs_to_display = []
 
     # Only fetch files if there are any on this page (async wrapped)
-    if data_for_current_page["files"]:
-        files_and_links = await sync_to_async(list)(
+    if layout["data"]["files"]:
+        # Fetch and separate files and links in one pass
+        all_items = await sync_to_async(list)(
             directory.files_in_dir(sort=context["sort"])
-            .filter(unique_sha256__in=data_for_current_page["files"])
+            .filter(unique_sha256__in=layout["data"]["files"])
             .select_related("filetype", "home_directory", "new_ftnail")
         )
-
-        # Separate files and links in Python (single query already executed)
-        files_list = [f for f in files_and_links if not f.filetype.is_link]
-        links_list = [f for f in files_and_links if f.filetype.is_link]
+        files_list = [f for f in all_items if not f.filetype.is_link]
+        links_list = [f for f in all_items if f.filetype.is_link]
     else:
         files_list = []
         links_list = []
@@ -765,9 +729,7 @@ async def new_viewgallery(request: WSGIRequest):
         print(f"{len(layout["no_thumbnails"])} entries need thumbnails")
         # print(layout["no_thumbnails"][0:10])  # Show first 10 entries needing thumbs
 
-        batchsize = 100
-        no_thumbs = layout["no_thumbnails"][0:batchsize]
-        if no_thumbs:
+        if layout["no_thumbnails"][:100]:  # Process first 100 entries
             await process_thumbnails_async(layout, batchsize=100, max_workers=6)
             # Clear layout cache for affected pages
             for page_numb in range(0, context["current_page"] + 1):
@@ -906,8 +868,6 @@ async def download_file(request: WSGIRequest):  # , filename=None):
         asyncio.CancelledError: Re-raised if client disconnects (normal operation)
     """
     import asyncio
-
-    start_total = time.perf_counter()
 
     sha_value = request.GET.get("usha", None) or request.GET.get("USHA", None)
     if sha_value in ["", None]:

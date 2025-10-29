@@ -177,28 +177,29 @@ def _sync_directories(directory_record: object, fs_entries: dict) -> None:
     logger.info("Synchronizing directories...")
     current_path = normalize_fqpn(directory_record.fqpndirectory)
 
-    # Get all database directories in one query
+    # Get all database directories and build filesystem directory set in one pass
     all_dirs_in_database = directory_record.dirs_in_dir()
-    all_database_dir_names_set = set(all_dirs_in_database.values_list("fqpndirectory", flat=True))
-
-    # Build filesystem directory names
-    all_filesystem_dir_names = {normalize_fqpn(current_path + entry.name) for entry in fs_entries.values() if entry.is_dir()}
-
-    entries_that_dont_exist_in_fs = all_database_dir_names_set - all_filesystem_dir_names
-    entries_not_in_database = all_filesystem_dir_names - all_database_dir_names_set
+    db_dirs = set(all_dirs_in_database.values_list("fqpndirectory", flat=True))
+    fs_dirs = {normalize_fqpn(current_path + entry.name) for entry in fs_entries.values() if entry.is_dir()}
 
     # Check for updates in existing directories
-    existing_directories_in_database = list(all_dirs_in_database.filter(fqpndirectory__in=all_database_dir_names_set))
+    existing_dirs = list(all_dirs_in_database.filter(fqpndirectory__in=db_dirs & fs_dirs))
 
-    print(f"Existing directories in database: {len(existing_directories_in_database)}")
-    if existing_directories_in_database:
-        # Note: _check_directory_updates is still async but called from sync context
-        # We'll need to handle this at the call site
+    print(f"Existing directories in database: {len(existing_dirs)}")
+    if existing_dirs:
+        # Check each directory for updates
         updated_records = []
-        for db_dir_entry in existing_directories_in_database:
-            result = _check_single_directory_update(db_dir_entry, fs_entries)
-            if result:
-                updated_records.append(result)
+        for db_dir_entry in existing_dirs:
+            if (fs_entry := fs_entries.get(db_dir_entry.fqpndirectory)):
+                try:
+                    fs_stat = fs_entry.stat()
+                    # Update modification time and size if changed
+                    if db_dir_entry.lastmod != fs_stat.st_mtime or db_dir_entry.size != fs_stat.st_size:
+                        db_dir_entry.lastmod = fs_stat.st_mtime
+                        db_dir_entry.size = fs_stat.st_size
+                        updated_records.append(db_dir_entry)
+                except (OSError, IOError) as e:
+                    logger.error(f"Error checking directory {db_dir_entry.fqpndirectory}: {e}")
 
         print(f"Directories to Update: {len(updated_records)}")
 
@@ -214,90 +215,22 @@ def _sync_directories(directory_record: object, fs_entries: dict) -> None:
             logger.info(f"Processing {len(updated_records)} directory updates")
 
     # Create new directories BEFORE deleting old ones to prevent foreign key violations
-    if entries_not_in_database:
-        print(f"Directories to Add: {len(entries_not_in_database)}")
-        logger.info(f"Directories to Add: {len(entries_not_in_database)}")
+    new_dirs = fs_dirs - db_dirs
+    if new_dirs:
+        print(f"Directories to Add: {len(new_dirs)}")
+        logger.info(f"Directories to Add: {len(new_dirs)}")
         with transaction.atomic():
-            for dir_to_create in entries_not_in_database:
+            for dir_to_create in new_dirs:
                 IndexDirs.add_directory(fqpn_directory=dir_to_create)
 
-    if entries_that_dont_exist_in_fs:
-        print(f"Directories to Delete: {len(entries_that_dont_exist_in_fs)}")
-        logger.info(f"Directories to Delete: {len(entries_that_dont_exist_in_fs)}")
+    # Delete directories that no longer exist in filesystem
+    deleted_dirs = db_dirs - fs_dirs
+    if deleted_dirs:
+        print(f"Directories to Delete: {len(deleted_dirs)}")
+        logger.info(f"Directories to Delete: {len(deleted_dirs)}")
         with transaction.atomic():
-            all_dirs_in_database.filter(fqpndirectory__in=entries_that_dont_exist_in_fs).delete()
+            all_dirs_in_database.filter(fqpndirectory__in=deleted_dirs).delete()
             Cache_Storage.remove_from_cache_indexdirs(directory_record)
-
-
-def _check_single_directory_update(db_dir_entry, fs_entries: dict) -> object | None:
-    """
-    Check a single directory for updates. Helper function for concurrent processing.
-
-    Args:
-        db_dir_entry: Database directory entry
-        fs_entries: Dictionary of filesystem entries
-
-    Returns:
-        Updated directory record or None
-    """
-    fs_entry = fs_entries.get(db_dir_entry.fqpndirectory)
-    if fs_entry:
-        try:
-            fs_stat = fs_entry.stat()
-            update_needed = False
-
-            # Check modification time
-            if db_dir_entry.lastmod != fs_stat.st_mtime:
-                db_dir_entry.lastmod = fs_stat.st_mtime
-                update_needed = True
-
-            # Check directory size (if applicable)
-            if db_dir_entry.size != fs_stat.st_size:
-                db_dir_entry.size = fs_stat.st_size
-                update_needed = True
-
-            return db_dir_entry if update_needed else None
-
-        except (OSError, IOError) as e:
-            logger.error(f"Error checking directory {db_dir_entry.fqpndirectory}: {e}")
-    return None
-
-
-async def _check_directory_updates(fs_entries: dict, existing_directories_in_database: object) -> list[object]:
-    """
-    Check for updates in existing directories - simplified to avoid thread pool issues.
-
-    IMPORTANT - Thread Pool Removal:
-    Previous implementation used sync_to_async with thread_sensitive=False, which caused:
-    - Database connection leaks in Gunicorn/Uvicorn workers
-    - State leakage between requests (transactions, temp tables)
-    - Connection exhaustion under load
-
-    This simplified version:
-    - No thread pool overhead (stat comparisons are CPU-bound, not I/O-bound)
-    - Safe for all servers (WSGI/ASGI/gevent/eventlet)
-    - Actually faster (thread creation overhead > simple loop time)
-    - No database connection issues
-
-    Performance: ~20-40% faster for typical directory counts (5-50 dirs).
-
-    Args:
-        fs_entries: Dictionary of filesystem entries (DirEntry objects with cached stats)
-        existing_directories_in_database: List/QuerySet of existing directory records
-
-    Returns:
-        List of directory records that need updating (with modified attributes)
-    """
-    records_to_update = []
-
-    # Simple loop is faster than thread pool for stat comparisons
-    # DirEntry.stat() is cached, so this is essentially memory-only operations
-    for db_dir_entry in existing_directories_in_database:
-        result = _check_single_directory_update(db_dir_entry, fs_entries)
-        if result:
-            records_to_update.append(result)
-
-    return records_to_update
 
 
 def _sync_files(directory_record: object, fs_entries: dict, bulk_size: int) -> None:
@@ -639,40 +572,6 @@ def return_breadcrumbs(uri_path="") -> list[dict[str, str]]:
 
 
 @lru_cache(maxsize=1000)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
-def _cached_fs_counts(entries_tuple: tuple) -> tuple[int, int]:
-    """
-    Cached helper for fs_counts with optimized counting.
-
-    Args:
-        entries_tuple (tuple): Tuple of boolean values indicating file status
-
-    Returns:
-        tuple: (file_count, directory_count)
-    """
-    # More efficient counting using built-in sum
-    files = sum(entries_tuple)
-    dirs = len(entries_tuple) - files
-    return (files, dirs)
-
-
-def fs_counts(fs_entries: dict) -> tuple[int, int]:
-    """
-    Efficiently count files vs directories with enhanced caching
-
-    Args:
-        fs_entries (dict): Dictionary of scandir entries
-
-    Returns:
-        tuple: (number_of_files, number_of_directories)
-    """
-    if not fs_entries:
-        return (0, 0)
-
-    # Create a more cache-friendly representation
-    entries_tuple = tuple(entry.is_file() for entry in fs_entries.values())
-    return _cached_fs_counts(entries_tuple)
-
-
 def process_filedata(fs_entry: Path, directory_id: str | None = None) -> dict[str, Any] | None:
     """
     Process a file system entry and return a dictionary with file metadata.
@@ -866,20 +765,6 @@ async def sync_database_disk(directory_record: IndexDirs) -> bool | None:
     return directory_record
 
 
-# ASGI: Wrapper for backward compatibility with string parameter
-async def async_sync_database_disk(directory_record: IndexDirs) -> bool | None:
-    """
-    Wrapper that calls sync_database_disk with an IndexDirs record.
-
-    Args:
-        directory_record: IndexDirs record for the directory to synchronize
-
-    Returns:
-        None on success, False on error
-    """
-    return await sync_database_disk(directory_record)
-
-
 @lru_cache(maxsize=500)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
 def resolve_alias_path(alias_path: str) -> str:
     """
@@ -912,5 +797,17 @@ def resolve_alias_path(alias_path: str) -> str:
     for disk_path, replacement_path in settings.ALIAS_MAPPING.items():
         if resolved_url.startswith(disk_path.lower()):
             resolved_url = resolved_url.replace(disk_path.lower(), replacement_path.lower()) + os.sep
+            break
+
+    # The copier is set to transform spaces to underscores.  We can safely disable that now, but
+    # that legacy means that there would be tremendous pain in duplication of data.  So for now,
+    # we will just check if the resolved path exists, and if not, we will try replacing spaces with underscores.
+    # If that works, then we will return that modified path instead.  Otherwise, we return the original resolved path.
+
+    if resolved_url:
+        if os.path.exists(resolved_url):
             return resolved_url
+        else:
+            resolved_url = resolved_url.replace(" ", "_")
+
     return resolved_url

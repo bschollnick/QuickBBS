@@ -13,11 +13,35 @@
 .level {
     margin-top: 1rem;
     margin-bottom: 0.5rem;
+    align-items: center;
+}
+
+.level-left,
+.level-right {
+    flex-shrink: 0;
 }
 
 .level-item.is-breadcrumb {
-    flex-grow: 1;
+    flex: 1 1 auto;
+    min-width: 0;
     justify-content: center;
+    overflow: hidden;
+}
+
+.level-item.is-breadcrumb .breadcrumb {
+    max-width: 100%;
+}
+
+.level-item.is-breadcrumb .breadcrumb ul {
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.level-item.is-breadcrumb .breadcrumb li {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .nav-link {

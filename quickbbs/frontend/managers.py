@@ -73,87 +73,35 @@ MAX_TEXT_FILE_SIZE = 1024 * 1024
 _markdown_processor = markdown2.Markdown()
 
 
-def _webpath_to_filepath(webpath: str, filename: str) -> str:
-    """
-    Convert webpath and filename to filesystem path.
-
-    Args:
-        webpath: Normalized web path
-        filename: File name to append
-    Returns: Full filesystem path
-    """
-    return os.path.join(webpath.replace("/", os.sep), filename)
-
-
-def _detect_encoding_from_bytes(raw_data: bytes) -> str:
-    """
-    Detect encoding from raw bytes using charset_normalizer.
-
-    Args:
-        raw_data: Raw file bytes to analyze
-    Returns: Detected encoding string, defaults to 'utf-8' if detection fails
-    """
-    result = charset_normalizer.from_bytes(raw_data)
-    best_match = result.best()
-    if best_match is None:
-        return "utf-8"
-    encoding = best_match.encoding
-    return encoding if encoding else "utf-8"
-
-
-async def async_get_file_text_encoding(filename: str) -> str:
-    """
-    Detect the text encoding of a file (async version).
-
-    Non-blocking file I/O for use in async contexts. Uses aiofiles for
-    async file operations to prevent blocking the event loop. Reads only
-    the first 4KB for efficient encoding detection.
-
-    Args:
-        filename: Path to the file to analyze
-    Returns: Detected encoding string, defaults to 'utf-8' if detection fails
-    """
-    import aiofiles
-
-    try:
-        async with aiofiles.open(filename, "rb") as f:
-            raw_data = await f.read(4096)  # Read only first 4KB
-            return _detect_encoding_from_bytes(raw_data)
-    except (OSError, IOError):
-        return "utf-8"
-
-
 def get_file_text_encoding(filename: str) -> str:
     """
-    Detect the text encoding of a file (sync version).
+    Detect the text encoding of a file.
 
-    Wrapper around async version for synchronous contexts. Reads only
-    the first 4KB for efficient encoding detection.
+    Reads only the first 4KB for efficient encoding detection.
+    Uses charset_normalizer for robust encoding detection.
+
+    ASYNC-SAFE: Pure file I/O, no Django ORM operations.
+    For async contexts, wrap with: await asyncio.to_thread(get_file_text_encoding, filename)
 
     Args:
         filename: Path to the file to analyze
-    Returns: Detected encoding string, defaults to 'utf-8' if detection fails
-    """
-    import asyncio
 
+    Returns:
+        Detected encoding string, defaults to 'utf-8' if detection fails
+    """
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # If event loop is already running, use sync I/O
-            with open(filename, "rb") as f:
-                raw_data = f.read(4096)  # Read only first 4KB
-                return _detect_encoding_from_bytes(raw_data)
-        else:
-            # If no event loop, run async version
-            return loop.run_until_complete(async_get_file_text_encoding(filename))
-    except RuntimeError:
-        # No event loop exists, use sync I/O
-        try:
-            with open(filename, "rb") as f:
-                raw_data = f.read(4096)  # Read only first 4KB
-                return _detect_encoding_from_bytes(raw_data)
-        except (OSError, IOError):
-            return "utf-8"
+        with open(filename, "rb") as f:
+            raw_data = f.read(4096)  # Read only first 4KB
+
+            # Detect encoding using charset_normalizer
+            result = charset_normalizer.from_bytes(raw_data)
+            best_match = result.best()
+            if best_match is None:
+                return "utf-8"
+            encoding = best_match.encoding
+            return encoding if encoding else "utf-8"
+    except (OSError, IOError):
+        return "utf-8"
 
 
 @cached(LRUCache(maxsize=1000))
@@ -169,44 +117,12 @@ def get_file_text_encoding_cached(filename: str, file_mtime: float) -> str:  # p
     return get_file_text_encoding(filename)
 
 
-def _check_file_size(stat_info) -> str | None:
-    """
-    Check if file exceeds size limit.
-
-    ASYNC-SAFE: Pure function with no DB/IO operations
-
-    Args:
-        stat_info: os.stat_result object
-
-    Returns:
-        Error message HTML if file is too large, None otherwise
-    """
-    if stat_info.st_size > MAX_TEXT_FILE_SIZE:
-        return f"<p><em>File too large to display ({stat_info.st_size:,} bytes). " f"Maximum size: {MAX_TEXT_FILE_SIZE:,} bytes.</em></p>"
-    return None
-
-
-def _process_text_content(content: str, is_markdown: bool) -> str:
-    """
-    Process text content (markdown or HTML).
-
-    ASYNC-SAFE: Pure function with no DB/IO operations
-
-    Args:
-        content: Raw text content
-        is_markdown: Whether to process as markdown (True) or HTML (False)
-
-    Returns:
-        Processed HTML content
-    """
-    if is_markdown:
-        return _markdown_processor.convert(content)
-    return content.replace("\n", "<br>")
-
-
 def _process_text_file(filename: str, is_markdown: bool = False) -> str:
     """
     Process text or HTML files with size limits and encoding detection.
+
+    ASYNC-SAFE: Pure file I/O, no Django ORM operations.
+    For async contexts, wrap with: await asyncio.to_thread(_process_text_file, filename, is_markdown)
 
     Args:
         filename: Path to the file to process
@@ -221,53 +137,20 @@ def _process_text_file(filename: str, is_markdown: bool = False) -> str:
         stat_info = file_path.stat()
 
         # Check file size limit
-        size_error = _check_file_size(stat_info)
-        if size_error:
-            return size_error
+        if stat_info.st_size > MAX_TEXT_FILE_SIZE:
+            return (f"<p><em>File too large to display ({stat_info.st_size:,} bytes). "
+                   f"Maximum size: {MAX_TEXT_FILE_SIZE:,} bytes.</em></p>")
 
         encoding = get_file_text_encoding_cached(filename, stat_info.st_mtime)
 
         with open(filename, "r", encoding=encoding) as f:
             content = f.read()
-            return _process_text_content(content, is_markdown)
-    except UnicodeDecodeError:
-        return "<p><em>We are unable to view this file.</em></p>"
-    except (OSError, IOError) as e:
-        return f"<p><em>Error reading file: {str(e)}</em></p>"
 
+            # Process content based on type
+            if is_markdown:
+                return _markdown_processor.convert(content)
+            return content.replace("\n", "<br>")
 
-async def async_process_text_file(filename: str, is_markdown: bool = False) -> str:
-    """
-    Async version: Process text or HTML files with size limits and encoding detection.
-
-    Non-blocking file I/O for use in async contexts. Uses aiofiles for
-    async file operations to prevent blocking the event loop.
-
-    Args:
-        filename: Path to the file to process
-        is_markdown: Whether to process as markdown (True) or HTML (False)
-
-    Returns:
-        Processed HTML content or error message
-    """
-    import aiofiles
-
-    try:
-        # Use single stat call for both size and mtime
-        file_path = Path(filename)
-        stat_info = file_path.stat()
-
-        # Check file size limit
-        size_error = _check_file_size(stat_info)
-        if size_error:
-            return size_error
-
-        # Try to use cached encoding if available
-        encoding = get_file_text_encoding_cached(filename, stat_info.st_mtime)
-
-        async with aiofiles.open(filename, "r", encoding=encoding) as f:
-            content = await f.read()
-            return _process_text_content(content, is_markdown)
     except UnicodeDecodeError:
         return "<p><em>We are unable to view this file.</em></p>"
     except (OSError, IOError) as e:
@@ -408,47 +291,26 @@ def _process_file_content(entry: IndexData, webpath: str) -> str:
     """
     Process file content based on file type.
 
+    ASYNC-SAFE: File I/O only (entry object already loaded from DB).
+    For async contexts, wrap with: await asyncio.to_thread(_process_file_content, entry, webpath)
+
     Args:
-        entry: IndexData object for the current file
+        entry: IndexData object for the current file (pre-loaded with filetype)
         webpath: Web path for constructing file path
-    Returns: Processed HTML content or empty string
+
+    Returns:
+        Processed HTML content or empty string
     """
     if not (entry.filetype.is_text or entry.filetype.is_markdown or entry.filetype.is_html):
         return ""
 
-    # Optimize path construction
-    filename = _webpath_to_filepath(webpath, entry.name)
+    # Construct filesystem path from webpath
+    filename = os.path.join(webpath.replace("/", os.sep), entry.name)
 
     if entry.filetype.is_text or entry.filetype.is_markdown:
         return _process_text_file(filename, is_markdown=True)
     if entry.filetype.is_html:
         return _process_text_file(filename, is_markdown=False)
-
-    return ""
-
-
-async def async_process_file_content(entry: IndexData, webpath: str) -> str:
-    """
-    Async version: Process file content based on file type.
-
-    Non-blocking file I/O for use in async contexts. Uses aiofiles for
-    async file operations to prevent blocking the event loop.
-
-    Args:
-        entry: IndexData object for the current file
-        webpath: Web path for constructing file path
-    Returns: Processed HTML content or empty string
-    """
-    if not (entry.filetype.is_text or entry.filetype.is_markdown or entry.filetype.is_html):
-        return ""
-
-    # Optimize path construction
-    filename = _webpath_to_filepath(webpath, entry.name)
-
-    if entry.filetype.is_text or entry.filetype.is_markdown:
-        return await async_process_text_file(filename, is_markdown=True)
-    if entry.filetype.is_html:
-        return await async_process_text_file(filename, is_markdown=False)
 
     return ""
 
