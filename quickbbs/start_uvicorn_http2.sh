@@ -27,8 +27,8 @@ PORT="8888"
 WORKERS="4"  # Adjust based on CPU cores (2-4 * num_cores)
 
 # SSL certificate paths (adjust to your certificate locations)
-SSL_CERT="../certs/cert.pem"
-SSL_KEY="../certs/key.pem"
+SSL_CERT="../certs/quickbbs_cert.pem"
+SSL_KEY="../certs/quickbbs_key.pem"
 
 # Check if SSL certificates exist
 if [ ! -f "$SSL_CERT" ] || [ ! -f "$SSL_KEY" ]; then
@@ -38,8 +38,8 @@ if [ ! -f "$SSL_CERT" ] || [ ! -f "$SSL_KEY" ]; then
     echo "To generate self-signed certificates for testing:"
     echo "  mkdir -p ../certs"
     echo "  openssl req -x509 -newkey rsa:4096 -nodes \\"
-    echo "    -keyout ../certs/key.pem \\"
-    echo "    -out ../certs/cert.pem \\"
+    echo "    -keyout ../certs/quickbbs_key.pem \\"
+    echo "    -out ../certs/quickbbs_cert.pem \\"
     echo "    -days 365 -subj '/CN=localhost'"
     exit 1
 fi

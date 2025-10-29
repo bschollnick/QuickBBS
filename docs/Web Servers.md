@@ -66,9 +66,49 @@ gunicorn quickbbs.wsgi:application \
 
 ---
 
-### Uvicorn (ASGI - Production)
+### Gunicorn + Uvicorn Workers (ASGI - Production)
 
-Uvicorn is a lightning-fast ASGI server with async support.
+Gunicorn with Uvicorn workers combines Gunicorn's process management with Uvicorn's ASGI performance and HTTP/2 support.
+
+**Quick Start with HTTP/2 (Recommended):**
+```bash
+cd quickbbs
+./start_gunicorn_http2.sh
+```
+
+This script automatically configures Gunicorn + Uvicorn workers with HTTP/2, HTTPS, and optimal settings.
+
+**Manual Configuration:**
+
+**HTTPS with HTTP/2:**
+```bash
+cd quickbbs
+gunicorn quickbbs.asgi:application \
+    -k uvicorn.workers.UvicornWorker \
+    -w 4 \
+    -b 0.0.0.0:8888 \
+    --keyfile /path/to/private.key \
+    --certfile /path/to/certificate.crt \
+    --timeout 120 \
+    --access-logfile - \
+    --error-logfile -
+```
+
+**Recommended Workers:**
+- Workers: `2-4 × CPU cores`
+- For 4 cores: `-w 8` to `-w 16`
+- Higher timeout for large downloads: `--timeout 120`
+
+**Pros:** Production-grade process management, async support, HTTP/2, graceful restarts
+**Cons:** Slightly more complex than standalone Uvicorn
+
+---
+
+### Uvicorn (ASGI - Production) ⭐ RECOMMENDED FOR HTTP/1.1
+
+Uvicorn is a lightning-fast ASGI server with async support. **NOTE: Uvicorn does NOT support HTTP/2.** For HTTP/2 support, use Hypercorn instead.
+
+**Manual Commands:**
 
 **Basic HTTP:**
 ```bash
@@ -87,14 +127,18 @@ uvicorn quickbbs.asgi:application \
     --reload
 ```
 
-**HTTPS (Direct):**
+**HTTPS (HTTP/1.1 only):**
 ```bash
 uvicorn quickbbs.asgi:application \
     --host 0.0.0.0 \
     --port 8888 \
     --ssl-keyfile /path/to/private.key \
-    --ssl-certfile /path/to/certificate.crt
+    --ssl-certfile /path/to/certificate.crt \
+    --workers 4 \
+    --loop uvloop
 ```
+
+**Note:** Uvicorn only supports HTTP/1.1. For HTTP/2, use Hypercorn (see below).
 
 **HTTPS with CA Bundle:**
 ```bash
@@ -114,21 +158,35 @@ uvicorn quickbbs.asgi:application \
     --workers 4 \
     --log-level info \
     --access-log \
-    --use-colors
+    --loop uvloop
 ```
 
 **Recommended Workers:**
 - Workers: `2 × CPU cores`
 - For 4 cores: `--workers 8`
 
-**Pros:** Fast, async support, modern, HTTP/2 ready
-**Cons:** Newer than Gunicorn, less battle-tested
+**Performance Dependencies:**
+- ✅ `httptools` - Fast HTTP/1.1 parsing (installed)
+- ⚪ `uvloop` - Fast event loop (optional, 20-30% boost)
+
+**Pros:** Fast, async support, excellent HTTP/1.1 performance, modern
+**Cons:** No HTTP/2 support (use Hypercorn for HTTP/2)
 
 ---
 
-### Hypercorn (ASGI - Production)
+### Hypercorn (ASGI - Production) ⭐ RECOMMENDED FOR HTTP/2
 
-Hypercorn is an ASGI server with advanced HTTP/2 and HTTP/3 support.
+Hypercorn is an ASGI server with **native HTTP/2 and HTTP/3 support**. Unlike Uvicorn, Hypercorn supports HTTP/2 via ALPN negotiation.
+
+**Quick Start with HTTP/2 (Recommended):**
+```bash
+cd quickbbs
+./start_hypercorn_http2.sh
+```
+
+This script automatically configures Hypercorn with HTTP/2, HTTPS, and optimal settings.
+
+**Manual Commands:**
 
 **Basic HTTP:**
 ```bash
@@ -138,13 +196,16 @@ hypercorn quickbbs.asgi:application \
     --workers 4
 ```
 
-**HTTPS:**
+**HTTPS with HTTP/2 (Automatic):**
 ```bash
 hypercorn quickbbs.asgi:application \
     --bind 0.0.0.0:8888 \
     --keyfile /path/to/private.key \
-    --certfile /path/to/certificate.crt
+    --certfile /path/to/certificate.crt \
+    --workers 4
 ```
+
+**Note:** HTTP/2 is automatically enabled via ALPN negotiation when HTTPS is configured (--keyfile and --certfile). Clients that support HTTP/2 will negotiate it automatically.
 
 **HTTPS with Advanced Options:**
 ```bash
@@ -157,18 +218,14 @@ hypercorn quickbbs.asgi:application \
     --worker-class asyncio
 ```
 
-**HTTP/2 Support:**
-```bash
-hypercorn quickbbs.asgi:application \
-    --bind 0.0.0.0:8888 \
-    --keyfile /path/to/private.key \
-    --certfile /path/to/certificate.crt \
-    --workers 4 \
-    --http2
-```
+**HTTP/2 Benefits:**
+- 10-30% faster concurrent downloads
+- Request multiplexing (multiple requests over single connection)
+- Header compression (HPACK reduces bandwidth)
+- Better performance under load
 
-**Pros:** HTTP/2, HTTP/3, excellent SSL support
-**Cons:** More complex configuration
+**Pros:** Native HTTP/2 support, HTTP/3 support, excellent SSL/TLS, modern
+**Cons:** Slightly slower than Uvicorn for HTTP/1.1 (but faster with HTTP/2)
 
 ---
 
@@ -310,27 +367,50 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 ### Performance Comparison
 
-| Server    | Protocol | Async | HTTP/2 | Best For                    |
-|-----------|----------|-------|--------|-----------------------------|
-| Django    | WSGI     | No    | No     | Development only            |
-| Gunicorn  | WSGI     | No    | No     | Stable production (WSGI)    |
-| Uvicorn   | ASGI     | Yes   | Via*   | Modern async apps           |
-| Hypercorn | ASGI     | Yes   | Yes    | Advanced HTTP/2/3 needs     |
+| Server              | Protocol | Async | HTTP/2 | httptools | Best For                    |
+|---------------------|----------|-------|--------|-----------|----------------------------|
+| Django Dev          | WSGI     | No    | No     | No        | Development only            |
+| Gunicorn (WSGI)     | WSGI     | No    | No     | No        | Legacy/stable production    |
+| Gunicorn + Uvicorn  | ASGI     | Yes   | No     | Yes       | Fast HTTP/1.1 production    |
+| Uvicorn Standalone  | ASGI     | Yes   | No     | Yes       | Fast HTTP/1.1, simple setup |
+| Hypercorn           | ASGI     | Yes   | Yes    | No        | HTTP/2 production ⭐        |
 
-*Uvicorn supports HTTP/2 when behind nginx/caddy
+**HTTP/2 Performance Impact:** 10-30% faster concurrent downloads (Hypercorn only)
 
 ---
 
 ### Choosing the Right Server
 
 **Development:**
-- Django dev server: Quick testing
-- Uvicorn with `--reload`: Async development
+- Django dev server: Quick testing, auto-reload
+- Uvicorn with `--reload`: Async development with hot-reload
 
-**Production:**
-- **Small/Medium sites:** Uvicorn with nginx reverse proxy
-- **Large sites:** Uvicorn/Hypercorn with nginx, multiple workers
-- **Legacy/Stable:** Gunicorn with nginx (WSGI mode)
+**Production (Recommended Order):**
 
-**Current Recommendation:** Uvicorn + Nginx reverse proxy for best performance and features.
+**For HTTP/2 Support:**
+1. **Best: Hypercorn with HTTP/2** (`./start_hypercorn_http2.sh`) ⭐
+   - Native HTTP/2 support via ALPN
+   - 10-30% faster for concurrent downloads
+   - Also supports HTTP/3
+   - Best for modern production deployments
+
+**For HTTP/1.1 Only:**
+1. **Best: Uvicorn Standalone**
+   - Simplest setup
+   - Fastest HTTP/1.1 performance
+   - Good for small-to-large sites
+   - Use when HTTP/2 is not required
+
+2. **Alternative: Gunicorn + Uvicorn Workers** (`./start_gunicorn_http2.sh`)
+   - Better process management
+   - Graceful restarts without downtime
+   - HTTP/1.1 only (despite filename)
+   - Best for mission-critical production
+
+3. **Legacy: Gunicorn WSGI Mode**
+   - No async support
+   - No HTTP/2
+   - Use only if you need WSGI compatibility
+
+**Current Recommendation:** Use `./start_hypercorn_http2.sh` for best performance with HTTP/2 support.
 
