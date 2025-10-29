@@ -556,7 +556,7 @@ class fs_Cache_Tracking(models.Model):
             self._invalidate_cache_entry_indexdirs(index_dir)
 
             # Clear layout cache
-            self._clear_layout_cache(index_dir)
+            self._clear_layout_cache_bulk([index_dir])
 
             logger.debug("Removed cache entry for: %s", index_dir.fqpndirectory)
             return True
@@ -592,7 +592,7 @@ class fs_Cache_Tracking(models.Model):
             self._invalidate_cache_entry_indexdirs(directory)
 
             # Clear layout cache
-            self._clear_layout_cache(directory)
+            self._clear_layout_cache_bulk([directory])
 
             logger.debug("Removed cache entry for SHA: %s", sha256)
             return True
@@ -746,16 +746,6 @@ class fs_Cache_Tracking(models.Model):
             logger.info("Successfully invalidated %d cache entries", update_count)
 
         return update_count > 0
-
-    def _clear_layout_cache(self, directory: Any) -> None:
-        """Clear layout cache for a single directory.
-
-        Deprecated: Use _clear_layout_cache_bulk() for better performance.
-
-        Args:
-            directory: The IndexDirs object for the directory
-        """
-        self._clear_layout_cache_bulk([directory])
 
     def _clear_layout_cache_bulk(self, directories: list[Any]) -> None:
         """

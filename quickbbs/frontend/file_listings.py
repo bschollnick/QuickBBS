@@ -52,18 +52,30 @@ def _filter_and_process_item(item, ext_ignore, files_ignore, ignore_dots):
         return None
 
 
-def _process_item_batch(items_batch, ext_ignore, files_ignore, ignore_dots):
+def _process_items(items, ext_ignore, files_ignore, ignore_dots):
     """
-    Process a batch of directory items in a separate thread.
+    Process directory items with filtering.
 
-    ASYNC-SAFE: Uses _filter_and_process_item which is async-safe
+    Core processing logic shared by both single-threaded and batched processing.
+    Iterates through items, applies filters, and builds result dictionary.
+
+    ASYNC-SAFE: Pure function with no DB/IO operations (file stats only)
+
+    Args:
+        items: Iterable of os.DirEntry objects to process
+        ext_ignore: Set of file extensions to ignore
+        files_ignore: Set of filenames to ignore
+        ignore_dots: Whether to ignore dot files
+
+    Returns:
+        Dictionary mapping title-cased names to DirEntry objects
     """
-    batch_data = {}
-    for item in items_batch:
+    fs_data = {}
+    for item in items:
         result = _filter_and_process_item(item, ext_ignore, files_ignore, ignore_dots)
         if result:
-            batch_data[result[0]] = result[1]
-    return batch_data
+            fs_data[result[0]] = result[1]
+    return fs_data
 
 
 async def return_disk_listing(fqpn, use_async=True, batch_size=25, max_workers=4) -> tuple[bool, dict]:
@@ -101,7 +113,7 @@ async def return_disk_listing(fqpn, use_async=True, batch_size=25, max_workers=4
         fs_data = {}
 
         # Use asyncio tasks for concurrent processing
-        async_process_batch = sync_to_async(_process_item_batch, thread_sensitive=False)
+        async_process_batch = sync_to_async(_process_items, thread_sensitive=False)
 
         # Process batches with limited concurrency
         for i in range(0, len(batches), max_workers):
@@ -129,19 +141,21 @@ def _single_threaded_listing(items) -> tuple[bool, dict]:
     """
     Single-threaded processing - most efficient for small directories.
 
-    ASYNC-SAFE: Uses _filter_and_process_item which is async-safe
-    """
-    fs_data = {}
+    ASYNC-SAFE: Uses _process_items which is async-safe
 
+    Args:
+        items: Iterable of os.DirEntry objects to process
+
+    Returns:
+        Tuple of (success_status, file_data_dict)
+    """
     # Pre-compute settings checks
     ext_ignore = settings.EXTENSIONS_TO_IGNORE
     files_ignore = settings.FILES_TO_IGNORE
     ignore_dots = settings.IGNORE_DOT_FILES
 
-    for item in items:
-        result = _filter_and_process_item(item, ext_ignore, files_ignore, ignore_dots)
-        if result:
-            fs_data[result[0]] = result[1]
+    # Use shared processing logic
+    fs_data = _process_items(items, ext_ignore, files_ignore, ignore_dots)
 
     return True, fs_data
 
