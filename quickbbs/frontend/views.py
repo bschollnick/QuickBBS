@@ -41,7 +41,6 @@ from frontend.utilities import (
     SORT_MATRIX,
     ensures_endswith,
     return_breadcrumbs,
-    sort_order,
     sync_database_disk,
 )
 from quickbbs.common import normalize_fqpn
@@ -96,7 +95,7 @@ def _create_base_context(request: WSGIRequest) -> dict:
         "small_width": small_width,
         "small_height": small_height,
         "user": request.user,
-        "sort": sort_order(request),
+        "sort": int(request.GET.get("sort", default=0)),
         "fromtimestamp": datetime.datetime.fromtimestamp,
         "current_page": int(request.GET.get("page", 1)),
         "missing": [],
@@ -295,8 +294,8 @@ async def return_prev_next2(directory: "IndexDirs", sorder: int) -> tuple[str | 
     nextdir = ""
     prevdir = ""
 
-    # Wrap model method that accesses database
-    parent_dir = await sync_to_async(directory.return_parent_directory)()
+    # Access preloaded parent_directory (loaded via select_related)
+    parent_dir = directory.parent_directory
 
     # No parent directory means this is a root directory
     if parent_dir is None:
@@ -344,9 +343,14 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
         print(f"Directory not found: {dir_sha256}")
         return Http404
 
-    # If directory already has a thumbnail set, return it
+    # If directory already has a thumbnail set, try to return it
     if directory.thumbnail and directory.thumbnail.new_ftnail:
-        return directory.thumbnail.new_ftnail.send_thumbnail(fext_override=".jpg", size="small", index_data_item=directory.thumbnail)
+        try:
+            return directory.thumbnail.new_ftnail.send_thumbnail(fext_override=".jpg", size="small", index_data_item=directory.thumbnail)
+        except Exception as e:
+            # If thumbnail serving fails, fall through to cover image logic
+            print(f"Directory thumbnail serving failed for {directory.fqpndirectory}: {e}")
+            # Continue to cover image selection below
 
     # Use get_cover_image to find the best cover image for this directory
     cover_image = directory.get_cover_image()
@@ -371,8 +375,15 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
         directory.thumbnail.new_ftnail = thumbnail
         directory.save()
 
-    # Return the thumbnail
-    return directory.thumbnail.new_ftnail.send_thumbnail(fext_override=".jpg", size="small", index_data_item=directory.thumbnail)
+    # Try to return the thumbnail, fall back to generic icon on error
+    try:
+        return directory.thumbnail.new_ftnail.send_thumbnail(fext_override=".jpg", size="small", index_data_item=directory.thumbnail)
+    except Exception as e:
+        # If thumbnail generation/serving fails, mark directory as generic and return filetype icon
+        print(f"Directory thumbnail generation failed for {directory.fqpndirectory}: {e}")
+        directory.is_generic_icon = True
+        directory.save(update_fields=["is_generic_icon"])
+        return directory.filetype.send_thumbnail()
 
 
 def thumbnail2_file(request: WSGIRequest, sha256: str):
@@ -388,26 +399,35 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
     """
     thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(sha256)
 
-    # Get associated IndexData
+    # Get associated IndexData - try reverse FK first, fall back to model method
     try:
         index_data_item = thumbnail.IndexData.first()
         if not index_data_item:
-            return HttpResponseBadRequest(content="No associated file data found.")
+            # Fallback: prefetch cache might be stale, use cached model method
+            index_data_item = IndexData.get_by_sha256(sha256, unique=False)
+            if not index_data_item:
+                return HttpResponseBadRequest(content="No associated file data found.")
     except (AttributeError, IndexError):
         return HttpResponseBadRequest(content="Error accessing file data.")
 
-    # Return generic icon if filetype is generic
-    if index_data_item.filetype.generic:
+    # Return generic icon if filetype is generic OR if file is marked as generic icon
+    if index_data_item.filetype.generic or index_data_item.is_generic_icon:
         return index_data_item.filetype.send_thumbnail()
 
-    # Return custom thumbnail
+    # Try to return custom thumbnail, fall back to generic icon on error
     thumbsize = request.GET.get("size", "small").lower()
-    return thumbnail.send_thumbnail(
-        filename_override=index_data_item.name,
-        fext_override=".jpg",
-        size=thumbsize,
-        index_data_item=index_data_item,
-    )
+    try:
+        return thumbnail.send_thumbnail(
+            filename_override=index_data_item.name,
+            fext_override=".jpg",
+            size=thumbsize,
+            index_data_item=index_data_item,
+        )
+    except Exception as e:
+        # If thumbnail generation/serving fails, mark ALL files with this SHA256 as generic
+        print(f"Thumbnail generation failed for {index_data_item.name}: {e}")
+        IndexData.objects.filter(file_sha256=sha256).update(is_generic_icon=True)
+        return index_data_item.filetype.send_thumbnail()
 
 
 @vary_on_headers("HX-Request")
@@ -601,7 +621,7 @@ def _find_directory(paths: dict):
     # Step 3: Validate physical directory still exists on disk
     if not pathlib.Path(paths["album_viewing"]).exists():
         # Physical directory was deleted - invalidate cache and return 404
-        parent_dir = directory.return_parent_directory() if directory else None
+        parent_dir = directory.parent_directory if directory else None
         if parent_dir:
             Cache_Storage.remove_from_cache_name(dir_name=parent_dir.fqpndirectory)
             Cache_Storage.remove_from_cache_name(dir_name=paths["album_viewing"])

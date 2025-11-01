@@ -439,6 +439,27 @@ class fs_Cache_Tracking(models.Model):
             logger.error("Error clearing all cache records: %s", e)
             return 0
 
+    @staticmethod
+    def delete_orphaned_entries() -> int:
+        """
+        Delete cache entries that have null directory reference.
+
+        With the new model design where directory is a required FK with CASCADE delete,
+        orphaned entries shouldn't exist. This method handles legacy data cleanup where
+        cache entries may exist without corresponding directory records.
+
+        Returns:
+            Number of entries deleted
+        """
+        try:
+            deleted_count, _ = fs_Cache_Tracking.objects.filter(directory__isnull=True).delete()
+            if deleted_count > 0:
+                logger.info("Deleted %d orphaned cache entries", deleted_count)
+            return deleted_count
+        except DatabaseError as e:
+            logger.error("Error deleting orphaned cache entries: %s", e)
+            return 0
+
     def add_from_indexdirs(self, index_dir: Any) -> "fs_Cache_Tracking | None":
         """Add or update a directory in the cache using an IndexDirs record.
 

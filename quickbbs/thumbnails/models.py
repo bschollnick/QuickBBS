@@ -169,52 +169,90 @@ class ThumbnailFiles(models.Model):
                     new_ftnail__isnull=True,
                 ).update(new_ftnail=thumbnail)
 
+                # Clear prefetch cache since we just updated the links
+                # This ensures thumbnail.IndexData.all() returns fresh data
+                if hasattr(thumbnail, "_prefetched_objects_cache"):
+                    thumbnail._prefetched_objects_cache.clear()
+
         # Phase 2: File I/O operations (outside transaction)
         if thumbnail.thumbnail_exists():
             return thumbnail
 
+        # If already marked as generic, check if parent directory has been invalidated
+        # If parent is invalidated (rescanned), retry thumbnail creation
+        # If parent is NOT invalidated, skip creation (use filetype thumbnail)
+        if index_data_item.is_generic_icon:
+            parent_invalidated = False
+            if index_data_item.home_directory:
+                # Check if parent directory has been invalidated/rescanned
+                parent_invalidated = (
+                    hasattr(index_data_item.home_directory, "Cache_Watcher") and index_data_item.home_directory.Cache_Watcher.invalidated
+                )
+
+            if not parent_invalidated:
+                # Parent not rescanned, skip thumbnail creation
+                # send_thumbnail() will return the filetype thumbnail
+                return thumbnail
+            # Parent was rescanned, continue to retry thumbnail creation below
+
         filename = index_data_item.full_filepathname
         filetype = index_data_item.filetype
 
-        if filetype.is_image:
-            # Use backend="auto" to get best performance (Core Image on macOS, PIL elsewhere)
-            thumbnails = create_thumbnails_from_path(
-                filename,
-                settings.IMAGE_SIZE,
-                output="JPEG",
-                quality=settings.CORE_IMAGE_QUALITY,
-                backend="auto",
-            )
-        elif filetype.is_movie:
-            thumbnails = create_thumbnails_from_path(
-                filename,
-                settings.IMAGE_SIZE,
-                output="JPEG",
-                quality=settings.PIL_IMAGE_QUALITY,
-                backend="video",
-            )
-        elif filetype.is_pdf:
-            thumbnails = create_thumbnails_from_path(
-                filename,
-                settings.IMAGE_SIZE,
-                output="JPEG",
-                quality=settings.PIL_IMAGE_QUALITY,
-                backend="pdf",
-            )
-        else:
-            print("Unable to create thumbnails for this file type.")
-            thumbnails = {
-                "small": b"",
-                "medium": b"",
-                "large": b"",
-            }
+        # Try to create thumbnails, but mark as generic on any failure
+        try:
+            if filetype.is_image:
+                # Use backend="auto" to get best performance (Core Image on macOS, PIL elsewhere)
+                thumbnails = create_thumbnails_from_path(
+                    filename,
+                    settings.IMAGE_SIZE,
+                    output="JPEG",
+                    quality=settings.CORE_IMAGE_QUALITY,
+                    backend="auto",
+                )
+            elif filetype.is_movie:
+                thumbnails = create_thumbnails_from_path(
+                    filename,
+                    settings.IMAGE_SIZE,
+                    output="JPEG",
+                    quality=settings.PIL_IMAGE_QUALITY,
+                    backend="video",
+                )
+            elif filetype.is_pdf:
+                thumbnails = create_thumbnails_from_path(
+                    filename,
+                    settings.IMAGE_SIZE,
+                    output="JPEG",
+                    quality=settings.PIL_IMAGE_QUALITY,
+                    backend="pdf",
+                )
+            else:
+                # File type doesn't support custom thumbnails (text, archives, etc.)
+                # Mark ALL files with this SHA256 as generic (not just one)
+                print(f"File type {filetype.fileext} doesn't support custom thumbnails, marking all instances as generic: {index_data_item.name}")
+                IndexData.objects.filter(file_sha256=file_sha256).update(is_generic_icon=True)
+                return thumbnail
 
-        thumbnail.small_thumb = thumbnails["small"]
-        thumbnail.medium_thumb = thumbnails["medium"]
-        thumbnail.large_thumb = thumbnails["large"]
+            # Validate thumbnails were actually created
+            if not thumbnails or not thumbnails.get("small"):
+                raise ValueError("Thumbnail creation returned empty result")
 
-        if not suppress_save:
-            thumbnail.save(update_fields=["small_thumb", "medium_thumb", "large_thumb"])
+            thumbnail.small_thumb = thumbnails["small"]
+            thumbnail.medium_thumb = thumbnails["medium"]
+            thumbnail.large_thumb = thumbnails["large"]
+
+            if not suppress_save:
+                thumbnail.save(update_fields=["small_thumb", "medium_thumb", "large_thumb"])
+
+            # If this was a retry (file was marked generic), turn off generic flag on success for ALL instances
+            if index_data_item.is_generic_icon:
+                print(f"Thumbnail creation succeeded on retry for {index_data_item.name}, turning off generic flag for all instances")
+                IndexData.objects.filter(file_sha256=file_sha256).update(is_generic_icon=False)
+
+        except Exception as e:
+            # Any error during thumbnail creation - mark ALL files with this SHA256 as generic
+            print(f"Thumbnail creation failed for {index_data_item.name}: {e}")
+            if not index_data_item.is_generic_icon:
+                IndexData.objects.filter(file_sha256=file_sha256).update(is_generic_icon=True)
 
         return thumbnail
 
@@ -346,22 +384,32 @@ class ThumbnailFiles(models.Model):
         Example:
             >>> thumbnail.send_thumbnail(filename_override="cover.jpg", size="medium")
         """
-        # Use provided index_data_item to avoid N+1 query
-        if index_data_item:
-            filename = filename_override or index_data_item.name
-        else:
-            # Fallback to database query (try to use prefetched data first)
+        # Get IndexData to check if file is marked as generic
+        if not index_data_item:
             try:
                 index_data_list = list(self.IndexData.all())
                 if index_data_list:
-                    filename = filename_override or index_data_list[0].name
-                else:
-                    filename = filename_override or "thumbnail"
+                    index_data_item = index_data_list[0]
             except:
-                filename = filename_override or "thumbnail"
+                pass
+
+        # If file is marked as generic icon, use filetype thumbnail instead
+        if index_data_item and index_data_item.is_generic_icon:
+            return index_data_item.filetype.send_thumbnail()
+
+        # Use provided index_data_item for filename
+        if index_data_item:
+            filename = filename_override or index_data_item.name
+        else:
+            filename = filename_override or "thumbnail"
 
         mtype = "image/jpeg"
         blob = self.retrieve_sized_tnail(size=size)
+
+        # Validate that thumbnail blob is not empty
+        if not blob or len(blob) == 0:
+            raise ValueError(f"Thumbnail blob is empty for {filename}")
+
         return send_file_response(
             filename=filename,
             content_to_send=io.BytesIO(blob),

@@ -48,6 +48,9 @@ httpx = {extras = ["http2"], version = "^0.28.1"}
 
 [tool.isort]
 profile = "black"
+src_paths = ["quickbbs"]
+skip_gitignore = true
+known_first_party = ["quickbbs", "frontend", "cache_watcher", "filetypes", "thumbnails"]
 
 [tool.poetry.dependencies]
 python = "^3.12,<3.15"

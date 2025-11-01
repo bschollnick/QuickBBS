@@ -279,13 +279,9 @@
                            hx-get="{{ item_url }}"
                            {{ htmx_attrs|safe }}
                            class="gallery-item-link">
-                            <img data-src="{{ item.get_thumbnail_url() }}"
-                                 src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3C/svg%3E"
+                            <img src="{{ item.get_thumbnail_url() }}"
                                  alt="{{ item.name }}"
-                                 class="thumbnail thumbnail-image lazy-image gallery-item"
-                                 loading="lazy"
-                                 data-loaded="false"
-                                 onerror="this.src='/resources/images/default-thumbnail.png'">
+                                 class="thumbnail thumbnail-image gallery-item">
                         </a>
                     </figure>
                     <!-- External Link -->

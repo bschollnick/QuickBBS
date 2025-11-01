@@ -1,3 +1,9 @@
+"""Application-specific settings and configuration for QuickBBS."""
+
+import re
+
+from django.db.models import Q
+
 SITE_NAME = "QuickBBS Site"
 IMAGE_SIZE = {
     "small": (200, 200),
@@ -17,6 +23,14 @@ CORE_IMAGE_QUALITY = 55  # Quality for Core Image thumbnail generation (macOS)
 # Directory thumbnail priority filenames (without extensions)
 # Files matching these names will be prioritized when selecting thumbnails for directories
 DIRECTORY_COVER_NAMES = ["cover", "title"]
+
+# Prebuilt query for cover image matching (built once at startup for performance)
+# This Q object matches files where the name (without extension) matches any DIRECTORY_COVER_NAMES
+
+DIRECTORY_COVER_QUERIES = Q()
+for cover_name in DIRECTORY_COVER_NAMES:
+    # Case-insensitive regex match: filename starts with cover_name followed by dot
+    DIRECTORY_COVER_QUERIES |= Q(name__iregex=rf"^{re.escape(cover_name)}\.")
 
 QUICKBBS_REQUIRE_LOGIN = 0
 SITE_NAME = "The Gallery"
