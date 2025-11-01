@@ -18,12 +18,8 @@ def repair_orphaned_cache_entries() -> int:
         Number of records deleted
     """
     try:
-        # Find and delete entries with null directory (shouldn't happen with new model)
-        deleted_count, _ = fs_Cache_Tracking.objects.filter(directory__isnull=True).delete()
-
-        if deleted_count > 0:
-            logger.info(f"Deleted {deleted_count} orphaned cache entries")
-        return deleted_count
+        # Use model method for standardized deletion logic
+        return fs_Cache_Tracking.delete_orphaned_entries()
 
     except Exception as e:
         logger.error(f"Error repairing orphaned cache entries: {e}")

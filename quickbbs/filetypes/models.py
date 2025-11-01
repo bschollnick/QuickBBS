@@ -10,11 +10,12 @@ from typing import TYPE_CHECKING
 from cachetools import LRUCache, cached
 from django.conf import settings
 from django.db import models
-from django.utils.functional import cached_property
+
 from frontend.serve_up import send_file_response
 
 if TYPE_CHECKING:
     from django.db.models.manager import RelatedManager
+
     from quickbbs.models import IndexData, IndexDirs
 
 FILETYPE_DATA = {}
@@ -62,26 +63,18 @@ class filetypes(models.Model):
     def __str__(self) -> str:
         return f"{self.fileext}"
 
-    @cached_property
-    def thumbnail_stream(self) -> io.BytesIO:
-        """
-        Get cached BytesIO stream for thumbnail data.
-
-        :return: BytesIO object containing thumbnail binary data
-        """
-        return io.BytesIO(self.thumbnail)
-
     def send_thumbnail(self):
         """
         Send the generic icon thumbnail for this file type.
 
         :return: FileResponse containing the generic icon image
         """
-        # Reset stream position for reuse
-        self.thumbnail_stream.seek(0)
+        # Create a fresh BytesIO object each time - FileResponse will close it after sending
+        # Cannot use cached_property because Django closes the file handle after response
+        thumbnail_stream = io.BytesIO(self.thumbnail)
         return send_file_response(
             filename=self.icon_filename,
-            content_to_send=self.thumbnail_stream,
+            content_to_send=thumbnail_stream,
             mtype=self.mimetype or "image/jpeg",
             attachment=False,
             expiration=300,
@@ -151,6 +144,14 @@ class filetypes(models.Model):
     class Meta:
         verbose_name = "File Type"
         verbose_name_plural = "File Types"
+        indexes = [
+            # Composite index for thumbnailable file queries (images, movies, PDFs)
+            models.Index(fields=["is_image", "is_movie", "is_pdf"], name="filetypes_thumbnailable_idx"),
+            # Composite index for directory and link filtering
+            models.Index(fields=["is_dir", "is_link"], name="filetypes_dir_link_idx"),
+            # Composite index for text content queries
+            models.Index(fields=["is_text", "is_html", "is_markdown"], name="filetypes_text_idx"),
+        ]
 
 
 @cached(filetypes_cache)

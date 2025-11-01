@@ -4,9 +4,9 @@ import hashlib
 import logging
 import os
 import pathlib
-from functools import lru_cache
 from typing import Any, Callable, Optional, TypeVar
 
+from cachetools import LRUCache, cached
 from django.db import models
 from django.http import HttpResponseBadRequest
 
@@ -15,8 +15,13 @@ logger = logging.getLogger(__name__)
 # Type variable for Django models
 T = TypeVar("T", bound=models.Model)
 
+# Async-safe caches for common utility functions
+normalized_strings_cache = LRUCache(maxsize=500)
+directory_sha_cache = LRUCache(maxsize=2500)
+normalized_paths_cache = LRUCache(maxsize=1000)
 
-@lru_cache(maxsize=2000)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
+
+@cached(normalized_strings_cache)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
 def normalize_string_lower(s: str) -> str:
     """
     Normalize string to lowercase and strip whitespace.
@@ -30,7 +35,7 @@ def normalize_string_lower(s: str) -> str:
     return s.lower().strip()
 
 
-@lru_cache(maxsize=2000)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
+@cached(normalized_strings_cache)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
 def normalize_string_title(s: str) -> str:
     """
     Normalize string to title case and strip whitespace.
@@ -44,7 +49,7 @@ def normalize_string_title(s: str) -> str:
     return s.title().strip()
 
 
-@lru_cache(maxsize=5000)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
+@cached(directory_sha_cache)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
 def get_dir_sha(fqpn_directory: str) -> str:
     """
     Return the SHA256 hash of the normalized directory path.
@@ -56,7 +61,7 @@ def get_dir_sha(fqpn_directory: str) -> str:
     return hashlib.sha256(fqpn_directory.encode("utf-8")).hexdigest()
 
 
-@lru_cache(maxsize=5000)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
+@cached(normalized_paths_cache)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
 def normalize_fqpn(fqpn_directory: str) -> str:
     """
     Normalize the directory structure fully qualified pathname.

@@ -196,6 +196,10 @@ SESSION_ENGINE = "django.contrib.sessions.backends.cached_db"
 MIDDLEWARE = [
     "allauth.account.middleware.AccountMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    # PERFORMANCE: Download optimization middleware DISABLED - caused P95/P99 regression
+    # Increased P95 latency by 2x and P99 by ~200ms under concurrent load
+    # The middleware stack overhead is less than the bypass overhead under load
+    # "quickbbs.middleware.DownloadOptimizationMiddleware",
     "filetypes.middleware.FiletypeLoaderMiddleware",  # Load filetypes once per worker
     "django.middleware.cache.UpdateCacheMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -324,14 +328,14 @@ DATABASES = {
         "PASSWORD": DATABASE_PASSWORD,  # Imported from secrets.py
         "HOST": DATABASE_HOST,  # Imported from secrets.py
         "PORT": DATABASE_PORT,  # Imported from secrets.py
-        "CONN_MAX_AGE": 0,  # Keep connections alive for 60 seconds
+        "CONN_MAX_AGE": 0,  # Let psycopg pool manage connection lifetime
         "OPTIONS": {
             "pool": {
-                "min_size": 1,
-                "max_size": 125,
-                "max_lifetime": 100,
-                "max_idle": 60,
-                "timeout": 90,
+                "min_size": 5,  # Keep minimum connections ready
+                "max_size": 75,  # Limit to 75 connections (matches user concurrency)
+                "max_lifetime": 150,  # Connection max lifetime (2.5 minutes)
+                "max_idle": 150,  # Max idle time before closing (2.5 minutes)
+                "timeout": 30,  # Connection timeout
             },
         },
     }

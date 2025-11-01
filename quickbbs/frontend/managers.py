@@ -54,17 +54,12 @@ from django.http import (  # HttpResponse,; Http404,; HttpRequest,; HttpResponse
 from frontend.utilities import (  # SORT_MATRIX,
     convert_to_webpath,
     return_breadcrumbs,
-    sort_order,
 )
-
 from quickbbs.models import IndexData
 
 layout_manager_cache = LRUCache(maxsize=500)
 
 build_context_info_cache = LRUCache(maxsize=500)
-
-# Cache for expensive all_shas queries - cache by directory and sort
-all_shas_cache = LRUCache(maxsize=500)
 
 # File size limit for text file processing (1MB)
 MAX_TEXT_FILE_SIZE = 1024 * 1024
@@ -105,14 +100,15 @@ def get_file_text_encoding(filename: str) -> str:
 
 
 @cached(LRUCache(maxsize=1000))
-def get_file_text_encoding_cached(filename: str, file_mtime: float) -> str:  # pylint: disable=unused-argument
+def get_file_text_encoding_cached(filename: str) -> str:
     """
-    Cache text encoding detection based on filename and modification time.
+    Cache text encoding detection based on filename.
 
     Args:
         filename: Path to the file to analyze
-        file_mtime: File modification time for cache invalidation
-    Returns: Detected encoding string, defaults to 'utf-8' if detection fails
+
+    Returns:
+        Detected encoding string, defaults to 'utf-8' if detection fails
     """
     return get_file_text_encoding(filename)
 
@@ -138,10 +134,9 @@ def _process_text_file(filename: str, is_markdown: bool = False) -> str:
 
         # Check file size limit
         if stat_info.st_size > MAX_TEXT_FILE_SIZE:
-            return (f"<p><em>File too large to display ({stat_info.st_size:,} bytes). "
-                   f"Maximum size: {MAX_TEXT_FILE_SIZE:,} bytes.</em></p>")
+            return f"<p><em>File too large to display ({stat_info.st_size:,} bytes). " f"Maximum size: {MAX_TEXT_FILE_SIZE:,} bytes.</em></p>"
 
-        encoding = get_file_text_encoding_cached(filename, stat_info.st_mtime)
+        encoding = get_file_text_encoding_cached(filename)
 
         with open(filename, "r", encoding=encoding) as f:
             content = f.read()
@@ -157,33 +152,8 @@ def _process_text_file(filename: str, is_markdown: bool = False) -> str:
         return f"<p><em>Error reading file: {str(e)}</em></p>"
 
 
-@cached(all_shas_cache)
-def _get_all_shas_cached(directory_id: str, sort_ordering: int, distinct: bool = False) -> list[str]:
-    """
-    Cache expensive all_shas query by directory and sort order.
-
-    Args:
-        directory_id: Directory identifier for caching
-        sort_ordering: Sort order to apply (0=name, 1=date, 2=name only)
-        distinct: If True, deduplicate files (sorting handled by files_in_dir)
-    Returns: List of unique_sha256 hashes in the user's requested sort order
-    """
-    # Import locally to avoid circular imports
-    from quickbbs.models import IndexDirs  # pylint: disable=import-outside-toplevel
-
-    directory = IndexDirs.objects.get(pk=directory_id)
-    files_result = directory.files_in_dir(sort=sort_ordering, distinct=distinct)
-
-    if distinct:
-        # files_in_dir returns a list when distinct=True (already sorted correctly)
-        return [f.unique_sha256 for f in files_result]
-
-    # files_in_dir returns a QuerySet when distinct=False
-    return list(files_result.values_list("unique_sha256", flat=True))
-
-
 @cached(build_context_info_cache)
-def build_context_info(request: WSGIRequest, unique_file_sha256: str, show_duplicates: bool = False) -> dict | HttpResponseBadRequest:
+def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_duplicates: bool = False) -> dict | HttpResponseBadRequest:
     """
     Build context information for item view using optimized single-pass dictionary creation.
 
@@ -192,9 +162,12 @@ def build_context_info(request: WSGIRequest, unique_file_sha256: str, show_dupli
     approach that builds the entire context dictionary in a single operation,
     eliminating multiple dictionary updates and function call overhead.
 
+    IMPORTANT: Cache key now uses (unique_file_sha256, sort_order_value, show_duplicates)
+    instead of request object, enabling proper caching across requests.
+
     Args:
-        request: Django WSGIRequest object
         unique_file_sha256: The unique SHA256 hash of the item
+        sort_order_value: Sort order to apply (0=name, 1=date, 2=name only)
         show_duplicates: Whether to show duplicate files (affects navigation list)
     Returns: Dictionary containing context data or HttpResponseBadRequest on error
     """
@@ -207,14 +180,22 @@ def build_context_info(request: WSGIRequest, unique_file_sha256: str, show_dupli
         return HttpResponseBadRequest(content="No entry found.")
 
     start_time = time.perf_counter()
-    sort_order_value = sort_order(request) if request else 0
     webpath = entry.fqpndirectory.lower().replace("//", "/")
     directory_entry = entry.home_directory
 
     # Build entire context in single operation for optimal performance
     pathmaster = Path(entry.full_filepathname)
     lastmod_timestamp = entry.lastmod
-    all_shas = _get_all_shas_cached(directory_entry.pk, sort_order_value, distinct=not show_duplicates)
+
+    # Get all file SHAs from directory - handle both list and QuerySet return types
+    # files_in_dir returns list when distinct=True, QuerySet when distinct=False
+    files_result = directory_entry.files_in_dir(sort=sort_order_value, distinct=not show_duplicates)
+    if isinstance(files_result, list):
+        # distinct=True case - files_in_dir returned list of objects (already deduplicated)
+        all_shas = [f.unique_sha256 for f in files_result]
+    else:
+        # distinct=False case - files_in_dir returned QuerySet (includes duplicates)
+        all_shas = list(files_result.values_list("unique_sha256", flat=True))
 
     # Get pagination data inline
     try:
@@ -225,9 +206,6 @@ def build_context_info(request: WSGIRequest, unique_file_sha256: str, show_dupli
     all_shas_count = len(all_shas)
     next_sha = all_shas[current_page] if current_page < all_shas_count else ""
     previous_sha = all_shas[current_page - 2] if current_page > 1 else ""
-
-    # Get user agent for debugging/display purposes
-    user_agent = request.headers.get("user-agent", "Unknown") if request else "Unknown"
 
     # Single comprehensive dictionary creation
     context = {
@@ -253,8 +231,6 @@ def build_context_info(request: WSGIRequest, unique_file_sha256: str, show_dupli
         "ft_filename": entry.filetype.icon_filename,
         "download_uri": entry.get_download_url(),
         "thumbnail_uri": entry.get_thumbnail_url(size="large"),
-        # Browser/device info for debugging
-        "user_agent": user_agent,
         # Pagination (computed inline)
         "page": current_page,
         "pagecount": all_shas_count,
@@ -277,6 +253,7 @@ async def async_build_context_info(request: WSGIRequest, unique_file_sha256: str
     Async wrapper for build_context_info to support ASGI views.
 
     All database operations are wrapped to run in thread pool.
+    Extracts request-specific data (sort order) before calling cached function.
 
     Args:
         request: Django WSGIRequest object
@@ -284,7 +261,14 @@ async def async_build_context_info(request: WSGIRequest, unique_file_sha256: str
         show_duplicates: Whether to show duplicate files (affects navigation list)
     Returns: Dictionary containing context data or HttpResponseBadRequest on error
     """
-    return await sync_to_async(build_context_info)(request, unique_file_sha256, show_duplicates)
+    # Extract request-specific data before calling cached function
+    sort_order_value = int(request.GET.get("sort", default=0)) if request else 0
+
+    return await sync_to_async(build_context_info)(
+        unique_file_sha256=unique_file_sha256,
+        sort_order_value=sort_order_value,
+        show_duplicates=show_duplicates,
+    )
 
 
 def _process_file_content(entry: IndexData, webpath: str) -> str:
@@ -401,8 +385,6 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
         raise ValueError("Directory parameter is required")
 
     chunk_size = settings.GALLERY_ITEMS_PER_PAGE
-
-    print(f"DEBUG layout_manager: show_duplicates={show_duplicates}, distinct={not show_duplicates}")
 
     # Get base querysets first (more efficient for subsequent operations)
     directories_qs = directory.dirs_in_dir(sort=sort_ordering)
