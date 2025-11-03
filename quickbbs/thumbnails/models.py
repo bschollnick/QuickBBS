@@ -362,6 +362,10 @@ class ThumbnailFiles(models.Model):
         self.medium_thumb = b""
         self.large_thumb = b""
 
+        # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
+        if self.sha256_hash in thumbnailfiles_cache:
+            del thumbnailfiles_cache[self.sha256_hash]
+
     def retrieve_sized_tnail(self, size: str = "small") -> bytes:
         """
         Get thumbnail blob of specified size.

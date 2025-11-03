@@ -9,7 +9,7 @@ from cache_watcher.watchdogmon import watchdog
 #
 #   Bootstrap by loading the configuration path data
 #
-__version__ = "3.80"
+__version__ = "3.85"
 
 __author__ = "Benjamin Schollnick"
 __email__ = "Benjamin@schollnick.net"
