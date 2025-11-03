@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING
 from cachetools import LRUCache, cached
 from django.conf import settings
 from django.db import models, transaction
+
 from frontend.serve_up import send_file_response
 
 if TYPE_CHECKING:
@@ -231,8 +232,13 @@ class ThumbnailFiles(models.Model):
                 # Use shared helper to ensure layout cache is cleared
                 from quickbbs.models import set_file_generic_icon
 
-                print(f"File type {filetype.fileext} doesn't support custom thumbnails, marking all instances as generic: {index_data_item.name}")
+                print(f"File type {filetype.fileext} doesn't support custom thumbnails, " f"marking all instances as generic: {index_data_item.name}")
                 set_file_generic_icon(file_sha256, is_generic=True, clear_cache=True)
+
+                # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
+                if file_sha256 in thumbnailfiles_cache:
+                    del thumbnailfiles_cache[file_sha256]
+
                 return thumbnail
 
             # Validate thumbnails were actually created
@@ -246,13 +252,18 @@ class ThumbnailFiles(models.Model):
             if not suppress_save:
                 thumbnail.save(update_fields=["small_thumb", "medium_thumb", "large_thumb"])
 
-            # If this was a retry (file was marked generic), turn off generic flag on success for ALL instances
+            # If this was a retry (file was marked generic), turn off generic flag
+            # on success for ALL instances
             # Use shared helper to ensure layout cache is cleared
             if index_data_item.is_generic_icon:
                 from quickbbs.models import set_file_generic_icon
 
-                print(f"Thumbnail creation succeeded on retry for {index_data_item.name}, turning off generic flag for all instances")
+                print(f"Thumbnail creation succeeded on retry for {index_data_item.name}, " f"turning off generic flag for all instances")
                 set_file_generic_icon(file_sha256, is_generic=False, clear_cache=True)
+
+                # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
+                if file_sha256 in thumbnailfiles_cache:
+                    del thumbnailfiles_cache[file_sha256]
 
         except Exception as e:
             # Any error during thumbnail creation - mark ALL files with this SHA256 as generic
@@ -262,6 +273,10 @@ class ThumbnailFiles(models.Model):
             print(f"Thumbnail creation failed for {index_data_item.name}: {e}")
             if not index_data_item.is_generic_icon:
                 set_file_generic_icon(file_sha256, is_generic=True, clear_cache=True)
+
+                # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
+                if file_sha256 in thumbnailfiles_cache:
+                    del thumbnailfiles_cache[file_sha256]
 
         return thumbnail
 
@@ -402,8 +417,9 @@ class ThumbnailFiles(models.Model):
             except:
                 pass
 
-        # If file is marked as generic icon, use filetype thumbnail instead
-        if index_data_item and index_data_item.is_generic_icon:
+        # If file is marked as generic icon OR filetype is generic, use filetype thumbnail instead
+        # This handles both explicit marking (is_generic_icon) and filetype-based generic status (filetype.generic)
+        if index_data_item and (index_data_item.is_generic_icon or index_data_item.filetype.generic):
             return index_data_item.filetype.send_thumbnail()
 
         # Use provided index_data_item for filename
