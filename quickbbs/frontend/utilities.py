@@ -10,6 +10,7 @@ import logging
 import os
 import os.path
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # from datetime import timedelta
 from pathlib import Path
@@ -60,6 +61,70 @@ SORT_MATRIX = {
     1: ["-filetype__is_dir", "-filetype__is_link", "lastmod", "name_sort"],
     2: ["-filetype__is_dir", "-filetype__is_link", "name_sort"],
 }
+
+
+def _batch_compute_file_shas(file_paths: list[str], max_workers: int | None = None) -> dict[str, tuple[str | None, str | None]]:
+    """
+    Compute SHA256 hashes in parallel using multiprocessing.
+
+    Uses ProcessPoolExecutor (NOT ThreadPoolExecutor) to avoid Django ORM issues.
+    SHA256 computation is CPU-bound, so multiprocessing provides better performance
+    than threading.
+
+    ASGI-SAFE: Does not touch Django ORM - only computes file hashes.
+    Safe to call from sync or async contexts.
+
+    :Args:
+        file_paths: List of fully qualified file paths to hash
+        max_workers: Number of parallel workers (defaults to min(cpu_count, 8))
+
+    Returns:
+        Dictionary mapping file paths to (file_sha256, unique_sha256) tuples
+    """
+    if not file_paths:
+        return {}
+
+    # Default to reasonable number of workers (4-8 is optimal for most systems)
+    # Too many workers can saturate disk I/O, especially on HDDs
+    if max_workers is None:
+        cpu_count = os.cpu_count() or 4
+        max_workers = min(cpu_count, 8)
+
+    results = {}
+
+    # For small batches, don't bother with multiprocessing overhead
+    if len(file_paths) < 5:
+        for path in file_paths:
+            results[path] = get_file_sha(path)
+        return results
+
+    # Use ProcessPoolExecutor for parallel SHA256 computation
+    # This is safe because get_file_sha() doesn't touch the database
+    try:
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_path = {executor.submit(get_file_sha, path): path for path in file_paths}
+
+            # Collect results as they complete
+            for future in as_completed(future_to_path):
+                path = future_to_path[future]
+                try:
+                    results[path] = future.result()
+                except Exception as e:
+                    logger.error(f"Error computing SHA256 for {path}: {e}")
+                    results[path] = (None, None)
+
+    except Exception as e:
+        logger.error(f"Error in batch SHA256 computation: {e}")
+        # Fallback to sequential processing
+        for path in file_paths:
+            try:
+                results[path] = get_file_sha(path)
+            except Exception as path_error:
+                logger.error(f"Error computing SHA256 for {path}: {path_error}")
+                results[path] = (None, None)
+
+    return results
 
 
 def ensures_endswith(string_to_check: str, value: str) -> str:
@@ -245,59 +310,212 @@ def _sync_files(directory_record: object, fs_entries: dict, bulk_size: int) -> N
     fs_file_names_dict = {name: entry for name, entry in fs_entries.items() if not entry.is_dir()}
     fs_file_names = list(fs_file_names_dict.keys())
 
+    # Build case-insensitive lookup dictionary for matching
+    # Maps lowercase filename -> original cased filename from filesystem
+    fs_names_lower_map = {name.lower(): name for name in fs_file_names}
+
     # Get files with prefetch already configured in files_in_dir()
     all_files_in_dir = directory_record.files_in_dir()
 
     # Batch fetch all filenames in one query
     all_db_filenames = set(all_files_in_dir.values_list("name", flat=True))
 
-    # Check for updates - simplified to single pass (no chunking)
-    records_to_update = []
-    potential_updates = all_files_in_dir.filter(name__in=fs_file_names)
+    # Check for updates - use case-insensitive matching to avoid delete+create
+    # Match database files with filesystem files using lowercase comparison
+    db_names_lower_map = {f.name.lower(): f for f in all_files_in_dir}
+    matching_lower_names = set(fs_names_lower_map.keys()) & set(db_names_lower_map.keys())
+    potential_updates = [db_names_lower_map[name_lower] for name_lower in matching_lower_names]
+
+    # Batch compute SHA256 for files missing hashes
+    files_needing_hash = []
+    for db_file_entry in potential_updates:
+        if not db_file_entry.file_sha256:
+            # Use case-insensitive lookup: db name -> lowercase -> fs name -> fs entry
+            fs_name = fs_names_lower_map[db_file_entry.name.lower()]
+            fs_entry = fs_file_names_dict[fs_name]
+            files_needing_hash.append((db_file_entry, str(fs_entry)))
+
+    # Parallel SHA256 computation for missing hashes
+    sha_results = {}
+    if files_needing_hash:
+        paths_to_hash = [path for _, path in files_needing_hash]
+        sha_results = _batch_compute_file_shas(paths_to_hash)
 
     # Single pass through files needing updates
+    records_to_update = []
     for db_file_entry in potential_updates:
+        # Use case-insensitive lookup: db name -> lowercase -> fs name -> fs entry
+        fs_name = fs_names_lower_map[db_file_entry.name.lower()]
+        fs_entry = fs_file_names_dict[fs_name]
         updated_record = _check_file_updates(
             db_file_entry,
-            fs_file_names_dict[db_file_entry.name],
+            fs_entry,
             directory_record,
+            sha_results.get(str(fs_entry)),
         )
         if updated_record:
             records_to_update.append(updated_record)
 
-    # Get files to delete
-    files_to_delete_ids = all_files_in_dir.exclude(name__in=fs_file_names).values_list("id", flat=True)
+    # Get files to delete - case-insensitive: db files NOT matching any fs file
+    # Files in database whose lowercase name is NOT in the matching set
+    files_to_delete_ids = [
+        f.id for f in all_files_in_dir
+        if f.name.lower() not in matching_lower_names
+    ]
 
-    # Process new files
-    fs_file_names_for_creation = set(fs_file_names) - set(all_db_filenames)
+    # Process new files - case-insensitive: fs files NOT matching any db file
+    # Filesystem files whose lowercase name is NOT in database (case-insensitive)
+    all_db_filenames_lower = {name.lower() for name in all_db_filenames}
+    fs_file_names_for_creation = [
+        name for name in fs_file_names
+        if name.lower() not in all_db_filenames_lower
+    ]
     creation_fs_file_names_dict = {name: fs_file_names_dict[name] for name in fs_file_names_for_creation}
 
-    records_to_create = _process_new_files(directory_record, creation_fs_file_names_dict)
+    # Batch compute SHA256 for new files (excluding links/archives which are handled individually)
+    new_file_paths = []
+    for fs_entry in creation_fs_file_names_dict.values():
+        if not fs_entry.is_dir():
+            fileext = fs_entry.suffix.lower() if fs_entry.suffix else ""
+            if fileext and fileext != ".":
+                # Only batch non-link files (links are processed specially in process_filedata)
+                if fileext not in [".link", ".alias"]:
+                    new_file_paths.append(str(fs_entry))
+
+    # Parallel SHA256 computation for new files
+    new_sha_results = {}
+    if new_file_paths:
+        new_sha_results = _batch_compute_file_shas(new_file_paths)
+
+    records_to_create = _process_new_files(directory_record, creation_fs_file_names_dict, new_sha_results)
 
     # Execute batch operations with transactions
     _execute_batch_operations(records_to_update, records_to_create, files_to_delete_ids, bulk_size)
 
 
-def _check_file_updates(db_record: object, fs_entry: Path, home_directory: object) -> object | None:
+def _detect_gif_animation(fs_entry: Path) -> bool:
+    """
+    Detect if a GIF file is animated.
+
+    Shared function to avoid duplicate animation detection logic.
+    Used by both new file processing and existing file updates.
+
+    :Args:
+        fs_entry: Path object for the GIF file
+
+    Returns:
+        True if animated, False if static or on error
+    """
+    try:
+        with Image.open(fs_entry) as img:
+            return getattr(img, "is_animated", False)
+    except (AttributeError, IOError, OSError) as e:
+        logger.error(f"Error checking animation for {fs_entry}: {e}")
+        return False
+
+
+def _process_link_file(fs_entry: Path, filetype: object, filename: str) -> object | None:
+    """
+    Process link files (.link or .alias) and return the virtual_directory.
+
+    Extracts target directory from link file and finds/creates the corresponding
+    IndexDirs record. Shared by both new file creation and existing file updates.
+
+    :Args:
+        fs_entry: Path object for the link file
+        filetype: Filetype object with is_link=True and fileext attribute
+        filename: The normalized filename from the database or filesystem
+
+    Returns:
+        IndexDirs object for the target directory, or None if target cannot be resolved
+    """
+    try:
+        if filetype.fileext == ".link":
+            # Optimize link parsing with single-pass processing
+            name_lower = filename.lower()
+            star_index = name_lower.find("*")
+            if star_index == -1:
+                logger.warning(f"Invalid link format - no '*' found in: {filename}")
+                return None
+
+            redirect = name_lower[star_index + 1 :]
+            # Chain replacements more efficiently
+            redirect = redirect.replace("'", "").replace("__", "/")
+            dot_index = redirect.rfind(".")
+            if dot_index != -1:
+                redirect = redirect[:dot_index]
+            redirect_path = f"/{redirect}"
+
+            # Check if already a full filesystem path or a web fragment
+            if not redirect_path.startswith(settings.ALBUMS_PATH):
+                # Web fragment - convert to full filesystem path
+                redirect_path = normalize_fqpn(settings.ALBUMS_PATH + redirect_path)
+            else:
+                # Already a full filesystem path - just normalize
+                redirect_path = normalize_fqpn(redirect_path)
+
+            # Find or create the target directory and set virtual_directory
+            found, virtual_dir = IndexDirs.search_for_directory(redirect_path)
+            if not found:
+                found, virtual_dir = IndexDirs.add_directory(redirect_path)
+
+            # Check if resolution succeeded - if not, skip this file
+            if not found or virtual_dir is None:
+                error_msg = f"Skipping .link file with broken target: {filename} → {redirect_path} (target directory not found)"
+                logger.warning(error_msg)
+                return None
+
+            return virtual_dir
+
+        elif filetype.fileext == ".alias":
+            alias_target_path = resolve_alias_path(str(fs_entry))
+
+            # Find or create the target directory and set virtual_directory
+            found, virtual_dir = IndexDirs.search_for_directory(alias_target_path)
+            if not found:
+                found, virtual_dir = IndexDirs.add_directory(alias_target_path)
+
+            # Check if resolution succeeded - if not, skip this file
+            if not found or virtual_dir is None:
+                error_msg = f"Skipping .alias file with broken target: {filename} → {alias_target_path} (target directory not found)"
+                logger.warning(error_msg)
+                return None
+
+            return virtual_dir
+
+    except ValueError as e:
+        logger.error(f"Error processing link file {filename}: {e}")
+        return None
+
+    return None
+
+
+def _check_file_updates(
+    db_record: object, fs_entry: Path, home_directory: object, precomputed_sha: tuple[str | None, str | None] | None = None
+) -> object | None:
     """
     Check if database record needs updating based on filesystem entry.
 
     Compares modification time, size, SHA256, and other attributes between
     database record and filesystem entry.
 
-    Performance Note:
-    Removed has_movies batch optimization - the overhead of checking movie types
-    in chunks was greater than just checking each file individually.
+    Performance Optimization:
+    Accepts precomputed SHA256 hashes to enable batch parallel computation.
+    When precomputed_sha is provided, skips individual SHA256 calculation.
 
-    Args:
+    :Args:
         db_record: IndexData database record
         fs_entry: Path object for filesystem entry (DirEntry with cached stat)
         home_directory: IndexDirs object for the parent directory
+        precomputed_sha: Optional precomputed (file_sha256, unique_sha256) tuple
 
     Returns:
         Updated database record if changes detected, None otherwise
     """
     try:
+        # Note: DirEntry.stat() is already cached by Python's os.scandir()
+        # Multiple stat() calls on the same DirEntry object reuse the cached result
+        # This prevents duplicate filesystem syscalls across _sync_files()
         fs_stat = fs_entry.stat()
         update_needed = False
 
@@ -308,13 +526,24 @@ def _check_file_updates(db_record: object, fs_entry: Path, home_directory: objec
             # Use prefetched filetype from select_related
             filetype = db_record.filetype if hasattr(db_record, "filetype") else filetype_models.filetypes.return_filetype(fileext=fext)
 
-            # Calculate hash if missing (for all files including links)
-            if not db_record.file_sha256:
-                try:
-                    db_record.file_sha256, db_record.unique_sha256 = db_record.get_file_sha(fqfn=fs_entry)
+            # Fix broken link files - process virtual_directory if missing
+            if filetype.is_link and db_record.virtual_directory is None:
+                virtual_dir = _process_link_file(fs_entry, filetype, db_record.name)
+                if virtual_dir is not None:
+                    db_record.virtual_directory = virtual_dir
                     update_needed = True
-                except Exception as e:
-                    logger.error(f"Error calculating SHA for {fs_entry}: {e}")
+
+            # Use precomputed hash if available, otherwise calculate
+            if not db_record.file_sha256:
+                if precomputed_sha:
+                    db_record.file_sha256, db_record.unique_sha256 = precomputed_sha
+                    update_needed = True
+                else:
+                    try:
+                        db_record.file_sha256, db_record.unique_sha256 = db_record.get_file_sha(fqfn=fs_entry)
+                        update_needed = True
+                    except Exception as e:
+                        logger.error(f"Error calculating SHA for {fs_entry}: {e}")
 
             if db_record.home_directory != home_directory:
                 db_record.home_directory = home_directory
@@ -339,6 +568,11 @@ def _check_file_updates(db_record: object, fs_entry: Path, home_directory: objec
                 except Exception as e:
                     logger.error(f"Error getting duration for {fs_entry}: {e}")
 
+            # Animated GIF detection - only check if not previously checked
+            if filetype.is_image and fext == ".gif" and db_record.is_animated is None:
+                db_record.is_animated = _detect_gif_animation(fs_entry)
+                update_needed = True
+
         return db_record if update_needed else None
 
     except (OSError, IOError) as e:
@@ -346,31 +580,33 @@ def _check_file_updates(db_record: object, fs_entry: Path, home_directory: objec
         return None
 
 
-def _process_new_files(directory_record: object, fs_file_names: dict) -> list[object]:
+def _process_new_files(directory_record: object, fs_file_names: dict, precomputed_shas: dict[str, tuple] | None = None) -> list[object]:
     """
     Process files that exist in filesystem but not in database.
 
     Creates new IndexData records for files found on filesystem that don't
     have corresponding database entries.
 
-    Simplification Note:
-    Removed chunking logic - it added complexity without measurable benefit.
-    Single pass through files is simpler and just as fast for typical counts.
+    Performance Optimization:
+    Accepts precomputed SHA256 hashes to enable batch parallel computation.
 
-    Args:
+    :Args:
         directory_record: IndexDirs object for the parent directory
         fs_file_names: Dictionary mapping filenames to DirEntry objects
+        precomputed_shas: Optional dict mapping file paths to (file_sha256, unique_sha256) tuples
 
     Returns:
         List of new IndexData records to create
     """
     records_to_create = []
+    if precomputed_shas is None:
+        precomputed_shas = {}
 
     # Single pass through new files
     for _, fs_entry in fs_file_names.items():
         try:
-            # Process new file
-            filedata = process_filedata(fs_entry, directory_id=directory_record)
+            # Process new file with precomputed SHA if available
+            filedata = process_filedata(fs_entry, directory_id=directory_record, precomputed_sha=precomputed_shas.get(str(fs_entry)))
             if filedata is None:
                 continue
 
@@ -454,6 +690,18 @@ def _execute_batch_operations(
                     has_hashes = any(hasattr(record, "file_sha256") and record.file_sha256 for record in chunk)
                     if has_hashes:
                         update_fields.extend(["file_sha256", "unique_sha256"])
+
+                    # Add virtual_directory for link files
+                    has_link_with_vdir = any(
+                        hasattr(record, "filetype")
+                        and hasattr(record.filetype, "is_link")
+                        and record.filetype.is_link
+                        and hasattr(record, "virtual_directory")
+                        and record.virtual_directory is not None
+                        for record in chunk
+                    )
+                    if has_link_with_vdir:
+                        update_fields.append("virtual_directory")
 
                     IndexData.objects.bulk_update(
                         chunk,
@@ -552,13 +800,19 @@ def return_breadcrumbs(uri_path="") -> list[dict[str, str]]:
 
 
 @cached(filedata_cache)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
-def process_filedata(fs_entry: Path, directory_id: str | None = None) -> dict[str, Any] | None:
+def process_filedata(
+    fs_entry: Path, directory_id: str | None = None, precomputed_sha: tuple[str | None, str | None] | None = None
+) -> dict[str, Any] | None:
     """
     Process a file system entry and return a dictionary with file metadata.
 
-    Args:
+    Performance Optimization:
+    Accepts precomputed SHA256 hashes to enable batch parallel computation.
+
+    :Args:
         fs_entry: Path object representing the file or directory
         directory_id: Optional directory identifier for the parent directory
+        precomputed_sha: Optional precomputed (file_sha256, unique_sha256) tuple
 
     Returns:
         Dictionary containing file metadata or None if processing fails
@@ -598,6 +852,7 @@ def process_filedata(fs_entry: Path, directory_id: str | None = None) -> dict[st
             return None
 
         # Use DirEntry's built-in stat cache (already cached from iterdir)
+        # DirEntry.stat() is cached by Python - multiple calls reuse the same result
         try:
             fs_stat = fs_entry.stat()
             if not fs_stat:
@@ -620,79 +875,33 @@ def process_filedata(fs_entry: Path, directory_id: str | None = None) -> dict[st
         filetype = record["filetype"]
         # if hasattr(filetype, "is_link") and filetype.is_link:
         if filetype.is_link:
-            if filetype.fileext == ".link":
-                try:
-                    # Calculate SHA256 for .link files
-                    record["file_sha256"], record["unique_sha256"] = get_file_sha(str(fs_entry))
-
-                    # Optimize link parsing with single-pass processing
-                    name_lower = record["name"].lower()
-                    star_index = name_lower.find("*")
-                    if star_index == -1:
-                        raise ValueError("Invalid link format - no '*' found")
-
-                    redirect = name_lower[star_index + 1 :]
-                    # Chain replacements more efficiently
-                    redirect = redirect.replace("'", "").replace("__", "/")
-                    dot_index = redirect.rfind(".")
-                    if dot_index != -1:
-                        redirect = redirect[:dot_index]
-                    redirect_path = f"/{redirect}"
-
-                    # Find or create the target directory and set virtual_directory
-                    found, virtual_dir = IndexDirs.search_for_directory(redirect_path)
-                    if not found:
-                        found, virtual_dir = IndexDirs.add_directory(redirect_path)
-
-                    # Check if resolution succeeded - if not, skip this file
-                    if not found or virtual_dir is None:
-                        error_msg = f"Skipping .link file with broken target: {record['name']} → {redirect_path} (target directory not found)"
-                        print(error_msg)
-                        logger.warning(error_msg)
-                        return None  # Don't add to database - will retry on next scan
-
-                    record["virtual_directory"] = virtual_dir
-                except ValueError:
-                    print(f"Invalid link format in file: {record['name']}")
-                    return None
-
-            elif filetype.fileext == ".alias":
-                try:
-                    alias_target_path = resolve_alias_path(str(fs_entry))
-                    record["file_sha256"], record["unique_sha256"] = get_file_sha(str(fs_entry))
-
-                    # Find or create the target directory and set virtual_directory
-                    found, virtual_dir = IndexDirs.search_for_directory(alias_target_path)
-                    if not found:
-                        found, virtual_dir = IndexDirs.add_directory(alias_target_path)
-
-                    # Check if resolution succeeded - if not, skip this file
-                    if not found or virtual_dir is None:
-                        error_msg = f"Skipping .alias file with broken target: {record['name']} → {alias_target_path} (target directory not found)"
-                        print(error_msg)
-                        logger.warning(error_msg)
-                        return None  # Don't add to database - will retry on next scan
-
-                    record["virtual_directory"] = virtual_dir
-                except ValueError as e:
-                    print(f"Error with alias file: {e}")
-                    return None
-        else:
-            # Calculate file hashes for all non-link files
+            # Calculate SHA256 for link files
             try:
                 record["file_sha256"], record["unique_sha256"] = get_file_sha(str(fs_entry))
             except Exception as e:
-                print(f"Error calculating SHA for {fs_entry}: {e}")
-                # Continue processing even if SHA calculation fails
+                print(f"Error calculating SHA for link file {fs_entry}: {e}")
+                return None
+
+            # Process link file and get virtual_directory
+            virtual_dir = _process_link_file(fs_entry, filetype, record["name"])
+            if virtual_dir is None:
+                return None  # Don't add to database - will retry on next scan
+
+            record["virtual_directory"] = virtual_dir
+        else:
+            # Use precomputed hash if available, otherwise calculate
+            if precomputed_sha:
+                record["file_sha256"], record["unique_sha256"] = precomputed_sha
+            else:
+                try:
+                    record["file_sha256"], record["unique_sha256"] = get_file_sha(str(fs_entry))
+                except Exception as e:
+                    print(f"Error calculating SHA for {fs_entry}: {e}")
+                    # Continue processing even if SHA calculation fails
 
         # Handle animated GIF detection
         if hasattr(filetype, "is_image") and filetype.is_image and fileext == ".gif":
-            try:
-                with Image.open(fs_entry) as img:
-                    record["is_animated"] = getattr(img, "is_animated", False)
-            except (AttributeError, IOError, OSError) as e:
-                print(f"Error checking animation for {fs_entry}: {e}")
-                record["is_animated"] = False
+            record["is_animated"] = _detect_gif_animation(fs_entry)
 
         return record
 

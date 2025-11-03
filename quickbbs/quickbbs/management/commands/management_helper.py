@@ -135,3 +135,74 @@ def invalidate_directories_with_null_sha256(start_path: str | None = None, verbo
         print("-" * 60)
 
     return invalidated_count
+
+
+def invalidate_directories_with_null_virtual_directory(start_path: str | None = None, verbose: bool = True) -> int:
+    """
+    Find link files with NULL virtual_directory and invalidate their parent directories.
+
+    This ensures that directories containing link files (.link, .alias) without
+    virtual_directory set will be rescanned and have the virtual_directory populated.
+
+    Args:
+        start_path: Optional starting directory path to filter files
+        verbose: Whether to print progress messages (default: True)
+
+    Returns:
+        Number of directories invalidated
+    """
+    if verbose:
+        print("-" * 60)
+        print("Checking for link files with NULL virtual_directory...")
+
+    # Query for link files with NULL virtual_directory
+    link_files_without_vdir = IndexData.objects.filter(
+        filetype__is_link=True,
+        virtual_directory__isnull=True,
+        delete_pending=False
+    )
+
+    # Filter by start_path if provided
+    if start_path:
+        normalized_start = normalize_fqpn(start_path)
+        link_files_without_vdir = link_files_without_vdir.filter(
+            home_directory__fqpndirectory__startswith=normalized_start
+        )
+
+    # Count before getting directories
+    file_count = link_files_without_vdir.count()
+    if verbose:
+        print(f"Found {file_count} link files with NULL virtual_directory")
+
+    if file_count == 0:
+        if verbose:
+            print("No directories need invalidation.")
+            print("-" * 60)
+        return 0
+
+    # Get distinct list of directories containing link files without virtual_directory
+    # Use values_list to get just the directory IDs efficiently
+    directory_ids = link_files_without_vdir.values_list(
+        'home_directory_id',
+        flat=True
+    ).distinct()
+
+    directory_count = len(list(directory_ids))
+    if verbose:
+        print(f"Found {directory_count} directories containing link files without virtual_directory")
+
+    # Invalidate each directory in fs_Cache_Tracking
+    directories_to_invalidate = IndexDirs.objects.filter(id__in=directory_ids)
+
+    invalidated_count = 0
+    for directory in directories_to_invalidate:
+        Cache_Storage.remove_from_cache_indexdirs(directory)
+        invalidated_count += 1
+        if verbose:
+            print(f"  Invalidated: {directory.fqpndirectory}")
+
+    if verbose:
+        print(f"Invalidated {invalidated_count} directories in fs_Cache_Tracking")
+        print("-" * 60)
+
+    return invalidated_count

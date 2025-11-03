@@ -30,7 +30,7 @@ import threading
 import time
 from typing import Any, Optional
 
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from django.conf import settings
 from django.db import close_old_connections, models, transaction
 from django.db.utils import DatabaseError
@@ -388,9 +388,6 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
         Args:
             paths: List of directory paths to remove from cache
         """
-        # Import inside async method - not needed at module level
-        from asgiref.sync import sync_to_async  # pylint: disable=import-outside-toplevel
-
         # Run the synchronous database operation in a thread pool
         await sync_to_async(Cache_Storage.remove_multiple_from_cache)(paths)
 
@@ -510,7 +507,9 @@ class fs_Cache_Tracking(models.Model):
 
         try:
             # Import inside function to avoid circular dependency
-            from quickbbs.models import IndexDirs  # pylint: disable=import-outside-toplevel
+            from quickbbs.models import (
+                IndexDirs,  # pylint: disable=import-outside-toplevel
+            )
 
             dir_sha = get_dir_sha(dir_path)
             scan_time = time.time()
@@ -597,7 +596,9 @@ class fs_Cache_Tracking(models.Model):
         """
         try:
             # Import inside function to avoid circular dependency
-            from quickbbs.models import IndexDirs  # pylint: disable=import-outside-toplevel
+            from quickbbs.models import (
+                IndexDirs,  # pylint: disable=import-outside-toplevel
+            )
 
             # Single optimized lookup with prefetched relationships
             found, directory = IndexDirs.search_for_directory_by_sha(sha256)
@@ -744,13 +745,33 @@ class fs_Cache_Tracking(models.Model):
         # This replaces the N*M loop with D queries (where D = max directory depth)
         all_dirs_to_invalidate = IndexDirs.get_all_parent_shas(sha_list)
 
-        # Update cache entries using helper method
-        update_count = 0
-
+        # Update cache entries using bulk operations
         with transaction.atomic():
-            for sha in all_dirs_to_invalidate:
-                if self._invalidate_cache_entry(sha):
-                    update_count += 1
+            # Import inside transaction to avoid circular dependency
+            from quickbbs.models import (
+                IndexDirs,  # pylint: disable=import-outside-toplevel
+            )
+
+            # Get all IndexDirs records and capture their SHAs
+            index_dirs = IndexDirs.objects.filter(dir_fqpn_sha256__in=all_dirs_to_invalidate)
+            found_shas = {d.dir_fqpn_sha256 for d in index_dirs}
+
+            # Bulk update existing cache entries
+            current_time = time.time()
+            update_count = fs_Cache_Tracking.objects.filter(directory__dir_fqpn_sha256__in=found_shas).update(invalidated=True, lastscan=current_time)
+
+            # Find SHAs that don't have cache entries (set difference)
+            existing_cache_shas = set(
+                fs_Cache_Tracking.objects.filter(directory__dir_fqpn_sha256__in=found_shas).values_list("directory__dir_fqpn_sha256", flat=True)
+            )
+            missing_shas = found_shas - existing_cache_shas
+
+            # Bulk create missing cache entries
+            if missing_shas:
+                sha_to_indexdir = {d.dir_fqpn_sha256: d for d in index_dirs}
+                new_entries = [fs_Cache_Tracking(directory=sha_to_indexdir[sha], invalidated=True, lastscan=current_time) for sha in missing_shas]
+                fs_Cache_Tracking.objects.bulk_create(new_entries)
+                update_count += len(new_entries)
 
         # Clear layout caches for affected directories - BULK OPERATION
         if update_count > 0:
@@ -763,6 +784,7 @@ class fs_Cache_Tracking(models.Model):
 
             if affected_directories:
                 self._clear_layout_cache_bulk(affected_directories)
+                self._clear_indexdirs_cache_bulk(affected_directories)
 
             logger.info("Successfully invalidated %d cache entries", update_count)
 
@@ -772,7 +794,7 @@ class fs_Cache_Tracking(models.Model):
         """
         Clear layout cache for multiple directories efficiently.
 
-        Uses pattern matching on cache keys instead of database queries.
+        Uses shared clear_layout_cache_for_directories() function to avoid code duplication.
         Clears ALL sort orderings (0, 1, 2) for each directory.
 
         Args:
@@ -788,37 +810,41 @@ class fs_Cache_Tracking(models.Model):
         try:
             # Import inside function to avoid circular dependency
             from frontend.managers import (  # pylint: disable=import-outside-toplevel
-                layout_manager_cache,
+                clear_layout_cache_for_directories,
             )
 
-            # Create set of directory PKs for O(1) lookup, filtering out None values
-            # and objects without pk attribute
-            dir_pks = {d.pk for d in directories if d is not None and hasattr(d, "pk") and d.pk is not None}
-
-            # If no valid PKs, nothing to clear
-            if not dir_pks:
-                logger.debug("No valid directory PKs to clear from layout cache")
-                return
-
-            # Scan cache once and collect keys to delete
-            keys_to_delete = []
-
-            for key in list(layout_manager_cache.keys()):
-                # Cache keys are hashkey tuples containing (page_number, directory_obj, sort_ordering)
-                # Check if the directory in the key matches any of our directories
-                try:
-                    for item in key:
-                        if hasattr(item, "pk") and item.pk in dir_pks:
-                            keys_to_delete.append(key)
-                            break
-                except (TypeError, AttributeError):
-                    continue
-
-            # Bulk delete all matched keys
-            for key in keys_to_delete:
-                del layout_manager_cache[key]
-
-            logger.debug("Cleared %d layout cache entries for %d directories", len(keys_to_delete), len(directories))
+            # Use shared cache clearing function
+            cleared_count = clear_layout_cache_for_directories(directories)
+            logger.debug("Cleared %d layout cache entries for %d directories", cleared_count, len(directories))
 
         except (KeyError, ImportError, AttributeError) as e:
             logger.error("Error clearing layout cache for directories: %s", e)
+
+    def _clear_indexdirs_cache_bulk(self, directories: list[Any]) -> None:
+        """
+        Clear indexdirs LRU cache for invalidated directories.
+
+        When directories are invalidated, their cached IndexDirs objects must be
+        removed from the LRU cache to prevent stale is_cached checks. The cache
+        key is the directory's SHA256 hash.
+
+        :Args:
+            directories: List of IndexDirs objects that were invalidated
+        """
+        try:
+            # pylint: disable=import-outside-toplevel
+            from quickbbs.models import indexdirs_cache
+
+            # Extract SHA256s and directly delete from cache
+            cleared_count = 0
+            for directory in directories:
+                if directory and hasattr(directory, "dir_fqpn_sha256"):
+                    sha = directory.dir_fqpn_sha256
+                    if sha in indexdirs_cache:
+                        del indexdirs_cache[sha]
+                        cleared_count += 1
+
+            logger.debug("Cleared %d indexdirs cache entries for %d directories", cleared_count, len(directories))
+
+        except (KeyError, ImportError, AttributeError) as e:
+            logger.error("Error clearing indexdirs cache for directories: %s", e)

@@ -228,8 +228,11 @@ class ThumbnailFiles(models.Model):
             else:
                 # File type doesn't support custom thumbnails (text, archives, etc.)
                 # Mark ALL files with this SHA256 as generic (not just one)
+                # Use shared helper to ensure layout cache is cleared
+                from quickbbs.models import set_file_generic_icon
+
                 print(f"File type {filetype.fileext} doesn't support custom thumbnails, marking all instances as generic: {index_data_item.name}")
-                IndexData.objects.filter(file_sha256=file_sha256).update(is_generic_icon=True)
+                set_file_generic_icon(file_sha256, is_generic=True, clear_cache=True)
                 return thumbnail
 
             # Validate thumbnails were actually created
@@ -244,15 +247,21 @@ class ThumbnailFiles(models.Model):
                 thumbnail.save(update_fields=["small_thumb", "medium_thumb", "large_thumb"])
 
             # If this was a retry (file was marked generic), turn off generic flag on success for ALL instances
+            # Use shared helper to ensure layout cache is cleared
             if index_data_item.is_generic_icon:
+                from quickbbs.models import set_file_generic_icon
+
                 print(f"Thumbnail creation succeeded on retry for {index_data_item.name}, turning off generic flag for all instances")
-                IndexData.objects.filter(file_sha256=file_sha256).update(is_generic_icon=False)
+                set_file_generic_icon(file_sha256, is_generic=False, clear_cache=True)
 
         except Exception as e:
             # Any error during thumbnail creation - mark ALL files with this SHA256 as generic
+            # Use shared helper to ensure layout cache is cleared
+            from quickbbs.models import set_file_generic_icon
+
             print(f"Thumbnail creation failed for {index_data_item.name}: {e}")
             if not index_data_item.is_generic_icon:
-                IndexData.objects.filter(file_sha256=file_sha256).update(is_generic_icon=True)
+                set_file_generic_icon(file_sha256, is_generic=True, clear_cache=True)
 
         return thumbnail
 
