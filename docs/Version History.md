@@ -266,6 +266,49 @@ Version 3.80 introduces intelligent duplicate file detection with user-configura
 
 ---
 
+## Version 3.85 (November 3, 2025)
+**Technology**: Django 6.0 Alpha, HTMX, Database Performance Optimization
+
+Version 3.85 focuses on significant database performance optimizations through composite indexes and query restructuring, comprehensive bug fixes for virtual directory handling, and enhanced development infrastructure with modern load testing capabilities.
+
+### Major Enhancements:
+
+**Database & Performance Optimizations:**
+- **Composite Indexes**: Added composite indexes to `filetypes` and `IndexData` models to accelerate common query patterns
+  - 60-80% speedup on file type filters
+  - 30-50% improvement on name/filetype searches
+- **Cover Image Search Optimization**: Replaced nested-loop cover image search with prebuilt Q object for 99% performance improvement
+- **Cache Migration**: Migrated all caching from `functools.lru_cache` to `cachetools.LRUCache` for consistent cache management and better control over cache behavior
+- **Query Pattern Improvements**: Optimized database query patterns throughout the codebase for improved response times
+
+**Bug Fixes:**
+- **Virtual Directory Handling**: Fixed multiple regressions in `virtual_directory` flag handling affecting both folders and files
+- **Alias File Thumbnails**: Resolved issue where `.alias` files were not displaying their thumbnails correctly
+- **Cover Image Selection**: Removed `.alias` files as `cover_image` candidates to prevent unintended consequences
+- **Process Divergence**: Fixed divergence between management commands and web processes regarding `virtual_directory` handling
+- **Template Error Handling**: Added safe null handling for `virtual_directory` in gallery templates to prevent 500 errors
+
+**Code Quality Improvements:**
+- **Removed Over-Abstraction**: Eliminated unnecessary helper methods that added complexity without value:
+  - `return_parent_directory()`, `sort_order()`, `break_down_urls()`
+- **Manager Cleanup**: Fixed antipatterns in `frontend/managers.py` for better maintainability
+- **Deprecated Code Removal**: Cleaned up deprecated code paths and outdated implementations
+- **Template Refinement**: Adjusted breadcrumb template for better consistency and usability
+
+**Testing & Infrastructure:**
+- **Locust Load Testing**: Added comprehensive Locust-based load testing framework replacing Apache Benchmark
+  - Better simulation of real-world user behavior
+  - More detailed performance metrics
+  - HTTP/2 support via httpx library
+- **Server Startup Scripts**: Added formal startup scripts for production deployment:
+  - Gunicorn (WSGI)
+  - Hypercorn (ASGI)
+  - Uvicorn (ASGI)
+- **Security Enhancement**: Updated `.gitignore` to exclude `*.key` and `*.pem` files from version control
+- **Project Organization**: Relocated benchmark and test files to dedicated directories for better code organization
+
+---
+
 ## Performance Evolution Summary:
 
 | Version | Release Date       | Storage                    | Thumbnails     | Monitoring             |
@@ -277,4 +320,5 @@ Version 3.80 introduces intelligent duplicate file detection with user-configura
 | v3.5    | September 26, 2025 | PostgreSQL                 | Database BLOBs | Watchdog + HTMX        |
 | v3.75   | October 19, 2025   | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI |
 | v3.80   | October 24, 2025   | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI |
+| v3.85   | November 3, 2025   | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI |
 

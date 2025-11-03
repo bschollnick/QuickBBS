@@ -138,6 +138,11 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+# Claude Code files
+.claude_code/
+.claude/
+
+
 # pytype static type analyzer
 .pytype/
 

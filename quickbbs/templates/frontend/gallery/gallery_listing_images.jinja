@@ -246,7 +246,11 @@
     <div class="gallery-grid">
         {%- for item in items_to_display -%}
             {# Cache URLs and set HTMX attributes once #}
-            {% set item_url = item.virtual_directory.get_view_url() if item.filetype.is_link else item.get_view_url() + "?sort=" + sort|string %}
+            {% if item.filetype.is_link and item.virtual_directory %}
+                {% set item_url = item.virtual_directory.get_view_url() %}
+            {% else %}
+                {% set item_url = item.get_view_url() + "?sort=" + sort|string %}
+            {% endif %}
             {% set htmx_attrs = 'hx-push-url="true" hx-target="body" hx-swap="outerHTML transition:true"' %}
 
             {# Note: background-color must remain inline as it's dynamic based on filetype #}

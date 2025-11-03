@@ -299,6 +299,10 @@ class IndexDirs(models.Model):
         self.thumbnail = None
         self.is_generic_icon = False
 
+        # Clear LRUCache entry for this directory to avoid serving stale cached data
+        if self.dir_fqpn_sha256 in indexdirs_cache:
+            del indexdirs_cache[self.dir_fqpn_sha256]
+
     @property
     def virtual_directory(self) -> str:
         """

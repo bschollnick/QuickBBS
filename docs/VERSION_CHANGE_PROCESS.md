@@ -189,21 +189,35 @@ Append the approved version history entry to `Docs/Version History.md`:
    | v3.XX   | Month Day, Year     | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI |
    ```
 
-### Step 8: Commit Changes
+### Step 8: Completion - DO NOT COMMIT
 
-Create a commit with the version changes:
+**CRITICAL: Claude should NOT stage files or create commits.**
 
-```bash
-cd quickbbs
-git add pyproject.toml quickbbs/quickbbs/__init__.py [other files] Docs/Version\ History.md
-git commit -m "chore: Bump version to X.Y.Z
+After completing all version number updates and Version History.md changes:
 
-Updated version numbers across project:
-- pyproject.toml: X.Y.Z
-- quickbbs/__init__.py: X.Y
-[- other files if applicable]
+1. **Report completion** to the user with a summary of all changes made
+2. **List all modified files** so the user knows what to review
+3. **DO NOT** run `git add` commands
+4. **DO NOT** run `git commit` commands
+5. **DO NOT** run `git push` commands
 
-Added version X.Y.Z entry to Version History.md"
+The user will review all changes and commit them through VS Code or their preferred git tool.
+
+**Summary to provide:**
+```
+✅ Version Update Complete
+
+Files Modified:
+- pyproject.toml: 3.X.Y
+- quickbbs/__init__.py: 3.X
+- quickbbs/frontend/__init__.py: 3.X
+- quickbbs/cache_watcher/__init__.py: 3.X (NEW/UPDATED)
+- quickbbs/filetypes/__init__.py: 3.X (NEW/UPDATED)
+- quickbbs/thumbnails/__init__.py: 3.X (NEW/UPDATED)
+- quickbbs/user_preferences/__init__.py: 3.X (NEW/UPDATED)
+- Docs/Version History.md: Added v3.X entry with release date
+
+Please review the changes and commit when ready.
 ```
 
 ---
@@ -225,7 +239,8 @@ Added version X.Y.Z entry to Version History.md"
 - [ ] Update sub-app __init__.py files (if applicable)
 - [ ] Append to Docs/Version History.md
 - [ ] **CRITICAL: Update Performance Evolution Summary table with new version and release date**
-- [ ] Commit all changes with descriptive commit message
+- [ ] **Report completion to user with file summary**
+- [ ] **DO NOT stage or commit files - user will review and commit via VS Code**
 
 ---
 
@@ -257,6 +272,13 @@ Added version X.Y.Z entry to Version History.md"
    - Show the complete formatted entry before making changes
    - Allow user to request revisions
 
+6. **Git Operations - DO NOT COMMIT**:
+   - **CRITICAL**: Claude should NEVER stage files (`git add`) or create commits (`git commit`)
+   - Claude's role is to make file changes only
+   - The user will review all changes and commit them through VS Code or their preferred git tool
+   - After completing all changes, provide a summary of modified files and stop
+   - Do not attempt to push changes to remote repositories
+
 ---
 
 ## Example Session
@@ -287,7 +309,17 @@ Should I proceed with updating the version numbers and appending this to Version
 
 **User**: Yes, approved.
 
-**Claude**: [Updates files and commits changes]
+**Claude**: [Updates files]
+
+✅ Version Update Complete
+
+Files Modified:
+- pyproject.toml: 3.76.0
+- quickbbs/__init__.py: 3.76
+- quickbbs/frontend/__init__.py: 3.76
+- Docs/Version History.md: Added v3.76.0 entry with release date (October 24, 2025)
+
+Please review the changes and commit when ready.
 
 ---
 
