@@ -674,8 +674,10 @@ class IndexDirs(models.Model):
             4. If match found, return that file's IndexData record
             5. If no match, return the first file in the query
         """
-        # Get thumbnailable files (images, movies, PDFs)
-        thumbnailable_filters = Q(filetype__is_image=True) | Q(filetype__is_movie=True) | Q(filetype__is_pdf=True)
+        # Get thumbnailable files (images, movies, PDFs), excluding link files
+        thumbnailable_filters = (Q(filetype__is_image=True) & ~Q(filetype__is_link=True)) | Q(
+            filetype__is_movie=True
+        ) | Q(filetype__is_pdf=True)
 
         files = self.files_in_dir(sort=0).filter(thumbnailable_filters)
 
@@ -964,14 +966,16 @@ class IndexData(models.Model):
 
         Args:
             sha_value: The SHA256 of the IndexData object
-            unique: If True, search by unique_sha256, otherwise by file_sha256
+            unique: If True, search by unique_sha256 (expects one result),
+                    If False, search by file_sha256 (may return first of multiple)
 
         Returns: IndexData object or None if not found
         """
         try:
             if unique:
                 return IndexData.objects.select_related(*INDEXDATA_SELECT_RELATED_LIST).get(unique_sha256=sha_value, delete_pending=False)
-            return IndexData.objects.select_related(*INDEXDATA_SELECT_RELATED_LIST).get(file_sha256=sha_value, delete_pending=False)
+            # When searching by file_sha256, there may be duplicates - return first
+            return IndexData.objects.select_related(*INDEXDATA_SELECT_RELATED_LIST).filter(file_sha256=sha_value, delete_pending=False).first()
         except IndexData.DoesNotExist:
             return None
 
