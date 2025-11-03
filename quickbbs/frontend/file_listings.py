@@ -39,7 +39,9 @@ def _filter_and_process_item(item, ext_ignore, files_ignore, ignore_dots):
         if item.is_dir():
             fext = ".dir"
         else:
-            fext = os.path.splitext(name_lower)[1] or ".none"
+            # Use pathlib for consistent extension extraction (matches utilities.py pattern)
+            path_obj = Path(name_lower)
+            fext = path_obj.suffix.lower() if path_obj.suffix else ".none"
 
         # Skip ignored extensions and unknown filetypes
         if fext in ext_ignore or not filetype_models.filetypes.filetype_exists_by_ext(fext):

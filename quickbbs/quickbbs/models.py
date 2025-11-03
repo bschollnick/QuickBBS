@@ -89,6 +89,48 @@ INDEXDIRS_PREFETCH_LIST = [
 ]
 
 
+def set_file_generic_icon(file_sha256: str, is_generic: bool, clear_cache: bool = True) -> int:
+    """
+    Set is_generic_icon for all IndexData files with the given SHA256.
+
+    Shared function to ensure consistent is_generic_icon updates across:
+    - Thumbnail generation (success/failure)
+    - Web view error handlers
+    - Management commands
+
+    When is_generic_icon changes, the layout cache must be cleared because
+    the cached layout includes thumbnail counts and display states that are
+    now stale.
+
+    :Args:
+        file_sha256: SHA256 hash of the file(s) to update
+        is_generic: New value for is_generic_icon (True = use filetype icon, False = custom thumbnail)
+        clear_cache: Whether to clear layout_manager_cache for affected directories (default: True)
+
+    Returns:
+        Number of files updated
+    """
+    # Import here to avoid circular dependency
+    from frontend.managers import clear_layout_cache_for_directories
+
+    # Update all files with this SHA256
+    # Note: Forward reference to IndexData model (defined later in this file)
+    updated_count = IndexData.objects.filter(file_sha256=file_sha256).update(is_generic_icon=is_generic)
+
+    # Clear layout cache for affected directories if requested
+    if clear_cache and updated_count > 0:
+        # Get unique directories containing these files
+        affected_files = IndexData.objects.filter(file_sha256=file_sha256).select_related("home_directory")
+        affected_directories = list({f.home_directory for f in affected_files if f.home_directory})
+
+        if affected_directories:
+            cleared_count = clear_layout_cache_for_directories(affected_directories)
+            if cleared_count > 0:
+                print(f"Cleared {cleared_count} layout cache entries for {len(affected_directories)} directories")
+
+    return updated_count
+
+
 class IndexDirs(models.Model):
     """
     The master index for Directory / Folders in the Filesystem for the gallery.
@@ -512,11 +554,14 @@ class IndexDirs(models.Model):
         except IndexDirs.DoesNotExist:
             return (False, None)  # Return None when not found
 
-    @cached(indexdirs_cache)
     @staticmethod
     def search_for_directory(fqpn_directory: str) -> tuple[bool, "IndexDirs"]:
         """
         Return the database object matching the fqpn_directory
+
+        NOTE: This method is NOT cached. It delegates to search_for_directory_by_sha()
+        which IS cached. Do NOT add @cached decorator here as it creates duplicate cache
+        entries (one by path, one by SHA) that become inconsistent during invalidation.
 
         Args:
             fqpn_directory: The fully qualified pathname of the directory
@@ -662,9 +707,9 @@ class IndexDirs(models.Model):
         from frontend.utilities import SORT_MATRIX
 
         return (
-            IndexDirs.objects.prefetch_related(
+            IndexDirs.objects.select_related(*INDEXDIRS_SELECT_RELATED_LIST)
+            .prefetch_related(
                 Prefetch("IndexData_entries", queryset=IndexData.objects.filter(delete_pending=False)),
-                "filetype",
             )
             .filter(parent_directory=self.pk, delete_pending=False)
             .order_by(*SORT_MATRIX[sort])
@@ -704,6 +749,7 @@ INDEXDATA_SELECT_RELATED_LIST = [
     "filetype",
     "new_ftnail",
     "home_directory",
+    "virtual_directory",
 ]
 
 # Reverse ForeignKeys - use prefetch_related() for separate queries
@@ -1182,4 +1228,17 @@ class IndexData(models.Model):
             # Composite indexes for common query patterns
             models.Index(fields=["name", "delete_pending"], name="indexdata_name_delete_idx"),
             models.Index(fields=["filetype", "delete_pending"], name="indexdata_filetype_delete_idx"),
+            # Performance optimization: Partial index for thumbnail linking queries
+            # Speeds up: IndexData.objects.filter(file_sha256=sha, new_ftnail__isnull=True).exists()
+            models.Index(
+                fields=["file_sha256"],
+                name="indexdata_sha256_unlinked_idx",
+                condition=models.Q(new_ftnail__isnull=True),
+            ),
+            # Performance optimization: Composite index for file type queries in directories
+            # Speeds up: IndexData.objects.filter(home_directory=dir, filetype=type, delete_pending=False)
+            models.Index(
+                fields=["home_directory", "filetype", "delete_pending"],
+                name="indexdata_home_type_delete_idx",
+            ),
         ]

@@ -143,6 +143,7 @@ class Command(BaseCommand):
                         "color": "FDEDB1",
                         "filetype": settings.FTYPES["link"],
                         "is_link": True,
+                        "is_image": True,
                         "mimetype": guess_type(f"test.{ext}")[0],
                         "thumbnail": pathlib.Path(settings.ICONS_PATH, "redirecting-link.PNG").read_bytes(),
                     },

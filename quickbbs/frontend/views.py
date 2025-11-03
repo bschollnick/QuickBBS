@@ -365,9 +365,15 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
         return directory.filetype.send_thumbnail()
 
     # Set directory thumbnail to the selected cover image
+    # Clear layout cache to ensure users see updated thumbnail
+    from frontend.managers import clear_layout_cache_for_directories
+
     directory.thumbnail = cover_image
     directory.is_generic_icon = False
     directory.save()
+
+    # Clear cache for this directory
+    clear_layout_cache_for_directories([directory])
 
     # Ensure thumbnail record exists
     if not directory.thumbnail.new_ftnail:
@@ -380,9 +386,16 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
         return directory.thumbnail.new_ftnail.send_thumbnail(fext_override=".jpg", size="small", index_data_item=directory.thumbnail)
     except Exception as e:
         # If thumbnail generation/serving fails, mark directory as generic and return filetype icon
+        # Clear layout cache to ensure users see updated generic icon state
+        from frontend.managers import clear_layout_cache_for_directories
+
         print(f"Directory thumbnail generation failed for {directory.fqpndirectory}: {e}")
         directory.is_generic_icon = True
         directory.save(update_fields=["is_generic_icon"])
+
+        # Clear cache for this directory
+        clear_layout_cache_for_directories([directory])
+
         return directory.filetype.send_thumbnail()
 
 
@@ -414,6 +427,11 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
     if index_data_item.filetype.generic or index_data_item.is_generic_icon:
         return index_data_item.filetype.send_thumbnail()
 
+    # Handle link files: if this is a link type with a virtual_directory,
+    # delegate to the virtual directory's thumbnail
+    if index_data_item.filetype.is_link and index_data_item.virtual_directory:
+        return thumbnail2_dir(request, index_data_item.virtual_directory.dir_fqpn_sha256)
+
     # Try to return custom thumbnail, fall back to generic icon on error
     thumbsize = request.GET.get("size", "small").lower()
     try:
@@ -425,8 +443,11 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
         )
     except Exception as e:
         # If thumbnail generation/serving fails, mark ALL files with this SHA256 as generic
+        # Use shared helper to ensure layout cache is cleared
+        from quickbbs.models import set_file_generic_icon
+
         print(f"Thumbnail generation failed for {index_data_item.name}: {e}")
-        IndexData.objects.filter(file_sha256=sha256).update(is_generic_icon=True)
+        set_file_generic_icon(sha256, is_generic=True, clear_cache=True)
         return index_data_item.filetype.send_thumbnail()
 
 
@@ -751,16 +772,14 @@ async def new_viewgallery(request: WSGIRequest):
 
         if layout["no_thumbnails"][:100]:  # Process first 100 entries
             await process_thumbnails_async(layout, batchsize=100, max_workers=6)
-            # Clear layout cache for affected pages
-            for page_numb in range(0, context["current_page"] + 1):
-                key = hashkey(
-                    page_number=page_numb,
-                    directory=directory,
-                    sort_ordering=context["sort"],
-                )
-                if key in layout_manager_cache:
-                    print("Key found in cache", key)
-                    del layout_manager_cache[key]
+
+            # Clear ALL layout cache entries for this directory (all pages, all sort orders)
+            # Thumbnails were created, so cached counts are now stale
+            from frontend.managers import clear_layout_cache_for_directories
+
+            cleared_count = clear_layout_cache_for_directories([directory])
+            if cleared_count > 0:
+                print(f"Cleared {cleared_count} layout cache entries for directory after thumbnail processing")
         print("elapsed thumbnail time - ", time.time() - no_thumb_start)
 
     response = await async_render(

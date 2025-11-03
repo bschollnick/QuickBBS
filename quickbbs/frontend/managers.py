@@ -68,6 +68,54 @@ MAX_TEXT_FILE_SIZE = 1024 * 1024
 _markdown_processor = markdown2.Markdown()
 
 
+def clear_layout_cache_for_directories(directories: list) -> int:
+    """
+    Clear layout_manager_cache entries for one or more directories.
+
+    Shared function to ensure consistent cache clearing across:
+    - Web views after thumbnail generation
+    - Cache watcher during filesystem invalidation
+    - Management commands after is_generic_icon changes
+
+    Uses cachetools LRUCache with direct key deletion. Cache keys are hashkey tuples
+    containing (page_number, directory_obj, sort_ordering). We check each key to see
+    if it contains a directory matching one of our target directories.
+
+    :Args:
+        directories: List of IndexDirs objects to clear cache for
+
+    Returns:
+        Number of cache entries cleared
+    """
+    if not directories:
+        return 0
+
+    # Extract directory PKs for efficient matching
+    dir_pks = {d.pk for d in directories if d and hasattr(d, "pk") and d.pk}
+    if not dir_pks:
+        return 0
+
+    # Scan cache once and collect keys to delete
+    keys_to_delete = []
+
+    for key in list(layout_manager_cache.keys()):
+        # Cache keys are hashkey tuples: (page_number, directory_obj, sort_ordering)
+        # Check if the directory in the key matches any of our directories
+        try:
+            for item in key:
+                if hasattr(item, "pk") and item.pk in dir_pks:
+                    keys_to_delete.append(key)
+                    break
+        except (TypeError, AttributeError):
+            continue
+
+    # Bulk delete all matched keys
+    for key in keys_to_delete:
+        del layout_manager_cache[key]
+
+    return len(keys_to_delete)
+
+
 def get_file_text_encoding(filename: str) -> str:
     """
     Detect the text encoding of a file.
