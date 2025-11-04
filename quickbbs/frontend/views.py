@@ -43,7 +43,7 @@ from frontend.utilities import (
     return_breadcrumbs,
     sync_database_disk,
 )
-from quickbbs.common import normalize_fqpn
+from quickbbs.common import get_dir_sha, normalize_fqpn
 from quickbbs.models import IndexData, IndexDirs
 from thumbnails.models import ThumbnailFiles
 
@@ -614,43 +614,46 @@ def _find_directory(paths: dict):
         HttpResponseBadRequest on invalid path or other errors
     """
     try:
-        # Step 1: Search for directory in database (with optimized prefetches)
-        found, directory = IndexDirs.search_for_directory(paths["album_viewing"])
+        # Normalize path once and compute SHA
+        dirpath = normalize_fqpn(paths["album_viewing"])
+        dir_sha = get_dir_sha(dirpath)
+
+        # Step 1: Search for directory in database by SHA (with optimized prefetches)
+        found, directory = IndexDirs.search_for_directory_by_sha(dir_sha)
 
         if not found:
             # Step 2a: Directory not in database - create database record
-            dirpath = normalize_fqpn(paths["album_viewing"])
             created, directory = IndexDirs.add_directory(dirpath)
 
             if not created and not directory:
                 # Physical directory doesn't exist on filesystem
-                logger.info("Directory not found on filesystem: %s", paths["album_viewing"])
+                logger.info("Directory not found on filesystem: %s", dirpath)
                 return HttpResponseNotFound("<h1>gallery not found</h1>")
 
             # Step 2b: Reload directory with optimized query (includes Cache_Watcher, filetype, IndexData_entries)
             # add_directory returns bare object from update_or_create - need prefetched relationships
-            _, directory = IndexDirs.search_for_directory_by_sha(directory.dir_fqpn_sha256)
+            _, directory = IndexDirs.search_for_directory_by_sha(dir_sha)
 
             # Step 2c: Sync newly created directory from filesystem to populate file entries
             directory = async_to_sync(sync_database_disk)(directory)
 
             if not directory:
-                logger.info("Directory sync failed: %s", paths["album_viewing"])
+                logger.info("Directory sync failed: %s", dirpath)
                 return HttpResponseNotFound("<h1>gallery not found</h1>")
 
     except Exception as e:
         logger.error("Error searching for directory '%s': %s", paths["album_viewing"], e)
         return HttpResponseBadRequest("<h1>Invalid path specified</h1>")
 
-    logger.info("Viewing: %s", paths["album_viewing"])
+    logger.info("Viewing: %s", dirpath)
 
     # Step 3: Validate physical directory still exists on disk
-    if not pathlib.Path(paths["album_viewing"]).exists():
+    if not pathlib.Path(dirpath).exists():
         # Physical directory was deleted - invalidate cache and return 404
         parent_dir = directory.parent_directory if directory else None
         if parent_dir:
-            Cache_Storage.remove_from_cache_name(dir_name=parent_dir.fqpndirectory)
-            Cache_Storage.remove_from_cache_name(dir_name=paths["album_viewing"])
+            Cache_Storage.remove_from_cache_indexdirs(index_dir=parent_dir)
+            Cache_Storage.remove_from_cache_indexdirs(index_dir=directory)
             # Sync to mark directory as deleted in database
             async_to_sync(sync_database_disk)(directory)
         return HttpResponseNotFound("<h1>gallery not found</h1>")

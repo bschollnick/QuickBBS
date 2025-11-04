@@ -28,6 +28,7 @@ import os
 import pathlib
 import threading
 import time
+import warnings
 from typing import Any, Optional
 
 from asgiref.sync import async_to_sync, sync_to_async
@@ -364,15 +365,23 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
 
             if paths_to_process:
                 logger.info("[Gen %d] Processing %d buffered directory changes", expected_generation, len(paths_to_process))
-                # Convert set to list for cache removal function
-                # Wrap DB operation for ASGI compatibility - this ensures the operation
-                # works correctly whether running under WSGI or ASGI
-                try:
-                    # Try async_to_sync wrapper for ASGI compatibility
-                    async_to_sync(self._remove_from_cache_async)(list(paths_to_process))
-                except RuntimeError:
-                    # Fallback to direct call if not in async context
-                    Cache_Storage.remove_multiple_from_cache(list(paths_to_process))
+
+                # Optimize: Convert paths to SHAs once, then batch query for IndexDirs objects
+                from quickbbs.models import (
+                    IndexDirs,  # pylint: disable=import-outside-toplevel
+                )
+
+                sha_list = [get_dir_sha(path) for path in paths_to_process]
+                index_dirs = list(IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list))
+
+                if index_dirs:
+                    # Wrap DB operation for ASGI compatibility
+                    try:
+                        # Try async_to_sync wrapper for ASGI compatibility
+                        async_to_sync(self._remove_from_cache_indexdirs_async)(index_dirs)
+                    except RuntimeError:
+                        # Fallback to direct call if not in async context
+                        Cache_Storage.remove_multiple_from_cache_indexdirs(index_dirs)
 
         except (RuntimeError, DatabaseError, OSError, AttributeError) as e:
             logger.error("Error processing buffered events: %s", e)
@@ -382,8 +391,19 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
             # Watchdog runs in background thread - must close connections
             close_old_connections()
 
+    async def _remove_from_cache_indexdirs_async(self, index_dirs: list[Any]) -> None:
+        """Async wrapper for cache removal to support ASGI mode.
+
+        Args:
+            index_dirs: List of IndexDirs objects to remove from cache
+        """
+        # Run the synchronous database operation in a thread pool
+        await sync_to_async(Cache_Storage.remove_multiple_from_cache_indexdirs)(index_dirs)
+
     async def _remove_from_cache_async(self, paths: list[str]) -> None:
         """Async wrapper for cache removal to support ASGI mode.
+
+        DEPRECATED: Use _remove_from_cache_indexdirs_async instead.
 
         Args:
             paths: List of directory paths to remove from cache
@@ -494,12 +514,21 @@ class fs_Cache_Tracking(models.Model):
     def add_to_cache(self, dir_path: str) -> Optional["fs_Cache_Tracking"]:
         """Add or update a directory in the cache.
 
+        DEPRECATED: Use add_from_indexdirs() instead to avoid redundant SHA computation
+        and database lookups.
+
         Args:
             dir_path: The fully qualified pathname of the directory
 
         Returns:
             The cache tracking entry or None if error occurred
         """
+        warnings.warn(
+            "add_to_cache(dir_path: str) is deprecated. Use add_from_indexdirs(index_dir) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
         # Reject empty directory names
         if not dir_path or not dir_path.strip():
             logger.warning("Attempted to add empty directory path to cache - rejected")
@@ -623,8 +652,83 @@ class fs_Cache_Tracking(models.Model):
             logger.error("Error removing SHA %s from cache: %s", sha256, e)
             return False
 
+    def remove_multiple_from_cache_indexdirs(self, index_dirs: list[Any]) -> bool:
+        """Remove multiple directories from cache using IndexDirs objects.
+
+        Optimized batch version that accepts IndexDirs records directly,
+        avoiding redundant SHA computation and database lookups.
+
+        :Args:
+            index_dirs: List of IndexDirs instances to remove from cache
+
+        :Returns:
+            True if any entries were invalidated, False otherwise
+        """
+        if not index_dirs:
+            return False
+
+        # Import inside function to avoid circular dependency
+        from quickbbs.models import IndexDirs  # pylint: disable=import-outside-toplevel
+
+        # Extract SHA256 hashes directly from objects (no normalization needed!)
+        sha_list = [d.dir_fqpn_sha256 for d in index_dirs if d and hasattr(d, "dir_fqpn_sha256") and d.dir_fqpn_sha256]
+
+        if not sha_list:
+            return False
+
+        logger.info("Removing %d directories from cache (object-based)", len(sha_list))
+
+        # Create mapping for later cache clearing (already have the objects!)
+        fqpn_by_dir_sha = {d.dir_fqpn_sha256: d for d in index_dirs if d and hasattr(d, "dir_fqpn_sha256") and d.dir_fqpn_sha256}
+
+        # Collect all parent directories using efficient batch query approach
+        all_dirs_to_invalidate = IndexDirs.get_all_parent_shas(sha_list)
+
+        # Update cache entries using bulk operations
+        with transaction.atomic():
+            # Get all IndexDirs records and capture their SHAs
+            index_dirs_queryset = IndexDirs.objects.filter(dir_fqpn_sha256__in=all_dirs_to_invalidate)
+            found_shas = {d.dir_fqpn_sha256 for d in index_dirs_queryset}
+
+            # Bulk update existing cache entries
+            current_time = time.time()
+            update_count = fs_Cache_Tracking.objects.filter(directory__dir_fqpn_sha256__in=found_shas).update(invalidated=True, lastscan=current_time)
+
+            # Find SHAs that don't have cache entries (set difference)
+            existing_cache_shas = set(
+                fs_Cache_Tracking.objects.filter(directory__dir_fqpn_sha256__in=found_shas).values_list("directory__dir_fqpn_sha256", flat=True)
+            )
+            missing_shas = found_shas - existing_cache_shas
+
+            # Bulk create missing cache entries
+            if missing_shas:
+                sha_to_indexdir = {d.dir_fqpn_sha256: d for d in index_dirs_queryset}
+                new_entries = [fs_Cache_Tracking(directory=sha_to_indexdir[sha], invalidated=True, lastscan=current_time) for sha in missing_shas]
+                fs_Cache_Tracking.objects.bulk_create(new_entries)
+                update_count += len(new_entries)
+
+        # Clear layout caches for affected directories - BULK OPERATION
+        if update_count > 0:
+            # Build list of affected directories, filtering out None values and objects without pk
+            affected_directories = [
+                fqpn_by_dir_sha[sha]
+                for sha in set(sha_list) & fqpn_by_dir_sha.keys()
+                if (fqpn_by_dir_sha[sha] is not None and hasattr(fqpn_by_dir_sha[sha], "pk") and fqpn_by_dir_sha[sha].pk is not None)
+            ]
+
+            if affected_directories:
+                self._clear_layout_cache_bulk(affected_directories)
+                self._clear_indexdirs_cache_bulk(affected_directories)
+
+            logger.info("Successfully invalidated %d cache entries (object-based)", update_count)
+
+        return update_count > 0
+
     def remove_from_cache_name(self, dir_path: str) -> bool:
         """Remove a directory from cache by path.
+
+        DEPRECATED: Use remove_from_cache_indexdirs() instead to avoid redundant SHA
+        computation and database lookups.
 
         Args:
             dir_path: The fully qualified pathname of the directory
@@ -632,6 +736,12 @@ class fs_Cache_Tracking(models.Model):
         Returns:
             True if successfully removed, False otherwise
         """
+        warnings.warn(
+            "remove_from_cache_name(dir_path: str) is deprecated. Use remove_from_cache_indexdirs(index_dir) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
         try:
             sha256 = get_dir_sha(dir_path)
             return self.remove_from_cache_sha(sha256)
@@ -699,9 +809,19 @@ class fs_Cache_Tracking(models.Model):
     def remove_multiple_from_cache(self, dir_names: list[str]) -> bool:
         """Remove multiple directories from cache in a single transaction.
 
+        DEPRECATED: Use remove_multiple_from_cache_indexdirs() instead to avoid redundant
+        SHA computation and database lookups.
+
         :param dir_names: List of directory paths to remove from cache
         :return: True if any entries were invalidated, False otherwise
         """
+        warnings.warn(
+            "remove_multiple_from_cache(dir_names: list[str]) is deprecated. "
+            "Use remove_multiple_from_cache_indexdirs(index_dirs) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
         if not dir_names:
             return False
 
@@ -747,11 +867,6 @@ class fs_Cache_Tracking(models.Model):
 
         # Update cache entries using bulk operations
         with transaction.atomic():
-            # Import inside transaction to avoid circular dependency
-            from quickbbs.models import (
-                IndexDirs,  # pylint: disable=import-outside-toplevel
-            )
-
             # Get all IndexDirs records and capture their SHAs
             index_dirs = IndexDirs.objects.filter(dir_fqpn_sha256__in=all_dirs_to_invalidate)
             found_shas = {d.dir_fqpn_sha256 for d in index_dirs}
