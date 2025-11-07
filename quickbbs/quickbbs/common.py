@@ -17,7 +17,7 @@ T = TypeVar("T", bound=models.Model)
 
 # Async-safe caches for common utility functions
 normalized_strings_cache = LRUCache(maxsize=500)
-directory_sha_cache = LRUCache(maxsize=2500)
+directory_sha_cache = LRUCache(maxsize=1000)
 normalized_paths_cache = LRUCache(maxsize=1000)
 
 

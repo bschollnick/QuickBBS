@@ -235,15 +235,22 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
     pathmaster = Path(entry.full_filepathname)
     lastmod_timestamp = entry.lastmod
 
-    # Get all file SHAs from directory - handle both list and QuerySet return types
-    # files_in_dir returns list when distinct=True, QuerySet when distinct=False
-    files_result = directory_entry.files_in_dir(sort=sort_order_value, distinct=not show_duplicates)
-    if isinstance(files_result, list):
-        # distinct=True case - files_in_dir returned list of objects (already deduplicated)
-        all_shas = [f.unique_sha256 for f in files_result]
+    # Get all file SHAs from directory - optimized to fetch only SHA field
+    # Avoid loading full objects with select_related when we only need SHAs for navigation
+    if show_duplicates:
+        # Include duplicates - use simple values_list query (no distinct needed)
+        from frontend.utilities import SORT_MATRIX  # pylint: disable=import-outside-toplevel
+
+        all_shas = list(
+            IndexData.objects.filter(home_directory=directory_entry.pk, delete_pending=False)
+            .order_by(*SORT_MATRIX[sort_order_value])
+            .values_list("unique_sha256", flat=True)
+        )
     else:
-        # distinct=False case - files_in_dir returned QuerySet (includes duplicates)
-        all_shas = list(files_result.values_list("unique_sha256", flat=True))
+        # Deduplicate - files_in_dir handles complex DISTINCT ON + re-sorting
+        # Must use full objects for re-sorting, but files_in_dir loads them efficiently
+        files_result = directory_entry.files_in_dir(sort=sort_order_value, distinct=True)
+        all_shas = [f.unique_sha256 for f in files_result]
 
     # Get pagination data inline
     try:

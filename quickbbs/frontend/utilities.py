@@ -224,13 +224,15 @@ def _sync_directories(directory_record: object, fs_entries: dict) -> None:
     logger.info("Synchronizing directories...")
     current_path = normalize_fqpn(directory_record.fqpndirectory)
 
-    # Get all database directories and build filesystem directory set in one pass
-    all_dirs_in_database = directory_record.dirs_in_dir()
-    db_dirs = set(all_dirs_in_database.values_list("fqpndirectory", flat=True))
+    # Get all database directories efficiently - use lightweight query for path comparison
+    # Avoid loading full objects with select_related/prefetch_related when only paths needed
+    all_dirs_queryset = IndexDirs.objects.filter(parent_directory=directory_record.pk, delete_pending=False)
+    db_dirs = set(all_dirs_queryset.values_list("fqpndirectory", flat=True))
     fs_dirs = {normalize_fqpn(current_path + entry.name) for entry in fs_entries.values() if entry.is_dir()}
 
-    # Check for updates in existing directories
-    existing_dirs = list(all_dirs_in_database.filter(fqpndirectory__in=db_dirs & fs_dirs))
+    # Load full objects only for directories that exist in both DB and filesystem
+    # This requires select_related for lastmod/size comparisons
+    existing_dirs = list(directory_record.dirs_in_dir().filter(fqpndirectory__in=db_dirs & fs_dirs))
 
     print(f"Existing directories in database: {len(existing_dirs)}")
     if existing_dirs:
@@ -276,7 +278,7 @@ def _sync_directories(directory_record: object, fs_entries: dict) -> None:
         print(f"Directories to Delete: {len(deleted_dirs)}")
         logger.info(f"Directories to Delete: {len(deleted_dirs)}")
         with transaction.atomic():
-            all_dirs_in_database.filter(fqpndirectory__in=deleted_dirs).delete()
+            all_dirs_queryset.filter(fqpndirectory__in=deleted_dirs).delete()
             Cache_Storage.remove_from_cache_indexdirs(directory_record)
 
 
@@ -314,17 +316,19 @@ def _sync_files(directory_record: object, fs_entries: dict, bulk_size: int) -> N
     # Maps lowercase filename -> original cased filename from filesystem
     fs_names_lower_map = {name.lower(): name for name in fs_file_names}
 
-    # Get files with prefetch already configured in files_in_dir()
-    all_files_in_dir = directory_record.files_in_dir()
+    # Optimize: First get just filenames with lightweight query (no prefetch overhead)
+    # Then load full objects only for files that need comparison/updates
+    all_db_filenames = set(IndexData.objects.filter(home_directory=directory_record.pk, delete_pending=False).values_list("name", flat=True))
 
-    # Batch fetch all filenames in one query
-    all_db_filenames = set(all_files_in_dir.values_list("name", flat=True))
+    # Find files that exist in both DB and filesystem (case-insensitive match)
+    # Build lowercase map from database names for matching
+    db_names_lower_set = {name.lower() for name in all_db_filenames}
+    matching_lower_names = set(fs_names_lower_map.keys()) & db_names_lower_set
 
-    # Check for updates - use case-insensitive matching to avoid delete+create
-    # Match database files with filesystem files using lowercase comparison
-    db_names_lower_map = {f.name.lower(): f for f in all_files_in_dir}
-    matching_lower_names = set(fs_names_lower_map.keys()) & set(db_names_lower_map.keys())
-    potential_updates = [db_names_lower_map[name_lower] for name_lower in matching_lower_names]
+    # Load full objects with prefetch only for files that need comparison
+    # Convert matching lowercase names back to original database names
+    matching_db_names = {name for name in all_db_filenames if name.lower() in matching_lower_names}
+    potential_updates = list(directory_record.files_in_dir().filter(name__in=matching_db_names))
 
     # Batch compute SHA256 for files missing hashes
     files_needing_hash = []
@@ -358,18 +362,17 @@ def _sync_files(directory_record: object, fs_entries: dict, bulk_size: int) -> N
 
     # Get files to delete - case-insensitive: db files NOT matching any fs file
     # Files in database whose lowercase name is NOT in the matching set
-    files_to_delete_ids = [
-        f.id for f in all_files_in_dir
-        if f.name.lower() not in matching_lower_names
-    ]
+    # Use set difference to find DB files not in filesystem, then query for IDs
+    db_names_not_in_fs = all_db_filenames - {fs_names_lower_map[lower] for lower in matching_lower_names}
+    files_to_delete_ids = list(
+        IndexData.objects.filter(home_directory=directory_record.pk, name__in=db_names_not_in_fs, delete_pending=False)
+        .values_list("id", flat=True)
+    )
 
     # Process new files - case-insensitive: fs files NOT matching any db file
     # Filesystem files whose lowercase name is NOT in database (case-insensitive)
     all_db_filenames_lower = {name.lower() for name in all_db_filenames}
-    fs_file_names_for_creation = [
-        name for name in fs_file_names
-        if name.lower() not in all_db_filenames_lower
-    ]
+    fs_file_names_for_creation = [name for name in fs_file_names if name.lower() not in all_db_filenames_lower]
     creation_fs_file_names_dict = {name: fs_file_names_dict[name] for name in fs_file_names_for_creation}
 
     # Batch compute SHA256 for new files (excluding links/archives which are handled individually)

@@ -86,17 +86,12 @@ def invalidate_directories_with_null_sha256(start_path: str | None = None, verbo
         print("Checking for files with NULL SHA256...")
 
     # Query for files with NULL SHA256
-    files_without_sha = IndexData.objects.filter(
-        file_sha256__isnull=True,
-        delete_pending=False
-    )
+    files_without_sha = IndexData.objects.filter(file_sha256__isnull=True, delete_pending=False)
 
     # Filter by start_path if provided
     if start_path:
         normalized_start = normalize_fqpn(start_path)
-        files_without_sha = files_without_sha.filter(
-            home_directory__fqpndirectory__startswith=normalized_start
-        )
+        files_without_sha = files_without_sha.filter(home_directory__fqpndirectory__startswith=normalized_start)
 
     # Count before getting directories
     file_count = files_without_sha.count()
@@ -111,12 +106,10 @@ def invalidate_directories_with_null_sha256(start_path: str | None = None, verbo
 
     # Get distinct list of directories containing files without SHA256
     # Use values_list to get just the directory IDs efficiently
-    directory_ids = files_without_sha.values_list(
-        'home_directory_id',
-        flat=True
-    ).distinct()
+    directory_ids = files_without_sha.values_list("home_directory_id", flat=True).distinct()
 
-    directory_count = len(list(directory_ids))
+    # Use .count() to avoid materializing queryset twice
+    directory_count = directory_ids.count()
     if verbose:
         print(f"Found {directory_count} directories containing files without SHA256")
 
@@ -156,18 +149,12 @@ def invalidate_directories_with_null_virtual_directory(start_path: str | None = 
         print("Checking for link files with NULL virtual_directory...")
 
     # Query for link files with NULL virtual_directory
-    link_files_without_vdir = IndexData.objects.filter(
-        filetype__is_link=True,
-        virtual_directory__isnull=True,
-        delete_pending=False
-    )
+    link_files_without_vdir = IndexData.objects.filter(filetype__is_link=True, virtual_directory__isnull=True, delete_pending=False)
 
     # Filter by start_path if provided
     if start_path:
         normalized_start = normalize_fqpn(start_path)
-        link_files_without_vdir = link_files_without_vdir.filter(
-            home_directory__fqpndirectory__startswith=normalized_start
-        )
+        link_files_without_vdir = link_files_without_vdir.filter(home_directory__fqpndirectory__startswith=normalized_start)
 
     # Count before getting directories
     file_count = link_files_without_vdir.count()
@@ -182,12 +169,10 @@ def invalidate_directories_with_null_virtual_directory(start_path: str | None = 
 
     # Get distinct list of directories containing link files without virtual_directory
     # Use values_list to get just the directory IDs efficiently
-    directory_ids = link_files_without_vdir.values_list(
-        'home_directory_id',
-        flat=True
-    ).distinct()
+    directory_ids = link_files_without_vdir.values_list("home_directory_id", flat=True).distinct()
 
-    directory_count = len(list(directory_ids))
+    # Use .count() to avoid materializing queryset twice
+    directory_count = directory_ids.count()
     if verbose:
         print(f"Found {directory_count} directories containing link files without virtual_directory")
 
