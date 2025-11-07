@@ -344,13 +344,20 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
         return Http404
 
     # If directory already has a thumbnail set AND cache is valid, try to return it
-    if directory.thumbnail and directory.thumbnail.new_ftnail and directory.is_cached:
-        try:
-            return directory.thumbnail.new_ftnail.send_thumbnail(fext_override=".jpg", size="small", index_data_item=directory.thumbnail)
-        except Exception as e:
-            # If thumbnail serving fails, fall through to cover image logic
-            print(f"Directory thumbnail serving failed for {directory.fqpndirectory}: {e}")
-            # Continue to cover image selection below
+    try:
+        if directory.thumbnail and directory.thumbnail.new_ftnail and directory.is_cached:
+            try:
+                return directory.thumbnail.new_ftnail.send_thumbnail(
+                    fext_override=".jpg", size="small", index_data_item=directory.thumbnail
+                )
+            except Exception as e:
+                # If thumbnail serving fails, fall through to cover image logic
+                print(f"Directory thumbnail serving failed for {directory.fqpndirectory}: {e}")
+                # Continue to cover image selection below
+    except IndexData.DoesNotExist:
+        # Thumbnail FK points to deleted/non-existent record - clear it and regenerate
+        print(f"Thumbnail reference broken for {directory.fqpndirectory} - regenerating")
+        directory.invalidate_thumb()
 
     # Cache is invalidated or no thumbnail set - regenerate using get_cover_image
     # Clear any existing thumbnail reference

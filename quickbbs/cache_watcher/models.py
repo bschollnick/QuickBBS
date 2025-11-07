@@ -63,7 +63,7 @@ class LockFreeEventBuffer:
     Do NOT convert to asyncio.Lock - it will break Watchdog integration.
     """
 
-    def __init__(self, max_size: int = 1000):
+    def __init__(self, max_size: int = 500):
         """
         Args:
             max_size: Maximum number of events to buffer before auto-cleanup
@@ -88,7 +88,7 @@ class LockFreeEventBuffer:
             # Prevent buffer from growing too large to avoid memory issues
             if len(self._events) > self._max_size:
                 # Remove oldest events to prevent memory buildup
-                cleanup_target = int(self._max_size * 0.8)  # Remove 20% of max size
+                cleanup_target = int(self._max_size * 0.5)  # Remove 50% of max size
                 while len(self._events) > cleanup_target:
                     self._events.popleft()
 
@@ -372,7 +372,8 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
                 )
 
                 sha_list = [get_dir_sha(path) for path in paths_to_process]
-                index_dirs = list(IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list))
+                # Load only required fields to reduce memory footprint
+                index_dirs = list(IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list).only("dir_fqpn_sha256", "id", "fqpndirectory"))
 
                 if index_dirs:
                     # Wrap DB operation for ASGI compatibility
@@ -687,8 +688,12 @@ class fs_Cache_Tracking(models.Model):
         # Update cache entries using bulk operations
         with transaction.atomic():
             # Get all IndexDirs records and capture their SHAs
-            index_dirs_queryset = IndexDirs.objects.filter(dir_fqpn_sha256__in=all_dirs_to_invalidate)
-            found_shas = {d.dir_fqpn_sha256 for d in index_dirs_queryset}
+            # Use .only() to load minimal fields, reducing memory footprint
+            # Evaluate queryset ONCE and cache results to avoid double query
+            index_dirs_list = list(IndexDirs.objects.filter(dir_fqpn_sha256__in=all_dirs_to_invalidate).only("dir_fqpn_sha256", "id"))
+
+            # Extract SHAs from already-loaded objects (no additional query)
+            found_shas = {d.dir_fqpn_sha256 for d in index_dirs_list}
 
             # Bulk update existing cache entries
             current_time = time.time()
@@ -702,7 +707,8 @@ class fs_Cache_Tracking(models.Model):
 
             # Bulk create missing cache entries
             if missing_shas:
-                sha_to_indexdir = {d.dir_fqpn_sha256: d for d in index_dirs_queryset}
+                # Reuse already-loaded objects (no additional query)
+                sha_to_indexdir = {d.dir_fqpn_sha256: d for d in index_dirs_list}
                 new_entries = [fs_Cache_Tracking(directory=sha_to_indexdir[sha], invalidated=True, lastscan=current_time) for sha in missing_shas]
                 fs_Cache_Tracking.objects.bulk_create(new_entries)
                 update_count += len(new_entries)
@@ -816,8 +822,7 @@ class fs_Cache_Tracking(models.Model):
         :return: True if any entries were invalidated, False otherwise
         """
         warnings.warn(
-            "remove_multiple_from_cache(dir_names: list[str]) is deprecated. "
-            "Use remove_multiple_from_cache_indexdirs(index_dirs) instead.",
+            "remove_multiple_from_cache(dir_names: list[str]) is deprecated. " "Use remove_multiple_from_cache_indexdirs(index_dirs) instead.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -868,8 +873,12 @@ class fs_Cache_Tracking(models.Model):
         # Update cache entries using bulk operations
         with transaction.atomic():
             # Get all IndexDirs records and capture their SHAs
-            index_dirs = IndexDirs.objects.filter(dir_fqpn_sha256__in=all_dirs_to_invalidate)
-            found_shas = {d.dir_fqpn_sha256 for d in index_dirs}
+            # Use .only() to load minimal fields, reducing memory footprint
+            # Evaluate queryset ONCE and cache results to avoid double query
+            index_dirs_list = list(IndexDirs.objects.filter(dir_fqpn_sha256__in=all_dirs_to_invalidate).only("dir_fqpn_sha256", "id"))
+
+            # Extract SHAs from already-loaded objects (no additional query)
+            found_shas = {d.dir_fqpn_sha256 for d in index_dirs_list}
 
             # Bulk update existing cache entries
             current_time = time.time()
@@ -883,7 +892,8 @@ class fs_Cache_Tracking(models.Model):
 
             # Bulk create missing cache entries
             if missing_shas:
-                sha_to_indexdir = {d.dir_fqpn_sha256: d for d in index_dirs}
+                # Reuse already-loaded objects (no additional query)
+                sha_to_indexdir = {d.dir_fqpn_sha256: d for d in index_dirs_list}
                 new_entries = [fs_Cache_Tracking(directory=sha_to_indexdir[sha], invalidated=True, lastscan=current_time) for sha in missing_shas]
                 fs_Cache_Tracking.objects.bulk_create(new_entries)
                 update_count += len(new_entries)
