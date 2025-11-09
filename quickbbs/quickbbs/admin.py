@@ -5,7 +5,11 @@ from quickbbs.models import Favorites, IndexData, IndexDirs, Owners
 
 @admin.register(IndexData)
 class AdminMaster_Index(admin.ModelAdmin):
-    search_fields = ["name", "file_sha256", "id",]
+    search_fields = [
+        "name",
+        "file_sha256",
+        "id",
+    ]
     list_filter = ["filetype"]
     readonly_fields = (
         "id",

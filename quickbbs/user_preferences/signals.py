@@ -10,9 +10,7 @@ from user_preferences.models import UserPreferences
 
 
 @receiver(post_save, sender=User)
-def create_user_preferences(
-    sender: type[User], instance: User, created: bool, **kwargs
-) -> None:
+def create_user_preferences(sender: type[User], instance: User, created: bool, **kwargs) -> None:
     """
     Create UserPreferences when a new User is created.
 

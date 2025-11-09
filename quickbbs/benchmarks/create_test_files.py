@@ -11,6 +11,5 @@ filename = sys.argv[1]
 file_size = sys.argv[2]
 
 with open(os.path.abspath(filename), "wb") as fout:
-    fout.write(os.urandom(int(file_size)*1024*1024))
+    fout.write(os.urandom(int(file_size) * 1024 * 1024))
 fout.close()
-

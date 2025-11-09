@@ -77,15 +77,22 @@ class WatchdogMonitor:
             event: Filesystem event to process
         """
 
-    def startup(self, monitor_path: str, event_handler=None) -> None:
+    def startup(self, monitor_path: str, event_handler=None, force_recreate: bool = False) -> None:
         """
         Start the watchdog observer to monitor filesystem changes.
 
         :param monitor_path: Path to monitor for filesystem changes
         :param event_handler: Event handler to process filesystem events
+        :param force_recreate: If True, stop and recreate the observer (prevents memory leaks)
         :return: None
         """
-        logger.info(f"Monitoring : {monitor_path}")
+        logger.info("Monitoring : %s", monitor_path)
+
+        # If force_recreate is True, stop and recreate the observer
+        # This prevents memory leaks from accumulated internal state
+        if force_recreate and self.my_observer is not None:
+            logger.debug("Force recreate requested - stopping existing observer")
+            self.stop_observer()
 
         # If observer already exists, unschedule old handler first
         if self.my_observer is not None and self.current_watch is not None:
@@ -96,25 +103,62 @@ class WatchdogMonitor:
         self.my_event_handler = event_handler
         go_recursively = True
 
-        # Create observer only if it doesn't exist
+        # Create observer if it doesn't exist OR if we just stopped it
         if self.my_observer is None:
+            logger.debug("Creating new Observer instance")
             self.my_observer = Observer()
             self.my_observer.start()
 
         # Schedule the new handler
         self.current_watch = self.my_observer.schedule(self.my_event_handler, monitor_path, recursive=go_recursively)
 
+    def stop_observer(self) -> None:
+        """
+        Stop the watchdog observer without exiting the process.
+        Use this for restarts or cleanup that should not terminate the application.
+
+        :return: None
+        """
+        if self.my_observer is not None:
+            logger.debug("Stopping observer")
+            try:
+                # Unschedule current watch before stopping
+                if self.current_watch is not None:
+                    self.my_observer.unschedule(self.current_watch)
+                    self.current_watch = None
+
+                # Stop the observer's internal threads
+                self.my_observer.stop()
+                # Wait for threads to complete (with timeout to prevent hanging)
+                self.my_observer.join(timeout=5.0)
+
+                # Check if join timed out
+                if self.my_observer.is_alive():
+                    logger.warning("Observer threads did not stop within timeout")
+
+                # Clear the observer reference to allow garbage collection
+                self.my_observer = None
+                self.my_event_handler = None
+                logger.debug("Observer stopped and cleaned up")
+
+            except Exception as e:
+                logger.error("Error stopping observer: %s", e, exc_info=True)
+                # Still clear references even if stop failed
+                self.my_observer = None
+                self.my_event_handler = None
+                self.current_watch = None
+
     def shutdown(self, *args) -> None:
         """
-        Shutdown the watchdog observer.
+        Shutdown the watchdog observer and exit the process.
+        Use this for full application shutdown.
 
         :param args: Variable arguments for shutdown handling
         :return: None
         """
         if os.environ.get("RUN_MAIN") == "true":
             logger.info("Shutting down")
-            self.my_observer.stop()
-            self.my_observer.join()
+            self.stop_observer()
         sys.exit(0)  # So runserver does try to exit
 
 

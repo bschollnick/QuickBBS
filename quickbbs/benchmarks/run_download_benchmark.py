@@ -556,8 +556,10 @@ def print_summary(results: dict[str, Any], host: str, users: int) -> None:
                     print(f"  CONN_MAX_AGE:      {conn_max_age}s")
             if "pool" in db:
                 pool = db["pool"]
-                print(f"  Connection Pool:   min={pool.get('min_size', 'N/A')}, max={pool.get('max_size', 'N/A')}, "
-                      f"lifetime={pool.get('max_lifetime', 'N/A')}s, idle={pool.get('max_idle', 'N/A')}s")
+                print(
+                    f"  Connection Pool:   min={pool.get('min_size', 'N/A')}, max={pool.get('max_size', 'N/A')}, "
+                    f"lifetime={pool.get('max_lifetime', 'N/A')}s, idle={pool.get('max_idle', 'N/A')}s"
+                )
 
     print()
     print(f"Concurrency Level:   {users}")
