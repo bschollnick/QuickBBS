@@ -837,6 +837,68 @@ class IndexDirs(models.Model):
         """
         return reverse(r"thumbnail2_dir", args=(self.dir_fqpn_sha256,))
 
+    async def get_prev_next_siblings(self, sort_order: int = 0) -> tuple[str | None, str | None]:
+        """
+        Get the previous and next sibling directories in parent directory.
+
+        Used for breadcrumb navigation to allow moving between siblings.
+        Returns URIs suitable for prev/next navigation links.
+
+        :Args:
+            sort_order: Sort order to apply (0=name, 1=date, 2=name only)
+
+        :return: Tuple of (prev_uri, next_uri) or (None, None) if no parent directory
+
+        Note:
+            ORM only derived from https://stackoverflow.com/questions/1042596/
+            get-the-index-of-an-element-in-a-queryset
+            Specifically Richard's answer.
+        """
+        # No parent directory means this is a root directory
+        if self.parent_directory is None:
+            return (None, None)
+
+        # Wrap queryset operations
+        directories = await sync_to_async(self.parent_directory.dirs_in_dir)(sort=sort_order)
+        parent_dir_data = await sync_to_async(list)(directories.values("fqpndirectory"))
+
+        prevdir = None
+        nextdir = None
+
+        for count, entry in enumerate(parent_dir_data):
+            if entry["fqpndirectory"] == self.fqpndirectory:
+                if count >= 1:
+                    # Use pathlib to normalize path (removes trailing slashes)
+                    prevdir = str(pathlib.Path(parent_dir_data[count - 1]["fqpndirectory"]))
+                    prevdir = prevdir.replace(settings.ALBUMS_PATH, "")
+
+                if count + 1 < len(parent_dir_data):
+                    # Use pathlib to normalize path (removes trailing slashes)
+                    nextdir = str(pathlib.Path(parent_dir_data[count + 1]["fqpndirectory"]))
+                    nextdir = nextdir.replace(settings.ALBUMS_PATH, "")
+                break
+
+        return (prevdir, nextdir)
+
+    async def handle_missing(self) -> None:
+        """
+        Handle case where this directory doesn't exist on filesystem.
+
+        Called during filesystem synchronization when directory is missing.
+        - Deletes this directory record from database
+        - Clears cache for parent directory
+
+        This is an async method as it may need to clear caches that involve
+        async operations.
+        """
+        # Access preloaded parent_directory (loaded via select_related)
+        parent_dir = self.parent_directory
+        await sync_to_async(IndexDirs.delete_directory_record)(self)
+
+        # Clean up parent directory cache if it exists
+        if parent_dir:
+            await sync_to_async(IndexDirs.delete_directory_record)(parent_dir, cache_only=True)
+
 
 # Forward ForeignKeys - use select_related() for SQL JOINs (single query)
 INDEXDATA_SELECT_RELATED_LIST = [
