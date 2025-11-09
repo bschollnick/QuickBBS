@@ -34,7 +34,12 @@ from PIL import Image
 import filetypes.models as filetype_models
 from cache_watcher.models import Cache_Storage
 from frontend.file_listings import return_disk_listing
-from quickbbs.common import SORT_MATRIX, get_file_sha, normalize_fqpn, normalize_string_title
+from quickbbs.common import (
+    SORT_MATRIX,
+    get_file_sha,
+    normalize_fqpn,
+    normalize_string_title,
+)
 from quickbbs.models import IndexData, IndexDirs
 from thumbnails.video_thumbnails import _get_video_info
 
@@ -370,7 +375,7 @@ def _sync_files(directory_record: object, fs_entries: dict, bulk_size: int) -> N
     if new_file_paths:
         new_sha_results = _batch_compute_file_shas(new_file_paths)
 
-    records_to_create = _process_new_files(directory_record, creation_fs_file_names_dict, new_sha_results)
+    records_to_create = directory_record.process_new_files(creation_fs_file_names_dict, new_sha_results)
 
     # Execute batch operations with transactions
     _execute_batch_operations(records_to_update, records_to_create, files_to_delete_ids, bulk_size)
@@ -561,53 +566,6 @@ def _check_file_updates(
     except (OSError, IOError) as e:
         logger.error(f"Error checking file {fs_entry}: {e}")
         return None
-
-
-def _process_new_files(directory_record: object, fs_file_names: dict, precomputed_shas: dict[str, tuple] | None = None) -> list[object]:
-    """
-    Process files that exist in filesystem but not in database.
-
-    Creates new IndexData records for files found on filesystem that don't
-    have corresponding database entries.
-
-    Performance Optimization:
-    Accepts precomputed SHA256 hashes to enable batch parallel computation.
-
-    :Args:
-        directory_record: IndexDirs object for the parent directory
-        fs_file_names: Dictionary mapping filenames to DirEntry objects
-        precomputed_shas: Optional dict mapping file paths to (file_sha256, unique_sha256) tuples
-
-    Returns:
-        List of new IndexData records to create
-    """
-    records_to_create = []
-    if precomputed_shas is None:
-        precomputed_shas = {}
-
-    # Single pass through new files
-    for _, fs_entry in fs_file_names.items():
-        try:
-            # Process new file with precomputed SHA if available
-            filedata = process_filedata(fs_entry, directory_id=directory_record, precomputed_sha=precomputed_shas.get(str(fs_entry)))
-            if filedata is None:
-                continue
-
-            # Early skip for archives and other excluded types
-            filetype = filedata.get("filetype")
-            if hasattr(filetype, "is_archive") and filetype.is_archive:
-                continue
-
-            # Create record
-            record = IndexData(**filedata)
-            record.home_directory = directory_record
-            records_to_create.append(record)
-
-        except Exception as e:
-            logger.error(f"Error processing new file {fs_entry}: {e}")
-            continue
-
-    return records_to_create
 
 
 def _execute_batch_operations(

@@ -45,33 +45,32 @@ def repair_pdf(origname, newname, forced=False):
 
             Boolean: True, File has been fixed.  False, File is untouched.
     """
+    # Try to read PDF directly from file path (no memory load)
     try:
-        ifile = open(origname, "rb")
+        with open(origname, "rb") as ifile:
+            try:
+                data = PdfReader(ifile)
+                if not forced:
+                    return ""  # File did not need to be repaired
+            except OSError:  # problem! heal it with PyMuPDF
+                pass
     except FileNotFoundError:
         return "File Not Found"  # File not found
-
-    idata = ifile.read()  # put in memory
-    ifile.close()
-    ibuffer = BytesIO(idata)  # convert to stream
-    try:
-        data = PdfReader(ibuffer)
-        if not forced:
-            return ""  # File did not need to be repaired
-    except OSError:  # problem! heal it with PyMuPDF
-        pass
 
     # either an exception occured, or we are being forced to repair
 
     # print ("Error reading")
-    doc = fitz.open("pdf", idata)  # open and save a corrected
+    # fitz can open files directly by path (no need to load into memory)
+    doc = fitz.open(origname)
     try:
         fixed = doc.write(garbage=3, deflate=1, clean=1)  # version in memory
         doc.close()
-        doc = idata = None  # free storage
+        doc = None  # free storage
         ibuffer = BytesIO(fixed)  # convert to stream
         PdfWriter(newname, trailer=PdfReader(ibuffer)).write()
         return True  # File has been Fixed
     except ValueError:
+        doc.close()
         return False
     # return (False, PdfReader(ibuffer))           # let pdfrw retry
 
