@@ -272,54 +272,6 @@ def get_search_results(searchtext: str, search_regex_pattern: str, sort_order_va
 #     )
 
 
-async def return_prev_next2(directory: "IndexDirs", sorder: int) -> tuple[str | None, str | None]:
-    """
-    The return_prev_next function takes a fully qualified pathname,
-    and the current path as parameters. It returns the previous and next paths in a tuple.
-
-    ASGI async version - all database operations wrapped.
-
-    Args:
-        directory: IndexDirs object for the current directory
-        sorder: Determine whether the index is sorted by name or size
-
-    Returns:
-        A tuple of two strings (prev_uri, next_uri) or (None, None) if no parent
-
-    Note:
-        ORM only derived from https://stackoverflow.com/questions/1042596/
-        get-the-index-of-an-element-in-a-queryset
-        Specifically Richard's answer.
-    """
-    nextdir = ""
-    prevdir = ""
-
-    # Access preloaded parent_directory (loaded via select_related)
-    parent_dir = directory.parent_directory
-
-    # No parent directory means this is a root directory
-    if parent_dir is None:
-        return (None, None)
-
-    # Wrap queryset operations
-    directories = await sync_to_async(parent_dir.dirs_in_dir)(sort=sorder)
-    parent_dir_data = await sync_to_async(list)(directories.values("fqpndirectory"))
-
-    for count, entry in enumerate(parent_dir_data):
-        if entry["fqpndirectory"] == directory.fqpndirectory:
-            if count >= 1:
-                prevdir = str(pathlib.Path(parent_dir_data[count - 1]["fqpndirectory"]))
-                prevdir = prevdir.replace(settings.ALBUMS_PATH, "")
-
-            try:
-                nextdir = str(pathlib.Path(parent_dir_data[count + 1]["fqpndirectory"]))
-                nextdir = nextdir.replace(settings.ALBUMS_PATH, "")
-            except IndexError:
-                pass
-            break
-    return (prevdir, nextdir)
-
-
 def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pylint: disable=unused-argument
     """
     Serve directory thumbnail using prioritized cover image selection.
@@ -743,7 +695,7 @@ async def new_viewgallery(request: WSGIRequest):
     )
 
     # Set navigation URIs (async function)
-    context["prev_uri"], context["next_uri"] = await return_prev_next2(directory, sorder=context["sort"])
+    context["prev_uri"], context["next_uri"] = await directory.get_prev_next_siblings(sort_order=context["sort"])
 
     # Only fetch directories if there are any on this page (async wrapped)
     if layout["data"]["directories"]:

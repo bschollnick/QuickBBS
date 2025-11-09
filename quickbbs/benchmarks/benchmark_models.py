@@ -5,14 +5,27 @@ Focuses on real-world read patterns used throughout the application
 to establish baseline performance metrics and track optimization impact.
 """
 
+from __future__ import annotations
+
 import os
 import random
+import sys
 import time
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable
+from pathlib import Path
+from typing import Any
 
 # Benchmark configuration
 BENCHMARK_ITERATIONS = 500  # Number of iterations per benchmark operation
+
+# Determine project root (parent of benchmarks directory)
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
+
+# Add project root to Python path for imports
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 import django
 
@@ -227,8 +240,8 @@ def run_indexdirs_read_benchmarks() -> list[BenchmarkResult]:
     # 9. Get parent directory
     results.append(
         benchmark_query(
-            "dir.return_parent_directory()",
-            lambda d: d.return_parent_directory(),
+            "dir.parent_directory (property)",
+            lambda d: d.parent_directory,
             samples=sample_dirs,
         )
     )
@@ -304,8 +317,12 @@ def run_indexdata_read_benchmarks() -> list[BenchmarkResult]:
     indexdata_cache.clear()
     indexdata_download_cache.clear()
 
-    # Get 25 random sample files for testing
-    sample_files = list(IndexData.objects.filter(delete_pending=False).order_by("?")[:25])
+    # Get 25 random sample files for testing (exclude files without home_directory)
+    sample_files = list(
+        IndexData.objects.filter(delete_pending=False, home_directory__isnull=False)
+        .select_related("home_directory")
+        .order_by("?")[:25]
+    )
     if not sample_files:
         print("No files found in database. Skipping IndexData benchmarks.")
         return results
@@ -416,16 +433,7 @@ def run_indexdata_read_benchmarks() -> list[BenchmarkResult]:
         )
     )
 
-    # 11. Get webpath
-    results.append(
-        benchmark_query(
-            "file.get_webpath()",
-            lambda f: f.get_webpath(),
-            samples=sample_files,
-        )
-    )
-
-    # 12. Get background color (accesses filetype FK)
+    # 11. Get background color (accesses filetype FK)
     results.append(
         benchmark_query(
             "file.filetype.color",
@@ -434,7 +442,7 @@ def run_indexdata_read_benchmarks() -> list[BenchmarkResult]:
         )
     )
 
-    # 13. Get view URL
+    # 12. Get view URL
     results.append(
         benchmark_query(
             "file.get_view_url()",
@@ -443,7 +451,7 @@ def run_indexdata_read_benchmarks() -> list[BenchmarkResult]:
         )
     )
 
-    # 14. Get thumbnail URL
+    # 13. Get thumbnail URL
     results.append(
         benchmark_query(
             "file.get_thumbnail_url(size='small')",
@@ -452,7 +460,7 @@ def run_indexdata_read_benchmarks() -> list[BenchmarkResult]:
         )
     )
 
-    # 15. Get download URL
+    # 14. Get download URL
     results.append(
         benchmark_query(
             "file.get_download_url()",
@@ -461,7 +469,7 @@ def run_indexdata_read_benchmarks() -> list[BenchmarkResult]:
         )
     )
 
-    # 16. inline_sendfile (non-ranged) - actual file send operation
+    # 15. inline_sendfile (non-ranged) - actual file send operation
     # Create a mock request for testing
     factory = RequestFactory()
     mock_request = factory.get("/download/test.jpg")
@@ -556,10 +564,13 @@ def main() -> None:
     # Save results to file
     timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
     output_filename = f"quickbbs_models_{timestamp}.txt"
-    output_path = os.path.join(os.path.dirname(__file__), "tests", output_filename)
+
+    # Use absolute paths relative to script location
+    tests_dir = SCRIPT_DIR / "tests"
+    output_path = tests_dir / output_filename
 
     # Ensure tests directory exists
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    tests_dir.mkdir(exist_ok=True)
 
     with open(output_path, "w") as f:
         # Write benchmark results
@@ -570,9 +581,12 @@ def main() -> None:
         f.write("=" * 150 + "\n\n")
 
         # Append models.py contents
-        models_path = os.path.join(os.path.dirname(__file__), "quickbbs", "models.py")
-        with open(models_path, "r") as models_file:
-            f.write(models_file.read())
+        models_path = PROJECT_ROOT / "quickbbs" / "models.py"
+        if models_path.exists():
+            with open(models_path, "r") as models_file:
+                f.write(models_file.read())
+        else:
+            f.write(f"WARNING: Could not find models.py at {models_path}\n")
 
     print(f"\nBenchmark results saved to: {output_path}")
 

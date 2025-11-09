@@ -163,30 +163,6 @@ async def _get_or_create_directory(directory_sha256: str, dirpath: str) -> tuple
     return directory_record, is_cached
 
 
-async def _handle_missing_directory(directory_record: object) -> None:
-    """
-    Handle case where directory doesn't exist on filesystem.
-
-    Deletes the directory record and cleans up parent directory cache.
-
-    Args:
-        directory_record: IndexDirs object for the missing directory
-
-    Returns:
-        None
-    """
-    try:
-        # Access preloaded parent_directory (loaded via select_related)
-        parent_dir = directory_record.parent_directory
-        await sync_to_async(IndexDirs.delete_directory_record)(directory_record)
-
-        # Clean up parent directory cache if it exists
-        if parent_dir:
-            await sync_to_async(IndexDirs.delete_directory_record)(parent_dir, cache_only=True)
-    except Exception as e:
-        logger.error(f"Error handling missing directory: {e}")
-
-
 def _sync_directories(directory_record: object, fs_entries: dict) -> None:
     """
     Synchronize database directories with filesystem - simplified sync version.
@@ -944,7 +920,7 @@ async def sync_database_disk(directory_record: IndexDirs) -> bool | None:
     success, fs_entries = await return_disk_listing(dirpath)
     if not success:
         print("File path doesn't exist, removing from cache and database.")
-        return await _handle_missing_directory(directory_record)
+        return await directory_record.handle_missing()
 
     # Batch process all operations
     # Both functions are sync and wrapped here for clean async/sync boundary
