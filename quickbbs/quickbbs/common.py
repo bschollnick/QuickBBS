@@ -20,6 +20,17 @@ normalized_strings_cache = LRUCache(maxsize=500)
 directory_sha_cache = LRUCache(maxsize=1000)
 normalized_paths_cache = LRUCache(maxsize=1000)
 
+# Sort matrix for file/directory listings
+# Defines ordering for different sort modes:
+#   0: Name (default) - directories first, then by name with modification time tiebreaker
+#   1: Date - directories first, then by modification time with name tiebreaker
+#   2: Name only - directories first, then by name (no secondary sort)
+SORT_MATRIX = {
+    0: ["-filetype__is_dir", "-filetype__is_link", "name_sort", "lastmod"],
+    1: ["-filetype__is_dir", "-filetype__is_link", "lastmod", "name_sort"],
+    2: ["-filetype__is_dir", "-filetype__is_link", "name_sort"],
+}
+
 
 @cached(normalized_strings_cache)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
 def normalize_string_lower(s: str) -> str:

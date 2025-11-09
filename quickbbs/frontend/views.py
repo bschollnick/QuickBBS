@@ -924,8 +924,6 @@ async def download_file(request: WSGIRequest):  # , filename=None):
         Http404: If file not found or no identifier provided
         asyncio.CancelledError: Re-raised if client disconnects (normal operation)
     """
-    import asyncio
-
     sha_value = request.GET.get("usha", None) or request.GET.get("USHA", None)
     if sha_value in ["", None]:
         raise Http404("No Identifier provided for download.")

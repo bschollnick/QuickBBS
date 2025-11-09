@@ -5,6 +5,8 @@ Django Models for quickbbs
 from __future__ import annotations
 
 # Standard library imports
+import asyncio
+import io
 import logging
 import os
 import pathlib
@@ -30,7 +32,7 @@ from ranged_fileresponse import RangedFileResponse
 
 # Local application imports
 from filetypes.models import filetypes, get_ftype_dict
-from quickbbs.common import get_dir_sha, normalize_fqpn
+from quickbbs.common import SORT_MATRIX, get_dir_sha, get_file_sha, normalize_fqpn
 from quickbbs.natsort_model import NaturalSortField
 from thumbnails.models import ThumbnailFiles
 
@@ -44,6 +46,10 @@ logger = logging.getLogger(__name__)
 indexdirs_cache = LRUCache(maxsize=1000)
 indexdata_cache = LRUCache(maxsize=1000)
 indexdata_download_cache = LRUCache(maxsize=500)
+
+# Cache for distinct file lists per directory (for pagination efficiency)
+# Cache key: (directory_instance, sort_ordering)
+distinct_files_cache = LRUCache(maxsize=500)
 
 
 class Owners(models.Model):
@@ -587,10 +593,6 @@ class IndexDirs(models.Model):
 
         Returns: The sorted query of directories matching the SHA256 list
         """
-        # necessary to prevent circular references on startup
-        # pylint: disable-next=import-outside-toplevel
-        from frontend.utilities import SORT_MATRIX
-
         dirs = (
             IndexDirs.objects.select_related(*INDEXDIRS_SELECT_RELATED_LIST)
             .prefetch_related(*INDEXDIRS_PREFETCH_LIST)
@@ -615,8 +617,8 @@ class IndexDirs(models.Model):
             distinct: If True, return distinct files based on file_sha256 (deduplicates identical files)
             additional_filters: Additional Django ORM filters to apply (e.g., filetype, status filters)
             fields_only: If provided, return lightweight query with only these fields.
-                        Skips expensive select_related operations. Ignored when distinct=True
-                        (distinct requires full objects for re-sorting).
+                        With distinct=True: Only optimizes if sort doesn't require related fields.
+                        Current sort modes (0-2) use filetype relations, so fall back to full query.
 
         Returns: QuerySet[IndexData] when distinct=False, list[IndexData] when distinct=True
 
@@ -631,20 +633,41 @@ class IndexDirs(models.Model):
             - Getting file names for filesystem comparison
             - Building file lists with only specific attributes
             - Batch operations needing only IDs or hashes
-        """
-        # necessary to prevent circular references on startup
-        # pylint: disable-next=import-outside-toplevel
-        from frontend.utilities import SORT_MATRIX
 
+            With distinct=True and fields_only, sort fields are automatically included
+            to enable Python re-sorting, then objects contain only requested + sort fields.
+        """
         if additional_filters is None:
             additional_filters = {}
 
         files = self.IndexData_entries.filter(delete_pending=False, **additional_filters)
 
-        # Apply fields_only optimization only for non-distinct queries
-        # (distinct requires full objects for Python re-sorting)
-        if fields_only and not distinct:
-            files = files.only(*fields_only)
+        # Determine field loading strategy
+        if fields_only:
+            if distinct:
+                # For distinct queries, we need sort fields + requested fields for Python re-sorting
+                sort_fields = SORT_MATRIX[sort]
+
+                # Extract field names from sort specification (remove - prefix)
+                sort_field_names = {f.lstrip("-") for f in sort_fields}
+
+                # Combine requested fields, sort fields, and file_sha256 (needed for DISTINCT ON)
+                all_fields_needed = set(fields_only) | sort_field_names | {"file_sha256"}
+
+                # Check if sort fields require related objects (contain __)
+                needs_related_fields = any("__" in field for field in sort_field_names)
+
+                if needs_related_fields:
+                    # Sort requires related fields - must use full select_related
+                    # We can't use .only() effectively with related fields without causing N+1
+                    # So fall back to full query for these cases
+                    files = files.select_related(*INDEXDATA_SELECT_RELATED_LIST)
+                else:
+                    # Sort only uses local fields - can safely use .only()
+                    files = files.only(*all_fields_needed)
+            else:
+                # Non-distinct queries - simple field restriction
+                files = files.only(*fields_only)
         else:
             # Full query with all related objects
             files = files.select_related(*INDEXDATA_SELECT_RELATED_LIST)
@@ -682,6 +705,39 @@ class IndexDirs(models.Model):
 
         files = files.order_by(*SORT_MATRIX[sort])
         return files
+
+    @cached(distinct_files_cache)
+    def get_distinct_file_shas(self, sort: int = 0) -> list[str]:
+        """
+        Get distinct file SHA256s for this directory with caching.
+
+        This method provides memory-efficient caching of distinct file lists for pagination.
+        Instead of caching full IndexData objects (~1KB each), it caches only SHA256 strings
+        (~64 bytes each), reducing memory usage by ~94%.
+
+        Cache key: (self, sort) - directory instance and sort order
+        Allows efficient pagination across multiple pages without re-fetching distinct files.
+
+        Performance Impact:
+        - First call: Fetches and materializes all distinct files (expensive)
+        - Subsequent calls: Returns cached list (instant, no DB query)
+        - Memory: ~64KB per 1,000 files (just SHA256 strings)
+
+        Cache Invalidation:
+        Automatically cleared by clear_layout_cache_for_directories() when:
+        - Directory contents change (cache_watcher)
+        - Thumbnails are generated (web views)
+        - File properties change (management commands)
+
+        Args:
+            sort: Sort order to apply (0-2)
+
+        Returns:
+            List of unique_sha256 strings for distinct files in the directory,
+            sorted according to sort order
+        """
+        distinct_files = self.files_in_dir(sort=sort, distinct=True)
+        return [f.unique_sha256 for f in distinct_files]
 
     def get_cover_image(self) -> IndexData | None:
         """
@@ -738,10 +794,6 @@ class IndexDirs(models.Model):
             - Getting directory IDs for batch operations
             - Building simple directory lists
         """
-        # necessary to prevent circular references on startup
-        # pylint: disable-next=import-outside-toplevel
-        from frontend.utilities import SORT_MATRIX
-
         queryset = IndexDirs.objects.filter(parent_directory=self.pk, delete_pending=False)
 
         if fields_only:
@@ -987,10 +1039,6 @@ class IndexData(models.Model):
 
         Returns: The sorted query of files matching the SHA256 list
         """
-        # necessary to prevent circular references on startup
-        # pylint: disable-next=import-outside-toplevel
-        from frontend.utilities import SORT_MATRIX
-
         files = (
             IndexData.objects.select_related(*INDEXDATA_SELECT_RELATED_LIST)
             .filter(file_sha256__in=sha256_list, delete_pending=False)
@@ -1072,8 +1120,6 @@ class IndexData(models.Model):
             of the file contents and unique_sha256 is the hash of the file
             contents + fqfn
         """
-        from quickbbs.common import get_file_sha
-
         return get_file_sha(fqfn)
 
     def get_file_counts(self) -> None:
@@ -1201,9 +1247,6 @@ class IndexData(models.Model):
             Http404: If file not found
             asyncio.CancelledError: Re-raised if client disconnects (file handle cleaned up)
         """
-        import asyncio
-        import io
-
         import aiofiles
 
         mtype = self.filetype.mimetype or "application/octet-stream"

@@ -58,16 +58,11 @@ from frontend.utilities import (
     convert_to_webpath,
     return_breadcrumbs,
 )
-from quickbbs.models import IndexData
+from quickbbs.models import IndexData, distinct_files_cache
 
 layout_manager_cache = LRUCache(maxsize=500)
 
 build_context_info_cache = LRUCache(maxsize=500)
-
-# Cache for distinct file lists per directory (separate from layout_manager for reuse across pages)
-# Cache key: (directory_pk, sort_ordering)
-# Allows efficient pagination across pages without re-fetching distinct files
-distinct_files_cache = LRUCache(maxsize=500)
 
 # File size limit for text file processing (1MB)
 MAX_TEXT_FILE_SIZE = 1024 * 1024
@@ -87,7 +82,10 @@ def clear_layout_cache_for_directories(directories: list) -> int:
 
     Uses cachetools LRUCache with direct key deletion. Cache keys are hashkey tuples
     containing (page_number, directory_obj, sort_ordering) for layout_manager_cache
-    and (directory_pk, sort_ordering) for distinct_files_cache.
+    and (directory_instance, sort_ordering) for distinct_files_cache.
+
+    Note: distinct_files_cache is imported from quickbbs.models where it's used by
+    the IndexDirs.get_distinct_file_shas() method.
 
     :Args:
         directories: List of IndexDirs objects to clear cache for
@@ -122,13 +120,13 @@ def clear_layout_cache_for_directories(directories: list) -> int:
         del layout_manager_cache[key]
 
     # Clear distinct_files_cache entries
-    # Cache keys are hashkey tuples: (directory_pk, sort_ordering)
+    # Cache keys are hashkey tuples: (directory_instance, sort_ordering)
     distinct_keys_to_delete = []
 
     for key in list(distinct_files_cache.keys()):
         try:
-            # First element of hashkey tuple is directory_pk
-            if key[0] in dir_pks:
+            # First element of hashkey tuple is directory instance
+            if hasattr(key[0], "pk") and key[0].pk in dir_pks:
                 distinct_keys_to_delete.append(key)
         except (TypeError, IndexError, AttributeError):
             continue
@@ -469,39 +467,6 @@ def _get_no_thumbnails(directory, sort_ordering: int):
     return directory.files_in_dir(sort=sort_ordering, additional_filters={"new_ftnail__isnull": True}).values_list("file_sha256", flat=True)
 
 
-@cached(distinct_files_cache)
-def get_distinct_file_shas(directory_pk: int, sort_ordering: int) -> list[str]:
-    """
-    Get distinct file SHA256s for a directory with caching.
-
-    This function caches the distinct file list separately from layout_manager
-    to enable efficient reuse across multiple pages. When show_duplicates=False
-    (the default), this prevents re-fetching and re-processing all files for
-    every page navigation.
-
-    Cache key: (directory_pk, sort_ordering) - allows cache hits when users
-    navigate pages within the same directory with the same sort order.
-
-    Performance Impact:
-    - First call: Fetches and materializes all distinct files (expensive)
-    - Subsequent calls: Returns cached list (instant, no DB query)
-    - Memory: ~64KB per 1,000 files (just SHA256 strings)
-
-    Args:
-        directory_pk: Primary key of the IndexDirs directory object
-        sort_ordering: Sort order to apply (0-2)
-
-    Returns:
-        List of unique_sha256 strings for distinct files in the directory,
-        sorted according to sort_ordering
-    """
-    from quickbbs.models import IndexDirs  # pylint: disable=import-outside-toplevel
-
-    directory = IndexDirs.objects.get(pk=directory_pk)
-    distinct_files = directory.files_in_dir(sort=sort_ordering, distinct=True)
-    return [f.unique_sha256 for f in distinct_files]
-
-
 def calculate_page_bounds(page_number: int, chunk_size: int, dirs_count: int) -> dict:
     """
     Calculate what directories and files belong on this page.
@@ -574,8 +539,8 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
     else:
         # Deduplicate - use cached distinct file list
         # This prevents materializing ALL files when we only need current page
-        # get_distinct_file_shas() caches results for efficient page navigation
-        all_distinct_shas = get_distinct_file_shas(directory.pk, sort_ordering)
+        # IndexDirs.get_distinct_file_shas() caches results for efficient page navigation
+        all_distinct_shas = directory.get_distinct_file_shas(sort=sort_ordering)
         files_count = len(all_distinct_shas)
 
     total_items = dirs_count + files_count

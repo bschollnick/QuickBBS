@@ -1,6 +1,7 @@
 """FFMPEG backend for video thumbnail generation."""
 
 import io
+from fractions import Fraction
 from pathlib import Path
 
 import ffmpeg
@@ -203,8 +204,6 @@ def _get_video_info(video_path: str) -> dict[str, any]:
     Returns: Dictionary containing video metadata (duration, width, height, fps, codec, format)
     :raises Exception: If ffmpeg probe fails
     """
-    from fractions import Fraction
-
     try:
         probe = ffmpeg.probe(str(video_path))
         video_stream = next(
