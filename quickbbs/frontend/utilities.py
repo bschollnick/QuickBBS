@@ -34,7 +34,7 @@ from PIL import Image
 import filetypes.models as filetype_models
 from cache_watcher.models import Cache_Storage
 from frontend.file_listings import return_disk_listing
-from quickbbs.common import get_file_sha, normalize_fqpn, normalize_string_title
+from quickbbs.common import SORT_MATRIX, get_file_sha, normalize_fqpn, normalize_string_title
 from quickbbs.models import IndexData, IndexDirs
 from thumbnails.video_thumbnails import _get_video_info
 
@@ -53,13 +53,6 @@ BATCH_SIZES = {
     "db_read": 500,  # Reading file/directory records from database
     "db_write": 250,  # Writing/updating records to database
     "file_io": 100,  # File system operations (stat, hash calculation)
-}
-
-
-SORT_MATRIX = {
-    0: ["-filetype__is_dir", "-filetype__is_link", "name_sort", "lastmod"],
-    1: ["-filetype__is_dir", "-filetype__is_link", "lastmod", "name_sort"],
-    2: ["-filetype__is_dir", "-filetype__is_link", "name_sort"],
 }
 
 

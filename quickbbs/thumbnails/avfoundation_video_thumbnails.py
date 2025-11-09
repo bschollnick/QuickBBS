@@ -3,6 +3,7 @@
 # pylint: disable=no-name-in-module  # pyobjc uses dynamic imports
 
 import io
+import traceback
 from pathlib import Path
 
 from PIL import Image
@@ -389,7 +390,5 @@ if __name__ == "__main__":
 
     except Exception as e:
         print(f"Error: {e}")
-        import traceback
-
         traceback.print_exc()
         sys.exit(1)
