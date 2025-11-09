@@ -113,6 +113,16 @@ class LockFreeEventBuffer:
         with self._lock:
             return len(self._events)
 
+    def clear(self) -> None:
+        """Clear all buffered events.
+
+        Used during watchdog restarts to prevent stale events from
+        being processed after the restart.
+        """
+        with self._lock:
+            logger.debug("Clearing event buffer (%d events)", len(self._events))
+            self._events.clear()
+
 
 # Global event buffer for batch processing (optimized lock-free version)
 optimized_event_buffer = LockFreeEventBuffer()
@@ -147,8 +157,12 @@ class WatchdogManager:
         self.event_handler = None
         self.is_running = False
 
-    def start(self) -> None:
-        """Start the watchdog with periodic restart capability."""
+    def start(self, force_recreate: bool = False) -> None:
+        """Start the watchdog with periodic restart capability.
+
+        Args:
+            force_recreate: If True, recreate the observer to prevent memory leaks
+        """
         with self.lock:
             if not self.is_running:
                 logger.debug("Starting watchdog...")
@@ -157,6 +171,7 @@ class WatchdogManager:
                     watchdog.startup(
                         monitor_path=self.monitor_path,
                         event_handler=self.event_handler,
+                        force_recreate=force_recreate,
                     )
                     self.is_running = True
                     logger.info("Watchdog started monitoring: %s", self.monitor_path)
@@ -175,15 +190,14 @@ class WatchdogManager:
         with self.lock:
             if self.is_running:
                 try:
-                    # Cancel any pending timers in the event handler before shutdown
+                    # Clean up the event handler before stopping
                     if self.event_handler:
-                        with self.event_handler.timer_lock:
-                            if self.event_handler.event_timer:
-                                self.event_handler.event_timer.cancel()
-                                self.event_handler.event_timer = None
-                                logger.debug("Cancelled pending event timer during watchdog stop")
+                        logger.debug("Cleaning up event handler before stop")
+                        self.event_handler.cleanup()
 
-                    watchdog.shutdown()
+                    # Use stop_observer() instead of shutdown() to avoid sys.exit()
+                    watchdog.stop_observer()
+                    self.event_handler = None
                     self.is_running = False
                     logger.info("Watchdog stopped")
                 except Exception as e:
@@ -199,12 +213,63 @@ class WatchdogManager:
 
             if self.is_running:
                 try:
+                    # Clean up the event handler before shutdown
+                    if self.event_handler:
+                        self.event_handler.cleanup()
+
                     watchdog.shutdown()
+                    self.event_handler = None
                     self.is_running = False
                     logger.info("Watchdog completely shut down")
                 except Exception as e:
                     # TODO: Research specific watchdog library exceptions
                     logger.error("Error stopping watchdog: %s", e)
+
+    def _process_pending_events(self) -> None:
+        """Process any pending events in the buffer before restart.
+
+        This ensures we don't lose filesystem events during the restart process.
+        """
+        # Check buffer size before attempting to acquire semaphore
+        buffer_size = optimized_event_buffer.size()
+        if buffer_size == 0:
+            logger.debug("No pending events to process before restart")
+            return
+
+        logger.info("Processing %d pending events before restart", buffer_size)
+
+        # Try to acquire the semaphore with blocking
+        # Use non-blocking to check if another thread is already processing
+        if not processing_semaphore.acquire(blocking=False):
+            logger.warning("Could not acquire processing lock - another thread is processing events")
+            return
+
+        try:
+            # Get unique paths from buffer (automatic deduplication)
+            paths_to_process = optimized_event_buffer.get_events_to_process()
+
+            if paths_to_process:
+                logger.info("Processing %d unique directory changes before restart", len(paths_to_process))
+
+                # Import here to avoid circular dependency
+                from quickbbs.models import (
+                    IndexDirs,  # pylint: disable=import-outside-toplevel
+                )
+
+                # Convert paths to SHAs and batch query for IndexDirs objects
+                sha_list = [get_dir_sha(path) for path in paths_to_process]
+                index_dirs = list(IndexDirs.objects.filter(dir_fqpn_sha256__in=sha_list).only("dir_fqpn_sha256", "id", "fqpndirectory"))
+
+                if index_dirs:
+                    # Process cache invalidation
+                    Cache_Storage.remove_multiple_from_cache_indexdirs(index_dirs)
+                    logger.info("Successfully processed pending events before restart")
+
+        except (RuntimeError, DatabaseError, OSError, AttributeError) as e:
+            logger.error("Error processing pending events before restart: %s", e)
+        finally:
+            processing_semaphore.release()
+            close_old_connections()
 
     def restart(self) -> None:
         """Restart the watchdog process and schedule the next restart."""
@@ -214,10 +279,21 @@ class WatchdogManager:
         try:
             logger.debug("Calling stop()...")
             self.stop()
+
+            # Process any pending events before clearing the buffer
+            # This ensures we don't lose filesystem events during restart
+            logger.debug("Processing pending events before restart...")
+            self._process_pending_events()
+
+            # Clear the event buffer after processing
+            logger.debug("Clearing event buffer...")
+            optimized_event_buffer.clear()
+
             logger.debug("Stop() completed, waiting 1 second...")
             time.sleep(1)  # Brief pause to ensure clean shutdown
-            logger.debug("Calling start()...")
-            self.start()
+            logger.debug("Calling start() with force_recreate=True...")
+            # Use force_recreate=True to prevent memory leaks from accumulated observer state
+            self.start(force_recreate=True)
             restart_successful = True
             logger.info("Watchdog restart completed successfully")
         except Exception as e:
@@ -285,6 +361,21 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
         self.timer_generation = 0
         # Instance ID for debugging - helps track which handler is processing
         self.instance_id = id(self)
+
+    def cleanup(self) -> None:
+        """
+        Clean up resources before disposing of this handler instance.
+
+        Cancels any pending timers to prevent them from executing after
+        the handler is replaced. This prevents memory leaks during watchdog restarts.
+        """
+        with self.timer_lock:
+            if self.event_timer is not None:
+                logger.debug("Cleaning up event handler %s - cancelling pending timer", self.instance_id)
+                self.event_timer.cancel()
+                self.event_timer = None
+                # Increment generation to invalidate any timers that might still fire
+                self.timer_generation += 1
 
     def on_created(self, event: FileSystemEvent) -> None:
         """Handle file/directory creation events."""

@@ -36,9 +36,7 @@ def parse_args() -> argparse.Namespace:
     Returns:
         Parsed arguments namespace
     """
-    parser = argparse.ArgumentParser(
-        description="Compare Locust benchmark results over time"
-    )
+    parser = argparse.ArgumentParser(description="Compare Locust benchmark results over time")
     parser.add_argument(
         "files",
         nargs="*",
@@ -382,10 +380,7 @@ def list_results(results_dir: Path) -> None:
         if result:
             total = result.get("total", {})
             mtime = datetime.fromtimestamp(path.stat().st_mtime)
-            print(
-                f"{path.name:<40} {mtime.strftime('%Y-%m-%d %H:%M:%S'):<20} "
-                f"{total.get('requests', 0):<10,} {total.get('rps', 0):<10.2f}"
-            )
+            print(f"{path.name:<40} {mtime.strftime('%Y-%m-%d %H:%M:%S'):<20} " f"{total.get('requests', 0):<10,} {total.get('rps', 0):<10.2f}")
 
     print("-" * 80)
     print(f"Total: {len(files)} result file(s)")

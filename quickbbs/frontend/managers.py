@@ -46,12 +46,15 @@ from asgiref.sync import sync_to_async
 from cachetools import LRUCache, cached
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
+
+# from filetypes.models import load_filetypes
+from django.db.models import Q
 from django.http import (  # HttpResponse,; Http404,; HttpRequest,; HttpResponseNotFound,; JsonResponse,
     HttpResponseBadRequest,
 )
 
-# from filetypes.models import load_filetypes
-from frontend.utilities import (  # SORT_MATRIX,
+from frontend.utilities import (
+    SORT_MATRIX,
     convert_to_webpath,
     return_breadcrumbs,
 )
@@ -60,6 +63,11 @@ from quickbbs.models import IndexData
 layout_manager_cache = LRUCache(maxsize=500)
 
 build_context_info_cache = LRUCache(maxsize=500)
+
+# Cache for distinct file lists per directory (separate from layout_manager for reuse across pages)
+# Cache key: (directory_pk, sort_ordering)
+# Allows efficient pagination across pages without re-fetching distinct files
+distinct_files_cache = LRUCache(maxsize=500)
 
 # File size limit for text file processing (1MB)
 MAX_TEXT_FILE_SIZE = 1024 * 1024
@@ -70,7 +78,7 @@ _markdown_processor = markdown2.Markdown()
 
 def clear_layout_cache_for_directories(directories: list) -> int:
     """
-    Clear layout_manager_cache entries for one or more directories.
+    Clear layout_manager_cache and distinct_files_cache entries for one or more directories.
 
     Shared function to ensure consistent cache clearing across:
     - Web views after thumbnail generation
@@ -78,14 +86,14 @@ def clear_layout_cache_for_directories(directories: list) -> int:
     - Management commands after is_generic_icon changes
 
     Uses cachetools LRUCache with direct key deletion. Cache keys are hashkey tuples
-    containing (page_number, directory_obj, sort_ordering). We check each key to see
-    if it contains a directory matching one of our target directories.
+    containing (page_number, directory_obj, sort_ordering) for layout_manager_cache
+    and (directory_pk, sort_ordering) for distinct_files_cache.
 
     :Args:
         directories: List of IndexDirs objects to clear cache for
 
     Returns:
-        Number of cache entries cleared
+        Number of cache entries cleared (combined from both caches)
     """
     if not directories:
         return 0
@@ -95,8 +103,8 @@ def clear_layout_cache_for_directories(directories: list) -> int:
     if not dir_pks:
         return 0
 
-    # Scan cache once and collect keys to delete
-    keys_to_delete = []
+    # Clear layout_manager_cache entries
+    layout_keys_to_delete = []
 
     for key in list(layout_manager_cache.keys()):
         # Cache keys are hashkey tuples: (page_number, directory_obj, sort_ordering)
@@ -104,16 +112,32 @@ def clear_layout_cache_for_directories(directories: list) -> int:
         try:
             for item in key:
                 if hasattr(item, "pk") and item.pk in dir_pks:
-                    keys_to_delete.append(key)
+                    layout_keys_to_delete.append(key)
                     break
         except (TypeError, AttributeError):
             continue
 
-    # Bulk delete all matched keys
-    for key in keys_to_delete:
+    # Bulk delete all matched layout keys
+    for key in layout_keys_to_delete:
         del layout_manager_cache[key]
 
-    return len(keys_to_delete)
+    # Clear distinct_files_cache entries
+    # Cache keys are hashkey tuples: (directory_pk, sort_ordering)
+    distinct_keys_to_delete = []
+
+    for key in list(distinct_files_cache.keys()):
+        try:
+            # First element of hashkey tuple is directory_pk
+            if key[0] in dir_pks:
+                distinct_keys_to_delete.append(key)
+        except (TypeError, IndexError, AttributeError):
+            continue
+
+    # Bulk delete all matched distinct file keys
+    for key in distinct_keys_to_delete:
+        del distinct_files_cache[key]
+
+    return len(layout_keys_to_delete) + len(distinct_keys_to_delete)
 
 
 def get_file_text_encoding(filename: str) -> str:
@@ -235,32 +259,85 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
     pathmaster = Path(entry.full_filepathname)
     lastmod_timestamp = entry.lastmod
 
-    # Get all file SHAs from directory - optimized to fetch only SHA field
-    # Avoid loading full objects with select_related when we only need SHAs for navigation
+    # Get navigation data - optimized to avoid materializing all SHAs when possible
     if show_duplicates:
-        # Include duplicates - use simple values_list query (no distinct needed)
-        from frontend.utilities import SORT_MATRIX  # pylint: disable=import-outside-toplevel
-
-        all_shas = list(
+        # Include duplicates - use optimized queryset operations instead of materializing all SHAs
+        files_qs = (
             IndexData.objects.filter(home_directory=directory_entry.pk, delete_pending=False)
             .order_by(*SORT_MATRIX[sort_order_value])
             .values_list("unique_sha256", flat=True)
         )
+
+        # Get count (single aggregate query)
+        all_shas_count = files_qs.count()
+
+        # Find current position by counting items that sort before this one
+        # Build filter conditions based on sort order
+        sort_fields = SORT_MATRIX[sort_order_value]
+
+        # Get the current entry's sort values for comparison
+        current_file = IndexData.objects.filter(unique_sha256=unique_file_sha256).values(*sort_fields).first()
+
+        if current_file:
+            # Build Q object for files that come before current file in sort order
+            # For multi-field sorting, we need to build a complex Q object
+            q_before = Q()
+            for i, field in enumerate(sort_fields):
+                is_desc = field.startswith("-")
+                field_name = field.lstrip("-")
+
+                # Build cumulative condition for multi-field sort
+                q_equal_so_far = Q()
+                for prev_field in sort_fields[:i]:
+                    prev_field_name = prev_field.lstrip("-")
+                    q_equal_so_far &= Q(**{prev_field_name: current_file[prev_field_name]})
+
+                if is_desc:
+                    q_this_field = Q(**{f"{field_name}__gt": current_file[field_name]})
+                else:
+                    q_this_field = Q(**{f"{field_name}__lt": current_file[field_name]})
+
+                q_before |= q_equal_so_far & q_this_field
+
+            current_page = files_qs.filter(q_before).count() + 1
+        else:
+            current_page = 1
+
+        # Get specific SHAs using queryset slicing (only fetches needed rows)
+        first_sha = files_qs.first() or ""
+        last_sha = files_qs.last() or ""
+
+        # Get next/previous using efficient slicing
+        if current_page < all_shas_count:
+            next_result = files_qs[current_page : current_page + 1]
+            next_sha = next_result[0] if next_result else ""
+        else:
+            next_sha = ""
+
+        if current_page > 1:
+            prev_result = files_qs[current_page - 2 : current_page - 1]
+            previous_sha = prev_result[0] if prev_result else ""
+        else:
+            previous_sha = ""
+
     else:
         # Deduplicate - files_in_dir handles complex DISTINCT ON + re-sorting
-        # Must use full objects for re-sorting, but files_in_dir loads them efficiently
+        # Must use full objects for re-sorting (PostgreSQL limitation with DISTINCT ON)
+        # This case already materializes due to Python re-sorting requirement
         files_result = directory_entry.files_in_dir(sort=sort_order_value, distinct=True)
         all_shas = [f.unique_sha256 for f in files_result]
 
-    # Get pagination data inline
-    try:
-        current_page = all_shas.index(unique_file_sha256) + 1
-    except ValueError:
-        current_page = 1
+        # Get pagination data inline
+        try:
+            current_page = all_shas.index(unique_file_sha256) + 1
+        except ValueError:
+            current_page = 1
 
-    all_shas_count = len(all_shas)
-    next_sha = all_shas[current_page] if current_page < all_shas_count else ""
-    previous_sha = all_shas[current_page - 2] if current_page > 1 else ""
+        all_shas_count = len(all_shas)
+        next_sha = all_shas[current_page] if current_page < all_shas_count else ""
+        previous_sha = all_shas[current_page - 2] if current_page > 1 else ""
+        first_sha = all_shas[0] if all_shas else ""
+        last_sha = all_shas[all_shas_count - 1] if all_shas else ""
 
     # Single comprehensive dictionary creation
     context = {
@@ -289,8 +366,8 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
         # Pagination (computed inline)
         "page": current_page,
         "pagecount": all_shas_count,
-        "first_sha": all_shas[0] if all_shas else "",
-        "last_sha": all_shas[all_shas_count - 1] if all_shas else "",
+        "first_sha": first_sha,
+        "last_sha": last_sha,
         "next_sha": next_sha,
         "previous_sha": previous_sha,
         "page_locale": int(current_page / settings.GALLERY_ITEMS_PER_PAGE) + 1,
@@ -369,16 +446,60 @@ def _process_file_content(entry: IndexData, webpath: str) -> str:
 #     return {"dirs_count": dirs_count, "files_count": files_count}
 
 
-def _get_no_thumbnails(directory, sort_ordering: int) -> list[str]:
+def _get_no_thumbnails(directory, sort_ordering: int):
     """
-    Get list of file SHA256s that don't have thumbnails.
+    Get queryset of file SHA256s that don't have thumbnails.
+
+    Returns queryset instead of list to allow caller flexibility for:
+    - Checking existence with .exists() (no materialization)
+    - Getting count with .count() (single aggregate query)
+    - Iterating efficiently with .iterator()
+    - Slicing for batch processing
+    - Adding additional filters before execution
 
     Args:
         directory: IndexDirs object
         sort_ordering: Sort order to apply
-    Returns: List of file SHA256 hashes without thumbnails
+
+    Returns:
+        QuerySet of file SHA256 hashes without thumbnails.
+        Use .iterator() for memory-efficient iteration, list() if full list needed,
+        or .count() for efficient counting.
     """
-    return list(directory.files_in_dir(sort=sort_ordering, additional_filters={"new_ftnail__isnull": True}).values_list("file_sha256", flat=True))
+    return directory.files_in_dir(sort=sort_ordering, additional_filters={"new_ftnail__isnull": True}).values_list("file_sha256", flat=True)
+
+
+@cached(distinct_files_cache)
+def get_distinct_file_shas(directory_pk: int, sort_ordering: int) -> list[str]:
+    """
+    Get distinct file SHA256s for a directory with caching.
+
+    This function caches the distinct file list separately from layout_manager
+    to enable efficient reuse across multiple pages. When show_duplicates=False
+    (the default), this prevents re-fetching and re-processing all files for
+    every page navigation.
+
+    Cache key: (directory_pk, sort_ordering) - allows cache hits when users
+    navigate pages within the same directory with the same sort order.
+
+    Performance Impact:
+    - First call: Fetches and materializes all distinct files (expensive)
+    - Subsequent calls: Returns cached list (instant, no DB query)
+    - Memory: ~64KB per 1,000 files (just SHA256 strings)
+
+    Args:
+        directory_pk: Primary key of the IndexDirs directory object
+        sort_ordering: Sort order to apply (0-2)
+
+    Returns:
+        List of unique_sha256 strings for distinct files in the directory,
+        sorted according to sort_ordering
+    """
+    from quickbbs.models import IndexDirs  # pylint: disable=import-outside-toplevel
+
+    directory = IndexDirs.objects.get(pk=directory_pk)
+    distinct_files = directory.files_in_dir(sort=sort_ordering, distinct=True)
+    return [f.unique_sha256 for f in distinct_files]
 
 
 def calculate_page_bounds(page_number: int, chunk_size: int, dirs_count: int) -> dict:
@@ -441,14 +562,22 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
 
     chunk_size = settings.GALLERY_ITEMS_PER_PAGE
 
-    # Get base querysets first (more efficient for subsequent operations)
+    # Get base querysets first
     directories_qs = directory.dirs_in_dir(sort=sort_ordering)
-    files_result = directory.files_in_dir(sort=sort_ordering, distinct=not show_duplicates)
-
-    # Get counts - handle both QuerySet and list return types
     dirs_count = directories_qs.count()
-    # files_in_dir returns list when distinct=True, QuerySet when distinct=False
-    files_count = len(files_result) if isinstance(files_result, list) else files_result.count()
+
+    # Handle files differently based on show_duplicates to avoid over-fetching
+    if show_duplicates:
+        # Include duplicates - use simple queryset (no materialization needed)
+        files_qs = directory.files_in_dir(sort=sort_ordering, distinct=False)
+        files_count = files_qs.count()
+    else:
+        # Deduplicate - use cached distinct file list
+        # This prevents materializing ALL files when we only need current page
+        # get_distinct_file_shas() caches results for efficient page navigation
+        all_distinct_shas = get_distinct_file_shas(directory.pk, sort_ordering)
+        files_count = len(all_distinct_shas)
+
     total_items = dirs_count + files_count
 
     # Calculate pagination
@@ -469,13 +598,12 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
 
     if bounds["files_slice"]:
         start, end = bounds["files_slice"]
-        # Handle both list and QuerySet return types from files_in_dir
-        if isinstance(files_result, list):
-            # files_in_dir returned a list (distinct=True case)
-            page_files = [f.unique_sha256 for f in files_result[start:end]]
+        if show_duplicates:
+            # Simple queryset slicing - no distinct needed
+            page_files = list(files_qs[start:end].values_list("unique_sha256", flat=True))
         else:
-            # files_in_dir returned a QuerySet (distinct=False case)
-            page_files = list(files_result[start:end].values_list("unique_sha256", flat=True))
+            # Slice the cached distinct list - cheap list slicing (no DB query)
+            page_files = all_distinct_shas[start:end]
         page_data["files"] = page_files
         page_data["cnt_files"] = len(page_files)
     else:

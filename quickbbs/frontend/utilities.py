@@ -232,20 +232,28 @@ def _sync_directories(directory_record: object, fs_entries: dict) -> None:
 
     # Load full objects only for directories that exist in both DB and filesystem
     # This requires select_related for lastmod/size comparisons
-    existing_dirs = list(directory_record.dirs_in_dir().filter(fqpndirectory__in=db_dirs & fs_dirs))
+    # Use queryset with iterator for memory-efficient streaming (single-pass iteration)
+    existing_dirs_qs = directory_record.dirs_in_dir().filter(fqpndirectory__in=db_dirs & fs_dirs)
+    existing_count = existing_dirs_qs.count()
 
-    print(f"Existing directories in database: {len(existing_dirs)}")
-    if existing_dirs:
+    print(f"Existing directories in database: {existing_count}")
+    if existing_count > 0:
         # Check each directory for updates
         updated_records = []
-        for db_dir_entry in existing_dirs:
-            if fs_entry := fs_entries.get(db_dir_entry.fqpndirectory):
+        for db_dir_entry in existing_dirs_qs.iterator(chunk_size=100):
+            # Extract directory name from full path and title-case it to match fs_entries keys
+            # NOTE: fs_entries dict is keyed by title-cased filenames (e.g., "Photos"), not full paths
+            # (e.g., "/volumes/c-8tb/gallery/albums/photos/"). Using full path would always return None.
+            # See return_disk_listing() in file_listings.py which uses normalize_string_title() for keys.
+            dir_name = Path(db_dir_entry.fqpndirectory.rstrip(os.sep)).name
+            dir_name_titled = normalize_string_title(dir_name)
+
+            if fs_entry := fs_entries.get(dir_name_titled):
                 try:
                     fs_stat = fs_entry.stat()
-                    # Update modification time and size if changed
-                    if db_dir_entry.lastmod != fs_stat.st_mtime or db_dir_entry.size != fs_stat.st_size:
+                    # Update modification time if changed (IndexDirs doesn't track size)
+                    if db_dir_entry.lastmod != fs_stat.st_mtime:
                         db_dir_entry.lastmod = fs_stat.st_mtime
-                        db_dir_entry.size = fs_stat.st_size
                         updated_records.append(db_dir_entry)
                 except (OSError, IOError) as e:
                     logger.error(f"Error checking directory {db_dir_entry.fqpndirectory}: {e}")
@@ -258,7 +266,6 @@ def _sync_directories(directory_record: object, fs_entries: dict) -> None:
                 for db_dir_entry in updated_records:
                     locked_entry = IndexDirs.objects.select_for_update(skip_locked=True).get(id=db_dir_entry.id)
                     locked_entry.lastmod = db_dir_entry.lastmod
-                    locked_entry.size = db_dir_entry.size
                     locked_entry.save()
                     Cache_Storage.remove_from_cache_indexdirs(locked_entry)
             logger.info(f"Processing {len(updated_records)} directory updates")
@@ -361,12 +368,16 @@ def _sync_files(directory_record: object, fs_entries: dict, bulk_size: int) -> N
             records_to_update.append(updated_record)
 
     # Get files to delete - case-insensitive: db files NOT matching any fs file
-    # Files in database whose lowercase name is NOT in the matching set
-    # Use set difference to find DB files not in filesystem, then query for IDs
-    db_names_not_in_fs = all_db_filenames - {fs_names_lower_map[lower] for lower in matching_lower_names}
+    # Find DB files whose lowercase name is NOT in the filesystem (case-insensitive comparison)
+    #
+    # NOTE: Must compare at lowercase level to avoid false deletions on case-preserving filesystems.
+    # The DB may store "MyFile.txt" while filesystem returns "Myfile.Txt" (title-cased by return_disk_listing).
+    # Comparing original cases directly would incorrectly mark the file for deletion.
+    # Instead, we compare lowercase sets, then map back to original DB names.
+    db_names_not_in_fs_lower = db_names_lower_set - matching_lower_names
+    db_names_not_in_fs = {name for name in all_db_filenames if name.lower() in db_names_not_in_fs_lower}
     files_to_delete_ids = list(
-        IndexData.objects.filter(home_directory=directory_record.pk, name__in=db_names_not_in_fs, delete_pending=False)
-        .values_list("id", flat=True)
+        IndexData.objects.filter(home_directory=directory_record.pk, name__in=db_names_not_in_fs, delete_pending=False).values_list("id", flat=True)
     )
 
     # Process new files - case-insensitive: fs files NOT matching any db file

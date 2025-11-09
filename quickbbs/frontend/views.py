@@ -347,9 +347,7 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
     try:
         if directory.thumbnail and directory.thumbnail.new_ftnail and directory.is_cached:
             try:
-                return directory.thumbnail.new_ftnail.send_thumbnail(
-                    fext_override=".jpg", size="small", index_data_item=directory.thumbnail
-                )
+                return directory.thumbnail.new_ftnail.send_thumbnail(fext_override=".jpg", size="small", index_data_item=directory.thumbnail)
             except Exception as e:
                 # If thumbnail serving fails, fall through to cover image logic
                 print(f"Directory thumbnail serving failed for {directory.fqpndirectory}: {e}")
@@ -752,7 +750,7 @@ async def new_viewgallery(request: WSGIRequest):
         dirs_to_display = await sync_to_async(list)(
             directory.dirs_in_dir(sort=context["sort"])
             .filter(dir_fqpn_sha256__in=layout["data"]["directories"])
-            .select_related("filetype", "thumbnail__new_ftnail")
+            .select_related("thumbnail__new_ftnail")  # Only add nested join (filetype already in dirs_in_dir)
             .annotate(
                 file_count_cached=Count(
                     "IndexData_entries",
@@ -766,10 +764,9 @@ async def new_viewgallery(request: WSGIRequest):
     # Only fetch files if there are any on this page (async wrapped)
     if layout["data"]["files"]:
         # Fetch and separate files and links in one pass
+        # Note: select_related already handled by files_in_dir() - no need to duplicate
         all_items = await sync_to_async(list)(
-            directory.files_in_dir(sort=context["sort"])
-            .filter(unique_sha256__in=layout["data"]["files"])
-            .select_related("filetype", "home_directory", "new_ftnail")
+            directory.files_in_dir(sort=context["sort"]).filter(unique_sha256__in=layout["data"]["files"])
         )
         files_list = [f for f in all_items if not f.filetype.is_link]
         links_list = [f for f in all_items if f.filetype.is_link]
@@ -780,12 +777,17 @@ async def new_viewgallery(request: WSGIRequest):
     context["items_to_display"] = list(dirs_to_display) + links_list + files_list
     context["show_duplicates"] = show_duplicates
     # print("elapsed view gallery (pre-thumb) time - ", time.time() - start_time)
-    if layout["no_thumbnails"]:
+
+    # Check if thumbnails are needed (async-safe existence check)
+    has_missing_thumbnails = await sync_to_async(layout["no_thumbnails"].exists)()
+    if has_missing_thumbnails:
         no_thumb_start = time.time()
-        print(f"{len(layout["no_thumbnails"])} entries need thumbnails")
+        # Use .count() for efficient SQL COUNT instead of materializing all records
+        missing_count = await sync_to_async(layout["no_thumbnails"].count)()
+        print(f"{missing_count} entries need thumbnails")
         # print(layout["no_thumbnails"][0:10])  # Show first 10 entries needing thumbs
 
-        if layout["no_thumbnails"][:100]:  # Process first 100 entries
+        if missing_count > 0:  # Process first 100 entries
             await process_thumbnails_async(layout, batchsize=100, max_workers=6)
 
             # Clear ALL layout cache entries for this directory (all pages, all sort orders)
@@ -844,7 +846,8 @@ async def process_thumbnails_async(layout: dict, batchsize: int = 100, max_worke
         max_workers: Maximum number of concurrent tasks (default: 4)
     Returns: True if any thumbnails were successfully updated, False otherwise
     """
-    no_thumbs = layout["no_thumbnails"][:batchsize]
+    # Materialize sliced queryset since we'll iterate multiple times (async-safe)
+    no_thumbs = await sync_to_async(list)(layout["no_thumbnails"][:batchsize])
     if not no_thumbs:
         return False
 

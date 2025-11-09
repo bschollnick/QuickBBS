@@ -31,6 +31,7 @@ def toggle_show_duplicates(request: HttpRequest) -> HttpResponse:
 
     # Clear layout_manager cache to force refresh with new preference
     from frontend.managers import layout_manager_cache
+
     layout_manager_cache.clear()
 
     # Return success - JavaScript will handle the page reload
