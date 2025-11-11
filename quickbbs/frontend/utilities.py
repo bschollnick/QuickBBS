@@ -168,219 +168,6 @@ async def _get_or_create_directory(directory_sha256: str, dirpath: str) -> tuple
     return directory_record, is_cached
 
 
-def _sync_directories(directory_record: object, fs_entries: dict) -> None:
-    """
-    Synchronize database directories with filesystem - simplified sync version.
-
-    IMPORTANT - Async Wrapper Pattern:
-    This function is SYNC and wrapped with sync_to_async at the call site (line ~850).
-    This pattern is safer than having nested @sync_to_async decorators within an async function.
-
-    Why sync instead of async:
-    - All operations are database transactions (atomic blocks)
-    - Prevents nested async/sync boundary issues
-    - Single sync_to_async wrapper is more efficient than multiple nested ones
-    - Easier to reason about transaction boundaries
-
-    Thread Safety:
-    - All DB operations in transaction.atomic() blocks
-    - Safe for WSGI (Gunicorn) and ASGI (Uvicorn/Hypercorn)
-    - No thread pool usage = no connection leakage
-
-    Args:
-        directory_record: IndexDirs object for the parent directory
-        fs_entries: Dictionary of filesystem entries (DirEntry objects)
-
-    Returns:
-        None
-    """
-    print("Synchronizing directories...")
-    logger.info("Synchronizing directories...")
-    current_path = normalize_fqpn(directory_record.fqpndirectory)
-
-    # Get all database directories efficiently - use lightweight query for path comparison
-    # Avoid loading full objects with select_related/prefetch_related when only paths needed
-    all_dirs_queryset = IndexDirs.objects.filter(parent_directory=directory_record.pk, delete_pending=False)
-    db_dirs = set(all_dirs_queryset.values_list("fqpndirectory", flat=True))
-    fs_dirs = {normalize_fqpn(current_path + entry.name) for entry in fs_entries.values() if entry.is_dir()}
-
-    # Load full objects only for directories that exist in both DB and filesystem
-    # This requires select_related for lastmod/size comparisons
-    # Use queryset with iterator for memory-efficient streaming (single-pass iteration)
-    existing_dirs_qs = directory_record.dirs_in_dir().filter(fqpndirectory__in=db_dirs & fs_dirs)
-    existing_count = existing_dirs_qs.count()
-
-    print(f"Existing directories in database: {existing_count}")
-    if existing_count > 0:
-        # Check each directory for updates
-        updated_records = []
-        for db_dir_entry in existing_dirs_qs.iterator(chunk_size=100):
-            # Extract directory name from full path and title-case it to match fs_entries keys
-            # NOTE: fs_entries dict is keyed by title-cased filenames (e.g., "Photos"), not full paths
-            # (e.g., "/volumes/c-8tb/gallery/albums/photos/"). Using full path would always return None.
-            # See return_disk_listing() in file_listings.py which uses normalize_string_title() for keys.
-            dir_name = Path(db_dir_entry.fqpndirectory.rstrip(os.sep)).name
-            dir_name_titled = normalize_string_title(dir_name)
-
-            if fs_entry := fs_entries.get(dir_name_titled):
-                try:
-                    fs_stat = fs_entry.stat()
-                    # Update modification time if changed (IndexDirs doesn't track size)
-                    if db_dir_entry.lastmod != fs_stat.st_mtime:
-                        db_dir_entry.lastmod = fs_stat.st_mtime
-                        updated_records.append(db_dir_entry)
-                except (OSError, IOError) as e:
-                    logger.error(f"Error checking directory {db_dir_entry.fqpndirectory}: {e}")
-
-        print(f"Directories to Update: {len(updated_records)}")
-
-        if updated_records:
-            print(f"processing existing directory changes: {len(updated_records)}")
-            with transaction.atomic():
-                for db_dir_entry in updated_records:
-                    locked_entry = IndexDirs.objects.select_for_update(skip_locked=True).get(id=db_dir_entry.id)
-                    locked_entry.lastmod = db_dir_entry.lastmod
-                    locked_entry.save()
-                    Cache_Storage.remove_from_cache_indexdirs(locked_entry)
-            logger.info(f"Processing {len(updated_records)} directory updates")
-
-    # Create new directories BEFORE deleting old ones to prevent foreign key violations
-    new_dirs = fs_dirs - db_dirs
-    if new_dirs:
-        print(f"Directories to Add: {len(new_dirs)}")
-        logger.info(f"Directories to Add: {len(new_dirs)}")
-        with transaction.atomic():
-            for dir_to_create in new_dirs:
-                IndexDirs.add_directory(fqpn_directory=dir_to_create)
-
-    # Delete directories that no longer exist in filesystem
-    deleted_dirs = db_dirs - fs_dirs
-    if deleted_dirs:
-        print(f"Directories to Delete: {len(deleted_dirs)}")
-        logger.info(f"Directories to Delete: {len(deleted_dirs)}")
-        with transaction.atomic():
-            all_dirs_queryset.filter(fqpndirectory__in=deleted_dirs).delete()
-            Cache_Storage.remove_from_cache_indexdirs(directory_record)
-
-
-def _sync_files(directory_record: object, fs_entries: dict, bulk_size: int) -> None:
-    """
-    Synchronize database files with filesystem - simplified for performance.
-
-    IMPORTANT - Simplification Notes:
-    Removed complex chunking logic that was causing multiple QuerySet evaluations.
-    Previous version called .count() multiple times and used dynamic batch sizing.
-
-    Current approach:
-    - Single pass through QuerySet (no chunking for updates check)
-    - Simpler logic = faster execution and easier to understand
-    - Still uses bulk operations for actual DB writes
-
-    Thread Safety:
-    - This is a SYNC function wrapped with sync_to_async at call site
-    - All DB operations safe for WSGI/ASGI
-    - Transactions handled in _execute_batch_operations
-
-    Args:
-        directory_record: IndexDirs object for the parent directory
-        fs_entries: Dictionary of filesystem entries (DirEntry objects)
-        bulk_size: Size of batches for bulk operations (from BATCH_SIZES)
-
-    Returns:
-        None
-    """
-    # Build filesystem file dictionary (single pass)
-    fs_file_names_dict = {name: entry for name, entry in fs_entries.items() if not entry.is_dir()}
-    fs_file_names = list(fs_file_names_dict.keys())
-
-    # Build case-insensitive lookup dictionary for matching
-    # Maps lowercase filename -> original cased filename from filesystem
-    fs_names_lower_map = {name.lower(): name for name in fs_file_names}
-
-    # Optimize: First get just filenames with lightweight query (no prefetch overhead)
-    # Then load full objects only for files that need comparison/updates
-    all_db_filenames = set(IndexData.objects.filter(home_directory=directory_record.pk, delete_pending=False).values_list("name", flat=True))
-
-    # Find files that exist in both DB and filesystem (case-insensitive match)
-    # Build lowercase map from database names for matching
-    db_names_lower_set = {name.lower() for name in all_db_filenames}
-    matching_lower_names = set(fs_names_lower_map.keys()) & db_names_lower_set
-
-    # Load full objects with prefetch only for files that need comparison
-    # Convert matching lowercase names back to original database names
-    matching_db_names = {name for name in all_db_filenames if name.lower() in matching_lower_names}
-    potential_updates = list(directory_record.files_in_dir().filter(name__in=matching_db_names))
-
-    # Batch compute SHA256 for files missing hashes
-    files_needing_hash = []
-    for db_file_entry in potential_updates:
-        if not db_file_entry.file_sha256:
-            # Use case-insensitive lookup: db name -> lowercase -> fs name -> fs entry
-            fs_name = fs_names_lower_map[db_file_entry.name.lower()]
-            fs_entry = fs_file_names_dict[fs_name]
-            files_needing_hash.append((db_file_entry, str(fs_entry)))
-
-    # Parallel SHA256 computation for missing hashes
-    sha_results = {}
-    if files_needing_hash:
-        paths_to_hash = [path for _, path in files_needing_hash]
-        sha_results = _batch_compute_file_shas(paths_to_hash)
-
-    # Single pass through files needing updates
-    records_to_update = []
-    for db_file_entry in potential_updates:
-        # Use case-insensitive lookup: db name -> lowercase -> fs name -> fs entry
-        fs_name = fs_names_lower_map[db_file_entry.name.lower()]
-        fs_entry = fs_file_names_dict[fs_name]
-        updated_record = _check_file_updates(
-            db_file_entry,
-            fs_entry,
-            directory_record,
-            sha_results.get(str(fs_entry)),
-        )
-        if updated_record:
-            records_to_update.append(updated_record)
-
-    # Get files to delete - case-insensitive: db files NOT matching any fs file
-    # Find DB files whose lowercase name is NOT in the filesystem (case-insensitive comparison)
-    #
-    # NOTE: Must compare at lowercase level to avoid false deletions on case-preserving filesystems.
-    # The DB may store "MyFile.txt" while filesystem returns "Myfile.Txt" (title-cased by return_disk_listing).
-    # Comparing original cases directly would incorrectly mark the file for deletion.
-    # Instead, we compare lowercase sets, then map back to original DB names.
-    db_names_not_in_fs_lower = db_names_lower_set - matching_lower_names
-    db_names_not_in_fs = {name for name in all_db_filenames if name.lower() in db_names_not_in_fs_lower}
-    files_to_delete_ids = list(
-        IndexData.objects.filter(home_directory=directory_record.pk, name__in=db_names_not_in_fs, delete_pending=False).values_list("id", flat=True)
-    )
-
-    # Process new files - case-insensitive: fs files NOT matching any db file
-    # Filesystem files whose lowercase name is NOT in database (case-insensitive)
-    all_db_filenames_lower = {name.lower() for name in all_db_filenames}
-    fs_file_names_for_creation = [name for name in fs_file_names if name.lower() not in all_db_filenames_lower]
-    creation_fs_file_names_dict = {name: fs_file_names_dict[name] for name in fs_file_names_for_creation}
-
-    # Batch compute SHA256 for new files (excluding links/archives which are handled individually)
-    new_file_paths = []
-    for fs_entry in creation_fs_file_names_dict.values():
-        if not fs_entry.is_dir():
-            fileext = fs_entry.suffix.lower() if fs_entry.suffix else ""
-            if fileext and fileext != ".":
-                # Only batch non-link files (links are processed specially in process_filedata)
-                if fileext not in [".link", ".alias"]:
-                    new_file_paths.append(str(fs_entry))
-
-    # Parallel SHA256 computation for new files
-    new_sha_results = {}
-    if new_file_paths:
-        new_sha_results = _batch_compute_file_shas(new_file_paths)
-
-    records_to_create = directory_record.process_new_files(creation_fs_file_names_dict, new_sha_results)
-
-    # Execute batch operations with transactions
-    _execute_batch_operations(records_to_update, records_to_create, files_to_delete_ids, bulk_size)
-
-
 def _detect_gif_animation(fs_entry: Path) -> bool:
     """
     Detect if a GIF file is animated.
@@ -476,96 +263,6 @@ def _process_link_file(fs_entry: Path, filetype: object, filename: str) -> objec
         return None
 
     return None
-
-
-def _check_file_updates(
-    db_record: object, fs_entry: Path, home_directory: object, precomputed_sha: tuple[str | None, str | None] | None = None
-) -> object | None:
-    """
-    Check if database record needs updating based on filesystem entry.
-
-    Compares modification time, size, SHA256, and other attributes between
-    database record and filesystem entry.
-
-    Performance Optimization:
-    Accepts precomputed SHA256 hashes to enable batch parallel computation.
-    When precomputed_sha is provided, skips individual SHA256 calculation.
-
-    :Args:
-        db_record: IndexData database record
-        fs_entry: Path object for filesystem entry (DirEntry with cached stat)
-        home_directory: IndexDirs object for the parent directory
-        precomputed_sha: Optional precomputed (file_sha256, unique_sha256) tuple
-
-    Returns:
-        Updated database record if changes detected, None otherwise
-    """
-    try:
-        # Note: DirEntry.stat() is already cached by Python's os.scandir()
-        # Multiple stat() calls on the same DirEntry object reuse the cached result
-        # This prevents duplicate filesystem syscalls across _sync_files()
-        fs_stat = fs_entry.stat()
-        update_needed = False
-
-        # Extract file extension using pathlib for consistency
-        path_obj = Path(db_record.name)
-        fext = path_obj.suffix.lower() if path_obj.suffix else ""
-        if fext:  # Only process files with extensions
-            # Use prefetched filetype from select_related
-            filetype = db_record.filetype if hasattr(db_record, "filetype") else filetype_models.filetypes.return_filetype(fileext=fext)
-
-            # Fix broken link files - process virtual_directory if missing
-            if filetype.is_link and db_record.virtual_directory is None:
-                virtual_dir = _process_link_file(fs_entry, filetype, db_record.name)
-                if virtual_dir is not None:
-                    db_record.virtual_directory = virtual_dir
-                    update_needed = True
-
-            # Use precomputed hash if available, otherwise calculate
-            if not db_record.file_sha256:
-                if precomputed_sha:
-                    db_record.file_sha256, db_record.unique_sha256 = precomputed_sha
-                    update_needed = True
-                else:
-                    try:
-                        db_record.file_sha256, db_record.unique_sha256 = db_record.get_file_sha(fqfn=fs_entry)
-                        update_needed = True
-                    except Exception as e:
-                        logger.error(f"Error calculating SHA for {fs_entry}: {e}")
-
-            if db_record.home_directory != home_directory:
-                db_record.home_directory = home_directory
-                update_needed = True
-
-            # Check modification time
-            if db_record.lastmod != fs_stat.st_mtime:
-                db_record.lastmod = fs_stat.st_mtime
-                update_needed = True
-
-            # Check file size
-            if db_record.size != fs_stat.st_size:
-                db_record.size = fs_stat.st_size
-                update_needed = True
-
-            # Movie duration loading - check each file individually
-            if filetype.is_movie and db_record.duration is None:
-                try:
-                    video_details = _get_video_info(str(fs_entry))
-                    db_record.duration = video_details.get("duration", None)
-                    update_needed = True
-                except Exception as e:
-                    logger.error(f"Error getting duration for {fs_entry}: {e}")
-
-            # Animated GIF detection - only check if not previously checked
-            if filetype.is_image and fext == ".gif" and db_record.is_animated is None:
-                db_record.is_animated = _detect_gif_animation(fs_entry)
-                update_needed = True
-
-        return db_record if update_needed else None
-
-    except (OSError, IOError) as e:
-        logger.error(f"Error checking file {fs_entry}: {e}")
-        return None
 
 
 def _execute_batch_operations(
@@ -771,12 +468,12 @@ def process_filedata(
 
         # Check if it's a directory first
         if fs_entry.is_dir():
-            # Subdirectories are handled by _sync_directories, not here
+            # Subdirectories are handled by IndexDirs.sync_subdirectories(), not here
             # Just skip processing directories in the file processing phase
             # NOTE: Commented out recursive sync_database_disk call - it's problematic
             # because it uses asyncio.run() from within a sync function that's already
             # running in a thread pool via sync_to_async. This causes event loop conflicts.
-            # The _sync_directories function already handles subdirectories properly.
+            # The IndexDirs.sync_subdirectories() method already handles subdirectories properly.
             # asyncio.run(sync_database_disk(str(fs_entry)))
             return None
 
@@ -881,9 +578,9 @@ async def sync_database_disk(directory_record: IndexDirs) -> bool | None:
         return await directory_record.handle_missing()
 
     # Batch process all operations
-    # Both functions are sync and wrapped here for clean async/sync boundary
-    await sync_to_async(_sync_directories)(directory_record, fs_entries)
-    await sync_to_async(_sync_files)(directory_record, fs_entries, bulk_size)
+    # Both methods are sync and wrapped here for clean async/sync boundary
+    await sync_to_async(directory_record.sync_subdirectories)(fs_entries)
+    await sync_to_async(directory_record.sync_files)(fs_entries, bulk_size)
 
     # Cache the result using the directory record
     await sync_to_async(Cache_Storage.add_from_indexdirs)(directory_record)

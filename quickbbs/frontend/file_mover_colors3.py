@@ -375,7 +375,12 @@ def main(args):
                 normalized_parts = [parts[0]]  # Keep root as-is
                 for part in parts[1:]:
                     # Strip leading/trailing whitespace and apply title case
-                    normalized_part = part.strip().title()
+                    # CRITICAL: Convert spaces to underscores BEFORE title casing to prevent duplicates.
+                    # Without this, "Gonig South" and "goning_south" create two different directories.
+                    # Example: "Gonig South" -> "Gonig_South" -> "Gonig_South" (title case)
+                    #          "goning_south" -> "goning_south" -> "Goning_South" (title case)
+                    # Both now map to the same directory: "Goning_South"
+                    normalized_part = part.strip().replace(" ", "_").title()
                     if normalized_part:  # Only add non-empty parts
                         normalized_parts.append(normalized_part)
 
