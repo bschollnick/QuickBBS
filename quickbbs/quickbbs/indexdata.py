@@ -6,12 +6,15 @@ from __future__ import annotations
 
 import asyncio
 import io
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from django.db.models import Count
 from django.db.models.query import QuerySet
 from django.http import FileResponse, Http404, HttpResponse
 from django.urls import reverse
+
+from thumbnails.video_thumbnails import _get_video_info
 
 # Import shared foundation
 from .models import (
@@ -27,6 +30,7 @@ from .models import (
     get_file_sha,
     indexdata_cache,
     indexdata_download_cache,
+    logger,
     models,
     settings,
     sync_to_async,
@@ -482,6 +486,96 @@ class IndexData(models.Model):
                 file_handle.close()
             # Re-raise to let Django handle the cancellation
             raise
+
+    def check_for_updates(self, fs_entry, home_directory, precomputed_sha: tuple[str | None, str | None] | None = None):
+        """
+        Check if this file record needs updating based on filesystem entry.
+
+        Compares modification time, size, SHA256, and other attributes between
+        this database record and the filesystem entry.
+
+        Performance Optimization:
+        Accepts precomputed SHA256 hashes to enable batch parallel computation.
+        When precomputed_sha is provided, skips individual SHA256 calculation.
+
+        :Args:
+            fs_entry: Path object for filesystem entry (DirEntry with cached stat)
+            home_directory: IndexDirs object for the parent directory
+            precomputed_sha: Optional precomputed (file_sha256, unique_sha256) tuple
+
+        Returns:
+            This record if changes detected, None otherwise
+        """
+        # Inline imports to avoid circular dependencies
+        import filetypes.models as filetype_models
+        from frontend.utilities import _detect_gif_animation, _process_link_file
+
+        try:
+            # Note: DirEntry.stat() is already cached by Python's os.scandir()
+            # Multiple stat() calls on the same DirEntry object reuse the cached result
+            # This prevents duplicate filesystem syscalls across IndexDirs.sync_files()
+            fs_stat = fs_entry.stat()
+            update_needed = False
+
+            # Extract file extension using pathlib for consistency
+            path_obj = Path(self.name)
+            fext = path_obj.suffix.lower() if path_obj.suffix else ""
+            if fext:  # Only process files with extensions
+                # Use prefetched filetype from select_related
+                filetype = self.filetype if hasattr(self, "filetype") else filetype_models.filetypes.return_filetype(fileext=fext)
+
+                # Fix broken link files - process virtual_directory if missing
+                if filetype.is_link and self.virtual_directory is None:
+                    virtual_dir = _process_link_file(fs_entry, filetype, self.name)
+                    if virtual_dir is not None:
+                        self.virtual_directory = virtual_dir
+                        update_needed = True
+
+                # Use precomputed hash if available, otherwise calculate
+                if not self.file_sha256:
+                    if precomputed_sha:
+                        self.file_sha256, self.unique_sha256 = precomputed_sha
+                        update_needed = True
+                    else:
+                        try:
+                            self.file_sha256, self.unique_sha256 = self.get_file_sha(fqfn=fs_entry)
+                            update_needed = True
+                        except Exception as e:
+                            logger.error(f"Error calculating SHA for {fs_entry}: {e}")
+
+                if self.home_directory != home_directory:
+                    self.home_directory = home_directory
+                    update_needed = True
+
+                # Check modification time
+                if self.lastmod != fs_stat.st_mtime:
+                    self.lastmod = fs_stat.st_mtime
+                    update_needed = True
+
+                # Check file size
+                if self.size != fs_stat.st_size:
+                    self.size = fs_stat.st_size
+                    update_needed = True
+
+                # Movie duration loading - check each file individually
+                if filetype.is_movie and self.duration is None:
+                    try:
+                        video_details = _get_video_info(str(fs_entry))
+                        self.duration = video_details.get("duration", None)
+                        update_needed = True
+                    except Exception as e:
+                        logger.error(f"Error getting duration for {fs_entry}: {e}")
+
+                # Animated GIF detection - only check if not previously checked
+                if filetype.is_image and fext == ".gif" and self.is_animated is None:
+                    self.is_animated = _detect_gif_animation(fs_entry)
+                    update_needed = True
+
+            return self if update_needed else None
+
+        except (OSError, IOError) as e:
+            logger.error(f"Error checking file {fs_entry}: {e}")
+            return None
 
     class Meta:
         verbose_name = "Master Files Index"

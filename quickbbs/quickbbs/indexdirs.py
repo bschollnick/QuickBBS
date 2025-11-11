@@ -6,13 +6,18 @@ from __future__ import annotations
 
 import pathlib
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from django.db import transaction
 from django.db.models import Count, Prefetch, Q
 from django.db.models.query import QuerySet
 from django.urls import reverse
 
 # Import shared foundation
+from filetypes.models import get_ftype_dict
+from quickbbs.common import normalize_string_title
+
 from .models import (
     INDEXDATA_SELECT_RELATED_LIST,
     INDEXDIRS_PREFETCH_LIST,
@@ -418,9 +423,6 @@ class IndexDirs(models.Model):
         A special "all_files" key is used to store the # of all items in the directory (except
         for directories).  (all_files is the sum of all file types, except "dir")
         """
-        # pylint: disable-next=import-outside-toplevel
-        from filetypes.models import get_ftype_dict
-
         filetypes_dict = get_ftype_dict()
 
         # Single aggregate query for ALL file counts by type
@@ -856,3 +858,226 @@ class IndexDirs(models.Model):
                 continue
 
         return records_to_create
+
+    def sync_subdirectories(self, fs_entries: dict) -> None:
+        """
+        Synchronize my subdirectories with filesystem entries.
+
+        Compares database records of subdirectories against filesystem and:
+        - Marks missing subdirectories for deletion
+        - Updates modification times for changed directories
+        - Creates new subdirectories found in filesystem
+
+        IMPORTANT - Async Wrapper Pattern:
+        This function is SYNC and wrapped with sync_to_async at the call site.
+        This pattern is safer than having nested @sync_to_async decorators within an async function.
+
+        Why sync instead of async:
+        - All operations are database transactions (atomic blocks)
+        - Prevents nested async/sync boundary issues
+        - Single sync_to_async wrapper is more efficient than multiple nested ones
+        - Easier to reason about transaction boundaries
+
+        Thread Safety:
+        - All DB operations in transaction.atomic() blocks
+        - Safe for WSGI (Gunicorn) and ASGI (Uvicorn/Hypercorn)
+        - No thread pool usage = no connection leakage
+
+        :Args:
+            fs_entries: Dictionary mapping entry names to DirEntry objects
+        """
+        # pylint: disable-next=import-outside-toplevel
+        from cache_watcher.models import Cache_Storage
+
+        print("Synchronizing directories...")
+        logger.info("Synchronizing directories...")
+        current_path = normalize_fqpn(self.fqpndirectory)
+
+        # Get all database directories efficiently - use lightweight query for path comparison
+        # Avoid loading full objects with select_related/prefetch_related when only paths needed
+        all_dirs_queryset = IndexDirs.objects.filter(parent_directory=self.pk, delete_pending=False)
+        db_dirs = set(all_dirs_queryset.values_list("fqpndirectory", flat=True))
+        fs_dirs = {normalize_fqpn(current_path + entry.name) for entry in fs_entries.values() if entry.is_dir()}
+
+        # Load full objects only for directories that exist in both DB and filesystem
+        # This requires select_related for lastmod/size comparisons
+        # Use queryset with iterator for memory-efficient streaming (single-pass iteration)
+        existing_dirs_qs = self.dirs_in_dir().filter(fqpndirectory__in=db_dirs & fs_dirs)
+        existing_count = existing_dirs_qs.count()
+
+        print(f"Existing directories in database: {existing_count}")
+        if existing_count > 0:
+            # Check each directory for updates
+            updated_records = []
+            for db_dir_entry in existing_dirs_qs.iterator(chunk_size=100):
+                # Extract directory name from full path and title-case it to match fs_entries keys
+                # NOTE: fs_entries dict is keyed by title-cased filenames (e.g., "Photos"), not full paths
+                # (e.g., "/volumes/c-8tb/gallery/albums/photos/"). Using full path would always return None.
+                # See return_disk_listing() in file_listings.py which uses normalize_string_title() for keys.
+                dir_name = Path(db_dir_entry.fqpndirectory.rstrip(os.sep)).name
+                dir_name_titled = normalize_string_title(dir_name)
+
+                if fs_entry := fs_entries.get(dir_name_titled):
+                    try:
+                        fs_stat = fs_entry.stat()
+                        # Update modification time if changed (IndexDirs doesn't track size)
+                        if db_dir_entry.lastmod != fs_stat.st_mtime:
+                            db_dir_entry.lastmod = fs_stat.st_mtime
+                            updated_records.append(db_dir_entry)
+                    except (OSError, IOError) as e:
+                        logger.error(f"Error checking directory {db_dir_entry.fqpndirectory}: {e}")
+
+            print(f"Directories to Update: {len(updated_records)}")
+
+            if updated_records:
+                print(f"processing existing directory changes: {len(updated_records)}")
+                with transaction.atomic():
+                    for db_dir_entry in updated_records:
+                        locked_entry = IndexDirs.objects.select_for_update(skip_locked=True).get(id=db_dir_entry.id)
+                        locked_entry.lastmod = db_dir_entry.lastmod
+                        locked_entry.save()
+                        Cache_Storage.remove_from_cache_indexdirs(locked_entry)
+                logger.info(f"Processing {len(updated_records)} directory updates")
+
+        # Create new directories BEFORE deleting old ones to prevent foreign key violations
+        new_dirs = fs_dirs - db_dirs
+        if new_dirs:
+            print(f"Directories to Add: {len(new_dirs)}")
+            logger.info(f"Directories to Add: {len(new_dirs)}")
+            with transaction.atomic():
+                for dir_to_create in new_dirs:
+                    IndexDirs.add_directory(fqpn_directory=dir_to_create)
+
+        # Delete directories that no longer exist in filesystem
+        deleted_dirs = db_dirs - fs_dirs
+        if deleted_dirs:
+            print(f"Directories to Delete: {len(deleted_dirs)}")
+            logger.info(f"Directories to Delete: {len(deleted_dirs)}")
+            with transaction.atomic():
+                all_dirs_queryset.filter(fqpndirectory__in=deleted_dirs).delete()
+                Cache_Storage.remove_from_cache_indexdirs(self)
+
+    def sync_files(self, fs_entries: dict, bulk_size: int) -> None:
+        """
+        Synchronize my files with filesystem entries.
+
+        Compares database IndexData records against filesystem and:
+        - Marks missing files as delete_pending
+        - Updates modified files (size, timestamps, SHA256)
+        - Creates new files found in filesystem
+        - Uses bulk operations for efficiency
+
+        IMPORTANT - Simplification Notes:
+        Removed complex chunking logic that was causing multiple QuerySet evaluations.
+        Previous version called .count() multiple times and used dynamic batch sizing.
+
+        Current approach:
+        - Single pass through QuerySet (no chunking for updates check)
+        - Simpler logic = faster execution and easier to understand
+        - Still uses bulk operations for actual DB writes
+
+        Thread Safety:
+        - This is a SYNC function wrapped with sync_to_async at call site
+        - All DB operations safe for WSGI/ASGI
+        - Transactions handled in _execute_batch_operations
+
+        :Args:
+            fs_entries: Dictionary mapping entry names to DirEntry objects
+            bulk_size: Size of batches for bulk operations (updates/creates)
+        """
+        # Inline imports to avoid circular dependencies
+        from frontend.utilities import (
+            _batch_compute_file_shas,
+            _execute_batch_operations,
+        )
+
+        from .indexdata import IndexData
+
+        # Build filesystem file dictionary (single pass)
+        fs_file_names_dict = {name: entry for name, entry in fs_entries.items() if not entry.is_dir()}
+        fs_file_names = list(fs_file_names_dict.keys())
+
+        # Build case-insensitive lookup dictionary for matching
+        # Maps lowercase filename -> original cased filename from filesystem
+        fs_names_lower_map = {name.lower(): name for name in fs_file_names}
+
+        # Optimize: First get just filenames with lightweight query (no prefetch overhead)
+        # Then load full objects only for files that need comparison/updates
+        all_db_filenames = set(IndexData.objects.filter(home_directory=self.pk, delete_pending=False).values_list("name", flat=True))
+
+        # Find files that exist in both DB and filesystem (case-insensitive match)
+        # Build lowercase map from database names for matching
+        db_names_lower_set = {name.lower() for name in all_db_filenames}
+        matching_lower_names = set(fs_names_lower_map.keys()) & db_names_lower_set
+
+        # Load full objects with prefetch only for files that need comparison
+        # Convert matching lowercase names back to original database names
+        matching_db_names = {name for name in all_db_filenames if name.lower() in matching_lower_names}
+        potential_updates = list(self.files_in_dir().filter(name__in=matching_db_names))
+
+        # Batch compute SHA256 for files missing hashes
+        files_needing_hash = []
+        for db_file_entry in potential_updates:
+            if not db_file_entry.file_sha256:
+                # Use case-insensitive lookup: db name -> lowercase -> fs name -> fs entry
+                fs_name = fs_names_lower_map[db_file_entry.name.lower()]
+                fs_entry = fs_file_names_dict[fs_name]
+                files_needing_hash.append((db_file_entry, str(fs_entry)))
+
+        # Parallel SHA256 computation for missing hashes
+        sha_results = {}
+        if files_needing_hash:
+            paths_to_hash = [path for _, path in files_needing_hash]
+            sha_results = _batch_compute_file_shas(paths_to_hash)
+
+        # Single pass through files needing updates
+        records_to_update = []
+        for db_file_entry in potential_updates:
+            # Use case-insensitive lookup: db name -> lowercase -> fs name -> fs entry
+            fs_name = fs_names_lower_map[db_file_entry.name.lower()]
+            fs_entry = fs_file_names_dict[fs_name]
+            updated_record = db_file_entry.check_for_updates(
+                fs_entry,
+                self,
+                sha_results.get(str(fs_entry)),
+            )
+            if updated_record:
+                records_to_update.append(updated_record)
+
+        # Get files to delete - case-insensitive: db files NOT matching any fs file
+        # Find DB files whose lowercase name is NOT in the filesystem (case-insensitive comparison)
+        #
+        # NOTE: Must compare at lowercase level to avoid false deletions on case-preserving filesystems.
+        # The DB may store "MyFile.txt" while filesystem returns "Myfile.Txt" (title-cased by return_disk_listing).
+        # Comparing original cases directly would incorrectly mark the file for deletion.
+        # Instead, we compare lowercase sets, then map back to original DB names.
+        db_names_not_in_fs_lower = db_names_lower_set - matching_lower_names
+        db_names_not_in_fs = {name for name in all_db_filenames if name.lower() in db_names_not_in_fs_lower}
+        files_to_delete_ids = list(
+            IndexData.objects.filter(home_directory=self.pk, name__in=db_names_not_in_fs, delete_pending=False).values_list("id", flat=True)
+        )
+
+        # Process new files - case-insensitive: fs files NOT matching any db file
+        # Filesystem files whose lowercase name is NOT in database (case-insensitive)
+        fs_file_names_for_creation = [name for name in fs_file_names if name.lower() not in db_names_lower_set]
+        creation_fs_file_names_dict = {name: fs_file_names_dict[name] for name in fs_file_names_for_creation}
+
+        # Batch compute SHA256 for new files (excluding links/archives which are handled individually)
+        new_file_paths = []
+        for fs_entry in creation_fs_file_names_dict.values():
+            if not fs_entry.is_dir():
+                fileext = fs_entry.suffix.lower() if fs_entry.suffix else ""
+                if fileext and fileext != ".":
+                    # Only batch non-link files (links are processed specially in process_filedata)
+                    if fileext not in [".link", ".alias"]:
+                        new_file_paths.append(str(fs_entry))
+
+        # Parallel SHA256 computation for new files
+        new_sha_results = {}
+        if new_file_paths:
+            new_sha_results = _batch_compute_file_shas(new_file_paths)
+
+        records_to_create = self.process_new_files(creation_fs_file_names_dict, new_sha_results)
+
+        # Execute batch operations with transactions
+        _execute_batch_operations(records_to_update, records_to_create, files_to_delete_ids, bulk_size)

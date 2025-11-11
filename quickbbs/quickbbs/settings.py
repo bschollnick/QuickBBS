@@ -97,9 +97,7 @@ try:
         SECRET_KEY,
     )
 except ImportError as e:
-    raise ImportError(
-        "secrets.py not found. Copy secrets.py.example to secrets.py and configure with your credentials."
-    ) from e
+    raise ImportError("secrets.py not found. Copy secrets.py.example to secrets.py and configure with your credentials.") from e
 
 # ALLOWED_HOSTS is imported from secrets.py
 # Example: ["nerv.local", "localhost", "127.0.0.1", "192.168.1.67"]
