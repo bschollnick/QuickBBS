@@ -9,6 +9,8 @@ import io
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from PIL import Image
+
 from django.db.models import Count
 from django.db.models.query import QuerySet
 from django.http import FileResponse, Http404, HttpResponse
@@ -283,6 +285,432 @@ class IndexData(models.Model):
         except IndexData.DoesNotExist:
             return None
 
+    @classmethod
+    def set_generic_icon_for_sha(cls, file_sha256: str, is_generic: bool, clear_cache: bool = True) -> int:
+        """
+        Set is_generic_icon for all IndexData files with the given SHA256.
+
+        Shared function to ensure consistent is_generic_icon updates across:
+        - Thumbnail generation (success/failure)
+        - Web view error handlers
+        - Management commands
+
+        When is_generic_icon changes, the layout cache must be cleared because
+        the cached layout includes thumbnail counts and display states that are
+        now stale.
+
+        Args:
+            file_sha256: SHA256 hash of the file(s) to update
+            is_generic: New value for is_generic_icon (True = use filetype icon, False = custom thumbnail)
+            clear_cache: Whether to clear layout_manager_cache for affected directories (default: True)
+
+        Returns:
+            Number of files updated
+        """
+        # Import here to avoid circular dependency
+        from frontend.managers import clear_layout_cache_for_directories
+
+        # Update all files with this SHA256
+        updated_count = cls.objects.filter(file_sha256=file_sha256).update(is_generic_icon=is_generic)
+
+        # Clear layout cache for affected directories if requested
+        if clear_cache and updated_count > 0:
+            # Get unique directories containing these files
+            affected_files = cls.objects.filter(file_sha256=file_sha256).select_related("home_directory")
+            affected_directories = list({f.home_directory for f in affected_files if f.home_directory})
+
+            if affected_directories:
+                cleared_count = clear_layout_cache_for_directories(affected_directories)
+                if cleared_count > 0:
+                    print(f"Cleared {cleared_count} layout cache entries for {len(affected_directories)} directories")
+
+        return updated_count
+
+    @classmethod
+    def link_to_thumbnail(cls, file_sha256: str, thumbnail: ThumbnailFiles) -> tuple[bool, int]:
+        """
+        Link IndexData records to a thumbnail file.
+
+        Checks for unlinked IndexData records with the given SHA256 and links them
+        to the provided thumbnail. This ensures all files with the same content
+        share the same thumbnail.
+
+        Args:
+            file_sha256: SHA256 hash of the file(s) to link
+            thumbnail: ThumbnailFiles object to link to
+
+        Returns:
+            Tuple of (has_unlinked, updated_count):
+                - has_unlinked: Whether there were any unlinked records before update
+                - updated_count: Number of records linked
+        """
+        # Check if there are any unlinked IndexData records for this SHA256
+        has_unlinked = cls.objects.filter(file_sha256=file_sha256, new_ftnail__isnull=True).exists()
+
+        # Link unlinked records to the thumbnail
+        updated_count = 0
+        if has_unlinked:
+            updated_count = cls.objects.filter(
+                file_sha256=file_sha256,
+                new_ftnail__isnull=True,
+            ).update(new_ftnail=thumbnail)
+
+        return has_unlinked, updated_count
+
+    @classmethod
+    def from_filesystem(
+        cls,
+        fs_entry: Path,
+        directory_id: Any | None = None,
+        precomputed_sha: tuple[str | None, str | None] | None = None,
+    ) -> dict[str, Any] | None:
+        """
+        Process a file system entry and return a dictionary with file metadata for IndexData creation.
+
+        This factory method creates metadata dictionaries suitable for bulk_create operations.
+        Accepts precomputed SHA256 hashes to enable batch parallel computation for performance.
+
+        Args:
+            fs_entry: Path object representing the file
+            directory_id: Optional directory identifier for the parent directory (IndexDirs instance)
+            precomputed_sha: Optional precomputed (file_sha256, unique_sha256) tuple
+
+        Returns:
+            Dictionary containing file metadata suitable for IndexData(**metadata), or None if processing fails
+        """
+        # Inline imports to avoid circular dependencies
+        import time
+
+        import filetypes.models as filetype_models
+
+        from quickbbs.common import get_file_sha, normalize_string_title
+
+        try:
+            # Initialize the record dictionary
+            record = {
+                "home_directory": directory_id,
+                "name": normalize_string_title(fs_entry.name),
+                "is_animated": False,
+                "file_sha256": None,
+                "unique_sha256": None,
+                "duration": None,
+            }
+
+            # Check if it's a directory first
+            if fs_entry.is_dir():
+                # Subdirectories are handled by IndexDirs.sync_subdirectories(), not here
+                return None
+
+            # Extract file extension
+            fileext = fs_entry.suffix.lower() if fs_entry.suffix else ""
+
+            # Normalize extension more efficiently
+            if not fileext or fileext == ".":
+                fileext = ".none"
+
+            # Check if filetype exists
+            if not filetype_models.filetypes.filetype_exists_by_ext(fileext):
+                print(f"Can't match fileext '{fileext}' with filetypes")
+                return None
+
+            # Use DirEntry's built-in stat cache (already cached from iterdir)
+            try:
+                fs_stat = fs_entry.stat()
+                if not fs_stat:
+                    print(f"Error getting stats for {fs_entry}")
+                    return None
+
+                record.update(
+                    {
+                        "size": fs_stat.st_size,
+                        "lastmod": fs_stat.st_mtime,
+                        "lastscan": time.time(),
+                        "filetype": filetype_models.filetypes.return_filetype(fileext=fileext),
+                    }
+                )
+            except (OSError, IOError) as e:
+                print(f"Error getting file stats for {fs_entry}: {e}")
+                return None
+
+            # Handle link files
+            filetype = record["filetype"]
+            if filetype.is_link:
+                # Calculate SHA256 for link files
+                try:
+                    record["file_sha256"], record["unique_sha256"] = get_file_sha(str(fs_entry))
+                except Exception as e:
+                    print(f"Error calculating SHA for link file {fs_entry}: {e}")
+                    return None
+
+                # Process link file and get virtual_directory
+                virtual_dir = cls.process_link_file(fs_entry, filetype, record["name"])
+                if virtual_dir is None:
+                    return None  # Don't add to database - will retry on next scan
+
+                record["virtual_directory"] = virtual_dir
+            else:
+                # Use precomputed hash if available, otherwise calculate
+                if precomputed_sha:
+                    record["file_sha256"], record["unique_sha256"] = precomputed_sha
+                else:
+                    try:
+                        record["file_sha256"], record["unique_sha256"] = get_file_sha(str(fs_entry))
+                    except Exception as e:
+                        print(f"Error calculating SHA for {fs_entry}: {e}")
+                        # Continue processing even if SHA calculation fails
+
+            # Handle animated GIF detection
+            if hasattr(filetype, "is_image") and filetype.is_image and fileext == ".gif":
+                record["is_animated"] = cls.is_animated_gif(fs_entry)
+
+            return record
+
+        except Exception as e:
+            print(f"Unexpected error processing {fs_entry}: {e}")
+            return None
+
+    @classmethod
+    def bulk_sync(
+        cls,
+        records_to_update: list["IndexData"],
+        records_to_create: list["IndexData"],
+        records_to_delete_ids: list[int],
+        bulk_size: int,
+    ) -> None:
+        """
+        Execute all database operations in batches with proper transaction handling.
+
+        Performs bulk delete, update, and create operations in separate transactions
+        for optimal performance and atomicity.
+
+        Args:
+            records_to_update: List of IndexData records to update
+            records_to_create: List of IndexData records to create
+            records_to_delete_ids: List of IndexData record IDs to delete
+            bulk_size: Size of batches for bulk operations
+
+        Raises:
+            Exception: If any database operation fails
+        """
+        # Inline imports to avoid circular dependencies
+        from django.db import transaction
+
+        try:
+            # Batch delete using IDs with optimized chunking
+            if records_to_delete_ids:
+                # Convert to list for efficient slicing
+                delete_ids_list = list(records_to_delete_ids)
+
+                with transaction.atomic():
+                    # Process deletes in optimally-sized chunks
+                    for i in range(0, len(delete_ids_list), bulk_size):
+                        chunk_ids = delete_ids_list[i : i + bulk_size]
+                        # Use bulk delete with specific field for index usage
+                        cls.objects.filter(id__in=chunk_ids).delete()
+                    print(f"Deleted {len(records_to_delete_ids)} records")
+                    logger.info(f"Deleted {len(records_to_delete_ids)} records")
+
+            # Batch update in chunks for memory efficiency
+            if records_to_update:
+                for i in range(0, len(records_to_update), bulk_size):
+                    chunk = records_to_update[i : i + bulk_size]
+                    with transaction.atomic():
+                        # Dynamic update field selection - only update fields that have changed
+                        update_fields = ["lastmod", "size", "home_directory"]
+
+                        # Check if any records have movies for duration field
+                        has_movies = any(
+                            hasattr(record, "filetype")
+                            and hasattr(record.filetype, "is_movie")
+                            and record.filetype.is_movie
+                            and hasattr(record, "duration")
+                            and record.duration is not None
+                            for record in chunk
+                        )
+                        if has_movies:
+                            update_fields.append("duration")
+
+                        # Add hash fields only if they exist in the records
+                        has_hashes = any(hasattr(record, "file_sha256") and record.file_sha256 for record in chunk)
+                        if has_hashes:
+                            update_fields.extend(["file_sha256", "unique_sha256"])
+
+                        # Add virtual_directory for link files
+                        has_link_with_vdir = any(
+                            hasattr(record, "filetype")
+                            and hasattr(record.filetype, "is_link")
+                            and record.filetype.is_link
+                            and hasattr(record, "virtual_directory")
+                            and record.virtual_directory is not None
+                            for record in chunk
+                        )
+                        if has_link_with_vdir:
+                            update_fields.append("virtual_directory")
+
+                        cls.objects.bulk_update(
+                            chunk,
+                            fields=update_fields,
+                            batch_size=bulk_size,
+                        )
+                logger.info(f"Updated {len(records_to_update)} records")
+
+            # Batch create in chunks for memory efficiency
+            if records_to_create:
+                for i in range(0, len(records_to_create), bulk_size):
+                    chunk = records_to_create[i : i + bulk_size]
+                    with transaction.atomic():
+                        cls.objects.bulk_create(
+                            chunk,
+                            batch_size=bulk_size,
+                            ignore_conflicts=True,  # Handle duplicates gracefully
+                        )
+                logger.info(f"Created {len(records_to_create)} records")
+
+        except Exception as e:
+            logger.error(f"Database operation failed: {e}")
+            raise
+
+    @classmethod
+    def find_files_without_sha(cls, start_path: str | None = None) -> "QuerySet[IndexData]":
+        """
+        Find IndexData files with NULL file_sha256.
+
+        Args:
+            start_path: Optional starting directory path to filter files (must be normalized)
+
+        Returns:
+            QuerySet of IndexData files with NULL file_sha256
+        """
+        files_without_sha = cls.objects.filter(file_sha256__isnull=True, delete_pending=False)
+
+        # Filter by start_path if provided
+        if start_path:
+            files_without_sha = files_without_sha.filter(home_directory__fqpndirectory__startswith=start_path)
+
+        return files_without_sha
+
+    @classmethod
+    def find_broken_link_files(cls, start_path: str | None = None) -> "QuerySet[IndexData]":
+        """
+        Find link files with NULL virtual_directory.
+
+        Args:
+            start_path: Optional starting directory path to filter files (must be normalized)
+
+        Returns:
+            QuerySet of link files with NULL virtual_directory
+        """
+        link_files_without_vdir = cls.objects.filter(filetype__is_link=True, virtual_directory__isnull=True, delete_pending=False)
+
+        # Filter by start_path if provided
+        if start_path:
+            link_files_without_vdir = link_files_without_vdir.filter(home_directory__fqpndirectory__startswith=start_path)
+
+        return link_files_without_vdir
+
+    @staticmethod
+    def process_link_file(fs_entry: Path, filetype: Any, filename: str) -> "IndexDirs | None":
+        """
+        Process link files (.link or .alias) and return the virtual_directory.
+
+        Extracts target directory from link file and finds/creates the corresponding
+        IndexDirs record. Shared by both new file creation and existing file updates.
+
+        Args:
+            fs_entry: Path object for the link file
+            filetype: Filetype object with is_link=True and fileext attribute
+            filename: The normalized filename from the database or filesystem
+
+        Returns:
+            IndexDirs object for the target directory, or None if target cannot be resolved
+        """
+        # Inline imports to avoid circular dependencies
+        from frontend.utilities import resolve_alias_path
+        from quickbbs.common import normalize_fqpn
+
+        from .indexdirs import IndexDirs
+
+        try:
+            if filetype.fileext == ".link":
+                # Optimize link parsing with single-pass processing
+                name_lower = filename.lower()
+                star_index = name_lower.find("*")
+                if star_index == -1:
+                    logger.warning(f"Invalid link format - no '*' found in: {filename}")
+                    return None
+
+                redirect = name_lower[star_index + 1 :]
+                # Chain replacements more efficiently
+                redirect = redirect.replace("'", "").replace("__", "/")
+                dot_index = redirect.rfind(".")
+                if dot_index != -1:
+                    redirect = redirect[:dot_index]
+                redirect_path = f"/{redirect}"
+
+                # Check if already a full filesystem path or a web fragment
+                if not redirect_path.startswith(settings.ALBUMS_PATH):
+                    # Web fragment - convert to full filesystem path
+                    redirect_path = normalize_fqpn(settings.ALBUMS_PATH + redirect_path)
+                else:
+                    # Already a full filesystem path - just normalize
+                    redirect_path = normalize_fqpn(redirect_path)
+
+                # Find or create the target directory and set virtual_directory
+                found, virtual_dir = IndexDirs.search_for_directory(redirect_path)
+                if not found:
+                    found, virtual_dir = IndexDirs.add_directory(redirect_path)
+
+                # Check if resolution succeeded - if not, skip this file
+                if not found or virtual_dir is None:
+                    error_msg = f"Skipping .link file with broken target: {filename} → {redirect_path} (target directory not found)"
+                    logger.warning(error_msg)
+                    return None
+
+                return virtual_dir
+
+            elif filetype.fileext == ".alias":
+                alias_target_path = resolve_alias_path(str(fs_entry))
+
+                # Find or create the target directory and set virtual_directory
+                found, virtual_dir = IndexDirs.search_for_directory(alias_target_path)
+                if not found:
+                    found, virtual_dir = IndexDirs.add_directory(alias_target_path)
+
+                # Check if resolution succeeded - if not, skip this file
+                if not found or virtual_dir is None:
+                    error_msg = f"Skipping .alias file with broken target: {filename} → {alias_target_path} (target directory not found)"
+                    logger.warning(error_msg)
+                    return None
+
+                return virtual_dir
+
+        except ValueError as e:
+            logger.error(f"Error processing link file {filename}: {e}")
+            return None
+
+        return None
+
+    @staticmethod
+    def is_animated_gif(fs_entry: Path) -> bool:
+        """
+        Detect if a GIF file is animated.
+
+        Shared function to avoid duplicate animation detection logic.
+        Used by both new file processing and existing file updates.
+
+        Args:
+            fs_entry: Path object for the GIF file
+
+        Returns:
+            True if animated, False if static or on error
+        """
+        try:
+            with Image.open(fs_entry) as img:
+                return getattr(img, "is_animated", False)
+        except (AttributeError, IOError, OSError) as e:
+            logger.error(f"Error checking animation for {fs_entry}: {e}")
+            return False
+
     def get_file_sha(self, fqfn: str) -> tuple[str | None, str | None]:
         """
         Return the SHA256 hashes of the file as hexdigest strings.
@@ -373,6 +801,37 @@ class IndexData(models.Model):
 
         """
         return reverse("download_file") + self.name + f"?usha={self.unique_sha256}"
+
+    def get_content_html(self, webpath: str) -> str:
+        """
+        Process file content based on file type for display.
+
+        ASYNC-SAFE: File I/O only (entry object already loaded from DB).
+        For async contexts, wrap with: await asyncio.to_thread(entry.get_content_html, webpath)
+
+        Args:
+            webpath: Web path for constructing file path
+
+        Returns:
+            Processed HTML content or empty string
+        """
+        # Inline import to avoid circular dependency
+        import os
+
+        from frontend.managers import _process_text_file
+
+        if not (self.filetype.is_text or self.filetype.is_markdown or self.filetype.is_html):
+            return ""
+
+        # Construct filesystem path from webpath
+        filename = os.path.join(webpath.replace("/", os.sep), self.name)
+
+        if self.filetype.is_text or self.filetype.is_markdown:
+            return _process_text_file(filename, is_markdown=True)
+        if self.filetype.is_html:
+            return _process_text_file(filename, is_markdown=False)
+
+        return ""
 
     def inline_sendfile(self, request: Any, ranged: bool = False) -> Any:
         """
@@ -508,7 +967,6 @@ class IndexData(models.Model):
         """
         # Inline imports to avoid circular dependencies
         import filetypes.models as filetype_models
-        from frontend.utilities import _detect_gif_animation, _process_link_file
 
         try:
             # Note: DirEntry.stat() is already cached by Python's os.scandir()
@@ -526,7 +984,7 @@ class IndexData(models.Model):
 
                 # Fix broken link files - process virtual_directory if missing
                 if filetype.is_link and self.virtual_directory is None:
-                    virtual_dir = _process_link_file(fs_entry, filetype, self.name)
+                    virtual_dir = IndexData.process_link_file(fs_entry, filetype, self.name)
                     if virtual_dir is not None:
                         self.virtual_directory = virtual_dir
                         update_needed = True
@@ -568,7 +1026,7 @@ class IndexData(models.Model):
 
                 # Animated GIF detection - only check if not previously checked
                 if filetype.is_image and fext == ".gif" and self.is_animated is None:
-                    self.is_animated = _detect_gif_animation(fs_entry)
+                    self.is_animated = IndexData.is_animated_gif(fs_entry)
                     update_needed = True
 
             return self if update_needed else None

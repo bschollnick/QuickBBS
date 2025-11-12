@@ -98,6 +98,8 @@ INDEXDIRS_PREFETCH_LIST = [
 
 def set_file_generic_icon(file_sha256: str, is_generic: bool, clear_cache: bool = True) -> int:
     """
+    DEPRECATED: Use IndexData.set_generic_icon_for_sha() instead.
+
     Set is_generic_icon for all IndexData files with the given SHA256.
 
     Shared function to ensure consistent is_generic_icon updates across:
@@ -117,25 +119,7 @@ def set_file_generic_icon(file_sha256: str, is_generic: bool, clear_cache: bool 
     Returns:
         Number of files updated
     """
-    # Import here to avoid circular dependency
-    from frontend.managers import clear_layout_cache_for_directories
-
-    # Update all files with this SHA256
-    # Note: Forward reference to IndexData model (defined later in this file)
-    updated_count = IndexData.objects.filter(file_sha256=file_sha256).update(is_generic_icon=is_generic)
-
-    # Clear layout cache for affected directories if requested
-    if clear_cache and updated_count > 0:
-        # Get unique directories containing these files
-        affected_files = IndexData.objects.filter(file_sha256=file_sha256).select_related("home_directory")
-        affected_directories = list({f.home_directory for f in affected_files if f.home_directory})
-
-        if affected_directories:
-            cleared_count = clear_layout_cache_for_directories(affected_directories)
-            if cleared_count > 0:
-                print(f"Cleared {cleared_count} layout cache entries for {len(affected_directories)} directories")
-
-    return updated_count
+    return IndexData.set_generic_icon_for_sha(file_sha256, is_generic, clear_cache)
 
 
 # Forward ForeignKeys - use select_related() for SQL JOINs (single query)
