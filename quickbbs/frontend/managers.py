@@ -343,7 +343,7 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
         "unique_file_sha256": unique_file_sha256,
         "file_sha256": entry.file_sha256,
         "sort": sort_order_value,
-        "html": _process_file_content(entry, webpath),
+        "html": entry.get_content_html(webpath),
         # Navigation (inline breadcrumb processing)
         "breadcrumbs": return_breadcrumbs(webpath),
         "up_uri": convert_to_webpath(str(pathmaster.parent)).rstrip("/"),
@@ -403,6 +403,8 @@ async def async_build_context_info(request: WSGIRequest, unique_file_sha256: str
 
 def _process_file_content(entry: IndexData, webpath: str) -> str:
     """
+    DEPRECATED: Use entry.get_content_html(webpath) instead.
+
     Process file content based on file type.
 
     ASYNC-SAFE: File I/O only (entry object already loaded from DB).

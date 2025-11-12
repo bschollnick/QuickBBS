@@ -85,13 +85,11 @@ def invalidate_directories_with_null_sha256(start_path: str | None = None, verbo
         print("-" * 60)
         print("Checking for files with NULL SHA256...")
 
-    # Query for files with NULL SHA256
-    files_without_sha = IndexData.objects.filter(file_sha256__isnull=True, delete_pending=False)
+    # Normalize start_path if provided
+    normalized_start = normalize_fqpn(start_path) if start_path else None
 
-    # Filter by start_path if provided
-    if start_path:
-        normalized_start = normalize_fqpn(start_path)
-        files_without_sha = files_without_sha.filter(home_directory__fqpndirectory__startswith=normalized_start)
+    # Query for files with NULL SHA256 using IndexData classmethod
+    files_without_sha = IndexData.find_files_without_sha(start_path=normalized_start)
 
     # Count before getting directories
     file_count = files_without_sha.count()
@@ -148,13 +146,11 @@ def invalidate_directories_with_null_virtual_directory(start_path: str | None = 
         print("-" * 60)
         print("Checking for link files with NULL virtual_directory...")
 
-    # Query for link files with NULL virtual_directory
-    link_files_without_vdir = IndexData.objects.filter(filetype__is_link=True, virtual_directory__isnull=True, delete_pending=False)
+    # Normalize start_path if provided
+    normalized_start = normalize_fqpn(start_path) if start_path else None
 
-    # Filter by start_path if provided
-    if start_path:
-        normalized_start = normalize_fqpn(start_path)
-        link_files_without_vdir = link_files_without_vdir.filter(home_directory__fqpndirectory__startswith=normalized_start)
+    # Query for link files with NULL virtual_directory using IndexData classmethod
+    link_files_without_vdir = IndexData.find_broken_link_files(start_path=normalized_start)
 
     # Count before getting directories
     file_count = link_files_without_vdir.count()

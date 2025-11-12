@@ -170,6 +170,8 @@ async def _get_or_create_directory(directory_sha256: str, dirpath: str) -> tuple
 
 def _detect_gif_animation(fs_entry: Path) -> bool:
     """
+    DEPRECATED: Use IndexData.is_animated_gif() instead.
+
     Detect if a GIF file is animated.
 
     Shared function to avoid duplicate animation detection logic.
@@ -191,6 +193,8 @@ def _detect_gif_animation(fs_entry: Path) -> bool:
 
 def _process_link_file(fs_entry: Path, filetype: object, filename: str) -> object | None:
     """
+    DEPRECATED: Use IndexData.process_link_file() instead.
+
     Process link files (.link or .alias) and return the virtual_directory.
 
     Extracts target directory from link file and finds/creates the corresponding
@@ -272,6 +276,8 @@ def _execute_batch_operations(
     bulk_size: int,
 ) -> None:
     """
+    DEPRECATED: Use IndexData.bulk_sync() instead.
+
     Execute all database operations in batches with proper transaction handling.
 
     Performs bulk delete, update, and create operations in separate transactions.
@@ -442,6 +448,8 @@ def process_filedata(
     fs_entry: Path, directory_id: str | None = None, precomputed_sha: tuple[str | None, str | None] | None = None
 ) -> dict[str, Any] | None:
     """
+    DEPRECATED: Use IndexData.from_filesystem() instead.
+
     Process a file system entry and return a dictionary with file metadata.
 
     Performance Optimization:
@@ -521,7 +529,7 @@ def process_filedata(
                 return None
 
             # Process link file and get virtual_directory
-            virtual_dir = _process_link_file(fs_entry, filetype, record["name"])
+            virtual_dir = IndexData.process_link_file(fs_entry, filetype, record["name"])
             if virtual_dir is None:
                 return None  # Don't add to database - will retry on next scan
 
@@ -539,7 +547,7 @@ def process_filedata(
 
         # Handle animated GIF detection
         if hasattr(filetype, "is_image") and filetype.is_image and fileext == ".gif":
-            record["is_animated"] = _detect_gif_animation(fs_entry)
+            record["is_animated"] = IndexData.is_animated_gif(fs_entry)
 
         return record
 

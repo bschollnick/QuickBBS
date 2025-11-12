@@ -827,8 +827,6 @@ class IndexDirs(models.Model):
             List of new IndexData records to create
         """
         # Import at function level to avoid circular dependency
-        from frontend.utilities import process_filedata
-
         from .indexdata import IndexData
 
         records_to_create = []
@@ -839,7 +837,7 @@ class IndexDirs(models.Model):
         for _, fs_entry in fs_file_names.items():
             try:
                 # Process new file with precomputed SHA if available
-                filedata = process_filedata(fs_entry, directory_id=self, precomputed_sha=precomputed_shas.get(str(fs_entry)))
+                filedata = IndexData.from_filesystem(fs_entry, directory_id=self, precomputed_sha=precomputed_shas.get(str(fs_entry)))
                 if filedata is None:
                     continue
 
@@ -986,10 +984,7 @@ class IndexDirs(models.Model):
             bulk_size: Size of batches for bulk operations (updates/creates)
         """
         # Inline imports to avoid circular dependencies
-        from frontend.utilities import (
-            _batch_compute_file_shas,
-            _execute_batch_operations,
-        )
+        from frontend.utilities import _batch_compute_file_shas
 
         from .indexdata import IndexData
 
@@ -1080,4 +1075,4 @@ class IndexDirs(models.Model):
         records_to_create = self.process_new_files(creation_fs_file_names_dict, new_sha_results)
 
         # Execute batch operations with transactions
-        _execute_batch_operations(records_to_update, records_to_create, files_to_delete_ids, bulk_size)
+        IndexData.bulk_sync(records_to_update, records_to_create, files_to_delete_ids, bulk_size)

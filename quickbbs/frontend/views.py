@@ -405,11 +405,9 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
         )
     except Exception as e:
         # If thumbnail generation/serving fails, mark ALL files with this SHA256 as generic
-        # Use shared helper to ensure layout cache is cleared
-        from quickbbs.models import set_file_generic_icon
-
+        # Use IndexData classmethod to ensure layout cache is cleared
         print(f"Thumbnail generation failed for {index_data_item.name}: {e}")
-        set_file_generic_icon(sha256, is_generic=True, clear_cache=True)
+        IndexData.set_generic_icon_for_sha(sha256, is_generic=True, clear_cache=True)
         return index_data_item.filetype.send_thumbnail()
 
 

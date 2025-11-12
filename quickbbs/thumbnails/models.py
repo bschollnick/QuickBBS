@@ -151,10 +151,6 @@ class ThumbnailFiles(models.Model):
                 sha256_hash=file_sha256, defaults=defaults
             )
 
-            # Check if there are any unlinked IndexData records for this SHA256
-            # We need to check ALL records, not just prefetched ones
-            has_unlinked = IndexData.objects.filter(file_sha256=file_sha256, new_ftnail__isnull=True).exists()
-
             # Get an IndexData record for file path (prefer prefetched)
             prefetched_indexdata = list(thumbnail.IndexData.all())
             if prefetched_indexdata:
@@ -162,17 +158,16 @@ class ThumbnailFiles(models.Model):
             else:
                 index_data_item = IndexData.objects.prefetch_related("filetype").filter(file_sha256=file_sha256).first()
 
-            # Link if: newly created OR has unlinked records
+            # Link IndexData records to thumbnail (newly created OR has unlinked records)
+            has_unlinked, updated_count = IndexData.link_to_thumbnail(file_sha256, thumbnail)
+
             if created or has_unlinked:
-                thumbnail.save()
-                IndexData.objects.filter(
-                    file_sha256=file_sha256,
-                    new_ftnail__isnull=True,
-                ).update(new_ftnail=thumbnail)
+                if not created:  # If not newly created, save the thumbnail to update it
+                    thumbnail.save()
 
                 # Clear prefetch cache since we just updated the links
                 # This ensures thumbnail.IndexData.all() returns fresh data
-                if hasattr(thumbnail, "_prefetched_objects_cache"):
+                if updated_count > 0 and hasattr(thumbnail, "_prefetched_objects_cache"):
                     thumbnail._prefetched_objects_cache.clear()
 
         # Phase 2: File I/O operations (outside transaction)
@@ -229,11 +224,9 @@ class ThumbnailFiles(models.Model):
             else:
                 # File type doesn't support custom thumbnails (text, archives, etc.)
                 # Mark ALL files with this SHA256 as generic (not just one)
-                # Use shared helper to ensure layout cache is cleared
-                from quickbbs.models import set_file_generic_icon
-
+                # Use IndexData classmethod to ensure layout cache is cleared
                 print(f"File type {filetype.fileext} doesn't support custom thumbnails, " f"marking all instances as generic: {index_data_item.name}")
-                set_file_generic_icon(file_sha256, is_generic=True, clear_cache=True)
+                IndexData.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
 
                 # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
                 if file_sha256 in thumbnailfiles_cache:
@@ -254,12 +247,10 @@ class ThumbnailFiles(models.Model):
 
             # If this was a retry (file was marked generic), turn off generic flag
             # on success for ALL instances
-            # Use shared helper to ensure layout cache is cleared
+            # Use IndexData classmethod to ensure layout cache is cleared
             if index_data_item.is_generic_icon:
-                from quickbbs.models import set_file_generic_icon
-
                 print(f"Thumbnail creation succeeded on retry for {index_data_item.name}, " f"turning off generic flag for all instances")
-                set_file_generic_icon(file_sha256, is_generic=False, clear_cache=True)
+                IndexData.set_generic_icon_for_sha(file_sha256, is_generic=False, clear_cache=True)
 
                 # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
                 if file_sha256 in thumbnailfiles_cache:
@@ -267,12 +258,10 @@ class ThumbnailFiles(models.Model):
 
         except Exception as e:
             # Any error during thumbnail creation - mark ALL files with this SHA256 as generic
-            # Use shared helper to ensure layout cache is cleared
-            from quickbbs.models import set_file_generic_icon
-
+            # Use IndexData classmethod to ensure layout cache is cleared
             print(f"Thumbnail creation failed for {index_data_item.name}: {e}")
             if not index_data_item.is_generic_icon:
-                set_file_generic_icon(file_sha256, is_generic=True, clear_cache=True)
+                IndexData.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
 
                 # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
                 if file_sha256 in thumbnailfiles_cache:
