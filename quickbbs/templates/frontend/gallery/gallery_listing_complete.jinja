@@ -3,9 +3,7 @@
 {% block body_attrs %} id="entire_document"{% endblock %}
 
 {% block content %}
-<script>
-document.title = '{{ gallery_name }}'
-</script>
+<div data-page-title="{{ gallery_name }}" style="display:none;"></div>
 
 {% autoescape off %}
 {% include 'frontend/gallery/gallery_listing_partial.jinja' %}

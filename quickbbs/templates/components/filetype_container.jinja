@@ -12,12 +12,5 @@
     </div>
 </div>
 
-<script data-title-update>
-    // Update CSS custom property for filetype color
-    if (window.QuickBBSUtils && '{{ filetype.color }}') {
-        window.QuickBBSUtils.updateFiletypeColor('{{ filetype.color }}');
-    }
-    // Update document title
-    document.title = '{{ title_text }}';
-</script>
+<div data-page-title="{{ title_text }}" style="display:none;"></div>
 {% endautoescape %}

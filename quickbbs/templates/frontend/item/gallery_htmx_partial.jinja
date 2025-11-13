@@ -1,9 +1,7 @@
 {% autoescape off %}
 <!-- Force document title update if HTMX partial -->
 {% if request.htmx %}
-<script>
-document.title = '{{ filename }}'
-</script>
+<div data-page-title="{{ filename }}" style="display:none;"></div>
 {% endif %}
 
 {% include 'frontend/item/gallery_htmx_menu.jinja' %}
