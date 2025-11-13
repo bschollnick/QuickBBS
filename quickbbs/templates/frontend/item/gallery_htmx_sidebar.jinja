@@ -110,10 +110,14 @@
     <div class="sidebar-section">
       <div class="field">
         <label class="label is-small has-text-centered">Sort</label>
-        <form action="" method="GET" class="sort-form">
+        <form action="" method="GET" class="sort-form"
+              hx-get="."
+              hx-target="body"
+              hx-swap="outerHTML"
+              hx-push-url="true">
           <input type="hidden" name="page" value="{{current_page}}">
           <div class="select is-small is-fullwidth">
-            <select name="sort" onchange="this.form.submit()">
+            <select name="sort" hx-trigger="change">
               <option value="0" {% if sort == 0 %}selected{% endif %}>A..Z</option>
               <option value="1" {% if sort == 1 %}selected{% endif %}>Last Modified</option>
               <option value="2" {% if sort == 2 %}selected{% endif %}>Created</option>
