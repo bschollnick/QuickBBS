@@ -193,7 +193,7 @@ In addition to PIL/FFMPEG/PyMuPDF thumbnail support, **macOS Native Thumbnail Ge
   - Better partial page update patterns
 
 **Database & Performance Optimizations:**
-- **1-to-1 Relationships**: Optimized `fs_Cache_Tracking` ↔ `IndexDirs` linkage
+- **1-to-1 Relationships**: Optimized `fs_Cache_Tracking` ↔ `DirectoryIndex` linkage
 - **Query Optimization**: Multiple rounds of N+1 query elimination
 - **Memory Efficiency**: Improved batch processing and pagination strategies
 
@@ -242,7 +242,7 @@ Version 3.80 introduces intelligent duplicate file detection with user-configura
 - **Smart Filtering**: Different filenames with identical content are recognized and can be hidden from view
 
 **Performance Optimizations:**
-- **IndexDirs Object Architecture**: Eliminated string-based FQPN (Fully Qualified Path Names) in favor of passing `IndexDirs` objects throughout the codebase
+- **DirectoryIndex Object Architecture**: Eliminated string-based FQPN (Fully Qualified Path Names) in favor of passing `DirectoryIndex` objects throughout the codebase
 - **Query Optimization**: Improved database query efficiency through better object-based parameter passing
 - **Smart Cache Invalidation**: Automatically invalidate cache for directories containing 0 files to force proper rescanning
 - **General Code Cleanup**: Streamlined function signatures and optimized query patterns

@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from quickbbs.models import Favorites, IndexData, IndexDirs, Owners
+from quickbbs.models import Favorites, IndexData, DirectoryIndex, Owners
 
 
 @admin.register(IndexData)
@@ -85,7 +85,7 @@ class AdminMaster_Index(admin.ModelAdmin):
         return None
 
 
-@admin.register(IndexDirs)
+@admin.register(DirectoryIndex)
 class AdminMaster_Dirs(admin.ModelAdmin):
     search_fields = [
         "fqpndirectory",

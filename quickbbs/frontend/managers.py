@@ -85,10 +85,10 @@ def clear_layout_cache_for_directories(directories: list) -> int:
     and (directory_instance, sort_ordering) for distinct_files_cache.
 
     Note: distinct_files_cache is imported from quickbbs.models where it's used by
-    the IndexDirs.get_distinct_file_shas() method.
+    the DirectoryIndex.get_distinct_file_shas() method.
 
     :Args:
-        directories: List of IndexDirs objects to clear cache for
+        directories: List of DirectoryIndex objects to clear cache for
 
     Returns:
         Number of cache entries cleared (combined from both caches)
@@ -436,7 +436,7 @@ def _process_file_content(entry: IndexData, webpath: str) -> str:
 #     Get directory and file counts efficiently using optimized queries.
 
 #     Args:
-#         directory: IndexDirs object
+#         directory: DirectoryIndex object
 #     Returns: Dictionary with dirs_count and files_count
 #     """
 #     # Use values() with count to reduce query overhead
@@ -458,7 +458,7 @@ def _get_no_thumbnails(directory, sort_ordering: int):
     - Adding additional filters before execution
 
     Args:
-        directory: IndexDirs object
+        directory: DirectoryIndex object
         sort_ordering: Sort order to apply
 
     Returns:
@@ -518,7 +518,7 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
 
     Args:
         page_number: Current page number (1-indexed)
-        directory: IndexDirs object representing the directory to layout
+        directory: DirectoryIndex object representing the directory to layout
         sort_ordering: Sort order to apply (0-2)
     Returns: Dictionary containing pagination data and current page items
     :raises: ValueError if directory parameter is None
@@ -541,7 +541,7 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
     else:
         # Deduplicate - use cached distinct file list
         # This prevents materializing ALL files when we only need current page
-        # IndexDirs.get_distinct_file_shas() caches results for efficient page navigation
+        # DirectoryIndex.get_distinct_file_shas() caches results for efficient page navigation
         all_distinct_shas = directory.get_distinct_file_shas(sort=sort_ordering)
         files_count = len(all_distinct_shas)
 
@@ -612,7 +612,7 @@ async def async_layout_manager(page_number: int = 1, directory=None, sort_orderi
 
     Args:
         page_number: Current page number (1-indexed)
-        directory: IndexDirs object representing the directory to layout
+        directory: DirectoryIndex object representing the directory to layout
         sort_ordering: Sort order to apply (0-2)
     Returns: Dictionary containing pagination data and current page items
     """

@@ -1,31 +1,34 @@
 import sys
 from io import BytesIO
-from pdfrw import PdfReader
+
 import pymupdf
+from pdfrw import PdfReader
 
 
 # ---------------------------------------
 # 'Tolerant' PDF reader
 # ---------------------------------------
 def reader(fname, password=None):
-    idata = open(fname, "rb").read()  # read the PDF into memory and
-    ibuffer = BytesIO(idata)  # convert to stream
+    # Try to read PDF directly from file path (no memory load)
     if password is None:
         try:
-            return PdfReader(ibuffer)  # if this works: fine!
+            with open(fname, "rb") as f:
+                return PdfReader(f)  # if this works: fine!
         except:
             pass
 
     print("Damaged")
     # either we need a password or it is a problem-PDF
     # create a repaired / decompressed / decrypted version
-    doc = pymupdf.open("pdf", ibuffer)
+    # pymupdf can open files directly by path (no need to load into memory)
+    doc = pymupdf.open(fname)
     if password is not None:  # decrypt if password provided
         rc = doc.authenticate(password)
         if not rc > 0:
+            doc.close()
             raise ValueError("wrong password")
     c = doc.tobytes(garbage=3, deflate=True)
-    del doc  # close & delete doc
+    doc.close()  # explicitly close instead of del
     return PdfReader(BytesIO(c))  # let pdfrw retry
 
 
