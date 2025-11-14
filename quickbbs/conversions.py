@@ -1,5 +1,4 @@
 import os
-import sys
 
 import django
 
@@ -7,29 +6,86 @@ import django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "quickbbs.settings")
 django.setup()
 
-from quickbbs.models import IndexData, IndexDirs, convert_text_to_md5_hdigest
-from thumbnails.models import ThumbnailFiles
-import pprint
 import os
-# for entry in IndexData.objects.all():
-#     # pprint.pprint(entry.__dict__)
-#     fs_item = os.path.join(entry.fqpndirectory, entry.name).title().strip()
+
+import filetypes
+
+#
+#  test annotation
+from frontend.utilities import *
+
+from quickbbs.models import IndexDirs
+
+filetypes.models.FILETYPE_DATA = filetypes.models.load_filetypes()
+
+directory = IndexDirs.objects.first()
+dirpath = normalize_fqpn(directory.fqpndirectory)
+# print(directory.fqpndirectory, dirpath)
+success, fs_entries = return_disk_listing(dirpath)
+# print("fs_entries: ", success, fs_entries)
+keys = list(fs_entries.keys())
+# print("keys:", keys)
+
+data = directory.files_in_dir()[0]
+# db_data = (
+#     directory.files_in_dir()
+#     .annotate(FileDoesNotExist=Value(F("fqpndirectory")+F("name") not in fs_entries))
+#     .annotate(FileExists=Value(F("fqpndirectory")+F("name") in fs_entries))
+# )
+
+# for entry in IndexData.objects.prefetch_related("new_ftnail").filter(new_ftnail__sha256_hash__isnull=True):
+
+# pool = IndexData.objects.filter(unique_sha256=None).prefetch_related("new_ftnail")
+# chunks = chunked(pool, 500)
+# for chunk in chunks:
+#     delete_pool = []
+#     with transaction.atomic():
+#         for entry in chunk:
+#             fs_item = os.path.join(entry.fqpndirectory, entry.name).title().strip()
+#             if not os.path.exists(fs_item):
+#                 delete_pool.append(entry.pk)
+#                 continue
+
+#             sha, unique = entry.get_file_sha(fs_item)
+#             entry.file_sha256 = sha
+#             entry.unique_sha256 = unique
+#             entry.new_ftnail.sha256_hash = sha
+
+#             try:
+#                 entry.new_ftnail.save()
+#                 entry.save()
+#                 print(entry.id, entry.pk, entry.name)
+#             except:
+#                 continue
+#             break
+#     break
+#     if delete_pool:
+#         print("Deleting # of records", len(delete_pool))
+#         IndexData.objects.filter(pk__in=delete_pool).delete()
+
+
+# entry.delete()
+
 #     if not os.path.exists(fs_item):
 #         print("deleting")
 #         entry.delete()
 #         continue
 
-for entry in IndexDirs.objects.all():
-#     # pprint.pprint(entry.__dict__)
-     fs_item = os.path.join(entry.fqpndirectory).title().strip()
-     if not os.path.exists(fs_item):
-        print("deleting")
-        entry.delete()
-        continue
+# for entry in IndexDirs.objects.all():
+# #     # pprint.pprint(entry.__dict__)
+#      fs_item = os.path.join(entry.fqpndirectory).title().strip()
+#      if not os.path.exists(fs_item):
+#         print("deleting")
+#         entry.delete()
+#         continue
 
-    #entry.file_sha256 = entry.get_file_sha(fqfn=fs_item)
-    #print("updating")
-    #entry.save(update_fields=["file_sha256"])
+# for entry in IndexData.objects.filter(file_sha256=None):
+#     entry.file_sha256 = entry.get_file_sha(
+#         fqfn=os.path.join(entry.fqpndirectory, entry.name)
+#     )
+#     print("updating")
+#     entry.save(update_fields=["file_sha256"])
+
 #  index_qs = (
 #         IndexData.objects.prefetch_related("new_ftnail")
 #         .prefetch_related("filetype")

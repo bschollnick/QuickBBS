@@ -2,7 +2,7 @@
 Function to add missing directories from filesystem to database.
 
 This module walks the albums directory and adds any missing directories to both
-IndexDirs and fs_Cache_Tracking tables. Directories added to fs_Cache_Tracking
+DirectoryIndex and fs_Cache_Tracking tables. Directories added to fs_Cache_Tracking
 are marked as invalidated to ensure they are scanned when accessed via the web.
 """
 
@@ -14,14 +14,14 @@ from django.conf import settings
 from django.db import close_old_connections
 
 from quickbbs.common import normalize_fqpn
-from quickbbs.models import IndexDirs
+from quickbbs.models import DirectoryIndex
 
 
 def add_directories(max_count: int = 0, start_path: str | None = None) -> None:
     """
     Walk the albums directory and add any missing directories to the database.
 
-    Adds directories to both IndexDirs and fs_Cache_Tracking tables.
+    Adds directories to both DirectoryIndex and fs_Cache_Tracking tables.
     Directories are marked as invalidated in fs_Cache_Tracking to ensure
     they will be scanned when accessed via the web interface.
 
@@ -68,10 +68,10 @@ def add_directories(max_count: int = 0, start_path: str | None = None) -> None:
             print(f"Scanned {scanned_count} directories, added {added_count} ({scan_rate:.1f} dirs/sec)...")
 
         # Check if directory exists in database
-        if not IndexDirs.objects.filter(fqpndirectory=normalized_root).exists():
+        if not DirectoryIndex.objects.filter(fqpndirectory=normalized_root).exists():
             try:
-                # Add directory to IndexDirs
-                _, dir_record = IndexDirs.add_directory(normalized_root)
+                # Add directory to DirectoryIndex
+                _, dir_record = DirectoryIndex.add_directory(normalized_root)
 
                 if dir_record:
                     # Add to fs_Cache_Tracking and mark as invalidated

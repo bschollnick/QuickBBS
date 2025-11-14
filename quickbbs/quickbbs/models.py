@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Async-safe caches for database object lookups
-indexdirs_cache = LRUCache(maxsize=1000)
+directoryindex_cache = LRUCache(maxsize=1000)
 indexdata_cache = LRUCache(maxsize=1000)
 indexdata_download_cache = LRUCache(maxsize=500)
 
@@ -79,7 +79,7 @@ class Favorites(models.Model):
 
 
 # Forward ForeignKeys and OneToOne - use select_related() for SQL JOINs (single query)
-INDEXDIRS_SELECT_RELATED_LIST = [
+DIRECTORYINDEX_SELECT_RELATED_LIST = [
     "filetype",
     "thumbnail",  # Forward FK to IndexData - needed for thumbnail display
     "Cache_Watcher",  # Reverse OneToOne - can use select_related
@@ -87,7 +87,7 @@ INDEXDIRS_SELECT_RELATED_LIST = [
 ]
 
 # Reverse ForeignKeys - use prefetch_related() for separate queries
-INDEXDIRS_PREFETCH_LIST = [
+DIRECTORYINDEX_PREFETCH_LIST = [
     "IndexData_entries",
     # "file_links",
     # "thumbnail",
@@ -141,21 +141,21 @@ INDEXDATA_DOWNLOAD_SELECT_RELATED_LIST = [
 ]
 
 
-# Import and re-export main models (allows: from quickbbs.models import IndexDirs, IndexData)
+# Import and re-export main models (allows: from quickbbs.models import DirectoryIndex, IndexData)
 from .indexdata import IndexData  # noqa: E402
-from .indexdirs import IndexDirs  # noqa: E402
+from .directoryindex import DirectoryIndex  # noqa: E402
 
 __all__ = [
     "Owners",
     "Favorites",
-    "IndexDirs",
+    "DirectoryIndex",
     "IndexData",
-    "indexdirs_cache",
+    "directoryindex_cache",
     "indexdata_cache",
     "indexdata_download_cache",
     "distinct_files_cache",
-    "INDEXDIRS_SELECT_RELATED_LIST",
-    "INDEXDIRS_PREFETCH_LIST",
+    "DIRECTORYINDEX_SELECT_RELATED_LIST",
+    "DIRECTORYINDEX_PREFETCH_LIST",
     "INDEXDATA_SELECT_RELATED_LIST",
     "INDEXDATA_PREFETCH_LIST",
     "INDEXDATA_DOWNLOAD_SELECT_RELATED_LIST",

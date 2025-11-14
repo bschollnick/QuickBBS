@@ -60,6 +60,7 @@ def download_optimization_middleware(get_response: Callable[[HttpRequest], HttpR
         nonlocal _download_view
         if _download_view is None:
             from frontend import views
+
             _download_view = views.download_file
         return _download_view
 

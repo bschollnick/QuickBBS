@@ -68,9 +68,7 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
             if self.event_timer is not None:
                 self.event_timer.cancel()
 
-            self.event_timer = threading.Timer(
-                EVENT_PROCESSING_DELAY, self.process_buffered_events
-            )
+            self.event_timer = threading.Timer(EVENT_PROCESSING_DELAY, self.process_buffered_events)
             self.event_timer.daemon = True
             self.event_timer.start()
 
@@ -100,9 +98,7 @@ class fs_Cache_Tracking(models.Model):
         max_length=64,
     )
     DirName = models.CharField(db_index=False, max_length=384, default="", blank=True)
-    lastscan = models.FloatField(
-        default="", blank=True
-    )  # Stored as Unix TimeStamp (ms)
+    lastscan = models.FloatField(default="", blank=True)  # Stored as Unix TimeStamp (ms)
     invalidated = models.BooleanField(default=False)
 
     @staticmethod
@@ -126,9 +122,7 @@ class fs_Cache_Tracking(models.Model):
         )
 
     def sha_exists_in_cache(self, sha256):
-        return fs_Cache_Tracking.objects.filter(
-            directory_sha256=sha256, invalidated=False
-        ).exists()
+        return fs_Cache_Tracking.objects.filter(directory_sha256=sha256, invalidated=False).exists()
 
     def remove_from_cache_sha(self, sha256):
         from frontend.views import layout_manager, layout_manager_cache
@@ -162,9 +156,7 @@ class fs_Cache_Tracking(models.Model):
         if directory_found:
             layout = layout_manager(directory=directory, sort_ordering=0)
             for page_number in range(1, layout["total_pages"] + 1):
-                key = hashkey(
-                    page_number=page_number, directory=directory, sort_ordering=0
-                )
+                key = hashkey(page_number=page_number, directory=directory, sort_ordering=0)
                 if key in layout_manager_cache:
                     del layout_manager_cache[key]
 
@@ -187,6 +179,7 @@ class fs_Cache_Tracking(models.Model):
 
         try:
             from frontend.views import layout_manager, layout_manager_cache
+
             from quickbbs.models import IndexDirs
 
             close_old_connections()
@@ -199,16 +192,12 @@ class fs_Cache_Tracking(models.Model):
             #    is_generic_icon=False
             # )
 
-            fqpn_by_dir_sha = {
-                d.dir_fqpn_sha256: d for d in directories
-            }  # sha + fqpndirectory
+            fqpn_by_dir_sha = {d.dir_fqpn_sha256: d for d in directories}  # sha + fqpndirectory
 
             with transaction.atomic():
                 # Get all affected directories before deletion
                 # Delete the cache entries
-                update_cache_entries = fs_Cache_Tracking.objects.filter(
-                    directory_sha256__in=sha_list, invalidated=False
-                )
+                update_cache_entries = fs_Cache_Tracking.objects.filter(directory_sha256__in=sha_list, invalidated=False)
                 updates = update_cache_entries.exists()
                 if updates:
                     update_cache_entries.update(invalidated=True)
