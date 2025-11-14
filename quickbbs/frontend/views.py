@@ -44,7 +44,7 @@ from frontend.utilities import (
     sync_database_disk,
 )
 from quickbbs.common import get_dir_sha, normalize_fqpn
-from quickbbs.models import IndexData, IndexDirs
+from quickbbs.models import IndexData, DirectoryIndex
 from thumbnails.models import ThumbnailFiles
 
 # download_cache = LRUCache(maxsize=1000)
@@ -221,14 +221,14 @@ def get_search_results(searchtext: str, search_regex_pattern: str, sort_order_va
         Tuple of (dirs_queryset, files_queryset)
     """
     if not search_regex_pattern:
-        return IndexDirs.objects.none(), IndexData.objects.none()
+        return DirectoryIndex.objects.none(), IndexData.objects.none()
 
     base_filters = {"delete_pending": False}
     order_by = SORT_MATRIX[sort_order_value]
 
     # Directory search with optimized prefetching
     dirs = _safe_regex_search(
-        IndexDirs,
+        DirectoryIndex,
         "fqpndirectory",
         search_regex_pattern,
         searchtext,
@@ -276,7 +276,7 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
     """
     Serve directory thumbnail using prioritized cover image selection.
 
-    Uses IndexDirs.get_cover_image() to select thumbnails based on priority filenames
+    Uses DirectoryIndex.get_cover_image() to select thumbnails based on priority filenames
     (e.g., "cover", "title") before falling back to the first available file.
 
     Args:
@@ -290,7 +290,7 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
         HttpResponseBadRequest: If the directory cannot be found
     """
     # Use optimized model method with prefetched relationships
-    success, directory = IndexDirs.search_for_directory_by_sha(dir_sha256)
+    success, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha256)
     if not success:
         print(f"Directory not found: {dir_sha256}")
         return Http404
@@ -574,11 +574,11 @@ def _find_directory(paths: dict):
         dir_sha = get_dir_sha(dirpath)
 
         # Step 1: Search for directory in database by SHA (with optimized prefetches)
-        found, directory = IndexDirs.search_for_directory_by_sha(dir_sha)
+        found, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha)
 
         if not found:
             # Step 2a: Directory not in database - create database record
-            created, directory = IndexDirs.add_directory(dirpath)
+            created, directory = DirectoryIndex.add_directory(dirpath)
 
             if not created and not directory:
                 # Physical directory doesn't exist on filesystem
@@ -587,7 +587,7 @@ def _find_directory(paths: dict):
 
             # Step 2b: Reload directory with optimized query (includes Cache_Watcher, filetype, IndexData_entries)
             # add_directory returns bare object from update_or_create - need prefetched relationships
-            _, directory = IndexDirs.search_for_directory_by_sha(dir_sha)
+            _, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha)
 
             # Step 2c: Sync newly created directory from filesystem to populate file entries
             directory = async_to_sync(sync_database_disk)(directory)
@@ -715,9 +715,7 @@ async def new_viewgallery(request: WSGIRequest):
     if layout["data"]["files"]:
         # Fetch and separate files and links in one pass
         # Note: select_related already handled by files_in_dir() - no need to duplicate
-        all_items = await sync_to_async(list)(
-            directory.files_in_dir(sort=context["sort"]).filter(unique_sha256__in=layout["data"]["files"])
-        )
+        all_items = await sync_to_async(list)(directory.files_in_dir(sort=context["sort"]).filter(unique_sha256__in=layout["data"]["files"]))
         files_list = [f for f in all_items if not f.filetype.is_link]
         links_list = [f for f in all_items if f.filetype.is_link]
     else:

@@ -39,17 +39,13 @@ def toggle_show_duplicates(request: HttpRequest) -> HttpResponse:
 
     # Clear layout_manager_cache entries with old preference
     # Cache keys are tuples: (page_number, directory_obj, sort_ordering, show_duplicates)
-    keys_to_delete = [
-        key for key in list(layout_manager_cache.keys()) if len(key) >= 4 and key[3] == old_show_duplicates
-    ]
+    keys_to_delete = [key for key in list(layout_manager_cache.keys()) if len(key) >= 4 and key[3] == old_show_duplicates]
     for key in keys_to_delete:
         del layout_manager_cache[key]
 
     # Clear build_context_info_cache entries with old preference
     # Cache keys are tuples: (unique_file_sha256, sort_order_value, show_duplicates)
-    keys_to_delete = [
-        key for key in list(build_context_info_cache.keys()) if len(key) >= 3 and key[2] == old_show_duplicates
-    ]
+    keys_to_delete = [key for key in list(build_context_info_cache.keys()) if len(key) >= 3 and key[2] == old_show_duplicates]
     for key in keys_to_delete:
         del build_context_info_cache[key]
 

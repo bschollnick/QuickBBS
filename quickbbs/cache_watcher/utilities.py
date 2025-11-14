@@ -3,13 +3,13 @@
 import logging
 
 from cache_watcher.models import fs_Cache_Tracking
-from quickbbs.models import IndexDirs
+from quickbbs.models import DirectoryIndex
 
 logger = logging.getLogger(__name__)
 
 
 def repair_orphaned_cache_entries() -> int:
-    """Remove cache entries that have no corresponding IndexDirs entry.
+    """Remove cache entries that have no corresponding DirectoryIndex entry.
 
     With the new model design where directory is a required FK with CASCADE delete,
     orphaned entries shouldn't exist. This function cleans up any legacy data issues.
@@ -27,17 +27,17 @@ def repair_orphaned_cache_entries() -> int:
 
 
 def rebuild_cache_entries() -> int:
-    """Rebuild cache entries for all IndexDirs that don't have cache tracking.
+    """Rebuild cache entries for all DirectoryIndex that don't have cache tracking.
 
-    Creates cache entries for IndexDirs records that don't have a corresponding
+    Creates cache entries for DirectoryIndex records that don't have a corresponding
     fs_Cache_Tracking entry, marking them as invalidated so they'll be rescanned.
 
     Returns:
         Number of cache entries created
     """
     try:
-        # Find IndexDirs without cache entries
-        dirs_without_cache = IndexDirs.objects.filter(Cache_Watcher__isnull=True, delete_pending=False)
+        # Find DirectoryIndex without cache entries
+        dirs_without_cache = DirectoryIndex.objects.filter(Cache_Watcher__isnull=True, delete_pending=False)
 
         created_count = 0
         for index_dir in dirs_without_cache:

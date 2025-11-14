@@ -5,12 +5,12 @@ This ERD shows all database models and their relationships in the QuickBBS galle
 ```mermaid
 erDiagram
     %% Core Gallery Models
-    IndexDirs ||--o{ IndexData : "contains (home_directory)"
-    IndexDirs ||--o{ IndexData : "virtual_directory"
-    IndexDirs ||--o| IndexData : "thumbnail"
-    IndexDirs }o--o{ IndexData : "file_links (M2M)"
-    IndexDirs ||--o{ IndexDirs : "parent_directory (self)"
-    IndexDirs ||--|| filetypes : "filetype"
+    DirectoryIndex ||--o{ IndexData : "contains (home_directory)"
+    DirectoryIndex ||--o{ IndexData : "virtual_directory"
+    DirectoryIndex ||--o| IndexData : "thumbnail"
+    DirectoryIndex }o--o{ IndexData : "file_links (M2M)"
+    DirectoryIndex ||--o{ DirectoryIndex : "parent_directory (self)"
+    DirectoryIndex ||--|| filetypes : "filetype"
 
     %% File Models
     IndexData ||--|| filetypes : "filetype"
@@ -18,7 +18,7 @@ erDiagram
     IndexData ||--o| Owners : "ownership"
 
     %% Cache Tracking
-    IndexDirs ||--|| fs_Cache_Tracking : "Cache_Watcher"
+    DirectoryIndex ||--|| fs_Cache_Tracking : "Cache_Watcher"
 
     %% Thumbnail Storage
     ThumbnailFiles ||--o{ IndexData : "thumbnail links"
@@ -34,7 +34,7 @@ erDiagram
     }
 
     %% Core Directory Model
-    IndexDirs {
+    DirectoryIndex {
         int id PK
         string fqpndirectory UK "fully qualified pathname"
         string dir_fqpn_sha256 UK "sha256 of directory path"
@@ -59,8 +59,8 @@ erDiagram
         string name_sort "natural sort field"
         bigint duration
         bigint size
-        int home_directory FK "to IndexDirs"
-        int virtual_directory FK "to IndexDirs"
+        int home_directory FK "to DirectoryIndex"
+        int virtual_directory FK "to DirectoryIndex"
         bool is_animated
         bool ignore
         bool delete_pending
@@ -106,7 +106,7 @@ erDiagram
         int id PK
         float lastscan "Unix timestamp"
         bool invalidated
-        string directory UK "FK to IndexDirs.dir_fqpn_sha256"
+        string directory UK "FK to DirectoryIndex.dir_fqpn_sha256"
     }
 
     %% Ownership
@@ -136,7 +136,7 @@ erDiagram
 
 ### Core Gallery Models
 
-#### IndexDirs
+#### DirectoryIndex
 Master directory index for the gallery filesystem. Each record represents a folder in the albums directory.
 - **Primary Key**: Auto-incrementing `id`
 - **Unique Keys**: `fqpndirectory` (path), `dir_fqpn_sha256` (hash)
@@ -157,10 +157,10 @@ Master file index for all files in the gallery.
   - `home_directory`: Physical directory location
   - `virtual_directory`: Optional virtual organization
 - **Relationships**:
-  - Belongs to directory (`home_directory` → `IndexDirs`)
+  - Belongs to directory (`home_directory` → `DirectoryIndex`)
   - Has filetype metadata (`filetype` → `filetypes`)
   - Has thumbnail (`new_ftnail` → `ThumbnailFiles`)
-  - Can be directory thumbnail (reverse: `IndexDirs.thumbnail`)
+  - Can be directory thumbnail (reverse: `DirectoryIndex.thumbnail`)
 
 ### Supporting Models
 
@@ -180,7 +180,7 @@ Binary storage for generated thumbnails (3 sizes per file).
 #### fs_Cache_Tracking
 Tracks which directories have been scanned and cached.
 - **Primary Key**: Auto-incrementing `id`
-- **OneToOne**: `directory` → `IndexDirs.dir_fqpn_sha256`
+- **OneToOne**: `directory` → `DirectoryIndex.dir_fqpn_sha256`
 - **Purpose**: Invalidate cached gallery data when filesystem changes
 - **Watchdog Integration**: Monitors filesystem and sets `invalidated` flag
 
@@ -204,9 +204,9 @@ Placeholder for future favorites functionality.
 
 ### Directory Hierarchy
 ```
-IndexDirs (parent)
+DirectoryIndex (parent)
     ↓ parent_directory (self-referential FK)
-IndexDirs (child)
+DirectoryIndex (child)
     ↓ IndexData_entries (reverse FK)
 IndexData (files in directory)
 ```
@@ -221,7 +221,7 @@ ThumbnailFiles (sha256_hash match)
 
 ### Cache Invalidation
 ```
-IndexDirs (directory)
+DirectoryIndex (directory)
     ↔ Cache_Watcher (OneToOne)
 fs_Cache_Tracking (invalidated flag)
 ```
@@ -238,7 +238,7 @@ filetypes (fileext = ".jpg")
 
 The models use extensive indexing for performance:
 
-### IndexDirs Indexes
+### DirectoryIndex Indexes
 - `dir_fqpn_sha256` (unique, primary lookup)
 - `parent_directory + delete_pending` (composite)
 - `filetype` (foreign key)

@@ -143,7 +143,7 @@ def get_file_sha(fqfn: str) -> tuple[str | None, str | None]:
 #         Model instance or None if not found
 
 #     Example:
-#         directory = safe_get_or_none(IndexDirs, dir_fqpn_sha256=sha256)
+#         directory = safe_get_or_none(DirectoryIndex, dir_fqpn_sha256=sha256)
 #         if directory:
 #             directory.invalidate_thumb()
 #     """
@@ -216,11 +216,11 @@ def get_file_sha(fqfn: str) -> tuple[str | None, str | None]:
 
 #     Example:
 #         found, directory = safe_get_with_callback(
-#             IndexDirs,
+#             DirectoryIndex,
 #             found_callback=lambda d: d.invalidate_thumb(),
 #             dir_fqpn_sha256=sha256
 #         )
-#         return (found, directory if found else IndexDirs.objects.none())
+#         return (found, directory if found else DirectoryIndex.objects.none())
 #     """
 #     try:
 #         obj = model.objects.get(**lookup_kwargs)
