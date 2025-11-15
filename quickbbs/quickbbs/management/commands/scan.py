@@ -35,7 +35,7 @@ from quickbbs.management.commands.management_helper import (
     invalidate_directories_with_null_sha256,
     invalidate_directories_with_null_virtual_directory,
 )
-from quickbbs.models import IndexData, IndexDirs
+from quickbbs.models import IndexData, DirectoryIndex
 
 
 def verify_directories(start_path: str | None = None):
@@ -49,7 +49,7 @@ def verify_directories(start_path: str | None = None):
         None
     """
     print("Checking for invalid directories in Database (eg. Deleted, Moved, etc).")
-    start_count = IndexDirs.objects.count()
+    start_count = DirectoryIndex.objects.count()
     print("Starting Directory Count: ", start_count)
     albums_root = os.path.join(settings.ALBUMS_PATH, "albums") + os.sep
 
@@ -70,7 +70,7 @@ def verify_directories(start_path: str | None = None):
         normalized_start = normalize_fqpn(start_path)
         print(f"Filtering directories under: {normalized_start}")
         directories_to_scan = (
-            IndexDirs.objects.select_related("Cache_Watcher")
+            DirectoryIndex.objects.select_related("Cache_Watcher")
             .filter(fqpndirectory__startswith=normalized_start)
             .order_by("fqpndirectory")
             .iterator(chunk_size=1000)
@@ -78,7 +78,7 @@ def verify_directories(start_path: str | None = None):
     else:
         print("Gathering Directories")
         # Prefetch Cache_Watcher relationship to avoid N+1 queries
-        directories_to_scan = IndexDirs.objects.select_related("Cache_Watcher").order_by("fqpndirectory").all().iterator(chunk_size=1000)
+        directories_to_scan = DirectoryIndex.objects.select_related("Cache_Watcher").order_by("fqpndirectory").all().iterator(chunk_size=1000)
 
     print("Starting Scan")
 
@@ -90,7 +90,7 @@ def verify_directories(start_path: str | None = None):
     for directory in directories_to_scan:
         if not os.path.exists(directory.fqpndirectory):
             print(f"Directory: {directory.fqpndirectory} does not exist")
-            IndexDirs.delete_directory_record(directory)
+            DirectoryIndex.delete_directory_record(directory)
         else:
             # Check if directory exists in fs_Cache_Tracking using 1-to-1 relationship
             if not hasattr(directory, "Cache_Watcher"):
@@ -104,12 +104,12 @@ def verify_directories(start_path: str | None = None):
     # Only close connections AFTER iteration is complete
     close_old_connections()
 
-    end_count = IndexDirs.objects.count()
+    end_count = DirectoryIndex.objects.count()
     print("Ending Count: ", end_count)
     print("Difference : ", start_count - end_count)
     print("-" * 30)
     print("Checking for unlinked parents")
-    unlinked_parents = IndexDirs.objects.filter(parent_directory__isnull=True).exclude(fqpndirectory=albums_root)
+    unlinked_parents = DirectoryIndex.objects.filter(parent_directory__isnull=True).exclude(fqpndirectory=albums_root)
     # exclude the albums_root, since that is suppose to have no parent.  You can't tranverse below the albums_root
     print(f"Found {unlinked_parents.count()} directories with no parents")
 
@@ -118,7 +118,7 @@ def verify_directories(start_path: str | None = None):
     batch_counter = 0
     for directory in unlinked_parents.order_by("fqpndirectory").iterator(chunk_size=1000):
         print(f"Fixing Parent directory for {directory.fqpndirectory}")
-        IndexDirs.add_directory(directory.fqpndirectory)
+        DirectoryIndex.add_directory(directory.fqpndirectory)
 
         batch_counter += 1
         if batch_counter % 1000 == 0:
@@ -165,11 +165,11 @@ async def _verify_files_async(start_path: str | None = None):
         normalized_start = normalize_fqpn(start_path)
         print(f"\tFiltering directories under: {normalized_start}")
         directories = await sync_to_async(list, thread_sensitive=True)(
-            IndexDirs.objects.select_related("Cache_Watcher").filter(fqpndirectory__startswith=normalized_start).order_by("fqpndirectory").all()
+            DirectoryIndex.objects.select_related("Cache_Watcher").filter(fqpndirectory__startswith=normalized_start).order_by("fqpndirectory").all()
         )
     else:
         directories = await sync_to_async(list, thread_sensitive=True)(
-            IndexDirs.objects.select_related("Cache_Watcher").order_by("fqpndirectory").all()
+            DirectoryIndex.objects.select_related("Cache_Watcher").order_by("fqpndirectory").all()
         )
 
     for directory in directories:
@@ -229,7 +229,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--add_directories",
             action="store_true",
-            help="Walk albums directory and add any missing directories to IndexDirs and fs_Cache_Tracking",
+            help="Walk albums directory and add any missing directories to DirectoryIndex and fs_Cache_Tracking",
         )
         parser.add_argument(
             "--add_files",

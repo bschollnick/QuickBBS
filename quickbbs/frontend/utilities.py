@@ -40,7 +40,7 @@ from quickbbs.common import (
     normalize_fqpn,
     normalize_string_title,
 )
-from quickbbs.models import IndexData, IndexDirs
+from quickbbs.models import IndexData, DirectoryIndex
 from thumbnails.video_thumbnails import _get_video_info
 
 logger = logging.getLogger(__name__)
@@ -153,10 +153,10 @@ async def _get_or_create_directory(directory_sha256: str, dirpath: str) -> tuple
     """
     # Use select_related to prefetch the Cache_Watcher relationship
     # Use model method for standardized prefetching and caching
-    found, directory_record = await sync_to_async(IndexDirs.search_for_directory_by_sha)(directory_sha256)
+    found, directory_record = await sync_to_async(DirectoryIndex.search_for_directory_by_sha)(directory_sha256)
 
     if not found:
-        found, directory_record = await sync_to_async(IndexDirs.add_directory)(dirpath)
+        found, directory_record = await sync_to_async(DirectoryIndex.add_directory)(dirpath)
         if not found:
             logger.error(f"Failed to create directory record for {dirpath}")
             return None, False
@@ -198,7 +198,7 @@ def _process_link_file(fs_entry: Path, filetype: object, filename: str) -> objec
     Process link files (.link or .alias) and return the virtual_directory.
 
     Extracts target directory from link file and finds/creates the corresponding
-    IndexDirs record. Shared by both new file creation and existing file updates.
+    DirectoryIndex record. Shared by both new file creation and existing file updates.
 
     :Args:
         fs_entry: Path object for the link file
@@ -206,7 +206,7 @@ def _process_link_file(fs_entry: Path, filetype: object, filename: str) -> objec
         filename: The normalized filename from the database or filesystem
 
     Returns:
-        IndexDirs object for the target directory, or None if target cannot be resolved
+        DirectoryIndex object for the target directory, or None if target cannot be resolved
     """
     try:
         if filetype.fileext == ".link":
@@ -234,9 +234,9 @@ def _process_link_file(fs_entry: Path, filetype: object, filename: str) -> objec
                 redirect_path = normalize_fqpn(redirect_path)
 
             # Find or create the target directory and set virtual_directory
-            found, virtual_dir = IndexDirs.search_for_directory(redirect_path)
+            found, virtual_dir = DirectoryIndex.search_for_directory(redirect_path)
             if not found:
-                found, virtual_dir = IndexDirs.add_directory(redirect_path)
+                found, virtual_dir = DirectoryIndex.add_directory(redirect_path)
 
             # Check if resolution succeeded - if not, skip this file
             if not found or virtual_dir is None:
@@ -250,9 +250,9 @@ def _process_link_file(fs_entry: Path, filetype: object, filename: str) -> objec
             alias_target_path = resolve_alias_path(str(fs_entry))
 
             # Find or create the target directory and set virtual_directory
-            found, virtual_dir = IndexDirs.search_for_directory(alias_target_path)
+            found, virtual_dir = DirectoryIndex.search_for_directory(alias_target_path)
             if not found:
-                found, virtual_dir = IndexDirs.add_directory(alias_target_path)
+                found, virtual_dir = DirectoryIndex.add_directory(alias_target_path)
 
             # Check if resolution succeeded - if not, skip this file
             if not found or virtual_dir is None:
@@ -476,12 +476,12 @@ def process_filedata(
 
         # Check if it's a directory first
         if fs_entry.is_dir():
-            # Subdirectories are handled by IndexDirs.sync_subdirectories(), not here
+            # Subdirectories are handled by DirectoryIndex.sync_subdirectories(), not here
             # Just skip processing directories in the file processing phase
             # NOTE: Commented out recursive sync_database_disk call - it's problematic
             # because it uses asyncio.run() from within a sync function that's already
             # running in a thread pool via sync_to_async. This causes event loop conflicts.
-            # The IndexDirs.sync_subdirectories() method already handles subdirectories properly.
+            # The DirectoryIndex.sync_subdirectories() method already handles subdirectories properly.
             # asyncio.run(sync_database_disk(str(fs_entry)))
             return None
 
@@ -556,12 +556,12 @@ def process_filedata(
         return None
 
 
-async def sync_database_disk(directory_record: IndexDirs) -> bool | None:
+async def sync_database_disk(directory_record: DirectoryIndex) -> bool | None:
     """
     Synchronize database entries with filesystem for a given directory.
 
     Args:
-        directory_record: IndexDirs record for the directory to synchronize
+        directory_record: DirectoryIndex record for the directory to synchronize
 
     Returns:
         None on completion, bool on early exit conditions

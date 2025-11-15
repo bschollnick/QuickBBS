@@ -16,14 +16,14 @@ class Cache_dir_tracking_Index(admin.ModelAdmin):
 
     @admin.display(description="Directory Path")
     def get_directory_path(self, obj):
-        """Display the fqpndirectory from the related IndexDirs."""
+        """Display the fqpndirectory from the related DirectoryIndex."""
         if obj.directory:
             return obj.directory.fqpndirectory
         return None
 
     @admin.display(description="Directory SHA256")
     def get_directory_sha(self, obj):
-        """Display the dir_fqpn_sha256 from the related IndexDirs."""
+        """Display the dir_fqpn_sha256 from the related DirectoryIndex."""
         if obj.directory:
             return obj.directory.dir_fqpn_sha256
         return None

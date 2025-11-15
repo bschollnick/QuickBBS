@@ -9,7 +9,7 @@ from django.test import Client
 from django.urls import reverse
 from filetypes.models import filetypes
 
-from quickbbs.models import IndexData, IndexDirs
+from quickbbs.models import IndexData, DirectoryIndex
 
 
 @pytest.mark.django_db
@@ -52,7 +52,7 @@ class TestSearchIntegration:
     def setup_test_data(self):
         """Create comprehensive test data for search testing"""
         # Test directory
-        self.test_dir = IndexDirs.objects.create(
+        self.test_dir = DirectoryIndex.objects.create(
             fqpndirectory="/albums/test/Spider_Man_Collection/",
             dir_fqpn_sha256="spider_man_dir_sha256",
             lastmod=1234567890.0,

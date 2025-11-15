@@ -39,12 +39,12 @@ from .models import (
 )
 
 if TYPE_CHECKING:
-    from .indexdirs import IndexDirs
+    from .indexdirs import DirectoryIndex
 
 
 class IndexData(models.Model):
     """
-    The Master Index for All files in the Gallery.  (See IndexDirs for the counterpart
+    The Master Index for All files in the Gallery.  (See DirectoryIndex for the counterpart
     for Directories)
 
     The file_sha256 is the Sha256 of the file itself, and can be used to help eliminate multiple
@@ -86,14 +86,14 @@ class IndexData(models.Model):
     size = models.BigIntegerField(default=0)  # File size
 
     home_directory = models.ForeignKey(
-        "IndexDirs",
+        "DirectoryIndex",
         on_delete=models.SET_NULL,
         null=True,
         default=None,
         related_name="IndexData_entries",
     )
     virtual_directory = models.ForeignKey(
-        "IndexDirs",
+        "DirectoryIndex",
         on_delete=models.SET_NULL,
         null=True,
         default=None,
@@ -134,14 +134,14 @@ class IndexData(models.Model):
     )
 
     # Reverse relationships
-    dir_thumbnail: "models.manager.RelatedManager[IndexDirs]"  # From IndexDirs.thumbnail
-    file_links: "models.manager.RelatedManager[IndexDirs]"  # From IndexDirs.file_links (ManyToMany)
+    dir_thumbnail: "models.manager.RelatedManager[DirectoryIndex]"  # From DirectoryIndex.thumbnail
+    file_links: "models.manager.RelatedManager[DirectoryIndex]"  # From DirectoryIndex.file_links (ManyToMany)
 
     @property
     def fqpndirectory(self) -> str:
         """
         Return the fully qualified pathname of the directory containing this file
-        Returns: String representing the directory path from the parent IndexDirs object
+        Returns: String representing the directory path from the parent DirectoryIndex object
         """
         return self.home_directory.fqpndirectory
 
@@ -372,7 +372,7 @@ class IndexData(models.Model):
 
         Args:
             fs_entry: Path object representing the file
-            directory_id: Optional directory identifier for the parent directory (IndexDirs instance)
+            directory_id: Optional directory identifier for the parent directory (DirectoryIndex instance)
             precomputed_sha: Optional precomputed (file_sha256, unique_sha256) tuple
 
         Returns:
@@ -398,7 +398,7 @@ class IndexData(models.Model):
 
             # Check if it's a directory first
             if fs_entry.is_dir():
-                # Subdirectories are handled by IndexDirs.sync_subdirectories(), not here
+                # Subdirectories are handled by DirectoryIndex.sync_subdirectories(), not here
                 return None
 
             # Extract file extension
@@ -609,12 +609,12 @@ class IndexData(models.Model):
         return link_files_without_vdir
 
     @staticmethod
-    def process_link_file(fs_entry: Path, filetype: Any, filename: str) -> "IndexDirs | None":
+    def process_link_file(fs_entry: Path, filetype: Any, filename: str) -> "DirectoryIndex | None":
         """
         Process link files (.link or .alias) and return the virtual_directory.
 
         Extracts target directory from link file and finds/creates the corresponding
-        IndexDirs record. Shared by both new file creation and existing file updates.
+        DirectoryIndex record. Shared by both new file creation and existing file updates.
 
         Args:
             fs_entry: Path object for the link file
@@ -622,13 +622,13 @@ class IndexData(models.Model):
             filename: The normalized filename from the database or filesystem
 
         Returns:
-            IndexDirs object for the target directory, or None if target cannot be resolved
+            DirectoryIndex object for the target directory, or None if target cannot be resolved
         """
         # Inline imports to avoid circular dependencies
         from frontend.utilities import resolve_alias_path
         from quickbbs.common import normalize_fqpn
 
-        from .indexdirs import IndexDirs
+        from .indexdirs import DirectoryIndex
 
         try:
             if filetype.fileext == ".link":
@@ -656,9 +656,9 @@ class IndexData(models.Model):
                     redirect_path = normalize_fqpn(redirect_path)
 
                 # Find or create the target directory and set virtual_directory
-                found, virtual_dir = IndexDirs.search_for_directory(redirect_path)
+                found, virtual_dir = DirectoryIndex.search_for_directory(redirect_path)
                 if not found:
-                    found, virtual_dir = IndexDirs.add_directory(redirect_path)
+                    found, virtual_dir = DirectoryIndex.add_directory(redirect_path)
 
                 # Check if resolution succeeded - if not, skip this file
                 if not found or virtual_dir is None:
@@ -672,9 +672,9 @@ class IndexData(models.Model):
                 alias_target_path = resolve_alias_path(str(fs_entry))
 
                 # Find or create the target directory and set virtual_directory
-                found, virtual_dir = IndexDirs.search_for_directory(alias_target_path)
+                found, virtual_dir = DirectoryIndex.search_for_directory(alias_target_path)
                 if not found:
-                    found, virtual_dir = IndexDirs.add_directory(alias_target_path)
+                    found, virtual_dir = DirectoryIndex.add_directory(alias_target_path)
 
                 # Check if resolution succeeded - if not, skip this file
                 if not found or virtual_dir is None:
@@ -737,9 +737,9 @@ class IndexData(models.Model):
         """
         Stub method for template compatibility.
 
-        Provides API compatibility between IndexData and IndexDirs objects when used in
+        Provides API compatibility between IndexData and DirectoryIndex objects when used in
         Jinja2 templates. This allows templates to call .get_file_counts() on either object
-        type without checking the instance type first. IndexDirs objects return actual counts,
+        type without checking the instance type first. DirectoryIndex objects return actual counts,
         while this method returns None since individual files don't have child file counts.
 
         Returns:
@@ -751,9 +751,9 @@ class IndexData(models.Model):
         """
         Stub method for template compatibility.
 
-        Provides API compatibility between IndexData and IndexDirs objects when used in
+        Provides API compatibility between IndexData and DirectoryIndex objects when used in
         Jinja2 templates. This allows templates to call .get_dir_counts() on either object
-        type without checking the instance type first. IndexDirs objects return actual counts,
+        type without checking the instance type first. DirectoryIndex objects return actual counts,
         while this method returns None since individual files don't have child directory counts.
 
         Returns:
@@ -959,7 +959,7 @@ class IndexData(models.Model):
 
         :Args:
             fs_entry: Path object for filesystem entry (DirEntry with cached stat)
-            home_directory: IndexDirs object for the parent directory
+            home_directory: DirectoryIndex object for the parent directory
             precomputed_sha: Optional precomputed (file_sha256, unique_sha256) tuple
 
         Returns:
@@ -971,7 +971,7 @@ class IndexData(models.Model):
         try:
             # Note: DirEntry.stat() is already cached by Python's os.scandir()
             # Multiple stat() calls on the same DirEntry object reuse the cached result
-            # This prevents duplicate filesystem syscalls across IndexDirs.sync_files()
+            # This prevents duplicate filesystem syscalls across DirectoryIndex.sync_files()
             fs_stat = fs_entry.stat()
             update_needed = False
 

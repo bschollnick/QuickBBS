@@ -218,12 +218,12 @@ class TestFsCacheTrackingInstanceMethods:
             mock_logger.error.assert_called_once()
 
     @patch("cache_watcher.models.time.time")
-    @patch("quickbbs.models.IndexDirs")
+    @patch("quickbbs.models.DirectoryIndex")
     def test_remove_from_cache_sha_success(self, mock_index_dirs, mock_time):
         """Test successful removal from cache by SHA"""
         mock_time.return_value = 1234567890.0
 
-        # Mock IndexDirs.objects.get to return a directory
+        # Mock DirectoryIndex.objects.get to return a directory
         mock_directory = Mock()
         mock_index_dirs.objects.get.return_value = mock_directory
         mock_index_dirs.DoesNotExist = Exception  # Mock the exception class
@@ -245,9 +245,9 @@ class TestFsCacheTrackingInstanceMethods:
         mock_directory.save.assert_called_once()
 
     @patch("cache_watcher.models.time.time")
-    @patch("quickbbs.models.IndexDirs")
+    @patch("quickbbs.models.DirectoryIndex")
     def test_remove_from_cache_sha_no_directory(self, mock_index_dirs, mock_time):
-        """Test removal when IndexDirs entry doesn't exist"""
+        """Test removal when DirectoryIndex entry doesn't exist"""
         mock_time.return_value = 1234567890.0
         mock_index_dirs.DoesNotExist = Exception
         mock_index_dirs.objects.get.side_effect = mock_index_dirs.DoesNotExist
@@ -288,7 +288,7 @@ class TestFsCacheTrackingInstanceMethods:
     @patch("cache_watcher.models.close_old_connections")
     @patch("cache_watcher.models.get_dir_sha")
     @patch("cache_watcher.models.time.time")
-    @patch("quickbbs.models.IndexDirs")
+    @patch("quickbbs.models.DirectoryIndex")
     def test_remove_multiple_from_cache_success(self, mock_index_dirs, mock_time, mock_get_dir_sha, mock_close_connections):
         """Test successful removal of multiple directories"""
         mock_time.return_value = 1234567890.0
@@ -306,7 +306,7 @@ class TestFsCacheTrackingInstanceMethods:
         for sha in sha_values:
             fs_Cache_Tracking.objects.create(directory_sha256=sha, invalidated=False, lastscan=1000000000.0)
 
-        # Mock IndexDirs queryset
+        # Mock DirectoryIndex queryset
         mock_directories = [Mock() for _ in range(3)]
         for i, mock_dir in enumerate(mock_directories):
             mock_dir.dir_fqpn_sha256 = sha_values[i]
