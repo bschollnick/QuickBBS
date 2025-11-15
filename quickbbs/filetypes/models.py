@@ -16,7 +16,7 @@ from frontend.serve_up import send_file_response
 if TYPE_CHECKING:
     from django.db.models.manager import RelatedManager
 
-    from quickbbs.models import IndexData, DirectoryIndex
+    from quickbbs.models import FileIndex, DirectoryIndex
 
 FILETYPE_DATA = {}
 
@@ -55,7 +55,7 @@ class filetypes(models.Model):
 
     # Reverse ForeignKey relationships
     dirs_filetype_data: "RelatedManager[DirectoryIndex]"  # From DirectoryIndex.filetype
-    file_filetype_data: "RelatedManager[IndexData]"  # From IndexData.filetype
+    file_filetype_data: "RelatedManager[FileIndex]"  # From FileIndex.filetype
 
     def __unicode__(self) -> str:
         return f"{self.fileext}"

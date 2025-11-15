@@ -6,7 +6,7 @@ from django.db.models import Q
 from django.test import TestCase
 from filetypes.models import filetypes
 
-from quickbbs.models import IndexData, DirectoryIndex
+from quickbbs.models import FileIndex, DirectoryIndex
 
 
 class TestSearchUtilities(TestCase):
@@ -188,7 +188,7 @@ class TestSearchUtilities(TestCase):
 
         created_files = []
         for i, filename in enumerate(test_files):
-            file_obj = IndexData.objects.create(
+            file_obj = FileIndex.objects.create(
                 name=filename,
                 fqpndirectory=f"/test/{filename}",
                 file_sha256=f"test_sha_{i}",
@@ -210,7 +210,7 @@ class TestSearchUtilities(TestCase):
             file_q_objects = Q()
             file_q_objects |= Q(name__icontains=search_term.replace(" ", "_"))
 
-            results = IndexData.objects.filter(file_q_objects & Q(delete_pending=False))
+            results = FileIndex.objects.filter(file_q_objects & Q(delete_pending=False))
 
             # Should find files regardless of case
             self.assertGreater(results.count(), 0, f"Search for '{search_term}' should find files")
@@ -235,7 +235,7 @@ class TestSearchUtilities(TestCase):
         )
 
         # Create regular file
-        IndexData.objects.create(
+        FileIndex.objects.create(
             name="regular_file.jpg",
             fqpndirectory="/test/regular_file.jpg",
             file_sha256="regular_sha",
@@ -249,7 +249,7 @@ class TestSearchUtilities(TestCase):
         )
 
         # Create file marked for deletion
-        IndexData.objects.create(
+        FileIndex.objects.create(
             name="deleted_file.jpg",
             fqpndirectory="/test/deleted_file.jpg",
             file_sha256="deleted_sha",
@@ -264,7 +264,7 @@ class TestSearchUtilities(TestCase):
 
         # Search for files
         file_q_objects = Q(name__icontains="file")
-        results = IndexData.objects.filter(file_q_objects & Q(delete_pending=False))
+        results = FileIndex.objects.filter(file_q_objects & Q(delete_pending=False))
 
         # Should only find the regular file, not the deleted one
         result_names = [r.name for r in results]
@@ -272,7 +272,7 @@ class TestSearchUtilities(TestCase):
         self.assertNotIn("deleted_file.jpg", result_names)
 
         # Verify the deleted file exists in database but is excluded from search
-        all_files = IndexData.objects.filter(name__icontains="file")
+        all_files = FileIndex.objects.filter(name__icontains="file")
         self.assertEqual(all_files.count(), 2)  # Both files exist
         self.assertEqual(results.count(), 1)  # Only one in search results
 

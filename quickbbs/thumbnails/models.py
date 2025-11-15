@@ -11,7 +11,7 @@ The models, and logic for thumbnail storage for the Quickbbs reloaded project.
     * LargeThumb - The Binary Storage for the Large Thumbnails
 
 v4 - Attempting to reduce the amount of queries by maximizing the foreign key logic,
-    to access the IndexData information, instead of fetching it separately.
+    to access the FileIndex information, instead of fetching it separately.
     Changing the directory thumbnail logic, the directory data is still it's own table,
     but the thumbnail is now a foreign key to the ThumbnailFiles model for the file
     that is being shown as the thumbnail. This eliminates the need for the redundant blob
@@ -22,7 +22,7 @@ v3 - Pilot changing the thumbnail storage to be a single table, with the small, 
     queries, and allow for easier management of the thumbnails.
 
     Split the directory thumbnails into a separate table, so that we can manage the thumbnails
-    separately from the IndexData model.
+    separately from the FileIndex model.
 
 """
 
@@ -38,7 +38,7 @@ from frontend.serve_up import send_file_response
 if TYPE_CHECKING:
     from django.db.models.manager import RelatedManager
 
-    from quickbbs.models import IndexData
+    from quickbbs.models import FileIndex
 
 # from .image_utils import resize_pil_image, return_image_obj
 from .thumbnail_engine import create_thumbnails_from_path
@@ -53,14 +53,14 @@ __license__ = "TBD"
 
 
 ThumbnailFiles_Prefetch_List = [
-    "IndexData__filetype",
-    "IndexData__home_directory",
+    "FileIndex__filetype",
+    "FileIndex__home_directory",
 ]
 
 # Optimized prefetch for bulk operations
 ThumbnailFiles_Bulk_Prefetch_List = [
-    "IndexData__filetype",
-    "IndexData__home_directory",
+    "FileIndex__filetype",
+    "FileIndex__home_directory",
 ]
 
 # Async-safe cache for thumbnail lookups
@@ -92,7 +92,7 @@ class ThumbnailFiles(models.Model):
     large_thumb = models.BinaryField(default=b"", null=True)
 
     # Reverse ForeignKey relationship
-    IndexData: "RelatedManager[IndexData]"  # From IndexData.new_ftnail
+    FileIndex: "RelatedManager[FileIndex]"  # From FileIndex.new_ftnail
 
     class Meta:
         verbose_name = "Image File Thumbnails Cache"
@@ -137,7 +137,7 @@ class ThumbnailFiles(models.Model):
             ThumbnailFiles object, either retrieved from database or newly created
         """
 
-        from quickbbs.models import IndexData
+        from quickbbs.models import FileIndex
 
         # Phase 1: Database operations only (inside transaction)
         with transaction.atomic():
@@ -151,22 +151,22 @@ class ThumbnailFiles(models.Model):
                 sha256_hash=file_sha256, defaults=defaults
             )
 
-            # Get an IndexData record for file path (prefer prefetched)
-            prefetched_indexdata = list(thumbnail.IndexData.all())
+            # Get an FileIndex record for file path (prefer prefetched)
+            prefetched_indexdata = list(thumbnail.FileIndex.all())
             if prefetched_indexdata:
                 index_data_item = prefetched_indexdata[0]
             else:
-                index_data_item = IndexData.objects.prefetch_related("filetype").filter(file_sha256=file_sha256).first()
+                index_data_item = FileIndex.objects.prefetch_related("filetype").filter(file_sha256=file_sha256).first()
 
-            # Link IndexData records to thumbnail (newly created OR has unlinked records)
-            has_unlinked, updated_count = IndexData.link_to_thumbnail(file_sha256, thumbnail)
+            # Link FileIndex records to thumbnail (newly created OR has unlinked records)
+            has_unlinked, updated_count = FileIndex.link_to_thumbnail(file_sha256, thumbnail)
 
             if created or has_unlinked:
                 if not created:  # If not newly created, save the thumbnail to update it
                     thumbnail.save()
 
                 # Clear prefetch cache since we just updated the links
-                # This ensures thumbnail.IndexData.all() returns fresh data
+                # This ensures thumbnail.FileIndex.all() returns fresh data
                 if updated_count > 0 and hasattr(thumbnail, "_prefetched_objects_cache"):
                     thumbnail._prefetched_objects_cache.clear()
 
@@ -224,9 +224,9 @@ class ThumbnailFiles(models.Model):
             else:
                 # File type doesn't support custom thumbnails (text, archives, etc.)
                 # Mark ALL files with this SHA256 as generic (not just one)
-                # Use IndexData classmethod to ensure layout cache is cleared
+                # Use FileIndex classmethod to ensure layout cache is cleared
                 print(f"File type {filetype.fileext} doesn't support custom thumbnails, " f"marking all instances as generic: {index_data_item.name}")
-                IndexData.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
+                FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
 
                 # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
                 if file_sha256 in thumbnailfiles_cache:
@@ -247,10 +247,10 @@ class ThumbnailFiles(models.Model):
 
             # If this was a retry (file was marked generic), turn off generic flag
             # on success for ALL instances
-            # Use IndexData classmethod to ensure layout cache is cleared
+            # Use FileIndex classmethod to ensure layout cache is cleared
             if index_data_item.is_generic_icon:
                 print(f"Thumbnail creation succeeded on retry for {index_data_item.name}, " f"turning off generic flag for all instances")
-                IndexData.set_generic_icon_for_sha(file_sha256, is_generic=False, clear_cache=True)
+                FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=False, clear_cache=True)
 
                 # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
                 if file_sha256 in thumbnailfiles_cache:
@@ -258,10 +258,10 @@ class ThumbnailFiles(models.Model):
 
         except Exception as e:
             # Any error during thumbnail creation - mark ALL files with this SHA256 as generic
-            # Use IndexData classmethod to ensure layout cache is cleared
+            # Use FileIndex classmethod to ensure layout cache is cleared
             print(f"Thumbnail creation failed for {index_data_item.name}: {e}")
             if not index_data_item.is_generic_icon:
-                IndexData.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
+                FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
 
                 # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
                 if file_sha256 in thumbnailfiles_cache:
@@ -271,14 +271,14 @@ class ThumbnailFiles(models.Model):
 
     def number_of_indexdata_references(self) -> int:
         """
-        Return the number of IndexData references for this thumbnail.
+        Return the number of FileIndex references for this thumbnail.
 
         Returns:
-            Count of IndexData objects referencing this thumbnail
+            Count of FileIndex objects referencing this thumbnail
         """
-        from quickbbs.models import IndexData
+        from quickbbs.models import FileIndex
 
-        return IndexData.objects.filter(file_sha256=self.sha256_hash).count()
+        return FileIndex.objects.filter(file_sha256=self.sha256_hash).count()
 
     @classmethod
     @cached(thumbnailfiles_cache)
@@ -389,7 +389,7 @@ class ThumbnailFiles(models.Model):
             filename_override: Optional filename to use instead of the original
             fext_override: Optional file extension override (unused, kept for API compatibility)
             size: The size of thumbnail to send (small, medium, or large)
-            index_data_item: Pre-fetched IndexData to avoid additional query
+            index_data_item: Pre-fetched FileIndex to avoid additional query
 
         Returns:
             Django FileResponse containing the thumbnail with appropriate headers
@@ -401,10 +401,10 @@ class ThumbnailFiles(models.Model):
         Example:
             >>> thumbnail.send_thumbnail(filename_override="cover.jpg", size="medium")
         """
-        # Get IndexData to check if file is marked as generic
+        # Get FileIndex to check if file is marked as generic
         if not index_data_item:
             try:
-                index_data_list = list(self.IndexData.all())
+                index_data_list = list(self.FileIndex.all())
                 if index_data_list:
                     index_data_item = index_data_list[0]
             except:

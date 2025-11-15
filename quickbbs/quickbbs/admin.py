@@ -1,9 +1,9 @@
 from django.contrib import admin
 
-from quickbbs.models import Favorites, IndexData, DirectoryIndex, Owners
+from quickbbs.models import Favorites, FileIndex, DirectoryIndex, Owners
 
 
-@admin.register(IndexData)
+@admin.register(FileIndex)
 class AdminMaster_Index(admin.ModelAdmin):
     search_fields = [
         "name",

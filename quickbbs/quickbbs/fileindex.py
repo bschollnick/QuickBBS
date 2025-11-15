@@ -1,5 +1,5 @@
 """
-IndexData Model - Master index for all files in the gallery
+FileIndex Model - Master index for all files in the gallery
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ from thumbnails.video_thumbnails import _get_video_info
 
 # Import shared foundation
 from .models import (
-    INDEXDATA_DOWNLOAD_SELECT_RELATED_LIST,
-    INDEXDATA_SELECT_RELATED_LIST,
+    FILEINDEX_DOWNLOAD_SELECT_RELATED_LIST,
+    FILEINDEX_SELECT_RELATED_LIST,
     SORT_MATRIX,
     NaturalSortField,
     Owners,
@@ -30,8 +30,8 @@ from .models import (
     cached,
     filetypes,
     get_file_sha,
-    indexdata_cache,
-    indexdata_download_cache,
+    fileindex_cache,
+    fileindex_download_cache,
     logger,
     models,
     settings,
@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     from .directoryindex import DirectoryIndex
 
 
-class IndexData(models.Model):
+class FileIndex(models.Model):
     """
     The Master Index for All files in the Gallery.  (See DirectoryIndex for the counterpart
     for Directories)
@@ -90,14 +90,14 @@ class IndexData(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         default=None,
-        related_name="IndexData_entries",
+        related_name="FileIndex_entries",
     )
     virtual_directory = models.ForeignKey(
         "DirectoryIndex",
         on_delete=models.SET_NULL,
         null=True,
         default=None,
-        related_name="Virtual_IndexData",
+        related_name="Virtual_FileIndex",
     )
     is_animated = models.BooleanField(default=False, db_index=True)
     ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
@@ -119,7 +119,7 @@ class IndexData(models.Model):
         blank=True,
         default=None,
         null=True,
-        related_name="IndexData",
+        related_name="FileIndex",
     )
 
     # https://stackoverflow.com/questions/38388423
@@ -159,10 +159,10 @@ class IndexData(models.Model):
         Return the number of identical files in the database
         Returns: Integer - Number of identical files
         """
-        return IndexData.objects.filter(file_sha256=sha).count()
+        return FileIndex.objects.filter(file_sha256=sha).count()
 
     @staticmethod
-    def return_list_all_identical_files_by_sha(sha: str) -> "QuerySet[IndexData]":
+    def return_list_all_identical_files_by_sha(sha: str) -> "QuerySet[FileIndex]":
         """
         Return a query of all duplicate files based on file SHA256 hash
 
@@ -174,7 +174,7 @@ class IndexData(models.Model):
             and .annotate() for files with 2+ duplicates
         """
         dupes = (
-            IndexData.objects.filter(file_sha256=sha)
+            FileIndex.objects.filter(file_sha256=sha)
             .values("file_sha256")
             .annotate(dupe_count=Count("file_sha256"))
             .exclude(dupe_count__lt=2)
@@ -194,13 +194,13 @@ class IndexData(models.Model):
             QuerySet with dictionary-like data containing only name and directory
             fields using .values() for identical files
         """
-        return IndexData.objects.values("name", "home_directory__fqpndirectory").filter(file_sha256=sha)
+        return FileIndex.objects.values("name", "home_directory__fqpndirectory").filter(file_sha256=sha)
 
-    @cached(indexdata_cache)
+    @cached(fileindex_cache)
     @staticmethod
     def get_by_filters(
         additional_filters: dict[str, Any] | None = None,
-    ) -> "QuerySet[IndexData]":
+    ) -> "QuerySet[FileIndex]":
         """
         Return the files in the current directory, filtered by additional filters
 
@@ -211,10 +211,10 @@ class IndexData(models.Model):
         """
         if additional_filters is None:
             additional_filters = {}
-        return IndexData.objects.select_related(*INDEXDATA_SELECT_RELATED_LIST).filter(delete_pending=False, **additional_filters)
+        return FileIndex.objects.select_related(*FILEINDEX_SELECT_RELATED_LIST).filter(delete_pending=False, **additional_filters)
 
     @staticmethod
-    def return_by_sha256_list(sha256_list: list[str], sort: int = 0) -> "QuerySet[IndexData]":
+    def return_by_sha256_list(sha256_list: list[str], sort: int = 0) -> "QuerySet[FileIndex]":
         """
         Return files matching the provided SHA256 list
 
@@ -225,47 +225,47 @@ class IndexData(models.Model):
         Returns: The sorted query of files matching the SHA256 list
         """
         files = (
-            IndexData.objects.select_related(*INDEXDATA_SELECT_RELATED_LIST)
+            FileIndex.objects.select_related(*FILEINDEX_SELECT_RELATED_LIST)
             .filter(file_sha256__in=sha256_list, delete_pending=False)
             .order_by(*SORT_MATRIX[sort])
         )
         return files
 
-    @cached(indexdata_cache)
+    @cached(fileindex_cache)
     @staticmethod
-    def get_by_sha256(sha_value: str, unique: bool = False) -> IndexData | None:
+    def get_by_sha256(sha_value: str, unique: bool = False) -> FileIndex | None:
         """
-        Return the IndexData object by SHA256
+        Return the FileIndex object by SHA256
 
         Args:
-            sha_value: The SHA256 of the IndexData object
+            sha_value: The SHA256 of the FileIndex object
             unique: If True, search by unique_sha256 (expects one result),
                     If False, search by file_sha256 (may return first of multiple)
 
-        Returns: IndexData object or None if not found
+        Returns: FileIndex object or None if not found
         """
         try:
             if unique:
-                return IndexData.objects.select_related(*INDEXDATA_SELECT_RELATED_LIST).get(unique_sha256=sha_value, delete_pending=False)
+                return FileIndex.objects.select_related(*FILEINDEX_SELECT_RELATED_LIST).get(unique_sha256=sha_value, delete_pending=False)
             # When searching by file_sha256, there may be duplicates - return first
-            return IndexData.objects.select_related(*INDEXDATA_SELECT_RELATED_LIST).filter(file_sha256=sha_value, delete_pending=False).first()
-        except IndexData.DoesNotExist:
+            return FileIndex.objects.select_related(*FILEINDEX_SELECT_RELATED_LIST).filter(file_sha256=sha_value, delete_pending=False).first()
+        except FileIndex.DoesNotExist:
             return None
 
-    @cached(indexdata_download_cache)
+    @cached(fileindex_download_cache)
     @staticmethod
-    def get_by_sha256_for_download(sha_value: str, unique: bool = False) -> IndexData | None:
+    def get_by_sha256_for_download(sha_value: str, unique: bool = False) -> FileIndex | None:
         """
-        Return the IndexData object by SHA256 optimized for file downloads.
+        Return the FileIndex object by SHA256 optimized for file downloads.
 
         Uses select_related for forward FKs and .only() to fetch minimal fields
         for maximum performance with high concurrency.
 
         Args:
-            sha_value: The SHA256 of the IndexData object
+            sha_value: The SHA256 of the FileIndex object
             unique: If True, search by unique_sha256, otherwise by file_sha256
 
-        Returns: IndexData object or None if not found
+        Returns: FileIndex object or None if not found
         """
         try:
             # Determine which SHA field to filter on
@@ -273,7 +273,7 @@ class IndexData(models.Model):
 
             # Only fetch fields needed for download
             return (
-                IndexData.objects.select_related("filetype", "home_directory")
+                FileIndex.objects.select_related("filetype", "home_directory")
                 .only(
                     "name",
                     "filetype__mimetype",
@@ -282,13 +282,13 @@ class IndexData(models.Model):
                 )
                 .get(**{filter_field: sha_value, "delete_pending": False})
             )
-        except IndexData.DoesNotExist:
+        except FileIndex.DoesNotExist:
             return None
 
     @classmethod
     def set_generic_icon_for_sha(cls, file_sha256: str, is_generic: bool, clear_cache: bool = True) -> int:
         """
-        Set is_generic_icon for all IndexData files with the given SHA256.
+        Set is_generic_icon for all FileIndex files with the given SHA256.
 
         Shared function to ensure consistent is_generic_icon updates across:
         - Thumbnail generation (success/failure)
@@ -329,9 +329,9 @@ class IndexData(models.Model):
     @classmethod
     def link_to_thumbnail(cls, file_sha256: str, thumbnail: ThumbnailFiles) -> tuple[bool, int]:
         """
-        Link IndexData records to a thumbnail file.
+        Link FileIndex records to a thumbnail file.
 
-        Checks for unlinked IndexData records with the given SHA256 and links them
+        Checks for unlinked FileIndex records with the given SHA256 and links them
         to the provided thumbnail. This ensures all files with the same content
         share the same thumbnail.
 
@@ -344,7 +344,7 @@ class IndexData(models.Model):
                 - has_unlinked: Whether there were any unlinked records before update
                 - updated_count: Number of records linked
         """
-        # Check if there are any unlinked IndexData records for this SHA256
+        # Check if there are any unlinked FileIndex records for this SHA256
         has_unlinked = cls.objects.filter(file_sha256=file_sha256, new_ftnail__isnull=True).exists()
 
         # Link unlinked records to the thumbnail
@@ -365,7 +365,7 @@ class IndexData(models.Model):
         precomputed_sha: tuple[str | None, str | None] | None = None,
     ) -> dict[str, Any] | None:
         """
-        Process a file system entry and return a dictionary with file metadata for IndexData creation.
+        Process a file system entry and return a dictionary with file metadata for FileIndex creation.
 
         This factory method creates metadata dictionaries suitable for bulk_create operations.
         Accepts precomputed SHA256 hashes to enable batch parallel computation for performance.
@@ -376,7 +376,7 @@ class IndexData(models.Model):
             precomputed_sha: Optional precomputed (file_sha256, unique_sha256) tuple
 
         Returns:
-            Dictionary containing file metadata suitable for IndexData(**metadata), or None if processing fails
+            Dictionary containing file metadata suitable for FileIndex(**metadata), or None if processing fails
         """
         # Inline imports to avoid circular dependencies
         import time
@@ -472,8 +472,8 @@ class IndexData(models.Model):
     @classmethod
     def bulk_sync(
         cls,
-        records_to_update: list["IndexData"],
-        records_to_create: list["IndexData"],
+        records_to_update: list["FileIndex"],
+        records_to_create: list["FileIndex"],
         records_to_delete_ids: list[int],
         bulk_size: int,
     ) -> None:
@@ -484,9 +484,9 @@ class IndexData(models.Model):
         for optimal performance and atomicity.
 
         Args:
-            records_to_update: List of IndexData records to update
-            records_to_create: List of IndexData records to create
-            records_to_delete_ids: List of IndexData record IDs to delete
+            records_to_update: List of FileIndex records to update
+            records_to_create: List of FileIndex records to create
+            records_to_delete_ids: List of FileIndex record IDs to delete
             bulk_size: Size of batches for bulk operations
 
         Raises:
@@ -571,15 +571,15 @@ class IndexData(models.Model):
             raise
 
     @classmethod
-    def find_files_without_sha(cls, start_path: str | None = None) -> "QuerySet[IndexData]":
+    def find_files_without_sha(cls, start_path: str | None = None) -> "QuerySet[FileIndex]":
         """
-        Find IndexData files with NULL file_sha256.
+        Find FileIndex files with NULL file_sha256.
 
         Args:
             start_path: Optional starting directory path to filter files (must be normalized)
 
         Returns:
-            QuerySet of IndexData files with NULL file_sha256
+            QuerySet of FileIndex files with NULL file_sha256
         """
         files_without_sha = cls.objects.filter(file_sha256__isnull=True, delete_pending=False)
 
@@ -590,7 +590,7 @@ class IndexData(models.Model):
         return files_without_sha
 
     @classmethod
-    def find_broken_link_files(cls, start_path: str | None = None) -> "QuerySet[IndexData]":
+    def find_broken_link_files(cls, start_path: str | None = None) -> "QuerySet[FileIndex]":
         """
         Find link files with NULL virtual_directory.
 
@@ -719,7 +719,7 @@ class IndexData(models.Model):
         to the centralized SHA256 hashing implementation in quickbbs.common.
         It exists purely as a workflow convenience - callers could import and call
         quickbbs.common.get_file_sha() directly, but this method provides a
-        consistent interface when working with IndexData instances.
+        consistent interface when working with FileIndex instances.
 
         All hashing logic is delegated to quickbbs.common.get_file_sha().
 
@@ -737,7 +737,7 @@ class IndexData(models.Model):
         """
         Stub method for template compatibility.
 
-        Provides API compatibility between IndexData and DirectoryIndex objects when used in
+        Provides API compatibility between FileIndex and DirectoryIndex objects when used in
         Jinja2 templates. This allows templates to call .get_file_counts() on either object
         type without checking the instance type first. DirectoryIndex objects return actual counts,
         while this method returns None since individual files don't have child file counts.
@@ -751,7 +751,7 @@ class IndexData(models.Model):
         """
         Stub method for template compatibility.
 
-        Provides API compatibility between IndexData and DirectoryIndex objects when used in
+        Provides API compatibility between FileIndex and DirectoryIndex objects when used in
         Jinja2 templates. This allows templates to call .get_dir_counts() on either object
         type without checking the instance type first. DirectoryIndex objects return actual counts,
         while this method returns None since individual files don't have child directory counts.
@@ -984,7 +984,7 @@ class IndexData(models.Model):
 
                 # Fix broken link files - process virtual_directory if missing
                 if filetype.is_link and self.virtual_directory is None:
-                    virtual_dir = IndexData.process_link_file(fs_entry, filetype, self.name)
+                    virtual_dir = FileIndex.process_link_file(fs_entry, filetype, self.name)
                     if virtual_dir is not None:
                         self.virtual_directory = virtual_dir
                         update_needed = True
@@ -1026,7 +1026,7 @@ class IndexData(models.Model):
 
                 # Animated GIF detection - only check if not previously checked
                 if filetype.is_image and fext == ".gif" and self.is_animated is None:
-                    self.is_animated = IndexData.is_animated_gif(fs_entry)
+                    self.is_animated = FileIndex.is_animated_gif(fs_entry)
                     update_needed = True
 
             return self if update_needed else None
@@ -1042,21 +1042,21 @@ class IndexData(models.Model):
             models.Index(fields=["home_directory", "delete_pending"]),
             models.Index(fields=["file_sha256", "delete_pending"]),
             models.Index(fields=["unique_sha256", "delete_pending"]),
-            models.Index(fields=["name"], name="quickbbs_indexdata_name_idx"),
+            models.Index(fields=["name"], name="quickbbs_fileindex_name_idx"),
             # Composite indexes for common query patterns
-            models.Index(fields=["name", "delete_pending"], name="indexdata_name_delete_idx"),
-            models.Index(fields=["filetype", "delete_pending"], name="indexdata_filetype_delete_idx"),
+            models.Index(fields=["name", "delete_pending"], name="fileindex_name_delete_idx"),
+            models.Index(fields=["filetype", "delete_pending"], name="fileindex_filetype_delete_idx"),
             # Performance optimization: Partial index for thumbnail linking queries
-            # Speeds up: IndexData.objects.filter(file_sha256=sha, new_ftnail__isnull=True).exists()
+            # Speeds up: FileIndex.objects.filter(file_sha256=sha, new_ftnail__isnull=True).exists()
             models.Index(
                 fields=["file_sha256"],
-                name="indexdata_sha256_unlinked_idx",
+                name="fileindex_sha256_unlinked_idx",
                 condition=models.Q(new_ftnail__isnull=True),
             ),
             # Performance optimization: Composite index for file type queries in directories
-            # Speeds up: IndexData.objects.filter(home_directory=dir, filetype=type, delete_pending=False)
+            # Speeds up: FileIndex.objects.filter(home_directory=dir, filetype=type, delete_pending=False)
             models.Index(
                 fields=["home_directory", "filetype", "delete_pending"],
-                name="indexdata_home_type_delete_idx",
+                name="fileindex_home_type_delete_idx",
             ),
         ]

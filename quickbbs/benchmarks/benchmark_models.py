@@ -1,5 +1,5 @@
 """
-Timing benchmark for IndexData and DirectoryIndex read operations.
+Timing benchmark for FileIndex and DirectoryIndex read operations.
 
 Focuses on real-world read patterns used throughout the application
 to establish baseline performance metrics and track optimization impact.
@@ -45,10 +45,10 @@ settings.DEBUG = True
 from django.test import RequestFactory
 
 from quickbbs.models import (
-    IndexData,
+    FileIndex,
     DirectoryIndex,
-    indexdata_cache,
-    indexdata_download_cache,
+    fileindex_cache,
+    fileindex_download_cache,
     directoryindex_cache,
 )
 
@@ -116,8 +116,8 @@ def benchmark_query(name: str, query_func: Callable, iterations: int = BENCHMARK
         # Clear caches every 25 iterations
         if i % 25 == 0:
             directoryindex_cache.clear()
-            indexdata_cache.clear()
-            indexdata_download_cache.clear()
+            fileindex_cache.clear()
+            fileindex_download_cache.clear()
 
         reset_queries()
         start = time.perf_counter()
@@ -154,8 +154,8 @@ def run_indexdirs_read_benchmarks() -> list[BenchmarkResult]:
 
     # Clear all caches before loading samples
     directoryindex_cache.clear()
-    indexdata_cache.clear()
-    indexdata_download_cache.clear()
+    fileindex_cache.clear()
+    fileindex_download_cache.clear()
 
     # Get 25 random sample directories for testing
     sample_dirs = list(DirectoryIndex.objects.filter(delete_pending=False).order_by("?")[:25])
@@ -305,7 +305,7 @@ def run_indexdirs_read_benchmarks() -> list[BenchmarkResult]:
 
 
 def run_indexdata_read_benchmarks() -> list[BenchmarkResult]:
-    """Run benchmarks for IndexData read operations using existing methods."""
+    """Run benchmarks for FileIndex read operations using existing methods."""
     print("\n" + "=" * 150)
     print("INDEXDATA READ BENCHMARKS (Using Existing Methods)")
     print("=" * 150)
@@ -314,29 +314,29 @@ def run_indexdata_read_benchmarks() -> list[BenchmarkResult]:
 
     # Clear all caches before loading samples
     directoryindex_cache.clear()
-    indexdata_cache.clear()
-    indexdata_download_cache.clear()
+    fileindex_cache.clear()
+    fileindex_download_cache.clear()
 
     # Get 25 random sample files for testing (exclude files without home_directory)
     sample_files = list(
-        IndexData.objects.filter(delete_pending=False, home_directory__isnull=False).select_related("home_directory").order_by("?")[:25]
+        FileIndex.objects.filter(delete_pending=False, home_directory__isnull=False).select_related("home_directory").order_by("?")[:25]
     )
     if not sample_files:
-        print("No files found in database. Skipping IndexData benchmarks.")
+        print("No files found in database. Skipping FileIndex benchmarks.")
         return results
 
     # Clear all caches before loading samples
     directoryindex_cache.clear()
-    indexdata_cache.clear()
-    indexdata_download_cache.clear()
+    fileindex_cache.clear()
+    fileindex_download_cache.clear()
 
     print(f"Using {len(sample_files)} random file samples for testing...")
 
     # 1. Get by SHA256 (cached method, unique=True)
     results.append(
         benchmark_query(
-            "IndexData.get_by_sha256(sha, unique=True)",
-            lambda f: IndexData.get_by_sha256(f.unique_sha256, unique=True),
+            "FileIndex.get_by_sha256(sha, unique=True)",
+            lambda f: FileIndex.get_by_sha256(f.unique_sha256, unique=True),
             samples=sample_files,
         )
     )
@@ -344,14 +344,14 @@ def run_indexdata_read_benchmarks() -> list[BenchmarkResult]:
     # 2. Get by SHA256 (cached method, unique=False)
     def get_by_sha_with_fallback(f):
         try:
-            return IndexData.get_by_sha256(f.file_sha256, unique=False)
-        except IndexData.MultipleObjectsReturned:
+            return FileIndex.get_by_sha256(f.file_sha256, unique=False)
+        except FileIndex.MultipleObjectsReturned:
             # Fall back to unique SHA if file_sha256 has duplicates
-            return IndexData.get_by_sha256(f.unique_sha256, unique=True)
+            return FileIndex.get_by_sha256(f.unique_sha256, unique=True)
 
     results.append(
         benchmark_query(
-            "IndexData.get_by_sha256(sha, unique=False)",
+            "FileIndex.get_by_sha256(sha, unique=False)",
             get_by_sha_with_fallback,
             samples=sample_files,
         )
@@ -360,8 +360,8 @@ def run_indexdata_read_benchmarks() -> list[BenchmarkResult]:
     # 3. Get for download (optimized cached method)
     results.append(
         benchmark_query(
-            "IndexData.get_by_sha256_for_download(sha, unique=True)",
-            lambda f: IndexData.get_by_sha256_for_download(f.unique_sha256, unique=True),
+            "FileIndex.get_by_sha256_for_download(sha, unique=True)",
+            lambda f: FileIndex.get_by_sha256_for_download(f.unique_sha256, unique=True),
             samples=sample_files,
         )
     )
@@ -371,16 +371,16 @@ def run_indexdata_read_benchmarks() -> list[BenchmarkResult]:
     # This would need refactoring to support benchmarking
     # results.append(
     #     benchmark_query(
-    #         "IndexData.get_by_filters(filetype__is_graphic=True)",
-    #         lambda: list(IndexData.get_by_filters(additional_filters={"filetype__is_graphic": True})[:50]),
+    #         "FileIndex.get_by_filters(filetype__is_graphic=True)",
+    #         lambda: list(FileIndex.get_by_filters(additional_filters={"filetype__is_graphic": True})[:50]),
     #     )
     # )
 
     # 5. Count identical files
     results.append(
         benchmark_query(
-            "IndexData.return_identical_files_count(sha)",
-            lambda f: IndexData.return_identical_files_count(f.file_sha256),
+            "FileIndex.return_identical_files_count(sha)",
+            lambda f: FileIndex.return_identical_files_count(f.file_sha256),
             samples=sample_files,
         )
     )
@@ -388,8 +388,8 @@ def run_indexdata_read_benchmarks() -> list[BenchmarkResult]:
     # 6. List all identical files
     results.append(
         benchmark_query(
-            "IndexData.return_list_all_identical_files_by_sha(sha)",
-            lambda f: list(IndexData.return_list_all_identical_files_by_sha(f.file_sha256)),
+            "FileIndex.return_list_all_identical_files_by_sha(sha)",
+            lambda f: list(FileIndex.return_list_all_identical_files_by_sha(f.file_sha256)),
             samples=sample_files,
         )
     )
@@ -397,19 +397,19 @@ def run_indexdata_read_benchmarks() -> list[BenchmarkResult]:
     # 7. Get identical file entries (values query)
     results.append(
         benchmark_query(
-            "IndexData.get_identical_file_entries_by_sha(sha)",
-            lambda f: list(IndexData.get_identical_file_entries_by_sha(f.file_sha256)),
+            "FileIndex.get_identical_file_entries_by_sha(sha)",
+            lambda f: list(FileIndex.get_identical_file_entries_by_sha(f.file_sha256)),
             samples=sample_files,
         )
     )
 
     # 8. Return by SHA256 list (batch operation)
-    sha_list = list(IndexData.objects.filter(delete_pending=False).values_list("file_sha256", flat=True)[:10])
+    sha_list = list(FileIndex.objects.filter(delete_pending=False).values_list("file_sha256", flat=True)[:10])
     if sha_list:
         results.append(
             benchmark_query(
-                "IndexData.return_by_sha256_list(sha_list, sort=0)",
-                lambda: list(IndexData.return_by_sha256_list(sha_list, sort=0)),
+                "FileIndex.return_by_sha256_list(sha_list, sort=0)",
+                lambda: list(FileIndex.return_by_sha256_list(sha_list, sort=0)),
             )
         )
 
@@ -534,7 +534,7 @@ def main() -> None:
     for result in indexdata_results:
         print_and_capture(str(result))
 
-    # Calculate totals for IndexData
+    # Calculate totals for FileIndex
     if indexdata_results:
         total_avg = sum(r.avg_time for r in indexdata_results)
         total_min = sum(r.min_time for r in indexdata_results)

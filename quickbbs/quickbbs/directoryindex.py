@@ -19,7 +19,7 @@ from filetypes.models import get_ftype_dict
 from quickbbs.common import normalize_string_title
 
 from .models import (
-    INDEXDATA_SELECT_RELATED_LIST,
+    FILEINDEX_SELECT_RELATED_LIST,
     DIRECTORYINDEX_PREFETCH_LIST,
     DIRECTORYINDEX_SELECT_RELATED_LIST,
     SORT_MATRIX,
@@ -40,7 +40,7 @@ from .models import (
 if TYPE_CHECKING:
     from cache_watcher.models import fs_Cache_Tracking
 
-    from .indexdata import IndexData
+    from .fileindex import FileIndex
 
 
 class DirectoryIndex(models.Model):
@@ -90,14 +90,14 @@ class DirectoryIndex(models.Model):
         related_name="dirs_filetype_data",
     )
     thumbnail = models.ForeignKey(
-        "IndexData",
+        "FileIndex",
         on_delete=models.SET_NULL,
         related_name="dir_thumbnail",
         null=True,
         default=None,
     )
     file_links = models.ManyToManyField(
-        "IndexData",
+        "FileIndex",
         default=None,
         related_name="file_links",
     )
@@ -107,10 +107,10 @@ class DirectoryIndex(models.Model):
     Cache_Watcher: "models.OneToOneRel[fs_Cache_Tracking]"  # type: ignore[valid-type]
     # From DirectoryIndex.parent_directory (self-referential)
     parent_dir: "models.manager.RelatedManager[DirectoryIndex]"
-    # From IndexData.home_directory
-    IndexData_entries: "models.manager.RelatedManager[IndexData]"
-    # From IndexData.virtual_directory
-    Virtual_IndexData: "models.manager.RelatedManager[IndexData]"
+    # From FileIndex.home_directory
+    FileIndex_entries: "models.manager.RelatedManager[FileIndex]"
+    # From FileIndex.virtual_directory
+    Virtual_FileIndex: "models.manager.RelatedManager[FileIndex]"
 
     class Meta:
         db_table = "quickbbs_directoryindex"
@@ -232,9 +232,9 @@ class DirectoryIndex(models.Model):
         """
         Stub property for template compatibility.
 
-        Provides API compatibility between DirectoryIndex and IndexData objects when used in
+        Provides API compatibility between DirectoryIndex and FileIndex objects when used in
         Jinja2 templates. This allows templates to access .numdirs on either object type
-        without checking the instance type first. IndexData objects return actual directory
+        without checking the instance type first. FileIndex objects return actual directory
         counts, while this property returns None since directory objects don't track this metric.
 
         Returns:
@@ -247,9 +247,9 @@ class DirectoryIndex(models.Model):
         """
         Stub property for template compatibility.
 
-        Provides API compatibility between DirectoryIndex and IndexData objects when used in
+        Provides API compatibility between DirectoryIndex and FileIndex objects when used in
         Jinja2 templates. This allows templates to access .numfiles on either object type
-        without checking the instance type first. IndexData objects return actual file
+        without checking the instance type first. FileIndex objects return actual file
         counts, while this property returns None since directory objects don't track this metric.
 
         Returns:
@@ -371,7 +371,7 @@ class DirectoryIndex(models.Model):
     def delete_directory(fqpn_directory: str, cache_only: bool = False) -> None:
         """
         Delete the Directory_Index data for the fqpn_directory, and ensure that all
-        IndexData records are wiped as well.
+        FileIndex records are wiped as well.
 
         Args:
             fqpn_directory: text string of fully qualified pathname of the directory
@@ -397,15 +397,15 @@ class DirectoryIndex(models.Model):
         Returns: Boolean indicating if files exist in the directory using QuerySet.exists()
         """
         additional_filters = additional_filters or {}
-        return self.IndexData_entries.filter(home_directory=self.pk, delete_pending=False, **additional_filters).exists()
+        return self.FileIndex_entries.filter(home_directory=self.pk, delete_pending=False, **additional_filters).exists()
 
     def get_file_counts(self) -> int:
         """
         Return the number of files that are in the database for the current directory
         Returns: Integer - Number of files in the database for the directory
         """
-        return self.IndexData_entries.filter(delete_pending=False).count()
-        # return IndexData.objects.filter(
+        return self.FileIndex_entries.filter(delete_pending=False).count()
+        # return FileIndex.objects.filter(
         #    home_directory=self.pk, delete_pending=False
         # ).count()
 
@@ -427,7 +427,7 @@ class DirectoryIndex(models.Model):
         filetypes_dict = get_ftype_dict()
 
         # Single aggregate query for ALL file counts by type
-        file_aggregates = self.IndexData_entries.filter(delete_pending=False).aggregate(
+        file_aggregates = self.FileIndex_entries.filter(delete_pending=False).aggregate(
             total_files=Count("id"),
             **{f"type_{ft[1:]}": Count("id", filter=Q(filetype__fileext=ft)) for ft in filetypes_dict.keys()},
         )
@@ -455,7 +455,7 @@ class DirectoryIndex(models.Model):
         """
         # Internal prefetch list - excludes filetype (uses select_related instead)
         SEARCH_PREFETCH_LIST = [
-            "IndexData_entries",
+            "FileIndex_entries",
         ]
 
         try:
@@ -514,7 +514,7 @@ class DirectoryIndex(models.Model):
         distinct: bool = False,
         additional_filters: dict[str, Any] | None = None,
         fields_only: list[str] | None = None,
-    ) -> "QuerySet[IndexData] | list[IndexData]":
+    ) -> "QuerySet[FileIndex] | list[FileIndex]":
         """
         Return the files in the current directory
 
@@ -526,7 +526,7 @@ class DirectoryIndex(models.Model):
                         With distinct=True: Only optimizes if sort doesn't require related fields.
                         Current sort modes (0-2) use filetype relations, so fall back to full query.
 
-        Returns: QuerySet[IndexData] when distinct=False, list[IndexData] when distinct=True
+        Returns: QuerySet[FileIndex] when distinct=False, list[FileIndex] when distinct=True
 
         Note:
             When distinct=True, PostgreSQL DISTINCT ON requires file_sha256 to be the first
@@ -546,7 +546,7 @@ class DirectoryIndex(models.Model):
         if additional_filters is None:
             additional_filters = {}
 
-        files = self.IndexData_entries.filter(delete_pending=False, **additional_filters)
+        files = self.FileIndex_entries.filter(delete_pending=False, **additional_filters)
 
         # Determine field loading strategy
         if fields_only:
@@ -567,7 +567,7 @@ class DirectoryIndex(models.Model):
                     # Sort requires related fields - must use full select_related
                     # We can't use .only() effectively with related fields without causing N+1
                     # So fall back to full query for these cases
-                    files = files.select_related(*INDEXDATA_SELECT_RELATED_LIST)
+                    files = files.select_related(*FILEINDEX_SELECT_RELATED_LIST)
                 else:
                     # Sort only uses local fields - can safely use .only()
                     files = files.only(*all_fields_needed)
@@ -576,7 +576,7 @@ class DirectoryIndex(models.Model):
                 files = files.only(*fields_only)
         else:
             # Full query with all related objects
-            files = files.select_related(*INDEXDATA_SELECT_RELATED_LIST)
+            files = files.select_related(*FILEINDEX_SELECT_RELATED_LIST)
 
         if distinct:
             # Step 1: Get deduplicated records (PostgreSQL orders by file_sha256 first)
@@ -618,7 +618,7 @@ class DirectoryIndex(models.Model):
         Get distinct file SHA256s for this directory with caching.
 
         This method provides memory-efficient caching of distinct file lists for pagination.
-        Instead of caching full IndexData objects (~1KB each), it caches only SHA256 strings
+        Instead of caching full FileIndex objects (~1KB each), it caches only SHA256 strings
         (~64 bytes each), reducing memory usage by ~94%.
 
         Cache key: (self, sort) - directory instance and sort order
@@ -645,7 +645,7 @@ class DirectoryIndex(models.Model):
         distinct_files = self.files_in_dir(sort=sort, distinct=True)
         return [f.unique_sha256 for f in distinct_files]
 
-    def get_cover_image(self) -> IndexData | None:
+    def get_cover_image(self) -> FileIndex | None:
         """
         Return the cover image for the directory based on priority filename matching.
 
@@ -653,13 +653,13 @@ class DirectoryIndex(models.Model):
             None
 
         Returns:
-            IndexData record if a suitable cover image is found, None otherwise
+            FileIndex record if a suitable cover image is found, None otherwise
 
         Logic:
             1. Get files in directory that can be thumbnailed (images, movies, PDFs)
             2. If no files exist, return None
             3. Check for files matching DIRECTORY_COVER_NAMES (case-insensitive)
-            4. If match found, return that file's IndexData record
+            4. If match found, return that file's FileIndex record
             5. If no match, return the first file in the query
         """
         # Get thumbnailable files (images, movies, PDFs), excluding link files
@@ -702,7 +702,7 @@ class DirectoryIndex(models.Model):
         """
         # Import here to avoid circular import at module level
         # pylint: disable-next=import-outside-toplevel
-        from .indexdata import IndexData
+        from .fileindex import FileIndex
 
         queryset = DirectoryIndex.objects.filter(parent_directory=self.pk, delete_pending=False)
 
@@ -714,7 +714,7 @@ class DirectoryIndex(models.Model):
         return (
             queryset.select_related(*DIRECTORYINDEX_SELECT_RELATED_LIST)
             .prefetch_related(
-                Prefetch("IndexData_entries", queryset=IndexData.objects.filter(delete_pending=False)),
+                Prefetch("FileIndex_entries", queryset=FileIndex.objects.filter(delete_pending=False)),
             )
             .order_by(*SORT_MATRIX[sort])
         )
@@ -739,7 +739,7 @@ class DirectoryIndex(models.Model):
     def get_thumbnail_url(self, size=None) -> str:
         """
         Generate the URL for the thumbnail of the current item
-        The argument is unused, included for API compt. between IndexData & DirectoryIndex
+        The argument is unused, included for API compt. between FileIndex & DirectoryIndex
 
         Returns
         -------
@@ -810,11 +810,11 @@ class DirectoryIndex(models.Model):
         if parent_dir:
             await sync_to_async(DirectoryIndex.delete_directory_record)(parent_dir, cache_only=True)
 
-    def process_new_files(self, fs_file_names: dict, precomputed_shas: dict[str, tuple] | None = None) -> list[IndexData]:
+    def process_new_files(self, fs_file_names: dict, precomputed_shas: dict[str, tuple] | None = None) -> list[FileIndex]:
         """
         Process new files in this directory that don't exist in the database.
 
-        Creates new IndexData records for files found on filesystem that don't
+        Creates new FileIndex records for files found on filesystem that don't
         have corresponding database entries.
 
         Performance Optimization:
@@ -825,10 +825,10 @@ class DirectoryIndex(models.Model):
             precomputed_shas: Optional dict mapping file paths to (file_sha256, unique_sha256) tuples
 
         Returns:
-            List of new IndexData records to create
+            List of new FileIndex records to create
         """
         # Import at function level to avoid circular dependency
-        from .indexdata import IndexData
+        from .fileindex import FileIndex
 
         records_to_create = []
         if precomputed_shas is None:
@@ -838,7 +838,7 @@ class DirectoryIndex(models.Model):
         for _, fs_entry in fs_file_names.items():
             try:
                 # Process new file with precomputed SHA if available
-                filedata = IndexData.from_filesystem(fs_entry, directory_id=self, precomputed_sha=precomputed_shas.get(str(fs_entry)))
+                filedata = FileIndex.from_filesystem(fs_entry, directory_id=self, precomputed_sha=precomputed_shas.get(str(fs_entry)))
                 if filedata is None:
                     continue
 
@@ -848,7 +848,7 @@ class DirectoryIndex(models.Model):
                     continue
 
                 # Create record - home_directory already set via process_filedata(directory_id=self)
-                record = IndexData(**filedata)
+                record = FileIndex(**filedata)
                 # record.home_directory = self  # Already set in filedata dict
                 records_to_create.append(record)
 
@@ -960,7 +960,7 @@ class DirectoryIndex(models.Model):
         """
         Synchronize my files with filesystem entries.
 
-        Compares database IndexData records against filesystem and:
+        Compares database FileIndex records against filesystem and:
         - Marks missing files as delete_pending
         - Updates modified files (size, timestamps, SHA256)
         - Creates new files found in filesystem
@@ -987,7 +987,7 @@ class DirectoryIndex(models.Model):
         # Inline imports to avoid circular dependencies
         from frontend.utilities import _batch_compute_file_shas
 
-        from .indexdata import IndexData
+        from .fileindex import FileIndex
 
         # Build filesystem file dictionary (single pass)
         fs_file_names_dict = {name: entry for name, entry in fs_entries.items() if not entry.is_dir()}
@@ -999,7 +999,7 @@ class DirectoryIndex(models.Model):
 
         # Optimize: First get just filenames with lightweight query (no prefetch overhead)
         # Then load full objects only for files that need comparison/updates
-        all_db_filenames = set(IndexData.objects.filter(home_directory=self.pk, delete_pending=False).values_list("name", flat=True))
+        all_db_filenames = set(FileIndex.objects.filter(home_directory=self.pk, delete_pending=False).values_list("name", flat=True))
 
         # Find files that exist in both DB and filesystem (case-insensitive match)
         # Build lowercase map from database names for matching
@@ -1050,7 +1050,7 @@ class DirectoryIndex(models.Model):
         db_names_not_in_fs_lower = db_names_lower_set - matching_lower_names
         db_names_not_in_fs = {name for name in all_db_filenames if name.lower() in db_names_not_in_fs_lower}
         files_to_delete_ids = list(
-            IndexData.objects.filter(home_directory=self.pk, name__in=db_names_not_in_fs, delete_pending=False).values_list("id", flat=True)
+            FileIndex.objects.filter(home_directory=self.pk, name__in=db_names_not_in_fs, delete_pending=False).values_list("id", flat=True)
         )
 
         # Process new files - case-insensitive: fs files NOT matching any db file
@@ -1076,4 +1076,4 @@ class DirectoryIndex(models.Model):
         records_to_create = self.process_new_files(creation_fs_file_names_dict, new_sha_results)
 
         # Execute batch operations with transactions
-        IndexData.bulk_sync(records_to_update, records_to_create, files_to_delete_ids, bulk_size)
+        FileIndex.bulk_sync(records_to_update, records_to_create, files_to_delete_ids, bulk_size)
