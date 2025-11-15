@@ -1,5 +1,5 @@
 """
-Timing benchmark for IndexData and IndexDirs read operations.
+Timing benchmark for IndexData and DirectoryIndex read operations.
 
 Focuses on real-world read patterns used throughout the application
 to establish baseline performance metrics and track optimization impact.
@@ -46,10 +46,10 @@ from django.test import RequestFactory
 
 from quickbbs.models import (
     IndexData,
-    IndexDirs,
+    DirectoryIndex,
     indexdata_cache,
     indexdata_download_cache,
-    indexdirs_cache,
+    directoryindex_cache,
 )
 
 
@@ -115,7 +115,7 @@ def benchmark_query(name: str, query_func: Callable, iterations: int = BENCHMARK
     for i in range(iterations):
         # Clear caches every 25 iterations
         if i % 25 == 0:
-            indexdirs_cache.clear()
+            directoryindex_cache.clear()
             indexdata_cache.clear()
             indexdata_download_cache.clear()
 
@@ -145,7 +145,7 @@ def benchmark_query(name: str, query_func: Callable, iterations: int = BENCHMARK
 
 
 def run_indexdirs_read_benchmarks() -> list[BenchmarkResult]:
-    """Run benchmarks for IndexDirs read operations using existing methods."""
+    """Run benchmarks for DirectoryIndex read operations using existing methods."""
     print("\n" + "=" * 150)
     print("INDEXDIRS READ BENCHMARKS (Using Existing Methods)")
     print("=" * 150)
@@ -153,14 +153,14 @@ def run_indexdirs_read_benchmarks() -> list[BenchmarkResult]:
     results: list[BenchmarkResult] = []
 
     # Clear all caches before loading samples
-    indexdirs_cache.clear()
+    directoryindex_cache.clear()
     indexdata_cache.clear()
     indexdata_download_cache.clear()
 
     # Get 25 random sample directories for testing
-    sample_dirs = list(IndexDirs.objects.filter(delete_pending=False).order_by("?")[:25])
+    sample_dirs = list(DirectoryIndex.objects.filter(delete_pending=False).order_by("?")[:25])
     if not sample_dirs:
-        print("No directories found in database. Skipping IndexDirs benchmarks.")
+        print("No directories found in database. Skipping DirectoryIndex benchmarks.")
         return results
 
     print(f"Using {len(sample_dirs)} random directory samples for testing...")
@@ -168,8 +168,8 @@ def run_indexdirs_read_benchmarks() -> list[BenchmarkResult]:
     # 1. Search for directory by SHA256 (cached method)
     results.append(
         benchmark_query(
-            "IndexDirs.search_for_directory_by_sha(sha)",
-            lambda d: IndexDirs.search_for_directory_by_sha(d.dir_fqpn_sha256),
+            "DirectoryIndex.search_for_directory_by_sha(sha)",
+            lambda d: DirectoryIndex.search_for_directory_by_sha(d.dir_fqpn_sha256),
             samples=sample_dirs,
         )
     )
@@ -177,8 +177,8 @@ def run_indexdirs_read_benchmarks() -> list[BenchmarkResult]:
     # 2. Search for directory by FQPN (calls search_by_sha internally)
     results.append(
         benchmark_query(
-            "IndexDirs.search_for_directory(fqpn)",
-            lambda d: IndexDirs.search_for_directory(d.fqpndirectory),
+            "DirectoryIndex.search_for_directory(fqpn)",
+            lambda d: DirectoryIndex.search_for_directory(d.fqpndirectory),
             samples=sample_dirs,
         )
     )
@@ -292,12 +292,12 @@ def run_indexdirs_read_benchmarks() -> list[BenchmarkResult]:
     )
 
     # 15. Return by SHA256 list (batch operation)
-    sha_list = list(IndexDirs.objects.filter(delete_pending=False).values_list("dir_fqpn_sha256", flat=True)[:10])
+    sha_list = list(DirectoryIndex.objects.filter(delete_pending=False).values_list("dir_fqpn_sha256", flat=True)[:10])
     if sha_list:
         results.append(
             benchmark_query(
-                "IndexDirs.return_by_sha256_list(sha_list, sort=0)",
-                lambda: list(IndexDirs.return_by_sha256_list(sha_list, sort=0)),
+                "DirectoryIndex.return_by_sha256_list(sha_list, sort=0)",
+                lambda: list(DirectoryIndex.return_by_sha256_list(sha_list, sort=0)),
             )
         )
 
@@ -313,7 +313,7 @@ def run_indexdata_read_benchmarks() -> list[BenchmarkResult]:
     results: list[BenchmarkResult] = []
 
     # Clear all caches before loading samples
-    indexdirs_cache.clear()
+    directoryindex_cache.clear()
     indexdata_cache.clear()
     indexdata_download_cache.clear()
 
@@ -328,7 +328,7 @@ def run_indexdata_read_benchmarks() -> list[BenchmarkResult]:
         return results
 
     # Clear all caches before loading samples
-    indexdirs_cache.clear()
+    directoryindex_cache.clear()
     indexdata_cache.clear()
     indexdata_download_cache.clear()
 
@@ -514,7 +514,7 @@ def main() -> None:
     for result in indexdirs_results:
         print_and_capture(str(result))
 
-    # Calculate totals for IndexDirs
+    # Calculate totals for DirectoryIndex
     if indexdirs_results:
         total_avg = sum(r.avg_time for r in indexdirs_results)
         total_min = sum(r.min_time for r in indexdirs_results)

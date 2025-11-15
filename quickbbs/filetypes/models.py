@@ -16,7 +16,7 @@ from frontend.serve_up import send_file_response
 if TYPE_CHECKING:
     from django.db.models.manager import RelatedManager
 
-    from quickbbs.models import IndexData, IndexDirs
+    from quickbbs.models import IndexData, DirectoryIndex
 
 FILETYPE_DATA = {}
 
@@ -54,7 +54,7 @@ class filetypes(models.Model):
     thumbnail = models.BinaryField(default=b"", null=True)
 
     # Reverse ForeignKey relationships
-    dirs_filetype_data: "RelatedManager[IndexDirs]"  # From IndexDirs.filetype
+    dirs_filetype_data: "RelatedManager[DirectoryIndex]"  # From DirectoryIndex.filetype
     file_filetype_data: "RelatedManager[IndexData]"  # From IndexData.filetype
 
     def __unicode__(self) -> str:

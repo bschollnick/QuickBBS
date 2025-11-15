@@ -21,7 +21,7 @@ from quickbbs.management.commands.management_helper import (
     invalidate_directories_with_null_sha256,
     invalidate_directories_with_null_virtual_directory,
 )
-from quickbbs.models import IndexData, IndexDirs
+from quickbbs.models import IndexData, DirectoryIndex
 
 
 async def _add_files_async(max_count: int = 0, start_path: str | None = None) -> None:
@@ -68,7 +68,7 @@ async def _add_files_async(max_count: int = 0, start_path: str | None = None) ->
     print(f"Scanning albums root: {albums_root}")
 
     # Get total count for progress reporting
-    total_dirs = await sync_to_async(IndexDirs.objects.count, thread_sensitive=True)()
+    total_dirs = await sync_to_async(DirectoryIndex.objects.count, thread_sensitive=True)()
     print(f"Found {total_dirs} directories in database")
 
     if total_dirs == 0:
@@ -92,11 +92,11 @@ async def _add_files_async(max_count: int = 0, start_path: str | None = None) ->
     # Filter directories to only those under the albums_root if start_path was specified
     if start_path:
         directories = await sync_to_async(list, thread_sensitive=True)(
-            IndexDirs.objects.select_related("Cache_Watcher").filter(fqpndirectory__startswith=albums_root).order_by("fqpndirectory").all()
+            DirectoryIndex.objects.select_related("Cache_Watcher").filter(fqpndirectory__startswith=albums_root).order_by("fqpndirectory").all()
         )
     else:
         directories = await sync_to_async(list, thread_sensitive=True)(
-            IndexDirs.objects.select_related("Cache_Watcher").order_by("fqpndirectory").all()
+            DirectoryIndex.objects.select_related("Cache_Watcher").order_by("fqpndirectory").all()
         )
 
     for directory in directories:

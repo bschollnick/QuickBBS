@@ -10,7 +10,7 @@ from django.test import RequestFactory
 from filetypes.models import filetypes
 from frontend.views import search_viewresults
 
-from quickbbs.models import IndexData, IndexDirs
+from quickbbs.models import IndexData, DirectoryIndex
 
 
 @pytest.mark.django_db
@@ -48,7 +48,7 @@ class TestSearchViews:
         )
 
         # Create test directory
-        self.test_dir = IndexDirs.objects.create(
+        self.test_dir = DirectoryIndex.objects.create(
             fqpndirectory="/test/path/Mary_Jane_Watson_Photos/",
             dir_fqpn_sha256="test_dir_sha256",
             lastmod=1234567890.0,

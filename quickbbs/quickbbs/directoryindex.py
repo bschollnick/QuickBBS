@@ -1,5 +1,5 @@
 """
-IndexDirs Model - Master index for directories in the filesystem
+DirectoryIndex Model - Master index for directories in the filesystem
 """
 
 from __future__ import annotations
@@ -20,15 +20,15 @@ from quickbbs.common import normalize_string_title
 
 from .models import (
     INDEXDATA_SELECT_RELATED_LIST,
-    INDEXDIRS_PREFETCH_LIST,
-    INDEXDIRS_SELECT_RELATED_LIST,
+    DIRECTORYINDEX_PREFETCH_LIST,
+    DIRECTORYINDEX_SELECT_RELATED_LIST,
     SORT_MATRIX,
     NaturalSortField,
     cached,
     distinct_files_cache,
     filetypes,
     get_dir_sha,
-    indexdirs_cache,
+    directoryindex_cache,
     logger,
     models,
     normalize_fqpn,
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from .indexdata import IndexData
 
 
-class IndexDirs(models.Model):
+class DirectoryIndex(models.Model):
     """
     The master index for Directory / Folders in the Filesystem for the gallery.
     """
@@ -105,8 +105,8 @@ class IndexDirs(models.Model):
     # Reverse relationships
     # From fs_Cache_Tracking.directory
     Cache_Watcher: "models.OneToOneRel[fs_Cache_Tracking]"  # type: ignore[valid-type]
-    # From IndexDirs.parent_directory (self-referential)
-    parent_dir: "models.manager.RelatedManager[IndexDirs]"
+    # From DirectoryIndex.parent_directory (self-referential)
+    parent_dir: "models.manager.RelatedManager[DirectoryIndex]"
     # From IndexData.home_directory
     IndexData_entries: "models.manager.RelatedManager[IndexData]"
     # From IndexData.virtual_directory
@@ -121,7 +121,7 @@ class IndexDirs(models.Model):
         ]
 
     @staticmethod
-    def add_directory(fqpn_directory: str, thumbnail: bytes = b"") -> tuple[bool, "IndexDirs"]:  # pylint: disable=unused-argument
+    def add_directory(fqpn_directory: str, thumbnail: bytes = b"") -> tuple[bool, "DirectoryIndex"]:  # pylint: disable=unused-argument
         """
         Create a new directory entry or get existing one
 
@@ -154,14 +154,14 @@ class IndexDirs(models.Model):
                     # Recursively add/update parent to ensure proper parent_directory chain
                     # This fixes both missing parents AND parents with NULL parent_directory
                     parent_sha = get_dir_sha(parent_dir)
-                    found, _ = IndexDirs.search_for_directory_by_sha(parent_sha)
+                    found, _ = DirectoryIndex.search_for_directory_by_sha(parent_sha)
 
                     if not found:
                         print(f"Creating parent directory: {parent_dir}")
 
                     # Always call add_directory to ensure parent has correct parent_directory link
                     # update_or_create will handle both new and existing records
-                    _, parent_dir_link = IndexDirs.add_directory(parent_dir)
+                    _, parent_dir_link = DirectoryIndex.add_directory(parent_dir)
                 else:
                     # Parent is outside albums path, don't link it
                     parent_dir_link = None
@@ -187,7 +187,7 @@ class IndexDirs(models.Model):
         }
 
         # Use get_or_create with fqpndirectory as the unique lookup field
-        new_rec, created = IndexDirs.objects.update_or_create(
+        new_rec, created = DirectoryIndex.objects.update_or_create(
             dir_fqpn_sha256=defaults["dir_fqpn_sha256"],
             defaults=defaults,
             create_defaults=defaults,
@@ -206,14 +206,14 @@ class IndexDirs(models.Model):
         Returns:
             None
         """
-        IndexDirs.objects.filter(pk=self.pk).update(thumbnail=None, is_generic_icon=False)
+        DirectoryIndex.objects.filter(pk=self.pk).update(thumbnail=None, is_generic_icon=False)
         # Refresh local instance to reflect DB state
         self.thumbnail = None
         self.is_generic_icon = False
 
         # Clear LRUCache entry for this directory to avoid serving stale cached data
-        if self.dir_fqpn_sha256 in indexdirs_cache:
-            del indexdirs_cache[self.dir_fqpn_sha256]
+        if self.dir_fqpn_sha256 in directoryindex_cache:
+            del directoryindex_cache[self.dir_fqpn_sha256]
 
     @property
     def virtual_directory(self) -> str:
@@ -231,7 +231,7 @@ class IndexDirs(models.Model):
         """
         Stub property for template compatibility.
 
-        Provides API compatibility between IndexDirs and IndexData objects when used in
+        Provides API compatibility between DirectoryIndex and IndexData objects when used in
         Jinja2 templates. This allows templates to access .numdirs on either object type
         without checking the instance type first. IndexData objects return actual directory
         counts, while this property returns None since directory objects don't track this metric.
@@ -246,7 +246,7 @@ class IndexDirs(models.Model):
         """
         Stub property for template compatibility.
 
-        Provides API compatibility between IndexDirs and IndexData objects when used in
+        Provides API compatibility between DirectoryIndex and IndexData objects when used in
         Jinja2 templates. This allows templates to access .numfiles on either object type
         without checking the instance type first. IndexData objects return actual file
         counts, while this property returns None since directory objects don't track this metric.
@@ -316,7 +316,7 @@ class IndexDirs(models.Model):
 
             # Batch fetch ALL parents for current level in ONE query
             parents = (
-                IndexDirs.objects.filter(
+                DirectoryIndex.objects.filter(
                     dir_fqpn_sha256__in=current_level_shas,
                     delete_pending=False,
                     parent_directory__isnull=False,
@@ -339,15 +339,15 @@ class IndexDirs(models.Model):
         return all_shas
 
     @staticmethod
-    def delete_directory_record(index_dir: "IndexDirs", cache_only: bool = False) -> None:
+    def delete_directory_record(index_dir: "DirectoryIndex", cache_only: bool = False) -> None:
         """
         Delete the Index_Dirs record and ensure cache cleanup.
 
-        Optimized version that accepts an IndexDirs record directly,
+        Optimized version that accepts an DirectoryIndex record directly,
         avoiding redundant database lookups.
 
         Args:
-            index_dir: IndexDirs instance to delete
+            index_dir: DirectoryIndex instance to delete
             cache_only: If True, only clear cache, don't delete the record
 
         Returns:
@@ -384,7 +384,7 @@ class IndexDirs(models.Model):
         dir_sha256 = get_dir_sha(normalize_fqpn(fqpn_directory))
         Cache_Storage.remove_from_cache_sha(dir_sha256)
         if not cache_only:
-            IndexDirs.objects.filter(dir_fqpn_sha256=dir_sha256).delete()
+            DirectoryIndex.objects.filter(dir_fqpn_sha256=dir_sha256).delete()
 
     def do_files_exist(self, additional_filters: dict[str, Any] | None = None) -> bool:
         """
@@ -413,7 +413,7 @@ class IndexDirs(models.Model):
         Return the number of directories that are in the database for the current directory
         Returns: Integer - Number of directories
         """
-        return IndexDirs.objects.filter(parent_directory=self.pk, delete_pending=False).count()
+        return DirectoryIndex.objects.filter(parent_directory=self.pk, delete_pending=False).count()
 
     def get_count_breakdown(self) -> dict[str, int]:
         """
@@ -432,7 +432,7 @@ class IndexDirs(models.Model):
         )
 
         # Directory count (separate table, still needs its own query)
-        dir_count = IndexDirs.objects.filter(parent_directory=self.pk, delete_pending=False).count()
+        dir_count = DirectoryIndex.objects.filter(parent_directory=self.pk, delete_pending=False).count()
 
         # Build result dictionary from aggregates
         totals = {ft[1:]: file_aggregates.get(f"type_{ft[1:]}", 0) for ft in filetypes_dict.keys()}
@@ -441,9 +441,9 @@ class IndexDirs(models.Model):
 
         return totals
 
-    @cached(indexdirs_cache)
+    @cached(directoryindex_cache)
     @staticmethod
-    def search_for_directory_by_sha(sha_256: str) -> tuple[bool, "IndexDirs"]:
+    def search_for_directory_by_sha(sha_256: str) -> tuple[bool, "DirectoryIndex"]:
         """
         Return the database object matching the dir_fqpn_sha256
 
@@ -459,7 +459,7 @@ class IndexDirs(models.Model):
 
         try:
             record = (
-                IndexDirs.objects.select_related(*INDEXDIRS_SELECT_RELATED_LIST)
+                DirectoryIndex.objects.select_related(*DIRECTORYINDEX_SELECT_RELATED_LIST)
                 .prefetch_related(*SEARCH_PREFETCH_LIST)
                 .get(
                     dir_fqpn_sha256=sha_256,
@@ -467,11 +467,11 @@ class IndexDirs(models.Model):
                 )
             )
             return (True, record)
-        except IndexDirs.DoesNotExist:
+        except DirectoryIndex.DoesNotExist:
             return (False, None)  # Return None when not found
 
     @staticmethod
-    def search_for_directory(fqpn_directory: str) -> tuple[bool, "IndexDirs"]:
+    def search_for_directory(fqpn_directory: str) -> tuple[bool, "DirectoryIndex"]:
         """
         Return the database object matching the fqpn_directory
 
@@ -485,10 +485,10 @@ class IndexDirs(models.Model):
         Returns: A boolean representing the success of the search, and the resultant record
         """
         sha_256 = get_dir_sha(fqpn_directory)
-        return IndexDirs.search_for_directory_by_sha(sha_256)
+        return DirectoryIndex.search_for_directory_by_sha(sha_256)
 
     @staticmethod
-    def return_by_sha256_list(sha256_list: list[str], sort: int = 0) -> "QuerySet[IndexDirs]":
+    def return_by_sha256_list(sha256_list: list[str], sort: int = 0) -> "QuerySet[DirectoryIndex]":
         """
         Return directories matching the provided SHA256 list
 
@@ -499,8 +499,8 @@ class IndexDirs(models.Model):
         Returns: The sorted query of directories matching the SHA256 list
         """
         dirs = (
-            IndexDirs.objects.select_related(*INDEXDIRS_SELECT_RELATED_LIST)
-            .prefetch_related(*INDEXDIRS_PREFETCH_LIST)
+            DirectoryIndex.objects.select_related(*DIRECTORYINDEX_SELECT_RELATED_LIST)
+            .prefetch_related(*DIRECTORYINDEX_PREFETCH_LIST)
             .filter(dir_fqpn_sha256__in=sha256_list)
             .filter(delete_pending=False)
             .order_by(*SORT_MATRIX[sort])
@@ -680,7 +680,7 @@ class IndexDirs(models.Model):
         # No match found, return first file
         return files.first()
 
-    def dirs_in_dir(self, sort: int = 0, fields_only: list[str] | None = None) -> "QuerySet[IndexDirs]":
+    def dirs_in_dir(self, sort: int = 0, fields_only: list[str] | None = None) -> "QuerySet[DirectoryIndex]":
         """
         Return the directories in the current directory
 
@@ -703,7 +703,7 @@ class IndexDirs(models.Model):
         # pylint: disable-next=import-outside-toplevel
         from .indexdata import IndexData
 
-        queryset = IndexDirs.objects.filter(parent_directory=self.pk, delete_pending=False)
+        queryset = DirectoryIndex.objects.filter(parent_directory=self.pk, delete_pending=False)
 
         if fields_only:
             # Lightweight query - only load specified fields, skip related objects
@@ -711,14 +711,14 @@ class IndexDirs(models.Model):
 
         # Full query with all related objects prefetched
         return (
-            queryset.select_related(*INDEXDIRS_SELECT_RELATED_LIST)
+            queryset.select_related(*DIRECTORYINDEX_SELECT_RELATED_LIST)
             .prefetch_related(
                 Prefetch("IndexData_entries", queryset=IndexData.objects.filter(delete_pending=False)),
             )
             .order_by(*SORT_MATRIX[sort])
         )
 
-    @cached(indexdirs_cache)
+    @cached(directoryindex_cache)
     def get_view_url(self) -> str:
         """
         Generate the URL for the viewing of the current database item
@@ -738,7 +738,7 @@ class IndexDirs(models.Model):
     def get_thumbnail_url(self, size=None) -> str:
         """
         Generate the URL for the thumbnail of the current item
-        The argument is unused, included for API compt. between IndexData & IndexDirs
+        The argument is unused, included for API compt. between IndexData & DirectoryIndex
 
         Returns
         -------
@@ -803,11 +803,11 @@ class IndexDirs(models.Model):
         """
         # Access preloaded parent_directory (loaded via select_related)
         parent_dir = self.parent_directory
-        await sync_to_async(IndexDirs.delete_directory_record)(self)
+        await sync_to_async(DirectoryIndex.delete_directory_record)(self)
 
         # Clean up parent directory cache if it exists
         if parent_dir:
-            await sync_to_async(IndexDirs.delete_directory_record)(parent_dir, cache_only=True)
+            await sync_to_async(DirectoryIndex.delete_directory_record)(parent_dir, cache_only=True)
 
     def process_new_files(self, fs_file_names: dict, precomputed_shas: dict[str, tuple] | None = None) -> list[IndexData]:
         """
@@ -893,7 +893,7 @@ class IndexDirs(models.Model):
 
         # Get all database directories efficiently - use lightweight query for path comparison
         # Avoid loading full objects with select_related/prefetch_related when only paths needed
-        all_dirs_queryset = IndexDirs.objects.filter(parent_directory=self.pk, delete_pending=False)
+        all_dirs_queryset = DirectoryIndex.objects.filter(parent_directory=self.pk, delete_pending=False)
         db_dirs = set(all_dirs_queryset.values_list("fqpndirectory", flat=True))
         fs_dirs = {normalize_fqpn(current_path + entry.name) for entry in fs_entries.values() if entry.is_dir()}
 
@@ -918,7 +918,7 @@ class IndexDirs(models.Model):
                 if fs_entry := fs_entries.get(dir_name_titled):
                     try:
                         fs_stat = fs_entry.stat()
-                        # Update modification time if changed (IndexDirs doesn't track size)
+                        # Update modification time if changed (DirectoryIndex doesn't track size)
                         if db_dir_entry.lastmod != fs_stat.st_mtime:
                             db_dir_entry.lastmod = fs_stat.st_mtime
                             updated_records.append(db_dir_entry)
@@ -931,7 +931,7 @@ class IndexDirs(models.Model):
                 print(f"processing existing directory changes: {len(updated_records)}")
                 with transaction.atomic():
                     for db_dir_entry in updated_records:
-                        locked_entry = IndexDirs.objects.select_for_update(skip_locked=True).get(id=db_dir_entry.id)
+                        locked_entry = DirectoryIndex.objects.select_for_update(skip_locked=True).get(id=db_dir_entry.id)
                         locked_entry.lastmod = db_dir_entry.lastmod
                         locked_entry.save()
                         Cache_Storage.remove_from_cache_indexdirs(locked_entry)
@@ -944,7 +944,7 @@ class IndexDirs(models.Model):
             logger.info(f"Directories to Add: {len(new_dirs)}")
             with transaction.atomic():
                 for dir_to_create in new_dirs:
-                    IndexDirs.add_directory(fqpn_directory=dir_to_create)
+                    DirectoryIndex.add_directory(fqpn_directory=dir_to_create)
 
         # Delete directories that no longer exist in filesystem
         deleted_dirs = db_dirs - fs_dirs

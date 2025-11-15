@@ -6,7 +6,7 @@ from django.db.models import Q
 from django.test import TestCase
 from filetypes.models import filetypes
 
-from quickbbs.models import IndexData, IndexDirs
+from quickbbs.models import IndexData, DirectoryIndex
 
 
 class TestSearchUtilities(TestCase):
@@ -170,7 +170,7 @@ class TestSearchUtilities(TestCase):
         """Test that search is case insensitive"""
 
         # Create test files with various cases
-        test_dir = IndexDirs.objects.create(
+        test_dir = DirectoryIndex.objects.create(
             fqpndirectory="/test/directory/",
             dir_fqpn_sha256="test_dir_sha",
             lastmod=1234567890.0,
@@ -225,7 +225,7 @@ class TestSearchUtilities(TestCase):
     def test_delete_pending_exclusion(self):
         """Test that files marked for deletion are excluded"""
 
-        test_dir = IndexDirs.objects.create(
+        test_dir = DirectoryIndex.objects.create(
             fqpndirectory="/test/directory/",
             dir_fqpn_sha256="test_dir_sha2",
             lastmod=1234567890.0,

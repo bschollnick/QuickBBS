@@ -7,7 +7,7 @@ import django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "quickbbs.settings")
 django.setup()
 
-from quickbbs.models import IndexData, IndexDirs, convert_text_to_md5_hdigest
+from quickbbs.models import IndexData, DirectoryIndex, convert_text_to_md5_hdigest
 from thumbnails.models import ThumbnailFiles
 import pprint
 import os
@@ -19,7 +19,7 @@ import os
 #         entry.delete()
 #         continue
 
-for entry in IndexDirs.objects.all():
+for entry in DirectoryIndex.objects.all():
 #     # pprint.pprint(entry.__dict__)
      fs_item = os.path.join(entry.fqpndirectory).title().strip()
      if not os.path.exists(fs_item):

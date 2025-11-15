@@ -13,7 +13,7 @@ from django.db.models import Count
 
 from cache_watcher.models import Cache_Storage
 from quickbbs.common import normalize_fqpn
-from quickbbs.models import IndexData, IndexDirs
+from quickbbs.models import IndexData, DirectoryIndex
 
 
 def invalidate_empty_directories(start_path: str | None = None, verbose: bool = True) -> int:
@@ -32,7 +32,7 @@ def invalidate_empty_directories(start_path: str | None = None, verbose: bool = 
     """
     # Query directories with 0 IndexData_entries using Count annotation
     # IndexData_entries is the reverse relationship from IndexData.home_directory
-    empty_directories_query = IndexDirs.objects.annotate(file_count=Count("IndexData_entries")).filter(file_count=0).select_related("Cache_Watcher")
+    empty_directories_query = DirectoryIndex.objects.annotate(file_count=Count("IndexData_entries")).filter(file_count=0).select_related("Cache_Watcher")
 
     # Filter to start_path if specified
     if start_path:
@@ -112,7 +112,7 @@ def invalidate_directories_with_null_sha256(start_path: str | None = None, verbo
         print(f"Found {directory_count} directories containing files without SHA256")
 
     # Invalidate each directory in fs_Cache_Tracking
-    directories_to_invalidate = IndexDirs.objects.filter(id__in=directory_ids)
+    directories_to_invalidate = DirectoryIndex.objects.filter(id__in=directory_ids)
 
     invalidated_count = 0
     for directory in directories_to_invalidate:
@@ -173,7 +173,7 @@ def invalidate_directories_with_null_virtual_directory(start_path: str | None = 
         print(f"Found {directory_count} directories containing link files without virtual_directory")
 
     # Invalidate each directory in fs_Cache_Tracking
-    directories_to_invalidate = IndexDirs.objects.filter(id__in=directory_ids)
+    directories_to_invalidate = DirectoryIndex.objects.filter(id__in=directory_ids)
 
     invalidated_count = 0
     for directory in directories_to_invalidate:
