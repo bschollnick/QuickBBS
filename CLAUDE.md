@@ -32,7 +32,7 @@ See [.claude/critical-runtime.md](.claude/critical-runtime.md) for details.
 - **Django/packages** → `static/` directory only
 - Rule: If you created it, it goes in `resources/`
 
-### Type Hints (Python 3.12+)
+### Type Hints (Python 3.14)
 ```python
 from __future__ import annotations
 

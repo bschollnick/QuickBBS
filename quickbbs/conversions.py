@@ -6,7 +6,7 @@ import django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "quickbbs.settings")
 django.setup()
 
-from quickbbs.models import IndexData, DirectoryIndex, convert_text_to_md5_hdigest
+from quickbbs.models import FileIndex, DirectoryIndex, convert_text_to_md5_hdigest
 from thumbnails.models import ThumbnailFiles
 import pprint
 import os

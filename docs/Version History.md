@@ -309,16 +309,43 @@ Version 3.85 focuses on significant database performance optimizations through c
 
 ---
 
+## Version 3.90 (November 15, 2025)
+**Technology**: Django 6.0 Alpha, HTMX, Code Organization & Optimization
+
+Version 3.90 focuses on significant code organization improvements through model renaming for clarity, materialization optimizations to reduce memory usage, and streamlined gallery search processes for better performance.
+
+### Major Enhancements:
+
+**Code Organization & Clarity:**
+- **Model Renaming**: Renamed `IndexData` to `FileIndex` to better clarify its purpose as the primary file index model
+- **Directory Model Refactoring**: Renamed `IndexDirs` to `DirectoryIndex` for improved code clarity and consistency with naming conventions
+- **Helper Method Migration**: Moved `IndexData` helper methods into the `FileIndex` model/class for better encapsulation and organization
+- **Model Separation**: Split `IndexData` and `IndexDirs` into separate files for better code organization and maintainability
+
+**Performance & Memory Optimizations:**
+- **Materialization Reduction**: Reduced unintended query materializations to minimize memory usage and prevent potential memory leaks
+- **Gallery Search Optimization**: Streamlined the gallery list search process for improved query performance
+- **Import Refactoring**: Fixed inline imports and relocated helper functions to more logical locations for better code organization
+
+**HTMX Enhancements:**
+- **HTMX Optimizations**: Additional HTMX performance improvements for smoother partial page updates
+
+**Bug Fixes:**
+- **Sidebar Sort Options**: Fixed template sort options in the sidebar that were not submitting properly when changed
+
+---
+
 ## Performance Evolution Summary:
 
-| Version | Release Date       | Storage                    | Thumbnails     | Monitoring             |
-| ------- | ------------------ | -------------------------- | -------------- | ---------------------- |
-| Pre-v1  | 2014 and earlier   | File System                | None           | Triggered by access    |
-| v1      | 2014-2016          | File System + Memory Cache | Disk Files     | Triggered by access    |
-| v2      | April 25, 2018     | SQLite Database            | Disk Files     | Triggered by access    |
-| v3.0    | July 13, 2024      | PostgreSQL                 | Database BLOBs | Watchdog               |
-| v3.5    | September 26, 2025 | PostgreSQL                 | Database BLOBs | Watchdog + HTMX        |
-| v3.75   | October 19, 2025   | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI |
-| v3.80   | October 24, 2025   | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI |
-| v3.85   | November 3, 2025   | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI |
+| Version | Release Date        | Storage                    | Thumbnails     | Monitoring             |
+| ------- | ------------------- | -------------------------- | -------------- | ---------------------- |
+| Pre-v1  | 2014 and earlier    | File System                | None           | Triggered by access    |
+| v1      | 2014-2016           | File System + Memory Cache | Disk Files     | Triggered by access    |
+| v2      | April 25, 2018      | SQLite Database            | Disk Files     | Triggered by access    |
+| v3.0    | July 13, 2024       | PostgreSQL                 | Database BLOBs | Watchdog               |
+| v3.5    | September 26, 2025  | PostgreSQL                 | Database BLOBs | Watchdog + HTMX        |
+| v3.75   | October 19, 2025    | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI |
+| v3.80   | October 24, 2025    | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI |
+| v3.85   | November 3, 2025    | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI |
+| v3.90   | November 15, 2025   | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI |
 
