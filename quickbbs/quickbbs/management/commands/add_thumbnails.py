@@ -1,7 +1,7 @@
 """
 Function to add missing thumbnails for files in the database.
 
-This module scans IndexData for files missing thumbnails and generates them.
+This module scans FileIndex for files missing thumbnails and generates them.
 Only processes files with non-generic filetypes (images, videos, PDFs).
 """
 
@@ -11,12 +11,12 @@ from django.db import close_old_connections
 from django.db.models import Q
 from thumbnails.models import ThumbnailFiles
 
-from quickbbs.models import IndexData
+from quickbbs.models import FileIndex
 
 
 def add_thumbnails(max_count: int = 0) -> None:
     """
-    Scan IndexData for files missing thumbnails and generate them.
+    Scan FileIndex for files missing thumbnails and generate them.
 
     Two-pass approach:
     1. Ensure all thumbnailable files have a ThumbnailFiles record
@@ -45,7 +45,7 @@ def add_thumbnails(max_count: int = 0) -> None:
     # Get thumbnailable files with no thumbnail record
     # Note: Don't use distinct() - we want ALL unlinked records to get linked
     # to their existing ThumbnailFiles record (by SHA256)
-    files_without_records = IndexData.objects.filter(
+    files_without_records = FileIndex.objects.filter(
         Q(new_ftnail__isnull=True)
         & Q(is_generic_icon=False)
         & Q(delete_pending=False)
@@ -108,11 +108,11 @@ def add_thumbnails(max_count: int = 0) -> None:
     # Fetch all records without using iterator to avoid server-side cursor issues
     for thumbnail in empty_thumbnails.all():
         try:
-            # Get any IndexData record for this SHA256 (for file path)
-            index_record = IndexData.objects.filter(file_sha256=thumbnail.sha256_hash).first()
+            # Get any FileIndex record for this SHA256 (for file path)
+            index_record = FileIndex.objects.filter(file_sha256=thumbnail.sha256_hash).first()
 
             if not index_record:
-                print(f"Warning: No IndexData for SHA256 {thumbnail.sha256_hash}")
+                print(f"Warning: No FileIndex for SHA256 {thumbnail.sha256_hash}")
                 errors += 1
                 processed += 1
                 continue

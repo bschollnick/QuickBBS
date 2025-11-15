@@ -10,7 +10,7 @@ from django.test import RequestFactory
 from filetypes.models import filetypes
 from frontend.views import search_viewresults
 
-from quickbbs.models import IndexData, DirectoryIndex
+from quickbbs.models import FileIndex, DirectoryIndex
 
 
 @pytest.mark.django_db
@@ -59,7 +59,7 @@ class TestSearchViews:
 
         # Create test files with various separator patterns
         self.test_files = [
-            IndexData.objects.create(
+            FileIndex.objects.create(
                 name="Mary_Jane_Watson_01.jpg",
                 fqpndirectory="/test/path/Mary_Jane_Watson_01.jpg",
                 file_sha256="test_sha_01",
@@ -71,7 +71,7 @@ class TestSearchViews:
                 home_directory=self.test_dir,
                 delete_pending=False,
             ),
-            IndexData.objects.create(
+            FileIndex.objects.create(
                 name="Mary-Jane-Watson-02.jpg",
                 fqpndirectory="/test/path/Mary-Jane-Watson-02.jpg",
                 file_sha256="test_sha_02",
@@ -83,7 +83,7 @@ class TestSearchViews:
                 home_directory=self.test_dir,
                 delete_pending=False,
             ),
-            IndexData.objects.create(
+            FileIndex.objects.create(
                 name="Mary Jane Watson 03.jpg",
                 fqpndirectory="/test/path/Mary Jane Watson 03.jpg",
                 file_sha256="test_sha_03",
@@ -96,7 +96,7 @@ class TestSearchViews:
                 delete_pending=False,
             ),
             # Add a file that should NOT match
-            IndexData.objects.create(
+            FileIndex.objects.create(
                 name="Peter_Parker_01.jpg",
                 fqpndirectory="/test/path/Peter_Parker_01.jpg",
                 file_sha256="test_sha_04",
@@ -339,7 +339,7 @@ class TestSearchViews:
     def test_deleted_files_excluded(self):
         """Test that files marked for deletion are excluded from search results"""
         # Create a file marked for deletion
-        IndexData.objects.create(
+        FileIndex.objects.create(
             name="Mary_Jane_Watson_Deleted.jpg",
             fqpndirectory="/test/path/Mary_Jane_Watson_Deleted.jpg",
             file_sha256="deleted_sha",

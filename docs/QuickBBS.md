@@ -165,7 +165,7 @@ The database is broken into individual applications to aid in the upgrade and mo
 
 - QuickBBS - The core database tables
 	- **DirectoryIndex**: Contains the Index for the Directories, virtual/alias directories.
-	- **IndexData**: Contains the Index for the individual files 
+	- **FileIndex**: Contains the Index for the individual files 
 	- **Thumbnails**: 
 		- **ThumbnailFiles**: The Database table that contains the Thumbnail data for the Index* records.  
 		- The thumbnail engine uses a modular system for generating thumbnails:
@@ -234,7 +234,7 @@ The database is broken into individual applications to aid in the upgrade and mo
 **Key Components**:
 - **`settings.py`**: Main Django configuration with database caching and security settings
 - **`quickbbs_settings.py`**: Application-specific configuration (paths, image sizes, file mappings)
-- **`models.py`**: Shared database models for IndexData and DirectoryIndex
+- **`models.py`**: Shared database models for FileIndex and DirectoryIndex
 - **URL Configuration**: Centralized routing for all application endpoints
 
 #### 5. **thumbnails** - Thumbnail Generation & Binary Storage

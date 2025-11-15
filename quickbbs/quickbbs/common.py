@@ -177,7 +177,7 @@ def get_file_sha(fqfn: str) -> tuple[str | None, str | None]:
 
 #     Example:
 #         entry, error = safe_get_or_error(
-#             IndexData,
+#             FileIndex,
 #             error_message="Entry not found",
 #             unique_sha256=sha256
 #         )

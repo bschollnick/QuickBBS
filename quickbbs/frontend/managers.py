@@ -58,7 +58,7 @@ from frontend.utilities import (
     convert_to_webpath,
     return_breadcrumbs,
 )
-from quickbbs.models import IndexData, distinct_files_cache
+from quickbbs.models import FileIndex, distinct_files_cache
 
 layout_manager_cache = LRUCache(maxsize=500)
 
@@ -245,7 +245,7 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
         return HttpResponseBadRequest(content="No SHA256 provided.")
 
     unique_file_sha256 = unique_file_sha256.strip().lower()
-    entry = IndexData.get_by_sha256(unique_file_sha256, unique=True)
+    entry = FileIndex.get_by_sha256(unique_file_sha256, unique=True)
     if entry is None:
         return HttpResponseBadRequest(content="No entry found.")
 
@@ -261,7 +261,7 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
     if show_duplicates:
         # Include duplicates - use optimized queryset operations instead of materializing all SHAs
         files_qs = (
-            IndexData.objects.filter(home_directory=directory_entry.pk, delete_pending=False)
+            FileIndex.objects.filter(home_directory=directory_entry.pk, delete_pending=False)
             .order_by(*SORT_MATRIX[sort_order_value])
             .values_list("unique_sha256", flat=True)
         )
@@ -274,7 +274,7 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
         sort_fields = SORT_MATRIX[sort_order_value]
 
         # Get the current entry's sort values for comparison
-        current_file = IndexData.objects.filter(unique_sha256=unique_file_sha256).values(*sort_fields).first()
+        current_file = FileIndex.objects.filter(unique_sha256=unique_file_sha256).values(*sort_fields).first()
 
         if current_file:
             # Build Q object for files that come before current file in sort order
@@ -401,7 +401,7 @@ async def async_build_context_info(request: WSGIRequest, unique_file_sha256: str
     )
 
 
-def _process_file_content(entry: IndexData, webpath: str) -> str:
+def _process_file_content(entry: FileIndex, webpath: str) -> str:
     """
     DEPRECATED: Use entry.get_content_html(webpath) instead.
 
@@ -411,7 +411,7 @@ def _process_file_content(entry: IndexData, webpath: str) -> str:
     For async contexts, wrap with: await asyncio.to_thread(_process_file_content, entry, webpath)
 
     Args:
-        entry: IndexData object for the current file (pre-loaded with filetype)
+        entry: FileIndex object for the current file (pre-loaded with filetype)
         webpath: Web path for constructing file path
 
     Returns:

@@ -9,7 +9,7 @@ from django.test import Client
 from django.urls import reverse
 from filetypes.models import filetypes
 
-from quickbbs.models import IndexData, DirectoryIndex
+from quickbbs.models import FileIndex, DirectoryIndex
 
 
 @pytest.mark.django_db
@@ -75,7 +75,7 @@ class TestSearchIntegration:
 
         self.test_files = []
         for i, filename in enumerate(test_files_data):
-            file_obj = IndexData.objects.create(
+            file_obj = FileIndex.objects.create(
                 name=filename,
                 fqpndirectory=f"/albums/test/{filename}",
                 file_sha256=f"test_sha_{i}",

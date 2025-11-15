@@ -40,7 +40,7 @@ from quickbbs.common import (
     normalize_fqpn,
     normalize_string_title,
 )
-from quickbbs.models import IndexData, DirectoryIndex
+from quickbbs.models import FileIndex, DirectoryIndex
 from thumbnails.video_thumbnails import _get_video_info
 
 logger = logging.getLogger(__name__)
@@ -170,7 +170,7 @@ async def _get_or_create_directory(directory_sha256: str, dirpath: str) -> tuple
 
 def _detect_gif_animation(fs_entry: Path) -> bool:
     """
-    DEPRECATED: Use IndexData.is_animated_gif() instead.
+    DEPRECATED: Use FileIndex.is_animated_gif() instead.
 
     Detect if a GIF file is animated.
 
@@ -193,7 +193,7 @@ def _detect_gif_animation(fs_entry: Path) -> bool:
 
 def _process_link_file(fs_entry: Path, filetype: object, filename: str) -> object | None:
     """
-    DEPRECATED: Use IndexData.process_link_file() instead.
+    DEPRECATED: Use FileIndex.process_link_file() instead.
 
     Process link files (.link or .alias) and return the virtual_directory.
 
@@ -276,7 +276,7 @@ def _execute_batch_operations(
     bulk_size: int,
 ) -> None:
     """
-    DEPRECATED: Use IndexData.bulk_sync() instead.
+    DEPRECATED: Use FileIndex.bulk_sync() instead.
 
     Execute all database operations in batches with proper transaction handling.
 
@@ -306,7 +306,7 @@ def _execute_batch_operations(
                 for i in range(0, len(delete_ids_list), bulk_size):
                     chunk_ids = delete_ids_list[i : i + bulk_size]
                     # Use bulk delete with specific field for index usage
-                    IndexData.objects.filter(id__in=chunk_ids).delete()
+                    FileIndex.objects.filter(id__in=chunk_ids).delete()
                 print(f"Deleted {len(records_to_delete_ids)} records")
                 logger.info(f"Deleted {len(records_to_delete_ids)} records")
 
@@ -347,7 +347,7 @@ def _execute_batch_operations(
                     if has_link_with_vdir:
                         update_fields.append("virtual_directory")
 
-                    IndexData.objects.bulk_update(
+                    FileIndex.objects.bulk_update(
                         chunk,
                         fields=update_fields,
                         batch_size=bulk_size,
@@ -359,7 +359,7 @@ def _execute_batch_operations(
             for i in range(0, len(records_to_create), bulk_size):
                 chunk = records_to_create[i : i + bulk_size]
                 with transaction.atomic():
-                    IndexData.objects.bulk_create(
+                    FileIndex.objects.bulk_create(
                         chunk,
                         batch_size=bulk_size,
                         ignore_conflicts=True,  # Handle duplicates gracefully
@@ -448,7 +448,7 @@ def process_filedata(
     fs_entry: Path, directory_id: str | None = None, precomputed_sha: tuple[str | None, str | None] | None = None
 ) -> dict[str, Any] | None:
     """
-    DEPRECATED: Use IndexData.from_filesystem() instead.
+    DEPRECATED: Use FileIndex.from_filesystem() instead.
 
     Process a file system entry and return a dictionary with file metadata.
 
@@ -529,7 +529,7 @@ def process_filedata(
                 return None
 
             # Process link file and get virtual_directory
-            virtual_dir = IndexData.process_link_file(fs_entry, filetype, record["name"])
+            virtual_dir = FileIndex.process_link_file(fs_entry, filetype, record["name"])
             if virtual_dir is None:
                 return None  # Don't add to database - will retry on next scan
 
@@ -547,7 +547,7 @@ def process_filedata(
 
         # Handle animated GIF detection
         if hasattr(filetype, "is_image") and filetype.is_image and fileext == ".gif":
-            record["is_animated"] = IndexData.is_animated_gif(fs_entry)
+            record["is_animated"] = FileIndex.is_animated_gif(fs_entry)
 
         return record
 

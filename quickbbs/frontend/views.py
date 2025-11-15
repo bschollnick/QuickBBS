@@ -44,8 +44,8 @@ from frontend.utilities import (
     sync_database_disk,
 )
 from quickbbs.common import get_dir_sha, normalize_fqpn
-from quickbbs.models import IndexData, DirectoryIndex
-from quickbbs.models import IndexData, DirectoryIndex
+from quickbbs.models import FileIndex, DirectoryIndex
+from quickbbs.models import FileIndex, DirectoryIndex
 from thumbnails.models import ThumbnailFiles
 
 # download_cache = LRUCache(maxsize=1000)
@@ -222,7 +222,7 @@ def get_search_results(searchtext: str, search_regex_pattern: str, sort_order_va
         Tuple of (dirs_queryset, files_queryset)
     """
     if not search_regex_pattern:
-        return DirectoryIndex.objects.none(), IndexData.objects.none()
+        return DirectoryIndex.objects.none(), FileIndex.objects.none()
 
     base_filters = {"delete_pending": False}
     order_by = SORT_MATRIX[sort_order_value]
@@ -234,11 +234,11 @@ def get_search_results(searchtext: str, search_regex_pattern: str, sort_order_va
         search_regex_pattern,
         searchtext,
         order_by,
-        prefetch_fields=["filetype", "IndexData_entries__filetype"],
+        prefetch_fields=["filetype", "FileIndex_entries__filetype"],
         annotate_kwargs={
             "file_count_cached": Count(
-                "IndexData_entries",
-                filter=Q(IndexData_entries__delete_pending=False),
+                "FileIndex_entries",
+                filter=Q(FileIndex_entries__delete_pending=False),
             )
         },
         **base_filters,
@@ -246,7 +246,7 @@ def get_search_results(searchtext: str, search_regex_pattern: str, sort_order_va
 
     # File search with optimized prefetching
     files = _safe_regex_search(
-        IndexData,
+        FileIndex,
         "name",
         search_regex_pattern,
         searchtext,
@@ -305,7 +305,7 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
                 # If thumbnail serving fails, fall through to cover image logic
                 print(f"Directory thumbnail serving failed for {directory.fqpndirectory}: {e}")
                 # Continue to cover image selection below
-    except IndexData.DoesNotExist:
+    except FileIndex.DoesNotExist:
         # Thumbnail FK points to deleted/non-existent record - clear it and regenerate
         print(f"Thumbnail reference broken for {directory.fqpndirectory} - regenerating")
         directory.invalidate_thumb()
@@ -368,19 +368,19 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
 
     Args:
         request: Django Request object
-        sha256: The sha256 of the file - IndexData object
+        sha256: The sha256 of the file - FileIndex object
 
     Returns:
         The sent thumbnail
     """
     thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(sha256)
 
-    # Get associated IndexData - try reverse FK first, fall back to model method
+    # Get associated FileIndex - try reverse FK first, fall back to model method
     try:
-        index_data_item = thumbnail.IndexData.first()
+        index_data_item = thumbnail.FileIndex.first()
         if not index_data_item:
             # Fallback: prefetch cache might be stale, use cached model method
-            index_data_item = IndexData.get_by_sha256(sha256, unique=False)
+            index_data_item = FileIndex.get_by_sha256(sha256, unique=False)
             if not index_data_item:
                 return HttpResponseBadRequest(content="No associated file data found.")
     except (AttributeError, IndexError):
@@ -406,9 +406,9 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
         )
     except Exception as e:
         # If thumbnail generation/serving fails, mark ALL files with this SHA256 as generic
-        # Use IndexData classmethod to ensure layout cache is cleared
+        # Use FileIndex classmethod to ensure layout cache is cleared
         print(f"Thumbnail generation failed for {index_data_item.name}: {e}")
-        IndexData.set_generic_icon_for_sha(sha256, is_generic=True, clear_cache=True)
+        FileIndex.set_generic_icon_for_sha(sha256, is_generic=True, clear_cache=True)
         return index_data_item.filetype.send_thumbnail()
 
 
@@ -586,7 +586,7 @@ def _find_directory(paths: dict):
                 logger.info("Directory not found on filesystem: %s", dirpath)
                 return HttpResponseNotFound("<h1>gallery not found</h1>")
 
-            # Step 2b: Reload directory with optimized query (includes Cache_Watcher, filetype, IndexData_entries)
+            # Step 2b: Reload directory with optimized query (includes Cache_Watcher, filetype, FileIndex_entries)
             # add_directory returns bare object from update_or_create - need prefetched relationships
             _, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha)
 
@@ -704,8 +704,8 @@ async def new_viewgallery(request: WSGIRequest):
             .select_related("thumbnail__new_ftnail")  # Only add nested join (filetype already in dirs_in_dir)
             .annotate(
                 file_count_cached=Count(
-                    "IndexData_entries",
-                    filter=Q(IndexData_entries__delete_pending=False),
+                    "FileIndex_entries",
+                    filter=Q(FileIndex_entries__delete_pending=False),
                 )
             )
         )
@@ -880,7 +880,7 @@ async def download_file(request: WSGIRequest):  # , filename=None):
 
     try:
         # Wrap database query - use optimized download method
-        file_to_send = await sync_to_async(IndexData.get_by_sha256_for_download)(sha_value, unique=True)
+        file_to_send = await sync_to_async(FileIndex.get_by_sha256_for_download)(sha_value, unique=True)
         if file_to_send:
             # Use async sendfile method to avoid sync iterator warning
             response = await file_to_send.async_inline_sendfile(request, ranged=file_to_send.filetype.is_movie)

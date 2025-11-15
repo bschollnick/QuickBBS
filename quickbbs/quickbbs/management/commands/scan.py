@@ -35,7 +35,7 @@ from quickbbs.management.commands.management_helper import (
     invalidate_directories_with_null_sha256,
     invalidate_directories_with_null_virtual_directory,
 )
-from quickbbs.models import IndexData, DirectoryIndex
+from quickbbs.models import FileIndex, DirectoryIndex
 
 
 def verify_directories(start_path: str | None = None):
@@ -151,7 +151,7 @@ async def _verify_files_async(start_path: str | None = None):
     await sync_to_async(invalidate_directories_with_null_virtual_directory, thread_sensitive=True)(start_path=start_path)
 
     print("Checking for invalid files in Database")
-    start_count = await sync_to_async(IndexData.objects.count, thread_sensitive=True)()
+    start_count = await sync_to_async(FileIndex.objects.count, thread_sensitive=True)()
     print("\tStarting File Count: ", start_count)
 
     # Process directories in batches with connection cleanup
@@ -186,7 +186,7 @@ async def _verify_files_async(start_path: str | None = None):
     # Final cleanup
     await sync_to_async(connections.close_all, thread_sensitive=True)()
 
-    end_count = await sync_to_async(IndexData.objects.count, thread_sensitive=True)()
+    end_count = await sync_to_async(FileIndex.objects.count, thread_sensitive=True)()
     print("\tStarting File Count: ", start_count)
     print("\tEnding Count: ", end_count)
     print("\tDifference : ", start_count - end_count)
@@ -234,12 +234,12 @@ class Command(BaseCommand):
         parser.add_argument(
             "--add_files",
             action="store_true",
-            help="Walk albums directory and add any missing files to IndexData",
+            help="Walk albums directory and add any missing files to FileIndex",
         )
         parser.add_argument(
             "--add_thumbnails",
             action="store_true",
-            help="Scan IndexData for files missing thumbnails and generate them (images, videos, PDFs)",
+            help="Scan FileIndex for files missing thumbnails and generate them (images, videos, PDFs)",
         )
         parser.add_argument(
             "--max_count",

@@ -13,15 +13,15 @@ from django.db.models import Count
 
 from cache_watcher.models import Cache_Storage
 from quickbbs.common import normalize_fqpn
-from quickbbs.models import IndexData, DirectoryIndex
+from quickbbs.models import FileIndex, DirectoryIndex
 
 
 def invalidate_empty_directories(start_path: str | None = None, verbose: bool = True) -> int:
     """
     Invalidate directories with 0 files in fs_Cache_Tracking.
 
-    Uses Count annotation on IndexData_entries (reverse FK from IndexData.home_directory)
-    to efficiently identify empty directories without requiring separate IndexData queries.
+    Uses Count annotation on FileIndex_entries (reverse FK from FileIndex.home_directory)
+    to efficiently identify empty directories without requiring separate FileIndex queries.
 
     Args:
         start_path: Optional starting directory path to filter directories
@@ -30,9 +30,9 @@ def invalidate_empty_directories(start_path: str | None = None, verbose: bool = 
     Returns:
         Number of directories invalidated
     """
-    # Query directories with 0 IndexData_entries using Count annotation
-    # IndexData_entries is the reverse relationship from IndexData.home_directory
-    empty_directories_query = DirectoryIndex.objects.annotate(file_count=Count("IndexData_entries")).filter(file_count=0).select_related("Cache_Watcher")
+    # Query directories with 0 FileIndex_entries using Count annotation
+    # FileIndex_entries is the reverse relationship from FileIndex.home_directory
+    empty_directories_query = DirectoryIndex.objects.annotate(file_count=Count("FileIndex_entries")).filter(file_count=0).select_related("Cache_Watcher")
 
     # Filter to start_path if specified
     if start_path:
@@ -88,8 +88,8 @@ def invalidate_directories_with_null_sha256(start_path: str | None = None, verbo
     # Normalize start_path if provided
     normalized_start = normalize_fqpn(start_path) if start_path else None
 
-    # Query for files with NULL SHA256 using IndexData classmethod
-    files_without_sha = IndexData.find_files_without_sha(start_path=normalized_start)
+    # Query for files with NULL SHA256 using FileIndex classmethod
+    files_without_sha = FileIndex.find_files_without_sha(start_path=normalized_start)
 
     # Count before getting directories
     file_count = files_without_sha.count()
@@ -149,8 +149,8 @@ def invalidate_directories_with_null_virtual_directory(start_path: str | None = 
     # Normalize start_path if provided
     normalized_start = normalize_fqpn(start_path) if start_path else None
 
-    # Query for link files with NULL virtual_directory using IndexData classmethod
-    link_files_without_vdir = IndexData.find_broken_link_files(start_path=normalized_start)
+    # Query for link files with NULL virtual_directory using FileIndex classmethod
+    link_files_without_vdir = FileIndex.find_broken_link_files(start_path=normalized_start)
 
     # Count before getting directories
     file_count = link_files_without_vdir.count()

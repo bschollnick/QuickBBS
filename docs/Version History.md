@@ -274,7 +274,7 @@ Version 3.85 focuses on significant database performance optimizations through c
 ### Major Enhancements:
 
 **Database & Performance Optimizations:**
-- **Composite Indexes**: Added composite indexes to `filetypes` and `IndexData` models to accelerate common query patterns
+- **Composite Indexes**: Added composite indexes to `filetypes` and `FileIndex` models to accelerate common query patterns
   - 60-80% speedup on file type filters
   - 30-50% improvement on name/filetype searches
 - **Cover Image Search Optimization**: Replaced nested-loop cover image search with prebuilt Q object for 99% performance improvement

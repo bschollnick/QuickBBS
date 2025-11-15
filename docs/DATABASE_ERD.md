@@ -5,23 +5,23 @@ This ERD shows all database models and their relationships in the QuickBBS galle
 ```mermaid
 erDiagram
     %% Core Gallery Models
-    DirectoryIndex ||--o{ IndexData : "contains (home_directory)"
-    DirectoryIndex ||--o{ IndexData : "virtual_directory"
-    DirectoryIndex ||--o| IndexData : "thumbnail"
-    DirectoryIndex }o--o{ IndexData : "file_links (M2M)"
+    DirectoryIndex ||--o{ FileIndex : "contains (home_directory)"
+    DirectoryIndex ||--o{ FileIndex : "virtual_directory"
+    DirectoryIndex ||--o| FileIndex : "thumbnail"
+    DirectoryIndex }o--o{ FileIndex : "file_links (M2M)"
     DirectoryIndex ||--o{ DirectoryIndex : "parent_directory (self)"
     DirectoryIndex ||--|| filetypes : "filetype"
 
     %% File Models
-    IndexData ||--|| filetypes : "filetype"
-    IndexData ||--o| ThumbnailFiles : "new_ftnail"
-    IndexData ||--o| Owners : "ownership"
+    FileIndex ||--|| filetypes : "filetype"
+    FileIndex ||--o| ThumbnailFiles : "new_ftnail"
+    FileIndex ||--o| Owners : "ownership"
 
     %% Cache Tracking
     DirectoryIndex ||--|| fs_Cache_Tracking : "Cache_Watcher"
 
     %% Thumbnail Storage
-    ThumbnailFiles ||--o{ IndexData : "thumbnail links"
+    ThumbnailFiles ||--o{ FileIndex : "thumbnail links"
 
     %% User & Preferences
     User ||--|| Owners : "ownerdetails"
@@ -45,11 +45,11 @@ erDiagram
         bool is_generic_icon
         bool delete_pending
         string filetype FK "to filetypes.fileext"
-        int thumbnail FK "to IndexData"
+        int thumbnail FK "to FileIndex"
     }
 
     %% Core File Model
-    IndexData {
+    FileIndex {
         int id PK
         string file_sha256 "file content hash"
         string unique_sha256 UK "file + path hash"
@@ -142,12 +142,12 @@ Master directory index for the gallery filesystem. Each record represents a fold
 - **Unique Keys**: `fqpndirectory` (path), `dir_fqpn_sha256` (hash)
 - **Self-referential**: `parent_directory` links to parent folder
 - **Relationships**:
-  - Has many files (`IndexData.home_directory`)
-  - Has optional thumbnail (`thumbnail` → `IndexData`)
+  - Has many files (`FileIndex.home_directory`)
+  - Has optional thumbnail (`thumbnail` → `FileIndex`)
   - Can link to files via M2M (`file_links`)
   - Tracked by cache system (`Cache_Watcher`)
 
-#### IndexData
+#### FileIndex
 Master file index for all files in the gallery.
 - **Primary Key**: Auto-incrementing `id`
 - **Unique Key**: `unique_sha256` (hash of file content + path)
@@ -207,13 +207,13 @@ Placeholder for future favorites functionality.
 DirectoryIndex (parent)
     ↓ parent_directory (self-referential FK)
 DirectoryIndex (child)
-    ↓ IndexData_entries (reverse FK)
-IndexData (files in directory)
+    ↓ FileIndex_entries (reverse FK)
+FileIndex (files in directory)
 ```
 
 ### Thumbnail System
 ```
-IndexData (file)
+FileIndex (file)
     ↓ file_sha256
 ThumbnailFiles (sha256_hash match)
     → small_thumb, medium_thumb, large_thumb
@@ -228,7 +228,7 @@ fs_Cache_Tracking (invalidated flag)
 
 ### File Type Detection
 ```
-IndexData (file)
+FileIndex (file)
     ↓ filetype (FK)
 filetypes (fileext = ".jpg")
     → is_image=True, mimetype="image/jpeg", etc.
@@ -243,7 +243,7 @@ The models use extensive indexing for performance:
 - `parent_directory + delete_pending` (composite)
 - `filetype` (foreign key)
 
-### IndexData Indexes
+### FileIndex Indexes
 - `file_sha256` (duplicate detection)
 - `unique_sha256` (unique, primary lookup)
 - `home_directory + delete_pending` (composite)

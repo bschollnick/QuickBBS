@@ -44,8 +44,8 @@ logger = logging.getLogger(__name__)
 
 # Async-safe caches for database object lookups
 directoryindex_cache = LRUCache(maxsize=1000)
-indexdata_cache = LRUCache(maxsize=1000)
-indexdata_download_cache = LRUCache(maxsize=500)
+fileindex_cache = LRUCache(maxsize=1000)
+fileindex_download_cache = LRUCache(maxsize=500)
 
 # Cache for distinct file lists per directory (for pagination efficiency)
 # Cache key: (directory_instance, sort_ordering)
@@ -62,7 +62,7 @@ class Owners(models.Model):
     ownerdetails = models.OneToOneField(User, on_delete=models.CASCADE, db_index=True, default=None)
 
     # Reverse one-to-one relationship
-    indexdata: "models.OneToOneRel[IndexData]"  # type: ignore[valid-type]  # From IndexData.ownership
+    fileindex: "models.OneToOneRel[FileIndex]"  # type: ignore[valid-type]  # From FileIndex.ownership
 
     class Meta:
         verbose_name = "Ownership"
@@ -81,14 +81,14 @@ class Favorites(models.Model):
 # Forward ForeignKeys and OneToOne - use select_related() for SQL JOINs (single query)
 DIRECTORYINDEX_SELECT_RELATED_LIST = [
     "filetype",
-    "thumbnail",  # Forward FK to IndexData - needed for thumbnail display
+    "thumbnail",  # Forward FK to FileIndex - needed for thumbnail display
     "Cache_Watcher",  # Reverse OneToOne - can use select_related
     "parent_directory",  # Forward FK - preload for navigation
 ]
 
 # Reverse ForeignKeys - use prefetch_related() for separate queries
 DIRECTORYINDEX_PREFETCH_LIST = [
-    "IndexData_entries",
+    "FileIndex_entries",
     # "file_links",
     # "thumbnail",
     # "parent_directory",
@@ -98,9 +98,9 @@ DIRECTORYINDEX_PREFETCH_LIST = [
 
 def set_file_generic_icon(file_sha256: str, is_generic: bool, clear_cache: bool = True) -> int:
     """
-    DEPRECATED: Use IndexData.set_generic_icon_for_sha() instead.
+    DEPRECATED: Use FileIndex.set_generic_icon_for_sha() instead.
 
-    Set is_generic_icon for all IndexData files with the given SHA256.
+    Set is_generic_icon for all FileIndex files with the given SHA256.
 
     Shared function to ensure consistent is_generic_icon updates across:
     - Thumbnail generation (success/failure)
@@ -119,11 +119,11 @@ def set_file_generic_icon(file_sha256: str, is_generic: bool, clear_cache: bool 
     Returns:
         Number of files updated
     """
-    return IndexData.set_generic_icon_for_sha(file_sha256, is_generic, clear_cache)
+    return FileIndex.set_generic_icon_for_sha(file_sha256, is_generic, clear_cache)
 
 
 # Forward ForeignKeys - use select_related() for SQL JOINs (single query)
-INDEXDATA_SELECT_RELATED_LIST = [
+FILEINDEX_SELECT_RELATED_LIST = [
     "filetype",
     "new_ftnail",
     "home_directory",
@@ -131,34 +131,34 @@ INDEXDATA_SELECT_RELATED_LIST = [
 ]
 
 # Reverse ForeignKeys - use prefetch_related() for separate queries
-# Currently empty as IndexData has no reverse relationships in the standard query
-INDEXDATA_PREFETCH_LIST = []
+# Currently empty as FileIndex has no reverse relationships in the standard query
+FILEINDEX_PREFETCH_LIST = []
 
 # Minimal select_related for downloads - filetype and home_directory needed
-INDEXDATA_DOWNLOAD_SELECT_RELATED_LIST = [
+FILEINDEX_DOWNLOAD_SELECT_RELATED_LIST = [
     "filetype",
     "home_directory",
 ]
 
 
-# Import and re-export main models (allows: from quickbbs.models import DirectoryIndex, IndexData)
-from .indexdata import IndexData  # noqa: E402
+# Import and re-export main models (allows: from quickbbs.models import DirectoryIndex, FileIndex)
+from .fileindex import FileIndex  # noqa: E402
 from .directoryindex import DirectoryIndex  # noqa: E402
 
 __all__ = [
     "Owners",
     "Favorites",
     "DirectoryIndex",
-    "IndexData",
+    "FileIndex",
     "directoryindex_cache",
-    "indexdata_cache",
-    "indexdata_download_cache",
+    "fileindex_cache",
+    "fileindex_download_cache",
     "distinct_files_cache",
     "DIRECTORYINDEX_SELECT_RELATED_LIST",
     "DIRECTORYINDEX_PREFETCH_LIST",
-    "INDEXDATA_SELECT_RELATED_LIST",
-    "INDEXDATA_PREFETCH_LIST",
-    "INDEXDATA_DOWNLOAD_SELECT_RELATED_LIST",
+    "FILEINDEX_SELECT_RELATED_LIST",
+    "FILEINDEX_PREFETCH_LIST",
+    "FILEINDEX_DOWNLOAD_SELECT_RELATED_LIST",
     "logger",
     "set_file_generic_icon",
 ]

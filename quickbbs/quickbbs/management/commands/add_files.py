@@ -2,7 +2,7 @@
 Function to add missing files from filesystem to database.
 
 This module iterates through directories in the database and adds any missing
-files to IndexData. It uses the sync_database_disk function to properly scan
+files to FileIndex. It uses the sync_database_disk function to properly scan
 directories and add files.
 """
 
@@ -21,7 +21,7 @@ from quickbbs.management.commands.management_helper import (
     invalidate_directories_with_null_sha256,
     invalidate_directories_with_null_virtual_directory,
 )
-from quickbbs.models import IndexData, DirectoryIndex
+from quickbbs.models import FileIndex, DirectoryIndex
 
 
 async def _add_files_async(max_count: int = 0, start_path: str | None = None) -> None:
@@ -80,7 +80,7 @@ async def _add_files_async(max_count: int = 0, start_path: str | None = None) ->
     print(f"Processing {dirs_to_process} directories to add missing files...")
 
     # Track file additions across all directories
-    initial_file_count = await sync_to_async(IndexData.objects.count, thread_sensitive=True)()
+    initial_file_count = await sync_to_async(FileIndex.objects.count, thread_sensitive=True)()
     print(f"Initial file count in database: {initial_file_count}")
 
     # Iterate through directories
@@ -108,7 +108,7 @@ async def _add_files_async(max_count: int = 0, start_path: str | None = None) ->
 
             # Progress indicator
             if processed_count % 10 == 0:
-                current_file_count = await sync_to_async(IndexData.objects.count, thread_sensitive=True)()
+                current_file_count = await sync_to_async(FileIndex.objects.count, thread_sensitive=True)()
                 files_added = current_file_count - initial_file_count
                 elapsed_time = time.time() - start_time
                 file_rate = files_added / elapsed_time if elapsed_time > 0 else 0
@@ -127,7 +127,7 @@ async def _add_files_async(max_count: int = 0, start_path: str | None = None) ->
     close_old_connections()
 
     # Calculate final statistics
-    final_file_count = await sync_to_async(IndexData.objects.count, thread_sensitive=True)()
+    final_file_count = await sync_to_async(FileIndex.objects.count, thread_sensitive=True)()
     total_files_added = final_file_count - initial_file_count
     total_time = time.time() - start_time
     file_rate = total_files_added / total_time if total_time > 0 else 0
