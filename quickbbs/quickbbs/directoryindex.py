@@ -113,6 +113,7 @@ class DirectoryIndex(models.Model):
     Virtual_IndexData: "models.manager.RelatedManager[IndexData]"
 
     class Meta:
+        db_table = "quickbbs_directoryindex"
         verbose_name = "Master Directory Index"
         verbose_name_plural = "Master Directory Index"
         indexes = [
@@ -341,7 +342,7 @@ class DirectoryIndex(models.Model):
     @staticmethod
     def delete_directory_record(index_dir: "DirectoryIndex", cache_only: bool = False) -> None:
         """
-        Delete the Index_Dirs record and ensure cache cleanup.
+        Delete the Directory_Index record and ensure cache cleanup.
 
         Optimized version that accepts an DirectoryIndex record directly,
         avoiding redundant database lookups.
@@ -369,12 +370,12 @@ class DirectoryIndex(models.Model):
     @staticmethod
     def delete_directory(fqpn_directory: str, cache_only: bool = False) -> None:
         """
-        Delete the Index_Dirs data for the fqpn_directory, and ensure that all
+        Delete the Directory_Index data for the fqpn_directory, and ensure that all
         IndexData records are wiped as well.
 
         Args:
             fqpn_directory: text string of fully qualified pathname of the directory
-            cache_only: Do not perform a delete on the Index_Dirs data
+            cache_only: Do not perform a delete on the Directory_Index data
 
         Returns:
         """

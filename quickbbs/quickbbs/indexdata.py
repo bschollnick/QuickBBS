@@ -39,7 +39,7 @@ from .models import (
 )
 
 if TYPE_CHECKING:
-    from .indexdirs import DirectoryIndex
+    from .directoryindex import DirectoryIndex
 
 
 class IndexData(models.Model):
@@ -628,7 +628,7 @@ class IndexData(models.Model):
         from frontend.utilities import resolve_alias_path
         from quickbbs.common import normalize_fqpn
 
-        from .indexdirs import DirectoryIndex
+        from .directoryindex import DirectoryIndex
 
         try:
             if filetype.fileext == ".link":

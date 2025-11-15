@@ -45,6 +45,7 @@ from frontend.utilities import (
 )
 from quickbbs.common import get_dir_sha, normalize_fqpn
 from quickbbs.models import IndexData, DirectoryIndex
+from quickbbs.models import IndexData, DirectoryIndex
 from thumbnails.models import ThumbnailFiles
 
 # download_cache = LRUCache(maxsize=1000)
@@ -715,9 +716,7 @@ async def new_viewgallery(request: WSGIRequest):
     if layout["data"]["files"]:
         # Fetch and separate files and links in one pass
         # Note: select_related already handled by files_in_dir() - no need to duplicate
-        all_items = await sync_to_async(list)(
-            directory.files_in_dir(sort=context["sort"]).filter(unique_sha256__in=layout["data"]["files"])
-        )
+        all_items = await sync_to_async(list)(directory.files_in_dir(sort=context["sort"]).filter(unique_sha256__in=layout["data"]["files"]))
         files_list = [f for f in all_items if not f.filetype.is_link]
         links_list = [f for f in all_items if f.filetype.is_link]
     else:

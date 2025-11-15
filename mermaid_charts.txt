@@ -38,3 +38,33 @@ end
 subgraph Directory Index
     Dir_Index_Data[Index Data] --> Small_DirThumbnail[Small Thumbnail Blob]
 end
+
+-----------
+v3 partial Update
+-----------
+graph TD
+    Index_Data --> aa(Thumbnail Index)
+    aa --> bb(Small Thumbnail)
+    aa --> cc(Medium Thumbnail)
+    aa --> dd(Large Thumbnail)
+
+    
+    fs_Cache_Tracking --> fs_wait(Wait For File System Change)
+    fs_wait --> fs_file_system_change_detected(File System Change Detected)
+    fs_file_system_change_detected --> | This is within the gallery root. Watchdog is only set for the gallery root| fs_b(invalidate folders cache)
+    fs_b --> fs_file_system_change_detected
+
+    WebRequest --> |Directory or Files| B(Check fs_Cache_Tracking)
+    B --> |Directory not in fs_Cache_Tracking or marked invalidated |M(Scan Directory)
+    M --> N(Process Changes in Directory)
+    N --> |Mark Cache as Valid|fs_wait
+    B --> |Found in Cache fs_Cache_Tracking| D
+    N --> O(Create or Update File Records in Index_Data)
+    O --> P(Create Thumbnail Record in Thumbnails_Files or Thumbnails_Dirs)
+    P --> D(Send content to client)
+    WebRequest --> |Thumbnails|AA(Check Index_Data for UUID of thumbnail target)
+    AA --> |Not Found| BB(Display Error)
+    AA --> CC(Record Found)
+    CC --> |Thumbnail Does not Exist|DD(Create Thumbnail)
+    CC --> |Thumbnail Exists|EE(Send Thumbnail to client)
+    DD --> EE

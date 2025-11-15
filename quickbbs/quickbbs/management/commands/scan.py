@@ -309,11 +309,11 @@ class Command(BaseCommand):
 
 
 # # Use
-# from quickbbs.models import Index_Dirs, Thumbnails_Dirs, convert_text_to_md5_hdigest
+# from quickbbs.models import Directory_Index, Thumbnails_Dirs, convert_text_to_md5_hdigest
 #
-# new_dir_index = Index_Dirs
+# new_dir_index = Directory_Index
 #
-# # class Index_Dirs(models.Model):
+# # class Directory_Index(models.Model):
 # #     uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True, blank=True)
 # #     DirName = models.CharField(db_index=False, max_length=384, default='', blank=True)  # FQFN of the file itself
 # #     WebPath_md5 = models.CharField(db_index=True, max_length=32, unique=False)
@@ -335,7 +335,7 @@ class Command(BaseCommand):
 # for entry in Thumbnails_Dirs.objects.all()[0:1]:
 #     print(entry.FilePath)
 #     #Combined_md5 = convert_text_to_md5_hdigest(entry.DirName)
-#     found, record = Index_Dirs.search_for_directory(entry.DirName)
+#     found, record = Directory_Index.search_for_directory(entry.DirName)
 #     # if found:
 #     #     if record.DirName != entry.FilePath:
 #     #         record.DirName = entry.FilePath
@@ -344,7 +344,7 @@ class Command(BaseCommand):
 #     #         record.SmallThumb = entry.SmallThumb
 #     #         record.save()
 #     # else:
-#     Index_Dirs.add_directory(fqpn_directory=entry.FilePath,
+#     Directory_Index.add_directory(fqpn_directory=entry.FilePath,
 #                              thumbnail = entry.SmallThumb)
 #     sys.exit()
 #

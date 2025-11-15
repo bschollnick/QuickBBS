@@ -26,22 +26,16 @@ class Migration(migrations.Migration):
                 ("generic", models.BooleanField(db_index=True, default=False)),
                 (
                     "icon_filename",
-                    models.CharField(
-                        blank=True, db_index=True, default="", max_length=384
-                    ),
+                    models.CharField(blank=True, db_index=True, default="", max_length=384),
                 ),
                 ("color", models.CharField(default="000000", max_length=7)),
                 (
                     "filetype",
-                    models.IntegerField(
-                        blank=True, db_index=True, default=0, null=True
-                    ),
+                    models.IntegerField(blank=True, db_index=True, default=0, null=True),
                 ),
                 (
                     "mimetype",
-                    models.CharField(
-                        default="application/octet-stream", max_length=128, null=True
-                    ),
+                    models.CharField(default="application/octet-stream", max_length=128, null=True),
                 ),
                 ("is_image", models.BooleanField(db_index=True, default=False)),
                 ("is_archive", models.BooleanField(db_index=True, default=False)),

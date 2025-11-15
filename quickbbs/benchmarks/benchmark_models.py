@@ -319,9 +319,7 @@ def run_indexdata_read_benchmarks() -> list[BenchmarkResult]:
 
     # Get 25 random sample files for testing (exclude files without home_directory)
     sample_files = list(
-        IndexData.objects.filter(delete_pending=False, home_directory__isnull=False)
-        .select_related("home_directory")
-        .order_by("?")[:25]
+        IndexData.objects.filter(delete_pending=False, home_directory__isnull=False).select_related("home_directory").order_by("?")[:25]
     )
     if not sample_files:
         print("No files found in database. Skipping IndexData benchmarks.")
