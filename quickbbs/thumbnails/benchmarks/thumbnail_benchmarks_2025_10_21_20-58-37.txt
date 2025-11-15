@@ -1,0 +1,303 @@
+======================================================================
+Thumbnail Generation Backend Benchmarks
+======================================================================
+Log file: thumbnail_benchmarks_2025_10_21_20-58-37.txt
+Output directory: test_output
+======================================================================
+Iterations per backend: 100
+Thumbnail sizes: {'large': (1024, 1024), 'medium': (740, 740), 'small': (200, 200)}
+PIL image quality: 85
+Core Image quality: 75
+Working directory: /Volumes/C-8TB/gallery/quickbbs/quickbbs/thumbnails/benchmarks
+
+Backend Availability:
+  Core Image:     True
+  AVFoundation:   True
+  PDFKit:         True
+
+======================================================================
+Testing with: small_test.jpg
+======================================================================
+
+======================================================================
+PIL/Pillow Backend
+======================================================================
+
+Benchmarking PIL/Pillow...
+  Backend:     image
+  Test file:   small_test.jpg
+  Iterations:  100
+  Quality:     85
+  Progress: 100/100 iterations...
+
+======================================================================
+PIL/Pillow Results
+======================================================================
+Total iterations:     100
+Total time:           360.3ms
+Average per iter:     3.6ms
+Median per iter:      3.3ms
+Min per iter:         3.0ms
+Max per iter:         21.3ms
+Std deviation:        2.1ms
+Throughput:           277.5 images/sec
+
+======================================================================
+Core Image Backend (macOS)
+======================================================================
+
+Benchmarking Core Image...
+  Backend:     coreimage
+  Test file:   small_test.jpg
+  Iterations:  100
+  Quality:     75
+  Progress: 100/100 iterations...
+
+======================================================================
+Core Image Results
+======================================================================
+Total iterations:     100
+Total time:           787.5ms
+Average per iter:     7.9ms
+Median per iter:      7.3ms
+Min per iter:         6.7ms
+Max per iter:         57.2ms
+Std deviation:        5.0ms
+Throughput:           127.0 images/sec
+
+======================================================================
+Comparison: Core Image vs PIL
+======================================================================
+Core Image total time:  787.5ms
+PIL total time:         360.3ms
+Speedup:                0.46x
+
+Core Image avg/iter:    7.9ms
+PIL avg/iter:           3.6ms
+Avg speedup:            0.46x
+
+======================================================================
+Testing with: medium_test.jpg
+======================================================================
+
+======================================================================
+PIL/Pillow Backend
+======================================================================
+
+Benchmarking PIL/Pillow...
+  Backend:     image
+  Test file:   medium_test.jpg
+  Iterations:  100
+  Quality:     85
+  Progress: 100/100 iterations...
+
+======================================================================
+PIL/Pillow Results
+======================================================================
+Total iterations:     100
+Total time:           8.958s
+Average per iter:     89.6ms
+Median per iter:      88.9ms
+Min per iter:         87.6ms
+Max per iter:         119.5ms
+Std deviation:        3.2ms
+Throughput:           11.2 images/sec
+
+======================================================================
+Core Image Backend (macOS)
+======================================================================
+
+Benchmarking Core Image...
+  Backend:     coreimage
+  Test file:   medium_test.jpg
+  Iterations:  100
+  Quality:     75
+  Progress: 100/100 iterations...
+
+======================================================================
+Core Image Results
+======================================================================
+Total iterations:     100
+Total time:           4.287s
+Average per iter:     42.9ms
+Median per iter:      42.0ms
+Min per iter:         40.7ms
+Max per iter:         81.5ms
+Std deviation:        4.9ms
+Throughput:           23.3 images/sec
+
+======================================================================
+Comparison: Core Image vs PIL
+======================================================================
+Core Image total time:  4.287s
+PIL total time:         8.958s
+Speedup:                2.09x
+
+Core Image avg/iter:    42.9ms
+PIL avg/iter:           89.6ms
+Avg speedup:            2.09x
+
+======================================================================
+Testing with: large_test.png
+======================================================================
+
+======================================================================
+PIL/Pillow Backend
+======================================================================
+
+Benchmarking PIL/Pillow...
+  Backend:     image
+  Test file:   large_test.png
+  Iterations:  100
+  Quality:     85
+  Progress: 100/100 iterations...
+
+======================================================================
+PIL/Pillow Results
+======================================================================
+Total iterations:     100
+Total time:           27.676s
+Average per iter:     276.7ms
+Median per iter:      274.3ms
+Min per iter:         270.0ms
+Max per iter:         390.1ms
+Std deviation:        14.7ms
+Throughput:           3.6 images/sec
+
+======================================================================
+Core Image Backend (macOS)
+======================================================================
+
+Benchmarking Core Image...
+  Backend:     coreimage
+  Test file:   large_test.png
+  Iterations:  100
+  Quality:     75
+  Progress: 100/100 iterations...
+
+======================================================================
+Core Image Results
+======================================================================
+Total iterations:     100
+Total time:           19.871s
+Average per iter:     198.7ms
+Median per iter:      196.8ms
+Min per iter:         169.5ms
+Max per iter:         236.2ms
+Std deviation:        16.9ms
+Throughput:           5.0 images/sec
+
+======================================================================
+Comparison: Core Image vs PIL
+======================================================================
+Core Image total time:  19.871s
+PIL total time:         27.676s
+Speedup:                1.39x
+
+Core Image avg/iter:    198.7ms
+PIL avg/iter:           276.7ms
+Avg speedup:            1.39x
+
+======================================================================
+Video Backends
+======================================================================
+
+Benchmarking FFmpeg...
+  Backend:     video
+  Test file:   test.mp4
+  Iterations:  100
+  Quality:     85
+  Progress: 100/100 iterations...
+
+======================================================================
+FFmpeg Results
+======================================================================
+Total iterations:     100
+Total time:           11.767s
+Average per iter:     117.7ms
+Median per iter:      110.5ms
+Min per iter:         108.1ms
+Max per iter:         733.8ms
+Std deviation:        62.3ms
+Throughput:           8.5 images/sec
+
+Benchmarking AVFoundation...
+  Backend:     corevideo
+  Test file:   test.mp4
+  Iterations:  100
+  Quality:     75
+  Progress: 100/100 iterations...
+
+======================================================================
+AVFoundation Results
+======================================================================
+Total iterations:     100
+Total time:           1.735s
+Average per iter:     17.3ms
+Median per iter:      15.7ms
+Min per iter:         12.9ms
+Max per iter:         124.8ms
+Std deviation:        11.4ms
+Throughput:           57.6 images/sec
+
+======================================================================
+Comparison: AVFoundation vs FFmpeg
+======================================================================
+AVFoundation total:  1.735s
+FFmpeg total:        11.767s
+Speedup:             6.78x
+
+======================================================================
+PDF Backends
+======================================================================
+
+Benchmarking PyMuPDF...
+  Backend:     pymupdf
+  Test file:   test.pdf
+  Iterations:  100
+  Quality:     85
+  Progress: 100/100 iterations...
+
+======================================================================
+PyMuPDF Results
+======================================================================
+Total iterations:     100
+Total time:           3.091s
+Average per iter:     30.9ms
+Median per iter:      30.2ms
+Min per iter:         29.8ms
+Max per iter:         85.1ms
+Std deviation:        5.7ms
+Throughput:           32.4 images/sec
+
+Benchmarking PDFKit...
+  Backend:     pdfkit
+  Test file:   test.pdf
+  Iterations:  100
+  Quality:     75
+  Progress: 100/100 iterations...
+
+======================================================================
+PDFKit Results
+======================================================================
+Total iterations:     100
+Total time:           1.980s
+Average per iter:     19.8ms
+Median per iter:      18.8ms
+Min per iter:         17.3ms
+Max per iter:         64.9ms
+Std deviation:        4.9ms
+Throughput:           50.5 images/sec
+
+======================================================================
+Comparison: PDFKit vs PyMuPDF
+======================================================================
+PDFKit total:    1.980s
+PyMuPDF total:   3.091s
+Speedup:         1.56x
+
+======================================================================
+Benchmarks Complete
+======================================================================
+
+Benchmark results saved to: thumbnail_benchmarks_2025_10_21_20-58-37.txt

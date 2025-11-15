@@ -815,7 +815,7 @@ class fs_Cache_Tracking(models.Model):
 
             if affected_directories:
                 self._clear_layout_cache_bulk(affected_directories)
-                self._clear_indexdirs_cache_bulk(affected_directories)
+                self._clear_directoryindex_cache_bulk(affected_directories)
 
             logger.info("Successfully invalidated %d cache entries (object-based)", update_count)
 
@@ -1000,7 +1000,7 @@ class fs_Cache_Tracking(models.Model):
 
             if affected_directories:
                 self._clear_layout_cache_bulk(affected_directories)
-                self._clear_indexdirs_cache_bulk(affected_directories)
+                self._clear_directoryindex_cache_bulk(affected_directories)
 
             logger.info("Successfully invalidated %d cache entries", update_count)
 
@@ -1036,9 +1036,9 @@ class fs_Cache_Tracking(models.Model):
         except (KeyError, ImportError, AttributeError) as e:
             logger.error("Error clearing layout cache for directories: %s", e)
 
-    def _clear_indexdirs_cache_bulk(self, directories: list[Any]) -> None:
+    def _clear_directoryindex_cache_bulk(self, directories: list[Any]) -> None:
         """
-        Clear indexdirs LRU cache for invalidated directories.
+        Clear DirectoryIndex LRU cache for invalidated directories.
 
         When directories are invalidated, their cached DirectoryIndex objects must be
         removed from the LRU cache to prevent stale is_cached checks. The cache
@@ -1060,7 +1060,7 @@ class fs_Cache_Tracking(models.Model):
                         del directoryindex_cache[sha]
                         cleared_count += 1
 
-            logger.debug("Cleared %d indexdirs cache entries for %d directories", cleared_count, len(directories))
+            logger.debug("Cleared %d DirectoryIndex cache entries for %d directories", cleared_count, len(directories))
 
         except (KeyError, ImportError, AttributeError) as e:
-            logger.error("Error clearing indexdirs cache for directories: %s", e)
+            logger.error("Error clearing DirectoryIndex cache for directories: %s", e)

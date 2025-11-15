@@ -32,23 +32,15 @@ def extract_person_name(filename):
     )
 
     # Remove age patterns like "46 year-old", "at 45", "Turns 50 Today", etc.
-    name_part = re.sub(
-        r"\b\d{1,2}\s+year[s]?-old\b", "", name_part, flags=re.IGNORECASE
-    )
+    name_part = re.sub(r"\b\d{1,2}\s+year[s]?-old\b", "", name_part, flags=re.IGNORECASE)
     name_part = re.sub(r"\bat\s+\d{1,2}\b", "", name_part, flags=re.IGNORECASE)
-    name_part = re.sub(
-        r"\bTurns?\s+\d{1,2}\s+(Today|today)!?\b", "", name_part, flags=re.IGNORECASE
-    )
+    name_part = re.sub(r"\bTurns?\s+\d{1,2}\s+(Today|today)!?\b", "", name_part, flags=re.IGNORECASE)
     name_part = re.sub(r"\bis\s+\d{1,2}\b", "", name_part, flags=re.IGNORECASE)
 
     # Remove years and dates
     name_part = re.sub(r"\b(19|20)\d{2}\b", "", name_part)  # Remove years
-    name_part = re.sub(
-        r"\b(in|from)\s+(19|20)\d{2}\b", "", name_part, flags=re.IGNORECASE
-    )
-    name_part = re.sub(
-        r"\blast\s+year\s+\((19|20)\d{2}\)", "", name_part, flags=re.IGNORECASE
-    )
+    name_part = re.sub(r"\b(in|from)\s+(19|20)\d{2}\b", "", name_part, flags=re.IGNORECASE)
+    name_part = re.sub(r"\blast\s+year\s+\((19|20)\d{2}\)", "", name_part, flags=re.IGNORECASE)
 
     # Remove birthday wishes and similar phrases
     name_part = re.sub(
@@ -209,9 +201,7 @@ def main():
     print("=" * 40)
 
     # Get source directory from user
-    source_dir = input(
-        "Enter the path to the directory containing your files: "
-    ).strip()
+    source_dir = input("Enter the path to the directory containing your files: ").strip()
 
     if not source_dir:
         source_dir = "."  # Current directory if nothing entered
@@ -223,9 +213,7 @@ def main():
     print(f"\nAnalyzing files in: {os.path.abspath(source_dir)}")
 
     # Ask user if they want to proceed with moving files
-    response = (
-        input("\nDo you want to actually move the files? (y/n): ").strip().lower()
-    )
+    response = input("\nDo you want to actually move the files? (y/n): ").strip().lower()
 
     if response in ["y", "yes"]:
         organize_files(source_dir, create_subdirs=True)

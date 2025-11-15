@@ -24,15 +24,11 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "sha256_hash",
-                    models.CharField(
-                        blank=True, db_index=True, default=None, null=True, unique=True
-                    ),
+                    models.CharField(blank=True, db_index=True, default=None, null=True, unique=True),
                 ),
                 (
                     "fqpn_filename",
-                    models.CharField(
-                        db_index=True, default=None, max_length=384, unique=True
-                    ),
+                    models.CharField(db_index=True, default=None, max_length=384, unique=True),
                 ),
                 ("small_thumb", models.BinaryField(default=b"", null=True)),
                 ("medium_thumb", models.BinaryField(default=b"", null=True)),
