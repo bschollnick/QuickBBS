@@ -6,15 +6,19 @@ from __future__ import annotations
 
 import asyncio
 import io
+import os
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from PIL import Image
-
+import charset_normalizer
+import markdown2
+from cachetools import LRUCache, cached
 from django.db.models import Count
 from django.db.models.query import QuerySet
 from django.http import FileResponse, Http404, HttpResponse
 from django.urls import reverse
+from PIL import Image
 
 from thumbnails.video_thumbnails import _get_video_info
 
@@ -28,10 +32,10 @@ from .models import (
     RangedFileResponse,
     ThumbnailFiles,
     cached,
-    filetypes,
-    get_file_sha,
     fileindex_cache,
     fileindex_download_cache,
+    filetypes,
+    get_file_sha,
     logger,
     models,
     settings,
@@ -57,6 +61,11 @@ class FileIndex(models.Model):
     if the database record is deleted, and then recreated.  Where the unique_sha256 can be, as long as the
     file & file path is the same and unchanged.
     """
+
+    # Class-level caches for improved performance
+    _encoding_cache = LRUCache(maxsize=1000)
+    _markdown_processor = markdown2.Markdown()
+    _alias_cache = LRUCache(maxsize=250)
 
     id = models.AutoField(primary_key=True)
 
@@ -379,10 +388,7 @@ class FileIndex(models.Model):
             Dictionary containing file metadata suitable for FileIndex(**metadata), or None if processing fails
         """
         # Inline imports to avoid circular dependencies
-        import time
-
         import filetypes.models as filetype_models
-
         from quickbbs.common import get_file_sha, normalize_string_title
 
         try:
@@ -625,7 +631,6 @@ class FileIndex(models.Model):
             DirectoryIndex object for the target directory, or None if target cannot be resolved
         """
         # Inline imports to avoid circular dependencies
-        from frontend.utilities import resolve_alias_path
         from quickbbs.common import normalize_fqpn
 
         from .directoryindex import DirectoryIndex
@@ -669,7 +674,8 @@ class FileIndex(models.Model):
                 return virtual_dir
 
             elif filetype.fileext == ".alias":
-                alias_target_path = resolve_alias_path(str(fs_entry))
+                # Use FileIndex.resolve_macos_alias class method
+                alias_target_path = FileIndex.resolve_macos_alias(str(fs_entry))
 
                 # Find or create the target directory and set virtual_directory
                 found, virtual_dir = DirectoryIndex.search_for_directory(alias_target_path)
@@ -815,21 +821,13 @@ class FileIndex(models.Model):
         Returns:
             Processed HTML content or empty string
         """
-        # Inline import to avoid circular dependency
-        import os
-
-        from frontend.managers import _process_text_file
-
         if not (self.filetype.is_text or self.filetype.is_markdown or self.filetype.is_html):
             return ""
 
-        # Construct filesystem path from webpath
-        filename = os.path.join(webpath.replace("/", os.sep), self.name)
-
         if self.filetype.is_text or self.filetype.is_markdown:
-            return _process_text_file(filename, is_markdown=True)
+            return self.process_text_content(is_markdown=True)
         if self.filetype.is_html:
-            return _process_text_file(filename, is_markdown=False)
+            return self.process_text_content(is_markdown=False)
 
         return ""
 
@@ -946,7 +944,13 @@ class FileIndex(models.Model):
             # Re-raise to let Django handle the cancellation
             raise
 
-    def check_for_updates(self, fs_entry, home_directory, precomputed_sha: tuple[str | None, str | None] | None = None):
+    def check_for_updates(
+        self,
+        fs_entry,
+        home_directory,
+        fs_stat=None,
+        precomputed_sha: tuple[str | None, str | None] | None = None,
+    ):
         """
         Check if this file record needs updating based on filesystem entry.
 
@@ -956,10 +960,12 @@ class FileIndex(models.Model):
         Performance Optimization:
         Accepts precomputed SHA256 hashes to enable batch parallel computation.
         When precomputed_sha is provided, skips individual SHA256 calculation.
+        Accepts pre-computed fs_stat to avoid redundant filesystem syscalls.
 
         :Args:
             fs_entry: Path object for filesystem entry (DirEntry with cached stat)
             home_directory: DirectoryIndex object for the parent directory
+            fs_stat: Optional pre-computed stat result from fs_entry.stat()
             precomputed_sha: Optional precomputed (file_sha256, unique_sha256) tuple
 
         Returns:
@@ -969,10 +975,11 @@ class FileIndex(models.Model):
         import filetypes.models as filetype_models
 
         try:
+            # Use pre-computed stat if provided, otherwise call stat()
             # Note: DirEntry.stat() is already cached by Python's os.scandir()
             # Multiple stat() calls on the same DirEntry object reuse the cached result
-            # This prevents duplicate filesystem syscalls across DirectoryIndex.sync_files()
-            fs_stat = fs_entry.stat()
+            if fs_stat is None:
+                fs_stat = fs_entry.stat()
             update_needed = False
 
             # Extract file extension using pathlib for consistency
@@ -1034,6 +1041,153 @@ class FileIndex(models.Model):
         except (OSError, IOError) as e:
             logger.error(f"Error checking file {fs_entry}: {e}")
             return None
+
+    def get_text_encoding(self) -> str:
+        """
+        Detect the text encoding of this file.
+
+        Reads only the first 4KB for efficient encoding detection.
+        Uses charset_normalizer for robust encoding detection.
+
+        ASYNC-SAFE: Pure file I/O, no Django ORM operations.
+        For async contexts, wrap with: await asyncio.to_thread(file.get_text_encoding)
+
+        Returns:
+            Detected encoding string, defaults to 'utf-8' if detection fails
+        """
+        filename = self.full_filepathname
+        try:
+            with open(filename, "rb") as f:
+                raw_data = f.read(4096)  # Read only first 4KB
+
+                # Detect encoding using charset_normalizer
+                result = charset_normalizer.from_bytes(raw_data)
+                best_match = result.best()
+                if best_match is None:
+                    return "utf-8"
+                encoding = best_match.encoding
+                return encoding if encoding else "utf-8"
+        except (OSError, IOError):
+            return "utf-8"
+
+    def get_text_encoding_cached(self) -> str:
+        """
+        Cache text encoding detection based on filename.
+
+        Uses LRU cache to avoid repeated encoding detection for the same file.
+        Cache key is based on the full file pathname.
+
+        Returns:
+            Detected encoding string, defaults to 'utf-8' if detection fails
+        """
+        @cached(FileIndex._encoding_cache)
+        def _get_cached_encoding(filename: str) -> str:
+            # This is a workaround - we need to call the instance method
+            # but caching needs a hashable key (string), not an instance
+            return self.get_text_encoding()
+
+        return _get_cached_encoding(self.full_filepathname)
+
+    def process_text_content(self, is_markdown: bool = False) -> str:
+        """
+        Process text or HTML files with size limits and encoding detection.
+
+        ASYNC-SAFE: Pure file I/O, no Django ORM operations.
+        For async contexts, wrap with: await asyncio.to_thread(file.process_text_content, is_markdown)
+
+        :Args:
+            is_markdown: Whether to process as markdown (True) or HTML (False)
+
+        Returns:
+            Processed HTML content or error message
+        """
+        # File size limit for text file processing (1MB)
+        MAX_TEXT_FILE_SIZE = 1024 * 1024
+
+        filename = self.full_filepathname
+        try:
+            # Use single stat call for both size and mtime
+            file_path = Path(filename)
+            stat_info = file_path.stat()
+
+            # Check file size limit
+            if stat_info.st_size > MAX_TEXT_FILE_SIZE:
+                return f"<p><em>File too large to display ({stat_info.st_size:,} bytes). Maximum size: {MAX_TEXT_FILE_SIZE:,} bytes.</em></p>"
+
+            encoding = self.get_text_encoding_cached()
+
+            with open(filename, "r", encoding=encoding) as f:
+                content = f.read()
+
+                # Process content based on type
+                if is_markdown:
+                    return FileIndex._markdown_processor.convert(content)
+                return content.replace("\n", "<br>")
+
+        except UnicodeDecodeError:
+            return "<p><em>We are unable to view this file.</em></p>"
+        except (OSError, IOError) as e:
+            return f"<p><em>Error reading file: {str(e)}</em></p>"
+
+    @classmethod
+    def resolve_macos_alias(cls, alias_path: str) -> str:
+        """
+        Resolve a macOS alias file to its target path.
+
+        Uses macOS Foundation framework to resolve alias files and applies
+        path mappings from settings.ALIAS_MAPPING.
+
+        :Args:
+            alias_path: Path to the macOS alias file
+
+        Returns:
+            Resolved path to the target file/directory
+
+        Raises:
+            ValueError: If bookmark data cannot be created or resolved
+        """
+        from django.conf import settings
+        from Foundation import (  # pylint: disable=no-name-in-module
+            NSURL,
+            NSURLBookmarkResolutionWithoutMounting,
+            NSURLBookmarkResolutionWithoutUI,
+        )
+
+        @cached(cls._alias_cache)
+        def _resolve_cached(path: str) -> str:
+            options = NSURLBookmarkResolutionWithoutUI | NSURLBookmarkResolutionWithoutMounting
+            alias_url = NSURL.fileURLWithPath_(path)
+            bookmark, error = NSURL.bookmarkDataWithContentsOfURL_error_(alias_url, None)
+            if error:
+                raise ValueError(f"Error creating bookmark data: {error}")
+
+            resolved_url, _, error = NSURL.URLByResolvingBookmarkData_options_relativeToURL_bookmarkDataIsStale_error_(
+                bookmark, options, None, None, None
+            )
+            if error:
+                raise ValueError(f"Error resolving bookmark data: {error}")
+
+            resolved_url = str(resolved_url.path()).strip().lower()
+            # album_path = f"{settings.ALBUMS_PATH}{os.sep}albums{os.sep}"
+            for disk_path, replacement_path in settings.ALIAS_MAPPING.items():
+                if resolved_url.startswith(disk_path.lower()):
+                    resolved_url = resolved_url.replace(disk_path.lower(), replacement_path.lower()) + os.sep
+                    break
+
+            # The copier is set to transform spaces to underscores.  We can safely disable that now, but
+            # that legacy means that there would be tremendous pain in duplication of data.  So for now,
+            # we will just check if the resolved path exists, and if not, we will try replacing spaces with underscores.
+            # If that works, then we will return that modified path instead.  Otherwise, we return the original resolved path.
+
+            if resolved_url:
+                if os.path.exists(resolved_url):
+                    return resolved_url
+                else:
+                    resolved_url = resolved_url.replace(" ", "_")
+
+            return resolved_url
+
+        return _resolve_cached(alias_path)
 
     class Meta:
         verbose_name = "Master Files Index"

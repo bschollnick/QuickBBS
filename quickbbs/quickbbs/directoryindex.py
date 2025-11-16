@@ -4,7 +4,6 @@ DirectoryIndex Model - Master index for directories in the filesystem
 
 from __future__ import annotations
 
-import pathlib
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -49,6 +48,7 @@ class DirectoryIndex(models.Model):
     """
 
     _albums_prefix = None
+    _albums_root = None
 
     @classmethod
     def get_albums_prefix(cls) -> str:
@@ -56,6 +56,13 @@ class DirectoryIndex(models.Model):
         if cls._albums_prefix is None:
             cls._albums_prefix = settings.ALBUMS_PATH.lower() + r"/albums/"
         return cls._albums_prefix
+
+    @classmethod
+    def get_albums_root(cls) -> str:
+        """Cache the albums root path for optimization"""
+        if cls._albums_root is None:
+            cls._albums_root = normalize_fqpn(os.path.join(settings.ALBUMS_PATH, "albums"))
+        return cls._albums_root
 
     fqpndirectory = models.CharField(db_index=True, max_length=384, default="", unique=True, blank=True)  # True fqpn name
 
@@ -139,7 +146,7 @@ class DirectoryIndex(models.Model):
 
         # Cache the albums path check
         albums_path_lower = os.path.join(settings.ALBUMS_PATH, "albums").lower()
-        albums_root = normalize_fqpn(os.path.join(settings.ALBUMS_PATH, "albums"))
+        albums_root = DirectoryIndex.get_albums_root()
         is_in_albums = fqpn_directory.lower().startswith(albums_path_lower)
 
         # Determine parent directory link
@@ -149,7 +156,7 @@ class DirectoryIndex(models.Model):
                 parent_dir_link = None
             else:
                 # Regular subdirectory - find or create parent
-                parent_dir = normalize_fqpn(str(pathlib.Path(fqpn_directory).parent))
+                parent_dir = normalize_fqpn(str(Path(fqpn_directory).parent))
 
                 if parent_dir.lower().startswith(albums_path_lower):
                     # Recursively add/update parent to ensure proper parent_directory chain
@@ -170,7 +177,7 @@ class DirectoryIndex(models.Model):
             parent_dir_link = None
 
         # Use single stat call for both exists check and mtime
-        dir_path = pathlib.Path(fqpn_directory)
+        dir_path = Path(fqpn_directory)
         try:
             stat_info = dir_path.stat()
         except (FileNotFoundError, OSError):
@@ -225,7 +232,7 @@ class DirectoryIndex(models.Model):
         Returns:
             String
         """
-        return str(pathlib.Path(self.fqpndirectory).name)
+        return str(Path(self.fqpndirectory).name)
 
     @property
     def numdirs(self) -> None:
@@ -265,7 +272,7 @@ class DirectoryIndex(models.Model):
         Returns:
             String
         """
-        return str(pathlib.Path(self.fqpndirectory).name)
+        return str(Path(self.fqpndirectory).name)
 
     @property
     def is_cached(self) -> bool:
@@ -354,6 +361,8 @@ class DirectoryIndex(models.Model):
         Returns:
             None
         """
+        # Inline import to avoid circular dependency:
+        # cache_watcher.models imports DirectoryIndex in multiple places
         # pylint: disable-next=import-outside-toplevel
         from cache_watcher.models import Cache_Storage
 
@@ -379,6 +388,8 @@ class DirectoryIndex(models.Model):
 
         Returns:
         """
+        # Inline import to avoid circular dependency:
+        # cache_watcher.models imports DirectoryIndex in multiple places
         # pylint: disable-next=import-outside-toplevel
         from cache_watcher.models import Cache_Storage
 
@@ -405,9 +416,6 @@ class DirectoryIndex(models.Model):
         Returns: Integer - Number of files in the database for the directory
         """
         return self.FileIndex_entries.filter(delete_pending=False).count()
-        # return FileIndex.objects.filter(
-        #    home_directory=self.pk, delete_pending=False
-        # ).count()
 
     def get_dir_counts(self) -> int:
         """
@@ -780,12 +788,12 @@ class DirectoryIndex(models.Model):
             if entry["fqpndirectory"] == self.fqpndirectory:
                 if count >= 1:
                     # Use pathlib to normalize path (removes trailing slashes)
-                    prevdir = str(pathlib.Path(parent_dir_data[count - 1]["fqpndirectory"]))
+                    prevdir = str(Path(parent_dir_data[count - 1]["fqpndirectory"]))
                     prevdir = prevdir.replace(settings.ALBUMS_PATH, "")
 
                 if count + 1 < len(parent_dir_data):
                     # Use pathlib to normalize path (removes trailing slashes)
-                    nextdir = str(pathlib.Path(parent_dir_data[count + 1]["fqpndirectory"]))
+                    nextdir = str(Path(parent_dir_data[count + 1]["fqpndirectory"]))
                     nextdir = nextdir.replace(settings.ALBUMS_PATH, "")
                 break
 
@@ -885,6 +893,8 @@ class DirectoryIndex(models.Model):
         :Args:
             fs_entries: Dictionary mapping entry names to DirEntry objects
         """
+        # Inline import to avoid circular dependency:
+        # cache_watcher.models imports DirectoryIndex in multiple places
         # pylint: disable-next=import-outside-toplevel
         from cache_watcher.models import Cache_Storage
 
@@ -918,6 +928,8 @@ class DirectoryIndex(models.Model):
 
                 if fs_entry := fs_entries.get(dir_name_titled):
                     try:
+                        # DirEntry.stat() is cached by Python's os.scandir()
+                        # Multiple stat() calls on the same DirEntry reuse cached result
                         fs_stat = fs_entry.stat()
                         # Update modification time if changed (DirectoryIndex doesn't track size)
                         if db_dir_entry.lastmod != fs_stat.st_mtime:
