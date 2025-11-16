@@ -31,15 +31,8 @@ ASGI Support:
 import datetime
 import logging
 import math
-import os
 import time
-
-# from functools import lru_cache
-# from itertools import chain
 from pathlib import Path
-
-import charset_normalizer
-import markdown2
 
 # from cache_watcher.models import Cache_Storage
 from asgiref.sync import sync_to_async
@@ -54,21 +47,21 @@ from django.http import (  # HttpResponse,; Http404,; HttpRequest,; HttpResponse
 )
 
 from frontend.utilities import (
-    SORT_MATRIX,
     convert_to_webpath,
     return_breadcrumbs,
 )
+from quickbbs.common import SORT_MATRIX
 from quickbbs.models import FileIndex, distinct_files_cache
+
+# from functools import lru_cache
+# from itertools import chain
+
+
+
 
 layout_manager_cache = LRUCache(maxsize=500)
 
 build_context_info_cache = LRUCache(maxsize=500)
-
-# File size limit for text file processing (1MB)
-MAX_TEXT_FILE_SIZE = 1024 * 1024
-
-# Cached Markdown processor instance
-_markdown_processor = markdown2.Markdown()
 
 
 def clear_layout_cache_for_directories(directories: list) -> int:
@@ -136,90 +129,6 @@ def clear_layout_cache_for_directories(directories: list) -> int:
         del distinct_files_cache[key]
 
     return len(layout_keys_to_delete) + len(distinct_keys_to_delete)
-
-
-def get_file_text_encoding(filename: str) -> str:
-    """
-    Detect the text encoding of a file.
-
-    Reads only the first 4KB for efficient encoding detection.
-    Uses charset_normalizer for robust encoding detection.
-
-    ASYNC-SAFE: Pure file I/O, no Django ORM operations.
-    For async contexts, wrap with: await asyncio.to_thread(get_file_text_encoding, filename)
-
-    Args:
-        filename: Path to the file to analyze
-
-    Returns:
-        Detected encoding string, defaults to 'utf-8' if detection fails
-    """
-    try:
-        with open(filename, "rb") as f:
-            raw_data = f.read(4096)  # Read only first 4KB
-
-            # Detect encoding using charset_normalizer
-            result = charset_normalizer.from_bytes(raw_data)
-            best_match = result.best()
-            if best_match is None:
-                return "utf-8"
-            encoding = best_match.encoding
-            return encoding if encoding else "utf-8"
-    except (OSError, IOError):
-        return "utf-8"
-
-
-@cached(LRUCache(maxsize=1000))
-def get_file_text_encoding_cached(filename: str) -> str:
-    """
-    Cache text encoding detection based on filename.
-
-    Args:
-        filename: Path to the file to analyze
-
-    Returns:
-        Detected encoding string, defaults to 'utf-8' if detection fails
-    """
-    return get_file_text_encoding(filename)
-
-
-def _process_text_file(filename: str, is_markdown: bool = False) -> str:
-    """
-    Process text or HTML files with size limits and encoding detection.
-
-    ASYNC-SAFE: Pure file I/O, no Django ORM operations.
-    For async contexts, wrap with: await asyncio.to_thread(_process_text_file, filename, is_markdown)
-
-    Args:
-        filename: Path to the file to process
-        is_markdown: Whether to process as markdown (True) or HTML (False)
-
-    Returns:
-        Processed HTML content or error message
-    """
-    try:
-        # Use single stat call for both size and mtime
-        file_path = Path(filename)
-        stat_info = file_path.stat()
-
-        # Check file size limit
-        if stat_info.st_size > MAX_TEXT_FILE_SIZE:
-            return f"<p><em>File too large to display ({stat_info.st_size:,} bytes). " f"Maximum size: {MAX_TEXT_FILE_SIZE:,} bytes.</em></p>"
-
-        encoding = get_file_text_encoding_cached(filename)
-
-        with open(filename, "r", encoding=encoding) as f:
-            content = f.read()
-
-            # Process content based on type
-            if is_markdown:
-                return _markdown_processor.convert(content)
-            return content.replace("\n", "<br>")
-
-    except UnicodeDecodeError:
-        return "<p><em>We are unable to view this file.</em></p>"
-    except (OSError, IOError) as e:
-        return f"<p><em>Error reading file: {str(e)}</em></p>"
 
 
 @cached(build_context_info_cache)
@@ -399,36 +308,6 @@ async def async_build_context_info(request: WSGIRequest, unique_file_sha256: str
         sort_order_value=sort_order_value,
         show_duplicates=show_duplicates,
     )
-
-
-def _process_file_content(entry: FileIndex, webpath: str) -> str:
-    """
-    DEPRECATED: Use entry.get_content_html(webpath) instead.
-
-    Process file content based on file type.
-
-    ASYNC-SAFE: File I/O only (entry object already loaded from DB).
-    For async contexts, wrap with: await asyncio.to_thread(_process_file_content, entry, webpath)
-
-    Args:
-        entry: FileIndex object for the current file (pre-loaded with filetype)
-        webpath: Web path for constructing file path
-
-    Returns:
-        Processed HTML content or empty string
-    """
-    if not (entry.filetype.is_text or entry.filetype.is_markdown or entry.filetype.is_html):
-        return ""
-
-    # Construct filesystem path from webpath
-    filename = os.path.join(webpath.replace("/", os.sep), entry.name)
-
-    if entry.filetype.is_text or entry.filetype.is_markdown:
-        return _process_text_file(filename, is_markdown=True)
-    if entry.filetype.is_html:
-        return _process_text_file(filename, is_markdown=False)
-
-    return ""
 
 
 # def _get_directory_counts(directory) -> dict:
