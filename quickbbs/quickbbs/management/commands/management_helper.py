@@ -32,7 +32,9 @@ def invalidate_empty_directories(start_path: str | None = None, verbose: bool = 
     """
     # Query directories with 0 FileIndex_entries using Count annotation
     # FileIndex_entries is the reverse relationship from FileIndex.home_directory
-    empty_directories_query = DirectoryIndex.objects.annotate(file_count=Count("FileIndex_entries")).filter(file_count=0).select_related("Cache_Watcher")
+    empty_directories_query = (
+        DirectoryIndex.objects.annotate(file_count=Count("FileIndex_entries")).filter(file_count=0).select_related("Cache_Watcher")
+    )
 
     # Filter to start_path if specified
     if start_path:
