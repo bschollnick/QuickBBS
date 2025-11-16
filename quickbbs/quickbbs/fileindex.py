@@ -406,12 +406,9 @@ class FileIndex(models.Model):
                 # Subdirectories are handled by DirectoryIndex.sync_subdirectories(), not here
                 return None
 
-            # Extract file extension
-            fileext = fs_entry.suffix.lower() if fs_entry.suffix else ""
-
-            # Normalize extension more efficiently
-            if not fileext or fileext == ".":
-                fileext = ".none"
+            # Extract and normalize file extension
+            fileext = (fs_entry.suffix.lower() if fs_entry.suffix else "") or ".none"
+            fileext = ".none" if fileext == "." else fileext
 
             # Check if filetype exists
             if not filetype_models.filetypes.filetype_exists_by_ext(fileext):
@@ -421,10 +418,6 @@ class FileIndex(models.Model):
             # Use DirEntry's built-in stat cache (already cached from iterdir)
             try:
                 fs_stat = fs_entry.stat()
-                if not fs_stat:
-                    print(f"Error getting stats for {fs_entry}")
-                    return None
-
                 record.update(
                     {
                         "size": fs_stat.st_size,
@@ -440,11 +433,10 @@ class FileIndex(models.Model):
             # Handle link files
             filetype = record["filetype"]
             if filetype.is_link:
-                # Calculate SHA256 for link files
-                try:
-                    record["file_sha256"], record["unique_sha256"] = get_file_sha(str(fs_entry))
-                except Exception as e:
-                    print(f"Error calculating SHA for link file {fs_entry}: {e}")
+                # Calculate SHA256 for link files (required for virtual_directory resolution)
+                record["file_sha256"], record["unique_sha256"] = get_file_sha(str(fs_entry))
+                if record["file_sha256"] is None:
+                    print(f"Error calculating SHA for link file {fs_entry}")
                     return None
 
                 # Process link file and get virtual_directory
@@ -458,14 +450,11 @@ class FileIndex(models.Model):
                 if precomputed_sha:
                     record["file_sha256"], record["unique_sha256"] = precomputed_sha
                 else:
-                    try:
-                        record["file_sha256"], record["unique_sha256"] = get_file_sha(str(fs_entry))
-                    except Exception as e:
-                        print(f"Error calculating SHA for {fs_entry}: {e}")
-                        # Continue processing even if SHA calculation fails
+                    record["file_sha256"], record["unique_sha256"] = get_file_sha(str(fs_entry))
+                    # Continue processing even if SHA calculation fails (returns None, None)
 
             # Handle animated GIF detection
-            if hasattr(filetype, "is_image") and filetype.is_image and fileext == ".gif":
+            if filetype.is_image and fileext == ".gif":
                 record["is_animated"] = cls.is_animated_gif(fs_entry)
 
             return record
