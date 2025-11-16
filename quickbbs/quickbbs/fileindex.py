@@ -24,7 +24,6 @@ from thumbnails.video_thumbnails import _get_video_info
 
 # Import shared foundation
 from .models import (
-    FILEINDEX_DOWNLOAD_SELECT_RELATED_LIST,
     FILEINDEX_SELECT_RELATED_LIST,
     SORT_MATRIX,
     NaturalSortField,
@@ -389,7 +388,7 @@ class FileIndex(models.Model):
         """
         # Inline imports to avoid circular dependencies
         import filetypes.models as filetype_models
-        from quickbbs.common import get_file_sha, normalize_string_title
+        from quickbbs.common import normalize_string_title
 
         try:
             # Initialize the record dictionary
@@ -673,7 +672,7 @@ class FileIndex(models.Model):
 
                 return virtual_dir
 
-            elif filetype.fileext == ".alias":
+            if filetype.fileext == ".alias":
                 # Use FileIndex.resolve_macos_alias class method
                 alias_target_path = FileIndex.resolve_macos_alias(str(fs_entry))
 
@@ -808,15 +807,15 @@ class FileIndex(models.Model):
         """
         return reverse("download_file") + self.name + f"?usha={self.unique_sha256}"
 
-    def get_content_html(self, webpath: str) -> str:
+    def get_content_html(self, _webpath: str) -> str:
         """
         Process file content based on file type for display.
 
         ASYNC-SAFE: File I/O only (entry object already loaded from DB).
         For async contexts, wrap with: await asyncio.to_thread(entry.get_content_html, webpath)
 
-        Args:
-            webpath: Web path for constructing file path
+        :Args:
+            _webpath: Web path for constructing file path (unused, kept for API compatibility)
 
         Returns:
             Processed HTML content or empty string
@@ -1080,10 +1079,12 @@ class FileIndex(models.Model):
         Returns:
             Detected encoding string, defaults to 'utf-8' if detection fails
         """
+
         @cached(FileIndex._encoding_cache)
-        def _get_cached_encoding(filename: str) -> str:
+        def _get_cached_encoding(_filename: str) -> str:
             # This is a workaround - we need to call the instance method
             # but caching needs a hashable key (string), not an instance
+            # _filename is used by @cached decorator as cache key
             return self.get_text_encoding()
 
         return _get_cached_encoding(self.full_filepathname)
@@ -1102,7 +1103,7 @@ class FileIndex(models.Model):
             Processed HTML content or error message
         """
         # File size limit for text file processing (1MB)
-        MAX_TEXT_FILE_SIZE = 1024 * 1024
+        max_text_file_size = 1024 * 1024
 
         filename = self.full_filepathname
         try:
@@ -1111,8 +1112,8 @@ class FileIndex(models.Model):
             stat_info = file_path.stat()
 
             # Check file size limit
-            if stat_info.st_size > MAX_TEXT_FILE_SIZE:
-                return f"<p><em>File too large to display ({stat_info.st_size:,} bytes). Maximum size: {MAX_TEXT_FILE_SIZE:,} bytes.</em></p>"
+            if stat_info.st_size > max_text_file_size:
+                return f"<p><em>File too large to display ({stat_info.st_size:,} bytes). Maximum size: {max_text_file_size:,} bytes.</em></p>"
 
             encoding = self.get_text_encoding_cached()
 
@@ -1146,7 +1147,6 @@ class FileIndex(models.Model):
         Raises:
             ValueError: If bookmark data cannot be created or resolved
         """
-        from django.conf import settings
         from Foundation import (  # pylint: disable=no-name-in-module
             NSURL,
             NSURLBookmarkResolutionWithoutMounting,
@@ -1182,8 +1182,7 @@ class FileIndex(models.Model):
             if resolved_url:
                 if os.path.exists(resolved_url):
                     return resolved_url
-                else:
-                    resolved_url = resolved_url.replace(" ", "_")
+                resolved_url = resolved_url.replace(" ", "_")
 
             return resolved_url
 

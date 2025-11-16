@@ -16,14 +16,12 @@ import urllib.parse
 import warnings
 
 from asgiref.sync import async_to_sync, sync_to_async
-from cachetools.keys import hashkey
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 
 # from django.core.paginator import EmptyPage, PageNotAnInteger  # Unused after optimization
-from django.db import transaction
 from django.db.models import Count, Q
-from django.db.utils import DatabaseError, IntegrityError, OperationalError
+from django.db.utils import DatabaseError, OperationalError
 from django.http import (
     Http404,
     HttpRequest,
@@ -37,7 +35,6 @@ from PIL import Image
 
 from cache_watcher.models import Cache_Storage
 from frontend.managers import (
-    layout_manager_cache,
     clear_layout_cache_for_directories,
     async_layout_manager,
     async_build_context_info,
@@ -553,15 +550,13 @@ def _determine_template(request: WSGIRequest, template_type: str = "gallery") ->
 
 def _find_directory(paths: dict):
     """
-    Find directory in database, create if missing, validate physical existence, and sync from disk.
+    Find directory in database, create if missing, and validate existence.
 
-    This function handles the complete workflow for accessing a gallery directory:
-    1. Search for directory in database (optimized query with prefetched relationships)
-    2. If not in database: create directory record, then sync from filesystem
-    3. Validate that physical directory exists on disk
-    4. If physical directory missing: invalidate cache and return 404
+    Uses DirectoryIndex model methods to handle database operations efficiently.
+    DirectoryIndex.add_directory() already validates physical path existence,
+    so we only need to handle the happy path and error responses.
 
-    Args:
+    :Args:
         paths: Dictionary containing path information (must have 'album_viewing' key)
 
     Returns:
@@ -570,15 +565,19 @@ def _find_directory(paths: dict):
         HttpResponseBadRequest on invalid path or other errors
     """
     try:
-        # Normalize path once and compute SHA
+        # Normalize path once and compute SHA (DirectoryIndex methods will do this again,
+        # but we need dirpath for logging and validation)
         dirpath = normalize_fqpn(paths["album_viewing"])
         dir_sha = get_dir_sha(dirpath)
 
-        # Step 1: Search for directory in database by SHA (with optimized prefetches)
+        # Search for directory in database (uses optimized prefetches)
         found, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha)
 
         if not found:
-            # Step 2a: Directory not in database - create database record
+            # Create directory record - add_directory handles:
+            # - Physical path validation (returns False, None if path doesn't exist)
+            # - Parent directory creation (recursive)
+            # - Database record creation
             created, directory = DirectoryIndex.add_directory(dirpath)
 
             if not created and not directory:
@@ -586,35 +585,34 @@ def _find_directory(paths: dict):
                 logger.info("Directory not found on filesystem: %s", dirpath)
                 return HttpResponseNotFound("<h1>gallery not found</h1>")
 
-            # Step 2b: Reload directory with optimized query (includes Cache_Watcher, filetype, FileIndex_entries)
-            # add_directory returns bare object from update_or_create - need prefetched relationships
+            # Reload with optimized prefetches for view rendering
+            # add_directory uses update_or_create without prefetch_related
             _, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha)
 
-            # Step 2c: Sync newly created directory from filesystem to populate file entries
+            # Sync newly created directory to populate file entries
             directory = async_to_sync(sync_database_disk)(directory)
 
             if not directory:
                 logger.info("Directory sync failed: %s", dirpath)
                 return HttpResponseNotFound("<h1>gallery not found</h1>")
 
-    except Exception as e:
-        logger.error("Error searching for directory '%s': %s", paths["album_viewing"], e)
-        return HttpResponseBadRequest("<h1>Invalid path specified</h1>")
-
-    logger.info("Viewing: %s", dirpath)
-
-    # Step 3: Validate physical directory still exists on disk
-    if not pathlib.Path(dirpath).exists():
-        # Physical directory was deleted - invalidate cache and return 404
-        parent_dir = directory.parent_directory if directory else None
-        if parent_dir:
-            Cache_Storage.remove_from_cache_indexdirs(index_dir=parent_dir)
+        # Validate physical directory still exists (race condition check)
+        # This handles the case where directory was in DB but deleted from disk
+        if not pathlib.Path(dirpath).exists():
+            logger.info("Directory exists in DB but not on filesystem: %s", dirpath)
+            # Invalidate cache and mark as deleted
+            if directory.parent_directory:
+                Cache_Storage.remove_from_cache_indexdirs(index_dir=directory.parent_directory)
             Cache_Storage.remove_from_cache_indexdirs(index_dir=directory)
-            # Sync to mark directory as deleted in database
             async_to_sync(sync_database_disk)(directory)
-        return HttpResponseNotFound("<h1>gallery not found</h1>")
+            return HttpResponseNotFound("<h1>gallery not found</h1>")
 
-    return True, directory
+        logger.info("Viewing: %s", dirpath)
+        return True, directory
+
+    except Exception as e:
+        logger.error("Error finding directory '%s': %s", paths["album_viewing"], e)
+        return HttpResponseBadRequest("<h1>Invalid path specified</h1>")
 
 
 @vary_on_headers("HX-Request")
@@ -735,13 +733,18 @@ async def new_viewgallery(request: WSGIRequest):
         # print(layout["no_thumbnails"][0:10])  # Show first 10 entries needing thumbs
 
         if missing_count > 0:  # Process first 100 entries
-            await process_thumbnails_async(layout, batchsize=100, max_workers=6)
+            # Materialize sliced queryset to get list of SHA256 hashes
+            no_thumbs = await sync_to_async(list)(layout["no_thumbnails"][:100])
 
-            # Clear ALL layout cache entries for this directory (all pages, all sort orders)
-            # Thumbnails were created, so cached counts are now stale
-            cleared_count = clear_layout_cache_for_directories([directory])
-            if cleared_count > 0:
-                print(f"Cleared {cleared_count} layout cache entries for directory after thumbnail processing")
+            # Use ThumbnailFiles batch processing method
+            results = await ThumbnailFiles.batch_create_async(no_thumbs, batchsize=100, max_workers=6)
+
+            if any(results.values()):
+                # Clear ALL layout cache entries for this directory (all pages, all sort orders)
+                # Thumbnails were created, so cached counts are now stale
+                cleared_count = clear_layout_cache_for_directories([directory])
+                if cleared_count > 0:
+                    print(f"Cleared {cleared_count} layout cache entries for directory " "after thumbnail processing")
         print("elapsed thumbnail time - ", time.time() - no_thumb_start)
 
     response = await async_render(
@@ -757,64 +760,6 @@ async def new_viewgallery(request: WSGIRequest):
 
     print("Gallery View, processing time: ", time.perf_counter() - start_time)
     return response
-
-
-@sync_to_async
-def process_thumbnail(sha256: str) -> tuple[bool, str, any]:
-    """
-    Process a single thumbnail with proper Django database handling.
-
-    Args:
-        sha256: SHA256 hash of the file to create thumbnail for
-    Returns: Tuple of (success, sha256, thumbnail) where success is bool,
-             sha256 is the file hash, and thumbnail is the ThumbnailFiles object or None
-    """
-    try:
-        with transaction.atomic():
-            thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(sha256, suppress_save=False)
-        return True, sha256, thumbnail
-    except IntegrityError as e:
-        print(f"Error creating thumbnail for {sha256}: {e}")
-        return False, sha256, None
-    except Exception as e:
-        print(f"Unexpected error creating thumbnail for {sha256}: {e}")
-        return False, sha256, None
-
-
-async def process_thumbnails_async(layout: dict, batchsize: int = 100, max_workers: int = 4) -> bool:
-    """
-    Process thumbnails using asyncio tasks for improved performance.
-
-    Args:
-        layout: Layout dictionary containing thumbnail information
-        batchsize: Number of thumbnails to process in batch (default: 100)
-        max_workers: Maximum number of concurrent tasks (default: 4)
-    Returns: True if any thumbnails were successfully updated, False otherwise
-    """
-    # Materialize sliced queryset since we'll iterate multiple times (async-safe)
-    no_thumbs = await sync_to_async(list)(layout["no_thumbnails"][:batchsize])
-    if not no_thumbs:
-        return False
-
-    print(f"Processing {len(no_thumbs)} thumbnails with {max_workers} concurrent tasks")
-
-    # Process in batches to limit concurrency
-    successful_count = 0
-    for i in range(0, len(no_thumbs), max_workers):
-        batch = no_thumbs[i : i + max_workers]
-        tasks = [process_thumbnail(sha256) for sha256 in batch]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        for result in results:
-            if isinstance(result, Exception):
-                print(f"Task execution error: {result}")
-            elif result and result[0]:
-                successful_count += 1
-
-    if successful_count > 0:
-        print(f"Successfully processed {successful_count}/{len(no_thumbs)} thumbnails")
-        return True
-    return False
 
 
 @vary_on_headers("HX-Request")

@@ -26,12 +26,15 @@ v3 - Pilot changing the thumbnail storage to be a single table, with the small, 
 
 """
 
+import asyncio
 import io
 from typing import TYPE_CHECKING
 
+from asgiref.sync import sync_to_async
 from cachetools import LRUCache, cached
 from django.conf import settings
 from django.db import models, transaction
+from django.db.utils import IntegrityError
 
 from frontend.serve_up import send_file_response
 
@@ -431,3 +434,78 @@ class ThumbnailFiles(models.Model):
             attachment=False,
             expiration=300,
         )
+
+    @classmethod
+    async def batch_create_async(cls, sha256_list: list[str], batchsize: int = 100, max_workers: int = 4) -> dict[str, bool]:
+        """
+        Batch create thumbnails asynchronously with controlled concurrency.
+
+        This method processes multiple thumbnails in parallel using asyncio tasks,
+        with batching to limit concurrent operations and avoid overwhelming the system.
+
+        :Args:
+            sha256_list: List of SHA256 hashes to create thumbnails for
+            batchsize: Maximum number of thumbnails to process (default: 100)
+            max_workers: Maximum number of concurrent tasks (default: 4)
+
+        Returns:
+            Dictionary mapping SHA256 hash to success status (True/False)
+
+        Example:
+            >>> results = await ThumbnailFiles.batch_create_async(['abc123', 'def456'], max_workers=6)
+            >>> results
+            {'abc123': True, 'def456': False}
+        """
+        if not sha256_list:
+            return {}
+
+        # Limit to batchsize
+        sha256_list = sha256_list[:batchsize]
+
+        print(f"Processing {len(sha256_list)} thumbnails with {max_workers} concurrent tasks")
+
+        results = {}
+
+        # Process in batches to limit concurrency
+        for i in range(0, len(sha256_list), max_workers):
+            batch = sha256_list[i : i + max_workers]
+            tasks = [cls._process_single_thumbnail_async(sha256) for sha256 in batch]
+            batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for sha256, result in zip(batch, batch_results):
+                if isinstance(result, Exception):
+                    print(f"Task execution error for {sha256}: {result}")
+                    results[sha256] = False
+                else:
+                    success, _, _ = result
+                    results[sha256] = success
+
+        successful_count = sum(1 for v in results.values() if v)
+        if successful_count > 0:
+            print(f"Successfully processed {successful_count}/{len(sha256_list)} thumbnails")
+
+        return results
+
+    @classmethod
+    @sync_to_async
+    def _process_single_thumbnail_async(cls, sha256: str) -> tuple[bool, str, "ThumbnailFiles | None"]:
+        """
+        Process a single thumbnail with proper Django database handling (async wrapper).
+
+        :Args:
+            sha256: SHA256 hash of the file to create thumbnail for
+
+        Returns:
+            Tuple of (success, sha256, thumbnail) where success is bool,
+            sha256 is the file hash, and thumbnail is the ThumbnailFiles object or None
+        """
+        try:
+            with transaction.atomic():
+                thumbnail = cls.get_or_create_thumbnail_record(sha256, suppress_save=False)
+            return True, sha256, thumbnail
+        except IntegrityError as e:
+            print(f"Error creating thumbnail for {sha256}: {e}")
+            return False, sha256, None
+        except Exception as e:
+            print(f"Unexpected error creating thumbnail for {sha256}: {e}")
+            return False, sha256, None

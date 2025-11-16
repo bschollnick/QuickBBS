@@ -57,8 +57,6 @@ from quickbbs.models import FileIndex, distinct_files_cache
 # from itertools import chain
 
 
-
-
 layout_manager_cache = LRUCache(maxsize=500)
 
 build_context_info_cache = LRUCache(maxsize=500)

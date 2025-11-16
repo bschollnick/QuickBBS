@@ -24,6 +24,9 @@ line-length = 150
 [tool.pyright]
 exclude = ["**/gallery/**", "**/albums/**"]
 
+[tool.pylint]
+max-line-length = 150
+    
 [tool.pylance]
 exclude = ["**/gallery/**", "**/albums/**"]
 
