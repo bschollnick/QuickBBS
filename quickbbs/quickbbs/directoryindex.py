@@ -220,8 +220,7 @@ class DirectoryIndex(models.Model):
         self.is_generic_icon = False
 
         # Clear LRUCache entry for this directory to avoid serving stale cached data
-        if self.dir_fqpn_sha256 in directoryindex_cache:
-            del directoryindex_cache[self.dir_fqpn_sha256]
+        directoryindex_cache.pop(self.dir_fqpn_sha256, None)
 
     @property
     def virtual_directory(self) -> str:
