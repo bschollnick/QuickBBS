@@ -229,8 +229,7 @@ class ThumbnailFiles(models.Model):
                 FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
 
                 # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
-                if file_sha256 in thumbnailfiles_cache:
-                    del thumbnailfiles_cache[file_sha256]
+                thumbnailfiles_cache.pop(file_sha256, None)
 
                 return thumbnail
 
@@ -253,8 +252,7 @@ class ThumbnailFiles(models.Model):
                 FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=False, clear_cache=True)
 
                 # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
-                if file_sha256 in thumbnailfiles_cache:
-                    del thumbnailfiles_cache[file_sha256]
+                thumbnailfiles_cache.pop(file_sha256, None)
 
         except Exception as e:
             # Any error during thumbnail creation - mark ALL files with this SHA256 as generic
@@ -264,8 +262,7 @@ class ThumbnailFiles(models.Model):
                 FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
 
                 # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
-                if file_sha256 in thumbnailfiles_cache:
-                    del thumbnailfiles_cache[file_sha256]
+                thumbnailfiles_cache.pop(file_sha256, None)
 
         return thumbnail
 
@@ -352,8 +349,7 @@ class ThumbnailFiles(models.Model):
         self.large_thumb = b""
 
         # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
-        if self.sha256_hash in thumbnailfiles_cache:
-            del thumbnailfiles_cache[self.sha256_hash]
+        thumbnailfiles_cache.pop(self.sha256_hash, None)
 
     def retrieve_sized_tnail(self, size: str = "small") -> bytes:
         """

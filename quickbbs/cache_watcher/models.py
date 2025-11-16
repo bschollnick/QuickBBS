@@ -569,6 +569,18 @@ class fs_Cache_Tracking(models.Model):
             logger.error("Error deleting orphaned cache entries: %s", e)
             return 0
 
+    @staticmethod
+    def _validate_index_dir(index_dir: Any) -> bool:
+        """Validate that an DirectoryIndex object has required attributes.
+
+        Args:
+            index_dir: The DirectoryIndex instance to validate
+
+        Returns:
+            True if valid, False otherwise
+        """
+        return bool(index_dir and hasattr(index_dir, "dir_fqpn_sha256") and index_dir.dir_fqpn_sha256)
+
     def add_from_indexdirs(self, index_dir: Any) -> "fs_Cache_Tracking | None":
         """Add or update a directory in the cache using an DirectoryIndex record.
 
@@ -579,7 +591,7 @@ class fs_Cache_Tracking(models.Model):
             The cache tracking entry or None if error occurred
         """
         # Validate the DirectoryIndex record
-        if not index_dir or not hasattr(index_dir, "dir_fqpn_sha256") or not index_dir.dir_fqpn_sha256:
+        if not self._validate_index_dir(index_dir):
             logger.warning("Attempted to add invalid DirectoryIndex record to cache - rejected")
             return None
 
@@ -686,7 +698,7 @@ class fs_Cache_Tracking(models.Model):
             True if successfully removed, False otherwise
         """
         try:
-            if not index_dir or not hasattr(index_dir, "dir_fqpn_sha256"):
+            if not self._validate_index_dir(index_dir):
                 logger.warning("Invalid DirectoryIndex record provided to remove_from_cache_indexdirs")
                 return False
 
@@ -759,11 +771,8 @@ class fs_Cache_Tracking(models.Model):
         if not index_dirs:
             return False
 
-        # Import inside function to avoid circular dependency
-        from quickbbs.models import DirectoryIndex  # pylint: disable=import-outside-toplevel
-
         # Extract SHA256 hashes directly from objects (no normalization needed!)
-        sha_list = [d.dir_fqpn_sha256 for d in index_dirs if d and hasattr(d, "dir_fqpn_sha256") and d.dir_fqpn_sha256]
+        sha_list = [d.dir_fqpn_sha256 for d in index_dirs if self._validate_index_dir(d)]
 
         if not sha_list:
             return False
@@ -771,52 +780,14 @@ class fs_Cache_Tracking(models.Model):
         logger.info("Removing %d directories from cache (object-based)", len(sha_list))
 
         # Create mapping for later cache clearing (already have the objects!)
-        fqpn_by_dir_sha = {d.dir_fqpn_sha256: d for d in index_dirs if d and hasattr(d, "dir_fqpn_sha256") and d.dir_fqpn_sha256}
+        fqpn_by_dir_sha = {d.dir_fqpn_sha256: d for d in index_dirs if self._validate_index_dir(d)}
 
-        # Collect all parent directories using efficient batch query approach
-        all_dirs_to_invalidate = DirectoryIndex.get_all_parent_shas(sha_list)
-
-        # Update cache entries using bulk operations
-        with transaction.atomic():
-            # Get all DirectoryIndex records and capture their SHAs
-            # Use .only() to load minimal fields, reducing memory footprint
-            # Evaluate queryset ONCE and cache results to avoid double query
-            index_dirs_list = list(DirectoryIndex.objects.filter(dir_fqpn_sha256__in=all_dirs_to_invalidate).only("dir_fqpn_sha256", "id"))
-
-            # Extract SHAs from already-loaded objects (no additional query)
-            found_shas = {d.dir_fqpn_sha256 for d in index_dirs_list}
-
-            # Bulk update existing cache entries
-            current_time = time.time()
-            update_count = fs_Cache_Tracking.objects.filter(directory__dir_fqpn_sha256__in=found_shas).update(invalidated=True, lastscan=current_time)
-
-            # Find SHAs that don't have cache entries (set difference)
-            existing_cache_shas = set(
-                fs_Cache_Tracking.objects.filter(directory__dir_fqpn_sha256__in=found_shas).values_list("directory__dir_fqpn_sha256", flat=True)
-            )
-            missing_shas = found_shas - existing_cache_shas
-
-            # Bulk create missing cache entries
-            if missing_shas:
-                # Reuse already-loaded objects (no additional query)
-                sha_to_indexdir = {d.dir_fqpn_sha256: d for d in index_dirs_list}
-                new_entries = [fs_Cache_Tracking(directory=sha_to_indexdir[sha], invalidated=True, lastscan=current_time) for sha in missing_shas]
-                fs_Cache_Tracking.objects.bulk_create(new_entries)
-                update_count += len(new_entries)
+        # Perform bulk invalidation using helper method
+        update_count = self._bulk_invalidate_by_shas(sha_list)
 
         # Clear layout caches for affected directories - BULK OPERATION
         if update_count > 0:
-            # Build list of affected directories, filtering out None values and objects without pk
-            affected_directories = [
-                fqpn_by_dir_sha[sha]
-                for sha in set(sha_list) & fqpn_by_dir_sha.keys()
-                if (fqpn_by_dir_sha[sha] is not None and hasattr(fqpn_by_dir_sha[sha], "pk") and fqpn_by_dir_sha[sha].pk is not None)
-            ]
-
-            if affected_directories:
-                self._clear_layout_cache_bulk(affected_directories)
-                self._clear_directoryindex_cache_bulk(affected_directories)
-
+            self._clear_caches_for_affected_directories(sha_list, fqpn_by_dir_sha)
             logger.info("Successfully invalidated %d cache entries (object-based)", update_count)
 
         return update_count > 0
@@ -858,7 +829,7 @@ class fs_Cache_Tracking(models.Model):
         Returns:
             The updated or created fs_Cache_Tracking entry, or None if invalid
         """
-        if not index_dir or not hasattr(index_dir, "dir_fqpn_sha256"):
+        if not self._validate_index_dir(index_dir):
             logger.warning("Invalid DirectoryIndex record provided to _invalidate_cache_entry_indexdirs")
             return None
 
@@ -902,6 +873,72 @@ class fs_Cache_Tracking(models.Model):
             },
         )
         return entry
+
+    def _bulk_invalidate_by_shas(self, sha_list: list[str]) -> int:
+        """Perform bulk cache invalidation for a list of SHA256 hashes.
+
+        This is the common logic shared by remove_multiple_from_cache_indexdirs()
+        and remove_multiple_from_cache().
+
+        Args:
+            sha_list: List of directory SHA256 hashes to invalidate
+
+        Returns:
+            Number of cache entries invalidated
+        """
+        # Import inside function to avoid circular dependency
+        from quickbbs.models import DirectoryIndex  # pylint: disable=import-outside-toplevel
+
+        # Collect all parent directories using efficient batch query approach
+        all_dirs_to_invalidate = DirectoryIndex.get_all_parent_shas(sha_list)
+
+        # Update cache entries using bulk operations
+        with transaction.atomic():
+            # Get all DirectoryIndex records and capture their SHAs
+            # Use .only() to load minimal fields, reducing memory footprint
+            # Evaluate queryset ONCE and cache results to avoid double query
+            index_dirs_list = list(DirectoryIndex.objects.filter(dir_fqpn_sha256__in=all_dirs_to_invalidate).only("dir_fqpn_sha256", "id"))
+
+            # Extract SHAs from already-loaded objects (no additional query)
+            found_shas = {d.dir_fqpn_sha256 for d in index_dirs_list}
+
+            # Bulk update existing cache entries
+            current_time = time.time()
+            update_count = fs_Cache_Tracking.objects.filter(directory__dir_fqpn_sha256__in=found_shas).update(invalidated=True, lastscan=current_time)
+
+            # Find SHAs that don't have cache entries (set difference)
+            existing_cache_shas = set(
+                fs_Cache_Tracking.objects.filter(directory__dir_fqpn_sha256__in=found_shas).values_list("directory__dir_fqpn_sha256", flat=True)
+            )
+            missing_shas = found_shas - existing_cache_shas
+
+            # Bulk create missing cache entries
+            if missing_shas:
+                # Reuse already-loaded objects (no additional query)
+                sha_to_indexdir = {d.dir_fqpn_sha256: d for d in index_dirs_list}
+                new_entries = [fs_Cache_Tracking(directory=sha_to_indexdir[sha], invalidated=True, lastscan=current_time) for sha in missing_shas]
+                fs_Cache_Tracking.objects.bulk_create(new_entries)
+                update_count += len(new_entries)
+
+        return update_count
+
+    def _clear_caches_for_affected_directories(self, sha_list: list[str], fqpn_by_dir_sha: dict[str, Any]) -> None:
+        """Clear layout and DirectoryIndex caches for affected directories.
+
+        Args:
+            sha_list: List of directory SHA256 hashes
+            fqpn_by_dir_sha: Mapping of SHA256 -> DirectoryIndex objects
+        """
+        # Build list of affected directories, filtering out None values and objects without pk
+        affected_directories = [
+            fqpn_by_dir_sha[sha]
+            for sha in set(sha_list) & fqpn_by_dir_sha.keys()
+            if (fqpn_by_dir_sha[sha] is not None and hasattr(fqpn_by_dir_sha[sha], "pk") and fqpn_by_dir_sha[sha].pk is not None)
+        ]
+
+        if affected_directories:
+            self._clear_layout_cache_bulk(affected_directories)
+            self._clear_directoryindex_cache_bulk(affected_directories)
 
     def remove_multiple_from_cache(self, dir_names: list[str]) -> bool:
         """Remove multiple directories from cache in a single transaction.
@@ -957,51 +994,12 @@ class fs_Cache_Tracking(models.Model):
                     except (DatabaseError, OSError) as e:
                         logger.error("Failed to create DirectoryIndex entry for %s: %s", dir_path, e)
 
-        # Collect all parent directories using efficient batch query approach
-        # This replaces the N*M loop with D queries (where D = max directory depth)
-        all_dirs_to_invalidate = DirectoryIndex.get_all_parent_shas(sha_list)
-
-        # Update cache entries using bulk operations
-        with transaction.atomic():
-            # Get all DirectoryIndex records and capture their SHAs
-            # Use .only() to load minimal fields, reducing memory footprint
-            # Evaluate queryset ONCE and cache results to avoid double query
-            index_dirs_list = list(DirectoryIndex.objects.filter(dir_fqpn_sha256__in=all_dirs_to_invalidate).only("dir_fqpn_sha256", "id"))
-
-            # Extract SHAs from already-loaded objects (no additional query)
-            found_shas = {d.dir_fqpn_sha256 for d in index_dirs_list}
-
-            # Bulk update existing cache entries
-            current_time = time.time()
-            update_count = fs_Cache_Tracking.objects.filter(directory__dir_fqpn_sha256__in=found_shas).update(invalidated=True, lastscan=current_time)
-
-            # Find SHAs that don't have cache entries (set difference)
-            existing_cache_shas = set(
-                fs_Cache_Tracking.objects.filter(directory__dir_fqpn_sha256__in=found_shas).values_list("directory__dir_fqpn_sha256", flat=True)
-            )
-            missing_shas = found_shas - existing_cache_shas
-
-            # Bulk create missing cache entries
-            if missing_shas:
-                # Reuse already-loaded objects (no additional query)
-                sha_to_indexdir = {d.dir_fqpn_sha256: d for d in index_dirs_list}
-                new_entries = [fs_Cache_Tracking(directory=sha_to_indexdir[sha], invalidated=True, lastscan=current_time) for sha in missing_shas]
-                fs_Cache_Tracking.objects.bulk_create(new_entries)
-                update_count += len(new_entries)
+        # Perform bulk invalidation using helper method
+        update_count = self._bulk_invalidate_by_shas(sha_list)
 
         # Clear layout caches for affected directories - BULK OPERATION
         if update_count > 0:
-            # Build list of affected directories, filtering out None values and objects without pk
-            affected_directories = [
-                fqpn_by_dir_sha[sha]
-                for sha in set(sha_list) & fqpn_by_dir_sha.keys()
-                if (fqpn_by_dir_sha[sha] is not None and hasattr(fqpn_by_dir_sha[sha], "pk") and fqpn_by_dir_sha[sha].pk is not None)
-            ]
-
-            if affected_directories:
-                self._clear_layout_cache_bulk(affected_directories)
-                self._clear_directoryindex_cache_bulk(affected_directories)
-
+            self._clear_caches_for_affected_directories(sha_list, fqpn_by_dir_sha)
             logger.info("Successfully invalidated %d cache entries", update_count)
 
         return update_count > 0
@@ -1056,8 +1054,7 @@ class fs_Cache_Tracking(models.Model):
             for directory in directories:
                 if directory and hasattr(directory, "dir_fqpn_sha256"):
                     sha = directory.dir_fqpn_sha256
-                    if sha in directoryindex_cache:
-                        del directoryindex_cache[sha]
+                    if directoryindex_cache.pop(sha, None) is not None:
                         cleared_count += 1
 
             logger.debug("Cleared %d DirectoryIndex cache entries for %d directories", cleared_count, len(directories))

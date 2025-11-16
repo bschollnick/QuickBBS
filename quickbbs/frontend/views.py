@@ -36,7 +36,12 @@ from django_htmx.middleware import HtmxDetails
 from PIL import Image
 
 from cache_watcher.models import Cache_Storage
-from frontend.managers import layout_manager_cache
+from frontend.managers import (
+    layout_manager_cache,
+    clear_layout_cache_for_directories,
+    async_layout_manager,
+    async_build_context_info,
+)
 from frontend.utilities import (
     SORT_MATRIX,
     ensures_endswith,
@@ -44,7 +49,6 @@ from frontend.utilities import (
     sync_database_disk,
 )
 from quickbbs.common import get_dir_sha, normalize_fqpn
-from quickbbs.models import FileIndex, DirectoryIndex
 from quickbbs.models import FileIndex, DirectoryIndex
 from thumbnails.models import ThumbnailFiles
 
@@ -329,8 +333,6 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
 
     # Set directory thumbnail to the selected cover image
     # Clear layout cache to ensure users see updated thumbnail
-    from frontend.managers import clear_layout_cache_for_directories
-
     directory.thumbnail = cover_image
     directory.is_generic_icon = False
     directory.save()
@@ -350,8 +352,6 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
     except Exception as e:
         # If thumbnail generation/serving fails, mark directory as generic and return filetype icon
         # Clear layout cache to ensure users see updated generic icon state
-        from frontend.managers import clear_layout_cache_for_directories
-
         print(f"Directory thumbnail generation failed for {directory.fqpndirectory}: {e}")
         directory.is_generic_icon = True
         directory.save(update_fields=["is_generic_icon"])
@@ -626,8 +626,6 @@ async def new_viewgallery(request: WSGIRequest):
         request: Django Request object
     Returns: Django response
     """
-    from frontend.managers import async_layout_manager
-
     print("NEW VIEW GALLERY for ", request.path)
     start_time = time.perf_counter()
 
@@ -741,8 +739,6 @@ async def new_viewgallery(request: WSGIRequest):
 
             # Clear ALL layout cache entries for this directory (all pages, all sort orders)
             # Thumbnails were created, so cached counts are now stale
-            from frontend.managers import clear_layout_cache_for_directories
-
             cleared_count = clear_layout_cache_for_directories([directory])
             if cleared_count > 0:
                 print(f"Cleared {cleared_count} layout cache entries for directory after thumbnail processing")
@@ -831,8 +827,6 @@ async def htmx_view_item(request: HtmxHttpRequest, sha256: str):
         sha256: SHA256 hash of the item to view
     Returns: Django response
     """
-    from frontend.managers import async_build_context_info
-
     # Get show_duplicates preference (async-safe)
     show_duplicates = await _get_show_duplicates_preference(request)
 
