@@ -179,7 +179,8 @@ class WatchdogManager:
                     logger.debug("Scheduling restart timer...")
                     self._schedule_restart()
                 except Exception as e:
-                    # TODO: Research specific watchdog library exceptions
+                    # Broad exception catch is intentional - watchdog can raise various exceptions
+                    # (OSError, RuntimeError, etc.) and we want to catch all startup failures
                     logger.error("Failed to start watchdog: %s", e, exc_info=True)
                     raise
             else:
@@ -201,7 +202,7 @@ class WatchdogManager:
                     self.is_running = False
                     logger.info("Watchdog stopped")
                 except Exception as e:
-                    # TODO: Research specific watchdog library exceptions
+                    # Broad exception catch is intentional - ensure cleanup continues even if errors occur
                     logger.error("Error stopping watchdog: %s", e)
 
     def shutdown(self) -> None:
@@ -222,7 +223,7 @@ class WatchdogManager:
                     self.is_running = False
                     logger.info("Watchdog completely shut down")
                 except Exception as e:
-                    # TODO: Research specific watchdog library exceptions
+                    # Broad exception catch is intentional - ensure shutdown completes even if errors occur
                     logger.error("Error stopping watchdog: %s", e)
 
     def _process_pending_events(self) -> None:
@@ -297,7 +298,7 @@ class WatchdogManager:
             restart_successful = True
             logger.info("Watchdog restart completed successfully")
         except Exception as e:
-            # TODO: Research specific watchdog library exceptions
+            # Broad exception catch is intentional - capture all restart failures for logging/recovery
             logger.error("Error during watchdog restart: %s", e, exc_info=True)
 
         # Always try to schedule next restart, even if this restart failed
@@ -329,7 +330,7 @@ class WatchdogManager:
                 logger.error("⚠ Timer failed to start!")
 
         except Exception as e:
-            # TODO: Research threading.Timer exceptions
+            # Broad exception catch is intentional - threading.Timer rarely fails, but catch all errors
             logger.error("Error scheduling restart: %s", e, exc_info=True)
 
 
@@ -422,7 +423,7 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
                 self.event_timer.start()
 
         except Exception as e:
-            # TODO: Research FileSystemEvent and threading.Timer exceptions
+            # Broad exception catch is intentional - ensure event processing failures don't crash watchdog
             logger.error("Error buffering event %s: %s", event.src_path, e)
 
     def _process_buffered_events(self, expected_generation: int) -> None:

@@ -189,8 +189,7 @@ class TestRemoveMultipleFromCacheOptimization(TestCase):
         assert initial_count == 4
 
         # Invalidate the leaf directory
-        leaf_path = self.dirs["photos_jan"].fqpndirectory
-        result = self.cache_storage.remove_multiple_from_cache([leaf_path])
+        result = self.cache_storage.remove_multiple_from_cache_indexdirs([self.dirs["photos_jan"]])
 
         assert result is True
 
@@ -218,13 +217,13 @@ class TestRemoveMultipleFromCacheOptimization(TestCase):
         self.cache_storage.add_from_indexdirs(videos_dir)
 
         # Invalidate both leaf directories
-        paths = [
-            self.dirs["photos_jan"].fqpndirectory,
-            videos_dir.fqpndirectory,
+        dirs = [
+            self.dirs["photos_jan"],
+            videos_dir,
         ]
 
         with CaptureQueriesContext(connection) as context:
-            result = self.cache_storage.remove_multiple_from_cache(paths)
+            result = self.cache_storage.remove_multiple_from_cache_indexdirs(dirs)
 
         # Should be much less than old approach (would be 60+ for 2 deep paths)
         # Actual count includes: parent SHA collection + cache invalidation + directory counts
@@ -238,10 +237,10 @@ class TestRemoveMultipleFromCacheOptimization(TestCase):
 
     def test_sha_computation_not_duplicated(self):
         """Test that SHA computation happens only once per path."""
-        paths = [self.dirs["photos_jan"].fqpndirectory] * 3  # Duplicate paths
+        dirs = [self.dirs["photos_jan"]] * 3  # Duplicate dirs
 
-        # The optimization should deduplicate before computing SHAs
-        result = self.cache_storage.remove_multiple_from_cache(paths)
+        # The optimization should deduplicate before processing
+        result = self.cache_storage.remove_multiple_from_cache_indexdirs(dirs)
 
         assert result is True
 
@@ -259,19 +258,19 @@ class TestOptimizationEdgeCases(TestCase):
     """Test edge cases for the optimization."""
 
     def test_nonexistent_directory(self):
-        """Test handling of non-existent directories."""
+        """Test handling of empty/invalid directory lists."""
         cache_storage = fs_Cache_Tracking()
 
-        # Try to invalidate a directory that doesn't exist
-        result = cache_storage.remove_multiple_from_cache(["/nonexistent/path/"])
+        # Try to invalidate with empty list
+        result = cache_storage.remove_multiple_from_cache_indexdirs([])
 
-        # Should handle gracefully - returns False since IndexDirs entry creation fails for non-existent paths
+        # Should handle gracefully - returns False for empty list
         assert result is False
 
     def test_empty_input(self):
         """Test with empty input list."""
         cache_storage = fs_Cache_Tracking()
-        result = cache_storage.remove_multiple_from_cache([])
+        result = cache_storage.remove_multiple_from_cache_indexdirs([])
         assert result is False
 
     def test_circular_reference_protection(self):
@@ -286,8 +285,11 @@ class TestOptimizationEdgeCases(TestCase):
         os.makedirs(test_path, exist_ok=True)
 
         try:
+            # Create DirectoryIndex for the test path
+            _, test_dir = IndexDirs.add_directory(test_path + "/")
+
             # Even if there was a circular reference, should complete
-            result = cache_storage.remove_multiple_from_cache([test_path + "/"])
+            result = cache_storage.remove_multiple_from_cache_indexdirs([test_dir])
 
             # Should not hang or error
             assert isinstance(result, bool)

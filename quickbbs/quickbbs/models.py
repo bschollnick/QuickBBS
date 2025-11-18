@@ -96,32 +96,6 @@ DIRECTORYINDEX_PREFETCH_LIST = [
 ]
 
 
-def set_file_generic_icon(file_sha256: str, is_generic: bool, clear_cache: bool = True) -> int:
-    """
-    DEPRECATED: Use FileIndex.set_generic_icon_for_sha() instead.
-
-    Set is_generic_icon for all FileIndex files with the given SHA256.
-
-    Shared function to ensure consistent is_generic_icon updates across:
-    - Thumbnail generation (success/failure)
-    - Web view error handlers
-    - Management commands
-
-    When is_generic_icon changes, the layout cache must be cleared because
-    the cached layout includes thumbnail counts and display states that are
-    now stale.
-
-    :Args:
-        file_sha256: SHA256 hash of the file(s) to update
-        is_generic: New value for is_generic_icon (True = use filetype icon, False = custom thumbnail)
-        clear_cache: Whether to clear layout_manager_cache for affected directories (default: True)
-
-    Returns:
-        Number of files updated
-    """
-    return FileIndex.set_generic_icon_for_sha(file_sha256, is_generic, clear_cache)
-
-
 # Forward ForeignKeys - use select_related() for SQL JOINs (single query)
 FILEINDEX_SELECT_RELATED_LIST = [
     "filetype",
@@ -160,5 +134,4 @@ __all__ = [
     "FILEINDEX_PREFETCH_LIST",
     "FILEINDEX_DOWNLOAD_SELECT_RELATED_LIST",
     "logger",
-    "set_file_generic_icon",
 ]

@@ -2,6 +2,7 @@
 Web functionality
 """
 
+import logging
 import os
 import re
 
@@ -15,6 +16,8 @@ from django.http import (
 # from django.conf import settings
 from django.views.decorators.cache import never_cache
 from filetypes.models import filetypes
+
+logger = logging.getLogger(__name__)
 
 RANGE_RE = re.compile(r"bytes\s*=\s*(\d+)\s*-\s*(\d*)", re.I)
 
@@ -36,10 +39,10 @@ def verify_login_status(request, force_login=False) -> bool:
             login(request, user)
             # Redirect to a success page.
         else:
-            print("disabled account")
+            logger.warning("Login attempt for disabled account: %s", username)
             # Return a 'disabled account' error message
     else:
-        print("Invalid login")
+        logger.warning("Invalid login attempt for username: %s", username)
         # Return an 'invalid login' error message.
 
 
@@ -58,85 +61,22 @@ def g_option(request, option_name, def_value):
     return request.GET.get(option_name, def_value)
 
 
-# def return_inline_attach(filename, binaryblob):
-#     """
-#      Output a http response header, for an image attachment.
-
-#     Args:
-#          filename (str): Filename of the file to be sent as the attachment name
-#          binaryblob (bin): The blob of data that is the image file
-
-#      Returns:
-#          object::
-#              The Django response object that contains the attachment and header
-
-#      Raises:
-#          None
-
-#      Examples
-#      --------
-#      return_img_attach("test.png", img_data, "JPEG")
-
-#     """
-#     return return_img_attach(filename, binaryblob, fext_override="JPEG")
-
-
-# def return_img_attach(filename, binaryblob, fext_override=None, use_ranged=False):
-#     """
-#      Output a http response header, for an image attachment.
-
-#     Args:
-#          filename (str): Filename of the file to be sent as the attachment name
-#          binaryblob (bin): The blob of data that is the image file
-
-#      Returns:
-#          object::
-#              The Django response object that contains the attachment and header
-
-#      Raises:
-#          None
-
-#      Examples
-#      --------
-#      return_img_attach("test.png", img_data)
-
-
-#     """
-#     # https://stackoverflow.com/questions/36392510/django-download-a-file
-#     # https://stackoverflow.com/questions/27712778/
-#     #               video-plays-in-other-browsers-but-not-safari
-#     # https://stackoverflow.com/questions/720419/
-#     #               how-can-i-find-out-whether-a-server-supports-the-range-header
-#     basename = os.path.splitext(filename)[0]
-#     if fext_override is not None:
-#         mimetype_filename = os.path.join(basename, fext_override)
-#     else:
-#         mimetype_filename = filename
-
-#     fext = os.path.splitext(filename)[1]
-#     #    mtype, encoding = mimetypes.guess_type(filename)
-#     #mtype = mimetypes.guess_type(mimetype_filename)[0]
-#     mtype = FILETYPE_DATA[fext]["mimetype"]
-#     if mtype is None:
-#         mtype = "application/octet-stream"
-
-#     if use_ranged:
-#         response = stream_video(request, filename, content_type=mtype)
-
-#     else:
-#         response = FileResponse(
-#             io.BytesIO(binaryblob),
-#             content_type=mtype,
-#             as_attachment=False,
-#             filename=filename,
-#         )
-#         response["Content-Type"] = mtype
-#         response["Content-Length"] = len(binaryblob)
-#     return response
-
-
 @never_cache
 def respond_as_attachment(request, file_path, original_filename):
+    """
+    Send a file as an attachment download response.
+
+    Args:
+        request: Django request object
+        file_path: Path to the file directory
+        original_filename: Name of the file to send
+
+    Returns:
+        FileResponse with the file as attachment
+
+    Raises:
+        Http404: If the file is not found
+    """
     filename = os.path.join(file_path, original_filename)
     fext = os.path.splitext(filename)[1].lower()
     mtype = filetypes.return_filetype(fext).mimetype
@@ -150,8 +90,8 @@ def respond_as_attachment(request, file_path, original_filename):
             filename=filename,
         )
         return response
-    except FileNotFoundError:
-        return Http404
+    except FileNotFoundError as exc:
+        raise Http404("File not found") from exc
 
 
 def file_iterator(file_path, chunk_size=8192, offset=0, length=None):
@@ -172,42 +112,6 @@ def file_iterator(file_path, chunk_size=8192, offset=0, length=None):
             yield data
 
 
-# def stream_audio(request):
-#     """
-#     # https://www.djangotricks.com/tricks/4S7qbNhtUeAD/
-
-#     """
-#     path = str(settings.BASE_DIR / "data" / "music.mp3")
-#     content_type = "audio/mp3"
-
-#     range_header = request.META.get("HTTP_RANGE", "").strip()
-#     range_match = RANGE_RE.match(range_header)
-#     size = os.path.getsize(path)
-
-#     if range_match:
-#         first_byte, last_byte = range_match.groups()
-#         first_byte = int(first_byte) if first_byte else 0
-#         last_byte = (
-#             first_byte + 1024 * 1024 * 8
-#         )  # The max volume of the response body is 8M per piece
-#         if last_byte >= size:
-#             last_byte = size - 1
-#         length = last_byte - first_byte + 1
-#         response = StreamingHttpResponse(
-#             file_iterator(path, offset=first_byte, length=length),
-#             status=206,
-#             content_type=content_type,
-#         )
-#         response["Content-Range"] = f"bytes {first_byte}-{last_byte}/{size}"
-
-#     else:
-#         response = StreamingHttpResponse(
-#             FileWrapper(open(path, "rb")), content_type=content_type
-#         )
-#     response["Accept-Ranges"] = "bytes"
-#     return response
-
-
 def stream_video(request, fqpn, content_type="video/mp4"):
     """
     https://www.djangotricks.com/tricks/Jw4jNwFziSXD/
@@ -219,7 +123,7 @@ def stream_video(request, fqpn, content_type="video/mp4"):
     range_header = request.headers.get("range", "").strip()
     range_match = RANGE_RE.match(range_header)
     size = os.path.getsize(fqpn)
-    print("content type:", content_type)
+    logger.debug("Streaming video with content type: %s", content_type)
     if range_match:
         first_byte, last_byte = range_match.groups()
         first_byte = int(first_byte) if first_byte else 0
@@ -241,95 +145,3 @@ def stream_video(request, fqpn, content_type="video/mp4"):
         )
     response["Accept-Ranges"] = "bytes"
     return response
-
-
-# def stream_video(request, fqpn, content_type="video/mp4"):
-#     """
-# #     https://www.djangotricks.com/tricks/Jw4jNwFziSXD/
-# #     :param request:
-# #     :return:
-# #     """
-
-#     file_size = os.path.getsize(fqpn)
-#     if request.method != 'GET':
-#         return HttpResponseNotAllowed(['GET'])
-
-#     range_header = request.headers.get("range", "").strip()
-#     range_match = RANGE_RE.match(range_header)
-#     if range_match:
-#         start, end = range_match.groups()
-#         start = int(start) if start else 0
-#         end = int(end) if end else 0
-#         end = end + 1024 * 1024 * 8  # The max volume of the response body is 8M per piece
-#         if end >= file_size:
-#             end = file_size - 1
-#         length = end - start + 1
-#     else:
-#         return FileResponse(open(fqpn, 'rb'))
-
-# #    range_header = request.headers.get("range", "").strip()
-#     # if request.is_secure():
-#     #     range_header = request.META.get('HTTPS_RANGE')
-#     # else:
-#     #     range_header = request.META.get('HTTP_RANGE')
-
-#     # all_headers = request.META
-#     # for header, value in all_headers.items():
-#     #     print(f"{header}: {value}")
-#     # print(range_header)
-#     #ranges = parse_range_header(range_header)
-# #    if not ranges:
-# #        return FileResponse(open(fqpn, 'rb'))
-
-#     # For simplicity, handle only single range requests
-#  #   start, end = ranges[0]
-#     print(start, end)
-#     with open(fqpn, 'rb') as file_to_send:
-#         file_to_send.seek(start)
-#         data = file_to_send.read(end - start + 1)
-
-#     response = FileResponse(data, content_type='application/octet-stream')
-#     response['Content-Length'] = len(data)
-#     response['Content-Range'] = f'bytes {start}-{end}/{file_size}'
-#     response['Accept-Ranges'] = 'bytes'
-#     response.status_code = 206  # Partial Content
-#     return response
-
-
-# try:
-#     return response
-# except OSError:
-#     pass
-
-# def stream_video(request, fqpn, content_type="video/mp4"):
-#     print("Confirmed")
-#     file_size = os.path.getsize(fqpn)
-#     if request.method != 'GET':
-#         return HttpResponseNotAllowed(['GET'])
-
-#     range_header = request.META.get('HTTPS_RANGE')
-#     if not range_header:
-#       return FileResponse(open(fqpn, 'rb'))
-
-#     try:
-#         ranges = parse_range_header(range_header)
-#         print(ranges)
-#     except ValueError:
-#         return HttpResponseBadRequest('Invalid Range header')
-
-#     if not ranges:
-#         return FileResponse(open(fqpn, 'rb'))
-
-#     # For simplicity, handle only single range requests
-#     start, end = ranges[0]
-
-#     with open(fqpn, 'rb') as f:
-#         f.seek(start)
-#         data = f.read(end - start + 1)
-
-#     response = FileResponse(data, content_type='application/octet-stream')
-#     response['Content-Length'] = len(data)
-#     response['Content-Range'] = f'bytes {start}-{end}/{file_size}'
-#     response['Accept-Ranges'] = 'bytes'
-#     response.status_code = 206  # Partial Content
-#     return response

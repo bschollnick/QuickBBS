@@ -11,15 +11,18 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import aiofiles
 import charset_normalizer
 import markdown2
 from cachetools import LRUCache, cached
+from django.db import transaction
 from django.db.models import Count
 from django.db.models.query import QuerySet
 from django.http import FileResponse, Http404, HttpResponse
 from django.urls import reverse
 from PIL import Image
 
+from quickbbs.common import normalize_fqpn, normalize_string_title
 from thumbnails.video_thumbnails import _get_video_info
 
 # Import shared foundation
@@ -315,7 +318,7 @@ class FileIndex(models.Model):
         Returns:
             Number of files updated
         """
-        # Import here to avoid circular dependency
+        # Inline import to avoid circular dependency (frontend.utilities imports DirectoryIndex)
         from frontend.managers import clear_layout_cache_for_directories
 
         # Update all files with this SHA256
@@ -386,10 +389,6 @@ class FileIndex(models.Model):
         Returns:
             Dictionary containing file metadata suitable for FileIndex(**metadata), or None if processing fails
         """
-        # Inline imports to avoid circular dependencies
-        import filetypes.models as filetype_models
-        from quickbbs.common import normalize_string_title
-
         try:
             # Initialize the record dictionary
             record = {
@@ -411,7 +410,7 @@ class FileIndex(models.Model):
             fileext = ".none" if fileext == "." else fileext
 
             # Check if filetype exists
-            if not filetype_models.filetypes.filetype_exists_by_ext(fileext):
+            if not filetypes.filetype_exists_by_ext(fileext):
                 print(f"Can't match fileext '{fileext}' with filetypes")
                 return None
 
@@ -423,7 +422,7 @@ class FileIndex(models.Model):
                         "size": fs_stat.st_size,
                         "lastmod": fs_stat.st_mtime,
                         "lastscan": time.time(),
-                        "filetype": filetype_models.filetypes.return_filetype(fileext=fileext),
+                        "filetype": filetypes.return_filetype(fileext=fileext),
                     }
                 )
             except (OSError, IOError) as e:
@@ -486,9 +485,6 @@ class FileIndex(models.Model):
         Raises:
             Exception: If any database operation fails
         """
-        # Inline imports to avoid circular dependencies
-        from django.db import transaction
-
         try:
             # Batch delete using IDs with optimized chunking
             if records_to_delete_ids:
@@ -514,28 +510,22 @@ class FileIndex(models.Model):
 
                         # Check if any records have movies for duration field
                         has_movies = any(
-                            hasattr(record, "filetype")
-                            and hasattr(record.filetype, "is_movie")
-                            and record.filetype.is_movie
-                            and hasattr(record, "duration")
-                            and record.duration is not None
+                            getattr(getattr(record, "filetype", None), "is_movie", False)
+                            and getattr(record, "duration", None) is not None
                             for record in chunk
                         )
                         if has_movies:
                             update_fields.append("duration")
 
                         # Add hash fields only if they exist in the records
-                        has_hashes = any(hasattr(record, "file_sha256") and record.file_sha256 for record in chunk)
+                        has_hashes = any(getattr(record, "file_sha256", None) for record in chunk)
                         if has_hashes:
                             update_fields.extend(["file_sha256", "unique_sha256"])
 
                         # Add virtual_directory for link files
                         has_link_with_vdir = any(
-                            hasattr(record, "filetype")
-                            and hasattr(record.filetype, "is_link")
-                            and record.filetype.is_link
-                            and hasattr(record, "virtual_directory")
-                            and record.virtual_directory is not None
+                            getattr(getattr(record, "filetype", None), "is_link", False)
+                            and getattr(record, "virtual_directory", None) is not None
                             for record in chunk
                         )
                         if has_link_with_vdir:
@@ -618,71 +608,51 @@ class FileIndex(models.Model):
         Returns:
             DirectoryIndex object for the target directory, or None if target cannot be resolved
         """
-        # Inline imports to avoid circular dependencies
-        from quickbbs.common import normalize_fqpn
-
+        # Inline import to avoid circular dependency (DirectoryIndex imports FileIndex)
         from .directoryindex import DirectoryIndex
 
         try:
+            redirect_path = None
+
             if filetype.fileext == ".link":
-                # Optimize link parsing with single-pass processing
+                # Parse .link format
                 name_lower = filename.lower()
                 star_index = name_lower.find("*")
                 if star_index == -1:
                     logger.warning(f"Invalid link format - no '*' found in: {filename}")
                     return None
 
-                redirect = name_lower[star_index + 1 :]
-                # Chain replacements more efficiently
-                redirect = redirect.replace("'", "").replace("__", "/")
+                redirect = name_lower[star_index + 1 :].replace("'", "").replace("__", "/")
                 dot_index = redirect.rfind(".")
                 if dot_index != -1:
                     redirect = redirect[:dot_index]
                 redirect_path = f"/{redirect}"
 
-                # Check if already a full filesystem path or a web fragment
+                # Normalize based on whether it's absolute or relative
                 if not redirect_path.startswith(settings.ALBUMS_PATH):
-                    # Web fragment - convert to full filesystem path
                     redirect_path = normalize_fqpn(settings.ALBUMS_PATH + redirect_path)
                 else:
-                    # Already a full filesystem path - just normalize
                     redirect_path = normalize_fqpn(redirect_path)
 
-                # Find or create the target directory and set virtual_directory
+            elif filetype.fileext == ".alias":
+                redirect_path = FileIndex.resolve_macos_alias(str(fs_entry))
+
+            # Common resolution logic (once)
+            if redirect_path:
                 found, virtual_dir = DirectoryIndex.search_for_directory(redirect_path)
                 if not found:
                     found, virtual_dir = DirectoryIndex.add_directory(redirect_path)
 
-                # Check if resolution succeeded - if not, skip this file
-                if not found or virtual_dir is None:
-                    error_msg = f"Skipping .link file with broken target: {filename} → {redirect_path} (target directory not found)"
-                    logger.warning(error_msg)
-                    return None
+                if found and virtual_dir is not None:
+                    return virtual_dir
 
-                return virtual_dir
+                logger.warning(f"Skipping link with broken target: {filename} → {redirect_path}")
 
-            if filetype.fileext == ".alias":
-                # Use FileIndex.resolve_macos_alias class method
-                alias_target_path = FileIndex.resolve_macos_alias(str(fs_entry))
-
-                # Find or create the target directory and set virtual_directory
-                found, virtual_dir = DirectoryIndex.search_for_directory(alias_target_path)
-                if not found:
-                    found, virtual_dir = DirectoryIndex.add_directory(alias_target_path)
-
-                # Check if resolution succeeded - if not, skip this file
-                if not found or virtual_dir is None:
-                    error_msg = f"Skipping .alias file with broken target: {filename} → {alias_target_path} (target directory not found)"
-                    logger.warning(error_msg)
-                    return None
-
-                return virtual_dir
+            return None
 
         except ValueError as e:
             logger.error(f"Error processing link file {filename}: {e}")
             return None
-
-        return None
 
     @staticmethod
     def is_animated_gif(fs_entry: Path) -> bool:
@@ -709,11 +679,18 @@ class FileIndex(models.Model):
         """
         Return the SHA256 hashes of the file as hexdigest strings.
 
-        This is a convenience helper method that provides instance-based access
-        to the centralized SHA256 hashing implementation in quickbbs.common.
-        It exists purely as a workflow convenience - callers could import and call
-        quickbbs.common.get_file_sha() directly, but this method provides a
-        consistent interface when working with FileIndex instances.
+        **INTENTIONAL CONVENIENCE HELPER** - This method is deliberately kept as a
+        simple wrapper to provide a consistent, instance-based interface for FileIndex
+        objects. While it only delegates to quickbbs.common.get_file_sha(), it serves
+        an important purpose:
+
+        - Provides consistent API when working with FileIndex instances
+        - Allows future enhancements without changing call sites
+        - Improves code readability (obj.get_file_sha() vs importing external function)
+        - Maintains encapsulation of hash calculation logic
+
+        This is NOT redundant code - it's an intentional design choice for better
+        developer ergonomics.
 
         All hashing logic is delegated to quickbbs.common.get_file_sha().
 
@@ -729,29 +706,49 @@ class FileIndex(models.Model):
 
     def get_file_counts(self) -> None:
         """
-        Stub method for template compatibility.
+        **INTENTIONAL STUB METHOD** for template compatibility.
 
-        Provides API compatibility between FileIndex and DirectoryIndex objects when used in
-        Jinja2 templates. This allows templates to call .get_file_counts() on either object
-        type without checking the instance type first. DirectoryIndex objects return actual counts,
-        while this method returns None since individual files don't have child file counts.
+        This method is deliberately kept as a simple stub to provide polymorphic API
+        compatibility between FileIndex and DirectoryIndex objects in templates. This
+        design choice eliminates the need for type checking in templates and allows
+        cleaner, more maintainable template code.
+
+        **Why this exists:**
+        - Enables duck typing in Jinja2 templates
+        - Eliminates complex {% if obj.is_directory %} checks
+        - Provides consistent interface across both model types
+        - DirectoryIndex returns actual counts, FileIndex returns None
+        - Templates can safely call this on any object without errors
+
+        **This is NOT dead code** - it's an intentional design pattern (Null Object pattern)
+        for better template ergonomics.
 
         Returns:
-            None
+            None - individual files don't have child file counts
         """
         return None
 
     def get_dir_counts(self) -> None:
         """
-        Stub method for template compatibility.
+        **INTENTIONAL STUB METHOD** for template compatibility.
 
-        Provides API compatibility between FileIndex and DirectoryIndex objects when used in
-        Jinja2 templates. This allows templates to call .get_dir_counts() on either object
-        type without checking the instance type first. DirectoryIndex objects return actual counts,
-        while this method returns None since individual files don't have child directory counts.
+        This method is deliberately kept as a simple stub to provide polymorphic API
+        compatibility between FileIndex and DirectoryIndex objects in templates. This
+        design choice eliminates the need for type checking in templates and allows
+        cleaner, more maintainable template code.
+
+        **Why this exists:**
+        - Enables duck typing in Jinja2 templates
+        - Eliminates complex {% if obj.is_directory %} checks
+        - Provides consistent interface across both model types
+        - DirectoryIndex returns actual counts, FileIndex returns None
+        - Templates can safely call this on any object without errors
+
+        **This is NOT dead code** - it's an intentional design pattern (Null Object pattern)
+        for better template ergonomics.
 
         Returns:
-            None
+            None - individual files don't have child directory counts
         """
         return None
 
@@ -875,8 +872,6 @@ class FileIndex(models.Model):
             Http404: If file not found
             asyncio.CancelledError: Re-raised if client disconnects (file handle cleaned up)
         """
-        import aiofiles
-
         mtype = self.filetype.mimetype or "application/octet-stream"
         fqpn_filename = self.full_filepathname
         file_handle = None
@@ -959,9 +954,6 @@ class FileIndex(models.Model):
         Returns:
             This record if changes detected, None otherwise
         """
-        # Inline imports to avoid circular dependencies
-        import filetypes.models as filetype_models
-
         try:
             # Use pre-computed stat if provided, otherwise call stat()
             # Note: DirEntry.stat() is already cached by Python's os.scandir()
@@ -975,7 +967,7 @@ class FileIndex(models.Model):
             fext = path_obj.suffix.lower() if path_obj.suffix else ""
             if fext:  # Only process files with extensions
                 # Use prefetched filetype from select_related
-                filetype = self.filetype if hasattr(self, "filetype") else filetype_models.filetypes.return_filetype(fileext=fext)
+                filetype = self.filetype if hasattr(self, "filetype") else filetypes.return_filetype(fileext=fext)
 
                 # Fix broken link files - process virtual_directory if missing
                 if filetype.is_link and self.virtual_directory is None:
@@ -990,11 +982,9 @@ class FileIndex(models.Model):
                         self.file_sha256, self.unique_sha256 = precomputed_sha
                         update_needed = True
                     else:
-                        try:
-                            self.file_sha256, self.unique_sha256 = self.get_file_sha(fqfn=fs_entry)
+                        self.file_sha256, self.unique_sha256 = self.get_file_sha(fqfn=fs_entry)
+                        if self.file_sha256 is not None:
                             update_needed = True
-                        except Exception as e:
-                            logger.error(f"Error calculating SHA for {fs_entry}: {e}")
 
                 if self.home_directory != home_directory:
                     self.home_directory = home_directory
