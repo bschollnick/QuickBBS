@@ -510,8 +510,7 @@ class FileIndex(models.Model):
 
                         # Check if any records have movies for duration field
                         has_movies = any(
-                            getattr(getattr(record, "filetype", None), "is_movie", False)
-                            and getattr(record, "duration", None) is not None
+                            getattr(getattr(record, "filetype", None), "is_movie", False) and getattr(record, "duration", None) is not None
                             for record in chunk
                         )
                         if has_movies:
@@ -524,8 +523,7 @@ class FileIndex(models.Model):
 
                         # Add virtual_directory for link files
                         has_link_with_vdir = any(
-                            getattr(getattr(record, "filetype", None), "is_link", False)
-                            and getattr(record, "virtual_directory", None) is not None
+                            getattr(getattr(record, "filetype", None), "is_link", False) and getattr(record, "virtual_directory", None) is not None
                             for record in chunk
                         )
                         if has_link_with_vdir:
