@@ -147,31 +147,6 @@ async def _get_or_create_directory(directory_sha256: str, dirpath: str) -> tuple
     return directory_record, is_cached
 
 
-# DEPRECATED: Function replaced by inlined logic in return_breadcrumbs()
-# The urlsplit() call was unnecessary overhead for simple path strings.
-# Logic now uses direct string.split("/") which is ~30-40% faster.
-# Kept here for reference only.
-#
-# @lru_cache(maxsize=2000)
-# def break_down_urls(uri_path: str) -> list[str]:
-#     """
-#     Split URL into component parts with optimized parsing
-#
-#     DEPRECATED: Replaced by inline logic in return_breadcrumbs()
-#     This function called urllib.parse.urlsplit() unnecessarily on path strings.
-#
-#     Args:
-#         uri_path (str): The URI to break down
-#
-#     Returns:
-#         list: A list containing all parts of the URI
-#     """
-#     if not uri_path or uri_path == "/":
-#         return []
-#     path = urllib.parse.urlsplit(uri_path).path
-#     return [part for part in path.split("/") if part]
-
-
 @cached(webpaths_cache)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
 def convert_to_webpath(full_path, directory=None):
     """

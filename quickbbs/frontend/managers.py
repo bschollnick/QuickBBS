@@ -34,13 +34,10 @@ import math
 import time
 from pathlib import Path
 
-# from cache_watcher.models import Cache_Storage
 from asgiref.sync import sync_to_async
 from cachetools import LRUCache, cached
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
-
-# from filetypes.models import load_filetypes
 from django.db.models import Q
 from django.http import (  # HttpResponse,; Http404,; HttpRequest,; HttpResponseNotFound,; JsonResponse,
     HttpResponseBadRequest,
@@ -52,10 +49,6 @@ from frontend.utilities import (
 )
 from quickbbs.common import SORT_MATRIX
 from quickbbs.models import FileIndex, distinct_files_cache
-
-# from functools import lru_cache
-# from itertools import chain
-
 
 layout_manager_cache = LRUCache(maxsize=500)
 
@@ -307,20 +300,6 @@ async def async_build_context_info(request: WSGIRequest, unique_file_sha256: str
         show_duplicates=show_duplicates,
     )
 
-
-# def _get_directory_counts(directory) -> dict:
-#     """
-#     Get directory and file counts efficiently using optimized queries.
-
-#     Args:
-#         directory: DirectoryIndex object
-#     Returns: Dictionary with dirs_count and files_count
-#     """
-#     # Use values() with count to reduce query overhead
-#     dirs_count = directory.dirs_in_dir().values("pk").count()
-#     files_count = directory.files_in_dir().values("pk").count()
-
-#     return {"dirs_count": dirs_count, "files_count": files_count}
 
 
 def _get_no_thumbnails(directory, sort_ordering: int):

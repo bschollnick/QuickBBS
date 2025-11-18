@@ -18,8 +18,6 @@ import warnings
 from asgiref.sync import async_to_sync, sync_to_async
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
-
-# from django.core.paginator import EmptyPage, PageNotAnInteger  # Unused after optimization
 from django.db.models import Count, Q
 from django.db.utils import DatabaseError, OperationalError
 from django.http import (

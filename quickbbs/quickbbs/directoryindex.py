@@ -461,14 +461,14 @@ class DirectoryIndex(models.Model):
         Returns: A boolean representing the success of the search, and the resultant record
         """
         # Internal prefetch list - excludes filetype (uses select_related instead)
-        SEARCH_PREFETCH_LIST = [
+        search_prefetch_list = [
             "FileIndex_entries",
         ]
 
         try:
             record = (
                 DirectoryIndex.objects.select_related(*DIRECTORYINDEX_SELECT_RELATED_LIST)
-                .prefetch_related(*SEARCH_PREFETCH_LIST)
+                .prefetch_related(*search_prefetch_list)
                 .get(
                     dir_fqpn_sha256=sha_256,
                     delete_pending=False,
@@ -851,7 +851,7 @@ class DirectoryIndex(models.Model):
 
                 # Early skip for archives and other excluded types
                 filetype = filedata.get("filetype")
-                if hasattr(filetype, "is_archive") and filetype.is_archive:
+                if filetype and filetype.is_archive:
                     continue
 
                 # Create record - home_directory already set via process_filedata(directory_id=self)
@@ -859,7 +859,7 @@ class DirectoryIndex(models.Model):
                 # record.home_directory = self  # Already set in filedata dict
                 records_to_create.append(record)
 
-            except Exception as e:
+            except (OSError, IOError, ValueError, TypeError) as e:
                 logger.error(f"Error processing new file {fs_entry}: {e}")
                 continue
 
