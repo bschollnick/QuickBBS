@@ -301,7 +301,6 @@ async def async_build_context_info(request: WSGIRequest, unique_file_sha256: str
     )
 
 
-
 def _get_no_thumbnails(directory, sort_ordering: int):
     """
     Get queryset of file SHA256s that don't have thumbnails.
