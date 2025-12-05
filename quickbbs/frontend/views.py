@@ -39,6 +39,7 @@ from frontend.managers import (
 )
 from frontend.utilities import (
     SORT_MATRIX,
+    convert_to_webpath,
     ensures_endswith,
     return_breadcrumbs,
     sync_database_disk,
@@ -706,7 +707,7 @@ async def new_viewgallery(request: WSGIRequest):
             "breadcrumbs": return_breadcrumbs(paths["webpath"])[:-1],
             "thumbpath": paths["thumbpath"],
             "gallery_name": pathlib.Path(paths["webpath"]).name,
-            "up_uri": "/".join(request.build_absolute_uri().split("/")[0:-1]),
+            "up_uri": convert_to_webpath(str(pathlib.Path(paths["webpath"]).parent)),
             "search": False,
             "prev_uri": None,
             "next_uri": None,
@@ -727,6 +728,7 @@ async def new_viewgallery(request: WSGIRequest):
         {
             "total_pages": layout["total_pages"],
             "page_cnt": list(range(1, layout["total_pages"] + 1)),
+            "page_locale": layout["page_locale"],
         }
     )
 

@@ -476,6 +476,22 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
     # Get no_thumbnails data efficiently
     output["no_thumbnails"] = _get_no_thumbnails(directory, sort_ordering)
 
+    # Calculate page_locale - which page this directory appears on in its parent
+    if directory.parent_directory:
+        parent_dirs = directory.parent_directory.dirs_in_dir(
+            sort=sort_ordering, fields_only=("dir_fqpn_sha256",), select_related=(), prefetch_related=()
+        )
+        parent_dir_list = list(parent_dirs.values_list("dir_fqpn_sha256", flat=True))
+        try:
+            position = parent_dir_list.index(directory.dir_fqpn_sha256)
+            page_locale = int(position / chunk_size) + 1
+        except ValueError:
+            page_locale = 1
+    else:
+        page_locale = 1
+
+    output["page_locale"] = page_locale
+
     build_time = time.perf_counter() - start_time
     logging.debug("Optimized layout manager completed in %.4f seconds", build_time)
     return output
