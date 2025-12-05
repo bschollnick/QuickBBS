@@ -17,10 +17,10 @@ except ImportError:
 
 try:
     from .Abstractbase_thumbnails import AbstractBackend
-    from .core_image_thumbnails import CoreImageBackend
+    from .core_image_thumbnails import CoreImageBackend, autorelease_pool
 except ImportError:
     from Abstractbase_thumbnails import AbstractBackend
-    from core_image_thumbnails import CoreImageBackend
+    from core_image_thumbnails import CoreImageBackend, autorelease_pool
 
 
 class PDFKitBackend(AbstractBackend):
@@ -87,43 +87,45 @@ class PDFKitBackend(AbstractBackend):
         :return: CIImage of the rendered page
         :raises RuntimeError: If page rendering fails
         """
-        # Get the page
-        page = pdf_doc.pageAtIndex_(page_num)
-        if page is None:
-            raise RuntimeError(f"Could not get page {page_num} from PDF")
+        # Wrap in autorelease pool to drain PDFKit and Core Image objects
+        with autorelease_pool():
+            # Get the page
+            page = pdf_doc.pageAtIndex_(page_num)
+            if page is None:
+                raise RuntimeError(f"Could not get page {page_num} from PDF")
 
-        # Get page bounds
-        page_rect = page.boundsForBox_(1)  # 1 = kPDFDisplayBoxMediaBox
-        page_width = page_rect.size.width
-        page_height = page_rect.size.height
+            # Get page bounds
+            page_rect = page.boundsForBox_(1)  # 1 = kPDFDisplayBoxMediaBox
+            page_width = page_rect.size.width
+            page_height = page_rect.size.height
 
-        # Calculate optimal scale
-        scale = self._calculate_optimal_scale(page_width, page_height, target_size[0], target_size[1])
+            # Calculate optimal scale
+            scale = self._calculate_optimal_scale(page_width, page_height, target_size[0], target_size[1])
 
-        # Calculate scaled dimensions
-        scaled_width = int(page_width * scale)
-        scaled_height = int(page_height * scale)
+            # Calculate scaled dimensions
+            scaled_width = int(page_width * scale)
+            scaled_height = int(page_height * scale)
 
-        # Render page to CIImage using PDFKit's thumbnail method
-        # This is GPU-accelerated and very fast
-        ns_image = page.thumbnailOfSize_forBox_((scaled_width, scaled_height), 1)
+            # Render page to CIImage using PDFKit's thumbnail method
+            # This is GPU-accelerated and very fast
+            ns_image = page.thumbnailOfSize_forBox_((scaled_width, scaled_height), 1)
 
-        if ns_image is None:
-            raise RuntimeError("Failed to render PDF page thumbnail")
+            if ns_image is None:
+                raise RuntimeError("Failed to render PDF page thumbnail")
 
-        # Convert NSImage to CGImage then to CIImage
-        # Get the bitmap representation
-        tiff_data = ns_image.TIFFRepresentation()
-        if tiff_data is None:
-            raise RuntimeError("Failed to get TIFF representation from NSImage")
+            # Convert NSImage to CGImage then to CIImage
+            # Get the bitmap representation
+            tiff_data = ns_image.TIFFRepresentation()
+            if tiff_data is None:
+                raise RuntimeError("Failed to get TIFF representation from NSImage")
 
-        # Create CIImage from TIFF data
-        ci_image = CIImage.imageWithData_(tiff_data)
+            # Create CIImage from TIFF data
+            ci_image = CIImage.imageWithData_(tiff_data)
 
-        if ci_image is None:
-            raise RuntimeError("Failed to create CIImage from TIFF data")
+            if ci_image is None:
+                raise RuntimeError("Failed to create CIImage from TIFF data")
 
-        return ci_image
+            return ci_image
 
     def process_from_file(
         self,
@@ -144,45 +146,47 @@ class PDFKitBackend(AbstractBackend):
         :raises FileNotFoundError: If PDF file doesn't exist
         :raises RuntimeError: If PDF processing fails
         """
-        file_path = Path(file_path)
+        # Wrap entire operation in autorelease pool to drain PDFKit objects
+        with autorelease_pool():
+            file_path = Path(file_path)
 
-        if not file_path.exists():
-            raise FileNotFoundError(f"PDF file not found: {file_path}")
+            if not file_path.exists():
+                raise FileNotFoundError(f"PDF file not found: {file_path}")
 
-        # Load PDF document
-        file_url = NSURL.fileURLWithPath_(str(file_path))
-        pdf_doc = PDFDocument.alloc().initWithURL_(file_url)
+            # Load PDF document
+            file_url = NSURL.fileURLWithPath_(str(file_path))
+            pdf_doc = PDFDocument.alloc().initWithURL_(file_url)
 
-        if pdf_doc is None:
-            raise RuntimeError(f"Could not load PDF from {file_path}")
+            if pdf_doc is None:
+                raise RuntimeError(f"Could not load PDF from {file_path}")
 
-        try:
-            # Use first page (page 0)
-            page_num = 0
-            if pdf_doc.pageCount() == 0:
-                raise RuntimeError("PDF has no pages")
-
-            if page_num >= pdf_doc.pageCount():
+            try:
+                # Use first page (page 0)
                 page_num = 0
+                if pdf_doc.pageCount() == 0:
+                    raise RuntimeError("PDF has no pages")
 
-            # Get largest target size for optimal rendering
-            largest_size = max(sizes.values(), key=lambda s: s[0] * s[1])
+                if page_num >= pdf_doc.pageCount():
+                    page_num = 0
 
-            # Render page to CIImage
-            ci_image = self._render_pdf_page_to_ciimage(pdf_doc, page_num, largest_size)
+                # Get largest target size for optimal rendering
+                largest_size = max(sizes.values(), key=lambda s: s[0] * s[1])
 
-            # Process using Core Image backend for GPU-accelerated thumbnails
-            # pylint: disable=protected-access
-            image_output = self._image_backend._process_ci_image(ci_image, sizes, output_format, quality)
+                # Render page to CIImage
+                ci_image = self._render_pdf_page_to_ciimage(pdf_doc, page_num, largest_size)
 
-            output = {"format": output_format}
-            output.update(image_output)
+                # Process using Core Image backend for GPU-accelerated thumbnails
+                # pylint: disable=protected-access
+                image_output = self._image_backend._process_ci_image(ci_image, sizes, output_format, quality)
 
-            return output
+                output = {"format": output_format}
+                output.update(image_output)
 
-        finally:
-            # Clean up
-            pdf_doc = None
+                return output
+
+            finally:
+                # Clean up
+                pdf_doc = None
 
     def process_from_memory(
         self,
@@ -204,40 +208,42 @@ class PDFKitBackend(AbstractBackend):
         :return: Dictionary with 'format' key and size-keyed thumbnail bytes
         :raises RuntimeError: If PDF processing fails
         """
-        # Convert bytes to NSData
-        ns_data = NSData.dataWithBytes_length_(pdf_bytes, len(pdf_bytes))
+        # Wrap entire operation in autorelease pool to drain PDFKit objects
+        with autorelease_pool():
+            # Convert bytes to NSData
+            ns_data = NSData.dataWithBytes_length_(pdf_bytes, len(pdf_bytes))
 
-        # Load PDF document from data
-        pdf_doc = PDFDocument.alloc().initWithData_(ns_data)
+            # Load PDF document from data
+            pdf_doc = PDFDocument.alloc().initWithData_(ns_data)
 
-        if pdf_doc is None:
-            raise RuntimeError("Could not load PDF from bytes")
+            if pdf_doc is None:
+                raise RuntimeError("Could not load PDF from bytes")
 
-        try:
-            if pdf_doc.pageCount() == 0:
-                raise RuntimeError("PDF has no pages")
+            try:
+                if pdf_doc.pageCount() == 0:
+                    raise RuntimeError("PDF has no pages")
 
-            if page_num >= pdf_doc.pageCount():
-                page_num = 0
+                if page_num >= pdf_doc.pageCount():
+                    page_num = 0
 
-            # Get largest target size for optimal rendering
-            largest_size = max(sizes.values(), key=lambda s: s[0] * s[1])
+                # Get largest target size for optimal rendering
+                largest_size = max(sizes.values(), key=lambda s: s[0] * s[1])
 
-            # Render page to CIImage
-            ci_image = self._render_pdf_page_to_ciimage(pdf_doc, page_num, largest_size)
+                # Render page to CIImage
+                ci_image = self._render_pdf_page_to_ciimage(pdf_doc, page_num, largest_size)
 
-            # Process using Core Image backend for GPU-accelerated thumbnails
-            # pylint: disable=protected-access
-            image_output = self._image_backend._process_ci_image(ci_image, sizes, output_format, quality)
+                # Process using Core Image backend for GPU-accelerated thumbnails
+                # pylint: disable=protected-access
+                image_output = self._image_backend._process_ci_image(ci_image, sizes, output_format, quality)
 
-            output = {"format": output_format}
-            output.update(image_output)
+                output = {"format": output_format}
+                output.update(image_output)
 
-            return output
+                return output
 
-        finally:
-            # Clean up
-            pdf_doc = None
+            finally:
+                # Clean up
+                pdf_doc = None
 
     def process_data(self, pil_image, sizes, output_format, quality):
         """Process a PIL Image and generate thumbnails.

@@ -78,41 +78,11 @@ class Favorites(models.Model):
     uuid = models.UUIDField(default=None, null=True, editable=False, blank=True, db_index=True)
 
 
-# Forward ForeignKeys and OneToOne - use select_related() for SQL JOINs (single query)
-DIRECTORYINDEX_SELECT_RELATED_LIST = [
-    "filetype",
-    "thumbnail",  # Forward FK to FileIndex - needed for thumbnail display
-    "Cache_Watcher",  # Reverse OneToOne - can use select_related
-    "parent_directory",  # Forward FK - preload for navigation
-]
-
-# Reverse ForeignKeys - use prefetch_related() for separate queries
-DIRECTORYINDEX_PREFETCH_LIST = [
-    "FileIndex_entries",
-    # "file_links",
-    # "thumbnail",
-    # "parent_directory",
-    # "home_directory",
-]
-
-
-# Forward ForeignKeys - use select_related() for SQL JOINs (single query)
-FILEINDEX_SELECT_RELATED_LIST = [
-    "filetype",
-    "new_ftnail",
-    "home_directory",
-    "virtual_directory",
-]
-
-# Reverse ForeignKeys - use prefetch_related() for separate queries
-# Currently empty as FileIndex has no reverse relationships in the standard query
-FILEINDEX_PREFETCH_LIST = []
-
-# Minimal select_related for downloads - filetype and home_directory needed
-FILEINDEX_DOWNLOAD_SELECT_RELATED_LIST = [
-    "filetype",
-    "home_directory",
-]
+# OLD CONSTANTS REMOVED - Phase 4 cleanup
+# These constants have been replaced by granular tuple-based constants in the model files:
+# - FileIndex constants: See quickbbs/fileindex.py (FILEINDEX_SR_*)
+# - DirectoryIndex constants: See quickbbs/directoryindex.py (DIRECTORYINDEX_SR_*, DIRECTORYINDEX_PR_*)
+# - ThumbnailFiles constants: See thumbnails/models.py (THUMBNAILFILES_PR_*)
 
 
 # Import and re-export main models (allows: from quickbbs.models import DirectoryIndex, FileIndex)
@@ -128,10 +98,5 @@ __all__ = [
     "fileindex_cache",
     "fileindex_download_cache",
     "distinct_files_cache",
-    "DIRECTORYINDEX_SELECT_RELATED_LIST",
-    "DIRECTORYINDEX_PREFETCH_LIST",
-    "FILEINDEX_SELECT_RELATED_LIST",
-    "FILEINDEX_PREFETCH_LIST",
-    "FILEINDEX_DOWNLOAD_SELECT_RELATED_LIST",
     "logger",
 ]

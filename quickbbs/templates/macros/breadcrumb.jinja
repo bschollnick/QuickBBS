@@ -1,0 +1,96 @@
+{#
+  Breadcrumb Navigation Macros for QuickBBS
+
+  This file provides reusable macros for breadcrumb navigation with smart truncation
+  for long paths.
+
+  Usage:
+      {% from 'macros/breadcrumb.jinja' import show_breadcrumb_nav %}
+#}
+
+{#
+  Breadcrumb Navigation Macro
+
+  Creates a breadcrumb navigation with smart truncation for long paths.
+  - Shows all breadcrumbs if 4 or fewer
+  - Shows first + last 3 with "..." in middle if more than 4
+
+  Args:
+      breadcrumbs (list): List of breadcrumb objects with .url and .name attributes
+      current_name (str): Name of the current page (shown as active)
+      max_visible (int): Maximum breadcrumbs before truncation (default: 4)
+
+  Usage:
+      show_breadcrumb_nav(breadcrumbs, gallery_name)
+
+      With custom max_visible:
+      show_breadcrumb_nav(breadcrumbs, gallery_name, max_visible=6)
+
+  Output:
+      <nav class="breadcrumb">
+          <ul>
+              <li><a href="...">Home</a></li>
+              <li><a href="...">Photos</a></li>
+              <li class="is-active"><b>2024</b></li>
+          </ul>
+      </nav>
+#}
+{% macro show_breadcrumb_nav(breadcrumbs, current_name, max_visible=4) %}
+<nav hx-boost="true" class="breadcrumb is-small breadcrumb-compact" aria-label="breadcrumbs">
+    <ul>
+        {% if breadcrumbs|length > max_visible %}
+            {# First breadcrumb #}
+            {{ show_breadcrumb_item(breadcrumbs[0]) }}
+
+            {# Middle collapsed breadcrumbs as "..." #}
+            {% for breadcrumb in breadcrumbs[1:-3] %}
+                {{ show_breadcrumb_item(breadcrumb, text='...') }}
+            {% endfor %}
+
+            {# Last 3 breadcrumbs #}
+            {% for breadcrumb in breadcrumbs[-3:] %}
+                {{ show_breadcrumb_item(breadcrumb) }}
+            {% endfor %}
+        {% else %}
+            {# Show all breadcrumbs normally if max_visible or fewer #}
+            {% for breadcrumb in breadcrumbs %}
+                {{ show_breadcrumb_item(breadcrumb) }}
+            {% endfor %}
+        {% endif %}
+
+        {# Current page (active) #}
+        <li class="is-active">
+            <B>{{ current_name|wordwrap(width=50, break_long_words=True) }}</B>
+        </li>
+    </ul>
+</nav>
+{% endmacro %}
+
+{#
+  Breadcrumb Item Macro
+
+  Creates a single breadcrumb list item with HTMX navigation.
+
+  Args:
+      breadcrumb: Object with .url and .name attributes
+      text (str): Optional override text (used for "..." collapsed items)
+
+  Usage:
+      show_breadcrumb_item(breadcrumb)
+      show_breadcrumb_item(breadcrumb, text='...')
+
+  Output:
+      <li><a href="..." hx-get="...">Breadcrumb Name</a></li>
+#}
+{% macro show_breadcrumb_item(breadcrumb, text=None) %}
+<li>
+    <a href="{{ breadcrumb.url }}"
+       hx-get="{{ breadcrumb.url }}"
+       hx-push-url="true"
+       hx-target="body"
+       hx-swap="outerHTML transition:true"
+       hx-headers='{"Cache-Control": "max-age=300"}'>
+        {{ text or breadcrumb.name }}
+    </a>
+</li>
+{% endmacro %}

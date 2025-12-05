@@ -1,0 +1,98 @@
+{#
+  Metadata Display Macros for QuickBBS
+
+  This file provides reusable macros for displaying item metadata with icons,
+  such as file sizes, dates, counts, and durations.
+
+  Usage:
+      {% from 'macros/metadata.jinja' import show_icon_text, show_item_metadata %}
+#}
+
+{#
+  Icon with Text Display Macro
+
+  Displays an icon with accompanying text. Conditionally renders based on value.
+  Uses Bulma's icon-text pattern for consistent spacing.
+
+  Args:
+      icon_class (str): FontAwesome icon classes (e.g., "far fa-folder")
+      value: The value to display next to the icon
+      condition (bool): Whether to display the element (default: True)
+
+  Usage:
+      {{ show_icon_text('far fa-calendar', '12/05/25 14:30') }}
+      {{ show_icon_text('far fa-folder', dir_count, dir_count not in [0, None, "", -1]) }}
+
+  Output:
+      <span class="icon-text">
+          <span class="icon"><i class="far fa-calendar"></i></span>
+          <span>12/05/25 14:30</span>
+      </span>
+#}
+{% macro show_icon_text(icon_class, value, condition=True) %}
+{% if condition and value not in [0, None, "", -1] %}
+<span class="icon-text">
+    <span class="icon"><i class="{{ icon_class }}"></i></span>
+    <span>{{ value }}</span>
+</span>
+{% endif %}
+{% endmacro %}
+
+{#
+  Gallery Item Metadata Section Macro
+
+  Displays the complete metadata section for a gallery item.
+  Includes directory/file counts, last modified date, file size, and video duration.
+
+  Automatically determines which metadata to show based on item type:
+  - Directories: Show directory count and file count
+  - Files: Show last modified date and file size
+  - Movies: Show last modified date and duration
+  - All: Show last modified date
+
+  Args:
+      item: FileIndex or DirectoryIndex object with metadata
+
+  Context Requirements:
+      - naturalsize: Template filter for human-readable file sizes
+      - intcomma: Template filter for comma-separated numbers
+      - precisedelta: Template filter for duration formatting
+      - The item object should have a lastmod_display() method or similar
+
+  Usage:
+      {{ show_item_metadata(item, fromtimestamp) }}
+
+  Output:
+      <div class="item-metadata">
+          <span class="icon-text">...</span>
+          <span class="icon-text">...</span>
+          ...
+      </div>
+#}
+{% macro show_item_metadata(item, fromtimestamp=None) %}
+<div class="item-metadata">
+    {% if item.filetype.is_dir %}
+        {% set dir_counts = item.dir_count_cached if item.dir_count_cached is defined else item.get_dir_counts() %}
+        {{ show_icon_text('far fa-folder', dir_counts | intcomma, dir_counts not in [0, None, "", -1]) }}
+
+        {% set file_counts = item.file_count_cached if item.file_count_cached is defined else item.get_file_counts() %}
+        {{ show_icon_text('far fa-file', file_counts | intcomma, file_counts not in [0, None, "", -1]) }}
+    {% endif %}
+
+    {% if fromtimestamp %}
+        {{ show_icon_text('far fa-calendar', fromtimestamp(item.lastmod).strftime("%m/%d/%y %H:%M")) }}
+    {% else %}
+        {# Fallback: use Python's datetime directly from timestamp #}
+        {% set dt = item.lastmod|datetimefromtimestamp %}
+        {{ show_icon_text('far fa-calendar', dt.strftime("%m/%d/%y %H:%M")) }}
+    {% endif %}
+
+    {% if item.size and not item.filetype.is_movie and not item.filetype.is_dir %}
+        {{ show_icon_text('far fa-ruler', naturalsize(item.size, gnu=True)) }}
+    {% endif %}
+
+    {% if item.filetype.is_movie %}
+        {{ show_icon_text('far fa-clock', precisedelta(item.duration)) }}
+    {% endif %}
+</div>
+{% endmacro %}

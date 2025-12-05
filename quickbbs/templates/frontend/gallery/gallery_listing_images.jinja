@@ -1,3 +1,6 @@
+{% from 'macros/metadata.jinja' import show_item_metadata %}
+{% from 'macros/htmx.jinja' import show_htmx_attrs, show_nav_link %}
+{% from 'macros/gallery.jinja' import show_gallery_item_card %}
 
 <style>
 /* Gallery Container */
@@ -204,19 +207,18 @@
 
 <div class="gallery-container">
     <!-- Navigation Header using Bulma Level -->
+    {% with
+        sort_param = '?sort=' ~ sort,
+        swap_mode = 'innerHTML show:window:top transition:true'
+    %}
     <nav class="level">
         <div class="level-left">
             {% if prev_uri not in ["", None] %}
                 <div class="level-item">
-                    <a href="{{ prev_uri }}?sort={{sort}}" class="nav-link"
-                       hx-get="{{ prev_uri }}?sort={{sort}}"
-                       hx-push-url="true"
-                       hx-target="body"
-                       hx-swap="innerHTML show:window:top transition:true"
-                       hx-headers='{"Cache-Control": "max-age=300"}'>
+                    {% call show_nav_link(prev_uri.url ~ sort_param, '', css_class='nav-link', swap=swap_mode) %}
                         <i class="fas fa-angle-left"></i>
-                        {{ prev_uri.split("/")[-1][:25] }}
-                    </a>
+                        {{ prev_uri.name[:25] }}
+                    {% endcall %}
                 </div>
             {% endif %}
         </div>
@@ -228,115 +230,20 @@
         <div class="level-right">
             {% if next_uri not in ["", None] %}
                 <div class="level-item">
-                    <a href="{{ next_uri }}?sort={{sort}}" class="nav-link"
-                       hx-get="{{ next_uri }}?sort={{sort}}"
-                       hx-push-url="true"
-                       hx-target="body"
-                       hx-swap="innerHTML show:window:top transition:true"
-                       hx-headers='{"Cache-Control": "max-age=300"}'>
-                        {{ next_uri.split("/")[-1][:25] }}
+                    {% call show_nav_link(next_uri.url ~ sort_param, '', css_class='nav-link', swap=swap_mode) %}
+                        {{ next_uri.name[:25] }}
                         <i class="fas fa-angle-right"></i>
-                    </a>
+                    {% endcall %}
                 </div>
             {% endif %}
         </div>
     </nav>
+    {% endwith %}
 
     <!-- Gallery Grid -->
     <div class="gallery-grid">
         {%- for item in items_to_display -%}
-            {# Cache URLs and set HTMX attributes once #}
-            {% if item.filetype.is_link and item.virtual_directory %}
-                {% set item_url = item.virtual_directory.get_view_url() %}
-            {% else %}
-                {% set item_url = item.get_view_url() + "?sort=" + sort|string %}
-            {% endif %}
-            {% set htmx_attrs = 'hx-push-url="true" hx-target="body" hx-swap="outerHTML transition:true"' %}
-
-            {# Note: background-color must remain inline as it's dynamic based on filetype #}
-            <div class="gallery-item" style="background-color: #{{ item.filetype.color }};">
-                <!-- Item Header -->
-                <div class="item-header">
-                    <span class="item-index">{{ loop.index }}</span>
-                    <div class="item-title">
-                        <a href="{{ item_url }}"
-                           hx-get="{{ item_url }}"
-                           {{ htmx_attrs|safe }}
-                           class="gallery-item-link">
-                            {% if item.filetype.is_link %}
-                                {{ item.name.split("*")[0] }}
-                            {% else %}
-                                {{ item.name|wordwrap(width=24, break_long_words=True) }}
-                            {% endif %}
-                        </a>
-
-                        {% if item.is_animated %}
-                            <i class="fas fa-film film-indicator"></i>
-                        {% endif %}
-                    </div>
-                </div>
-
-                <!-- Thumbnail Container -->
-                <div class="thumbnail-container">
-                    <figure class="image">
-                        <a href="{{ item_url }}"
-                           hx-get="{{ item_url }}"
-                           {{ htmx_attrs|safe }}
-                           class="gallery-item-link">
-                            <img src="{{ item.get_thumbnail_url() }}"
-                                 alt="{{ item.name }}"
-                                 class="thumbnail thumbnail-image gallery-item">
-                        </a>
-                    </figure>
-                    <!-- External Link -->
-                    <a href="{{ item_url }}"
-                        target="_blank"
-                        class="external-link"
-                        hx-boost="false">
-                        <i class="fas fa-external-link-alt"></i>
-                    </a>
-                </div>
-                
-                <!-- Metadata -->
-                <div class="item-metadata">
-                    {% if item.filetype.is_dir %}
-                        {% set dir_counts = item.dir_count_cached if item.dir_count_cached is defined else item.get_dir_counts() %}
-                        {% if dir_counts not in [0, None, "", -1] %}
-                            <span class="icon-text">
-                                <span class="icon"><i class="far fa-folder"></i></span>
-                                <span>{{ dir_counts | intcomma }}</span>
-                            </span>
-                        {% endif %}
-
-                        {% set file_counts = item.file_count_cached if item.file_count_cached is defined else item.get_file_counts() %}
-                        {% if file_counts not in [0, None, "", -1] %}
-                            <span class="icon-text">
-                                <span class="icon"><i class="far fa-file"></i></span>
-                                <span>{{ file_counts | intcomma }}</span>
-                            </span>
-                        {% endif %}
-                    {% endif %}
-
-                    <span class="icon-text">
-                        <span class="icon"><i class="far fa-calendar"></i></span>
-                        <span>{{ fromtimestamp(item.lastmod).strftime("%m/%d/%y %H:%M") }}</span>
-                    </span>
-
-                    {% if item.size and not item.filetype.is_movie and not item.filetype.is_dir %}
-                        <span class="icon-text">
-                            <span class="icon"><i class="far fa-ruler"></i></span>
-                            <span>{{ naturalsize(item.size, gnu=True) }}</span>
-                        </span>
-                    {% endif %}
-
-                    {% if item.filetype.is_movie %}
-                        <span class="icon-text">
-                            <span class="icon"><i class="far fa-clock"></i></span>
-                            <span>{{ precisedelta(item.duration) }}</span>
-                        </span>
-                    {% endif %}
-                </div>
-            </div>
+            {{ show_gallery_item_card(item, loop.index, sort, fromtimestamp) }}
         {% endfor %}
     </div>
 </div>

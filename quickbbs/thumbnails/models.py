@@ -26,6 +26,8 @@ v3 - Pilot changing the thumbnail storage to be a single table, with the small, 
 
 """
 
+from __future__ import annotations
+
 import asyncio
 import io
 from typing import TYPE_CHECKING
@@ -65,6 +67,16 @@ ThumbnailFiles_Bulk_Prefetch_List = [
     "FileIndex__filetype",
     "FileIndex__home_directory",
 ]
+
+# =============================================================================
+# THUMBNAILFILES PREFETCH_RELATED CONSTANTS
+# Colocated with ThumbnailFiles class for use by class methods and external callers
+# See related_fetches.md for usage details
+# NOTE: Using tuples (not lists) so they can be used as cache keys (hashable)
+# =============================================================================
+
+# Minimal - one FileIndex with filetype (for path and graphic check)
+THUMBNAILFILES_PR_FILEINDEX_FILETYPE = ("FileIndex__filetype",)
 
 # Async-safe cache for thumbnail lookups
 thumbnailfiles_cache = LRUCache(maxsize=1000)
@@ -128,41 +140,116 @@ class ThumbnailFiles(models.Model):
         # constraints = []
 
     @staticmethod
-    def get_or_create_thumbnail_record(file_sha256: str, suppress_save: bool = False) -> "ThumbnailFiles":
+    def get_or_create_thumbnail_record(
+        file_sha256: str, suppress_save: bool, prefetch_related_thumbnail: list[str], select_related_fileindex: list[str]
+    ) -> "ThumbnailFiles":
         """
         Get or create a thumbnail record for a file.
 
         Args:
             file_sha256: The sha256 hash of the file to retrieve or create a thumbnail for
-            suppress_save: If True, do not save the thumbnail after creation (default: False)
+            suppress_save: If True, do not save the thumbnail after creation
+            prefetch_related_thumbnail: List of related fields to prefetch for ThumbnailFiles (required)
+            select_related_fileindex: List of related fields to select_related for FileIndex (required)
 
         Returns:
             ThumbnailFiles object, either retrieved from database or newly created
         """
+        if not file_sha256:
+            raise ValueError(f"file_sha256 parameter is required and cannot be None or empty, got: {file_sha256!r}")
+        if prefetch_related_thumbnail is None:
+            raise ValueError("prefetch_related_thumbnail parameter is required")
+        if select_related_fileindex is None:
+            raise ValueError("select_related_fileindex parameter is required")
 
+        from django.db import connection
+
+        from quickbbs.fileindex import FILEINDEX_SR_HOME
         from quickbbs.models import FileIndex
 
-        # Phase 1: Database operations only (inside transaction)
+        # MEMORY MANAGEMENT NOTE:
+        # Periodic cache clearing was removed because it conflicts with CIContext recycling.
+        # CIContext already recycles every 500 operations (see core_image_thumbnails.py).
+        # Clearing caches more frequently (every 100) prevents the recycling from working
+        # and causes GPU memory accumulation from repeated CIContext recreations.
+        #
+        # Cache clearing still happens:
+        # 1. After batch operations (batch_create_async)
+        # 2. Automatically via CIContext recycling (every 500 operations)
+        #
+        # This provides sufficient memory management without the overhead and GPU memory
+        # issues caused by too-frequent cache clearing.
+
+        # CRITICAL: Advisory lock for Gunicorn multi-process environments
+        # Multiple worker processes generating the same thumbnail concurrently can cause corrupted/white
+        # thumbnails when Core Image GPU operations conflict or saves are interleaved.
+        #
+        # Advisory locks work across ALL database connections/processes, unlike row-level locks.
+        # The lock key is derived from the SHA256 hash to ensure per-file locking.
+        # Convert first 8 bytes of SHA256 to integer for advisory lock key
+        # PostgreSQL advisory locks use bigint (64-bit), so we use first 8 bytes
+        lock_key = int(file_sha256[:16], 16) % (2**63 - 1)  # Stay within bigint range
+
         with transaction.atomic():
+            # Acquire advisory lock - blocks until lock is available
+            # This works across ALL Gunicorn worker processes
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_xact_lock(%s)", [lock_key])
+
             defaults = {
                 "sha256_hash": file_sha256,
                 "small_thumb": b"",
                 "medium_thumb": b"",
                 "large_thumb": b"",
             }
-            thumbnail, created = ThumbnailFiles.objects.prefetch_related(*ThumbnailFiles_Prefetch_List).get_or_create(
+            thumbnail, created = ThumbnailFiles.objects.prefetch_related(*prefetch_related_thumbnail).get_or_create(
                 sha256_hash=file_sha256, defaults=defaults
             )
+
+            # CRITICAL: Link FileIndex records to thumbnail FIRST, before checking if thumbnail exists
+            # This ensures FileIndex records are linked even if thumbnail was generated by another process
+            has_unlinked, updated_count = FileIndex.link_to_thumbnail(file_sha256, thumbnail)
+
+            # Re-check if thumbnail exists (another worker may have generated it while we waited for lock)
+            # Must re-fetch from database to see changes from other processes
+            thumbnail.refresh_from_db()
+            if thumbnail.thumbnail_exists():
+                return thumbnail
 
             # Get an FileIndex record for file path (prefer prefetched)
             prefetched_indexdata = list(thumbnail.FileIndex.all())
             if prefetched_indexdata:
                 index_data_item = prefetched_indexdata[0]
             else:
-                index_data_item = FileIndex.objects.prefetch_related("filetype").filter(file_sha256=file_sha256).first()
+                index_data_item = FileIndex.objects.select_related(*select_related_fileindex).filter(file_sha256=file_sha256).first()
 
-            # Link FileIndex records to thumbnail (newly created OR has unlinked records)
-            has_unlinked, updated_count = FileIndex.link_to_thumbnail(file_sha256, thumbnail)
+            # CRITICAL: Handle orphaned ThumbnailFiles by linking to matching FileIndex records
+            # This can happen if thumbnail was created but linking failed, or from data migration issues
+            if index_data_item is None:
+                # No linked FileIndex - try to find and link FileIndex records with this SHA256
+                matching_files_count = FileIndex.objects.filter(file_sha256=file_sha256).count()
+                if matching_files_count > 0:
+                    # Found FileIndex records - link them
+                    print(f"Orphaned ThumbnailFiles {thumbnail.id}: Found {matching_files_count} FileIndex records with SHA256 {file_sha256[:16]}..., linking...")
+                    has_unlinked_fix, updated_count_fix = FileIndex.link_to_thumbnail(file_sha256, thumbnail)
+                    if updated_count_fix > 0:
+                        print(f"  ✓ Linked {updated_count_fix} FileIndex records to ThumbnailFiles {thumbnail.id}")
+                        # Successfully linked - now fetch one for processing
+                        index_data_item = FileIndex.objects.select_related(*select_related_fileindex).filter(file_sha256=file_sha256).first()
+                        # Update has_unlinked to trigger save
+                        has_unlinked = True
+                    else:
+                        print(f"  ERROR: Failed to link FileIndex records (already linked elsewhere?)")
+                        raise ValueError(f"Cannot link orphaned ThumbnailFiles {thumbnail.id} to FileIndex records")
+                else:
+                    # No FileIndex exists for this SHA256
+                    print(f"ERROR: Orphaned ThumbnailFiles {thumbnail.id} has SHA256 {file_sha256[:16]}... but NO FileIndex records exist")
+                    print(f"  This thumbnail record is invalid and should be deleted manually")
+                    raise ValueError(f"Orphaned ThumbnailFiles {thumbnail.id}: No FileIndex records found for SHA256 {file_sha256}")
+
+                # If still no FileIndex after linking attempt, raise error
+                if index_data_item is None:
+                    raise ValueError(f"Orphaned ThumbnailFiles {thumbnail.id}: Failed to get FileIndex after linking")
 
             if created or has_unlinked:
                 if not created:  # If not newly created, save the thumbnail to update it
@@ -173,101 +260,139 @@ class ThumbnailFiles(models.Model):
                 if updated_count > 0 and hasattr(thumbnail, "_prefetched_objects_cache"):
                     thumbnail._prefetched_objects_cache.clear()
 
-        # Phase 2: File I/O operations (outside transaction)
-        if thumbnail.thumbnail_exists():
-            return thumbnail
+            # File I/O operations (inside transaction to maintain lock during generation)
+            # CRITICAL: Check for orphaned FileIndex records (home_directory is None)
+            # This can happen when a directory is deleted but FileIndex records remain
+            if index_data_item.home_directory is None:
+                # Orphaned record - mark as generic icon and skip thumbnail generation
+                print(
+                    f"WARNING: Orphaned FileIndex record (id={index_data_item.id}, "
+                    f"sha256={file_sha256[:16]}...) has no home_directory"
+                )
+                print("  This record should be cleaned up. Marking thumbnail as generic icon.")
 
-        # If already marked as generic, check if parent directory has been invalidated
-        # If parent is invalidated (rescanned), retry thumbnail creation
-        # If parent is NOT invalidated, skip creation (use filetype thumbnail)
-        if index_data_item.is_generic_icon:
-            parent_invalidated = False
-            if index_data_item.home_directory:
+                # Mark both FileIndex and ThumbnailFiles as generic
+                index_data_item.is_generic_icon = True
+                index_data_item.save(update_fields=["is_generic_icon"])
+
+                # Return the thumbnail (empty, but marked as generic)
+                return thumbnail
+
+            # If already marked as generic, check if parent directory has been invalidated
+            # If parent is invalidated (rescanned), retry thumbnail creation
+            # If parent is NOT invalidated, skip creation (use filetype thumbnail)
+            if index_data_item.is_generic_icon:
+                parent_invalidated = False
                 # Check if parent directory has been invalidated/rescanned
                 parent_invalidated = (
                     hasattr(index_data_item.home_directory, "Cache_Watcher") and index_data_item.home_directory.Cache_Watcher.invalidated
                 )
 
-            if not parent_invalidated:
-                # Parent not rescanned, skip thumbnail creation
-                # send_thumbnail() will return the filetype thumbnail
+                if not parent_invalidated:
+                    # Parent not rescanned, skip thumbnail creation
+                    # send_thumbnail() will return the filetype thumbnail
+                    return thumbnail
+                # Parent was rescanned, continue to retry thumbnail creation below
+
+            filename = index_data_item.full_filepathname
+            filetype = index_data_item.filetype
+
+            # CRITICAL: Skip alias/link files entirely
+            # Alias files (.link, etc.) should NEVER have thumbnails generated
+            # They should not be marked as generic_icon, just return empty thumbnail
+            if filetype and filetype.is_link:
+                # Return thumbnail without generating anything
+                # The view layer will handle displaying link icons appropriately
                 return thumbnail
-            # Parent was rescanned, continue to retry thumbnail creation below
 
-        filename = index_data_item.full_filepathname
-        filetype = index_data_item.filetype
+            # Try to create thumbnails, but mark as generic on any failure
+            thumbnails = None  # Initialize to prevent UnboundLocalError
+            try:
+                if filetype.is_image:
+                    # Note: CoreImage/AVFoundation disabled due to GPU memory leaks
+                    # "auto" backend now uses PIL (CPU-based, stable memory)
+                    thumbnails = create_thumbnails_from_path(
+                        filename,
+                        settings.IMAGE_SIZE,
+                        output="JPEG",
+                        quality=settings.CORE_IMAGE_QUALITY,
+                        backend="auto",
+                    )
 
-        # Try to create thumbnails, but mark as generic on any failure
-        try:
-            if filetype.is_image:
-                # Use backend="auto" to get best performance (Core Image on macOS, PIL elsewhere)
-                thumbnails = create_thumbnails_from_path(
-                    filename,
-                    settings.IMAGE_SIZE,
-                    output="JPEG",
-                    quality=settings.CORE_IMAGE_QUALITY,
-                    backend="auto",
-                )
-            elif filetype.is_movie:
-                thumbnails = create_thumbnails_from_path(
-                    filename,
-                    settings.IMAGE_SIZE,
-                    output="JPEG",
-                    quality=settings.PIL_IMAGE_QUALITY,
-                    backend="video",
-                )
-            elif filetype.is_pdf:
-                thumbnails = create_thumbnails_from_path(
-                    filename,
-                    settings.IMAGE_SIZE,
-                    output="JPEG",
-                    quality=settings.PIL_IMAGE_QUALITY,
-                    backend="pdf",
-                )
-            else:
-                # File type doesn't support custom thumbnails (text, archives, etc.)
-                # Mark ALL files with this SHA256 as generic (not just one)
+                    # Validate thumbnail is not empty
+                    if not thumbnails or not thumbnails.get("small"):
+                        raise ValueError(f"Image thumbnail creation returned empty result for {index_data_item.name}")
+
+                    # NOTE: All-white detection removed (2025-12-02)
+                    # This was a CoreImage-specific workaround for GPU corruption bugs.
+                    # PIL is reliable - if it produces an all-white thumbnail, that's because
+                    # the source image is actually all-white, which is a legitimate result.
+                elif filetype.is_movie:
+                    thumbnails = create_thumbnails_from_path(
+                        filename,
+                        settings.IMAGE_SIZE,
+                        output="JPEG",
+                        quality=settings.PIL_IMAGE_QUALITY,
+                        backend="video",
+                    )
+                    # Validate result
+                    if not thumbnails or not thumbnails.get("small"):
+                        raise ValueError(f"Video thumbnail creation returned empty result for {index_data_item.name}")
+
+                elif filetype.is_pdf:
+                    thumbnails = create_thumbnails_from_path(
+                        filename,
+                        settings.IMAGE_SIZE,
+                        output="JPEG",
+                        quality=settings.PIL_IMAGE_QUALITY,
+                        backend="pdf",
+                    )
+                    # Validate result
+                    if not thumbnails or not thumbnails.get("small"):
+                        raise ValueError(f"PDF thumbnail creation returned empty result for {index_data_item.name}")
+                else:
+                    # File type doesn't support custom thumbnails (text, archives, etc.)
+                    # Mark ALL files with this SHA256 as generic (not just one)
+                    # Use FileIndex classmethod to ensure layout cache is cleared
+                    print(
+                        f"File type {filetype.fileext} doesn't support custom thumbnails, "
+                        f"marking all instances as generic: {index_data_item.name}"
+                    )
+                    FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, select_related=FILEINDEX_SR_HOME, clear_cache=True)
+
+                    # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
+                    thumbnailfiles_cache.pop(file_sha256, None)
+
+                    return thumbnail
+
+                thumbnail.small_thumb = thumbnails["small"]
+                thumbnail.medium_thumb = thumbnails["medium"]
+                thumbnail.large_thumb = thumbnails["large"]
+
+                if not suppress_save:
+                    thumbnail.save(update_fields=["small_thumb", "medium_thumb", "large_thumb"])
+
+                # If this was a retry (file was marked generic), turn off generic flag
+                # on success for ALL instances
                 # Use FileIndex classmethod to ensure layout cache is cleared
-                print(f"File type {filetype.fileext} doesn't support custom thumbnails, " f"marking all instances as generic: {index_data_item.name}")
-                FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
+                if index_data_item.is_generic_icon:
+                    print(f"Thumbnail creation succeeded on retry for {index_data_item.name}, " f"turning off generic flag for all instances")
+                    FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=False, select_related=FILEINDEX_SR_HOME, clear_cache=True)
 
-                # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
-                thumbnailfiles_cache.pop(file_sha256, None)
+                    # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
+                    thumbnailfiles_cache.pop(file_sha256, None)
 
-                return thumbnail
+            except Exception as e:
+                # Any error during thumbnail creation - mark ALL files with this SHA256 as generic
+                # Use FileIndex classmethod to ensure layout cache is cleared
+                print(f"Thumbnail creation failed for {index_data_item.name}: {e}")
+                if not index_data_item.is_generic_icon:
+                    FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, select_related=FILEINDEX_SR_HOME, clear_cache=True)
 
-            # Validate thumbnails were actually created
-            if not thumbnails or not thumbnails.get("small"):
-                raise ValueError("Thumbnail creation returned empty result")
+                    # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
+                    thumbnailfiles_cache.pop(file_sha256, None)
 
-            thumbnail.small_thumb = thumbnails["small"]
-            thumbnail.medium_thumb = thumbnails["medium"]
-            thumbnail.large_thumb = thumbnails["large"]
-
-            if not suppress_save:
-                thumbnail.save(update_fields=["small_thumb", "medium_thumb", "large_thumb"])
-
-            # If this was a retry (file was marked generic), turn off generic flag
-            # on success for ALL instances
-            # Use FileIndex classmethod to ensure layout cache is cleared
-            if index_data_item.is_generic_icon:
-                print(f"Thumbnail creation succeeded on retry for {index_data_item.name}, " f"turning off generic flag for all instances")
-                FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=False, clear_cache=True)
-
-                # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
-                thumbnailfiles_cache.pop(file_sha256, None)
-
-        except Exception as e:
-            # Any error during thumbnail creation - mark ALL files with this SHA256 as generic
-            # Use FileIndex classmethod to ensure layout cache is cleared
-            print(f"Thumbnail creation failed for {index_data_item.name}: {e}")
-            if not index_data_item.is_generic_icon:
-                FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
-
-                # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
-                thumbnailfiles_cache.pop(file_sha256, None)
-
-        return thumbnail
+            return thumbnail
 
     def number_of_indexdata_references(self) -> int:
         """
@@ -282,30 +407,36 @@ class ThumbnailFiles(models.Model):
 
     @classmethod
     @cached(thumbnailfiles_cache)
-    def get_thumbnail_by_sha(cls, sha256: str) -> "ThumbnailFiles":
+    def get_thumbnail_by_sha(cls, sha256: str, prefetch_related: list[str]) -> "ThumbnailFiles":
         """
         Get thumbnail object by SHA256 hash with optimized caching.
 
         Args:
             sha256: SHA256 hash of the file
+            prefetch_related: List of related fields to prefetch (required)
 
         Returns:
             ThumbnailFiles object for the specified hash
         """
-        return cls.objects.prefetch_related(*ThumbnailFiles_Prefetch_List).get(sha256_hash=sha256)
+        if prefetch_related is None:
+            raise ValueError("prefetch_related parameter is required")
+        return cls.objects.prefetch_related(*prefetch_related).get(sha256_hash=sha256)
 
     @classmethod
-    def get_thumbnails_by_sha_list(cls, sha256_list: list[str]) -> dict[str, "ThumbnailFiles"]:
+    def get_thumbnails_by_sha_list(cls, sha256_list: list[str], prefetch_related: list[str]) -> dict[str, "ThumbnailFiles"]:
         """
         Get multiple thumbnails by SHA256 hash list to avoid N+1 queries.
 
         Args:
             sha256_list: List of SHA256 hashes
+            prefetch_related: List of related fields to prefetch (required)
 
         Returns:
             Dictionary mapping SHA256 hash to ThumbnailFiles object
         """
-        thumbnails = cls.objects.prefetch_related(*ThumbnailFiles_Bulk_Prefetch_List).filter(sha256_hash__in=sha256_list)
+        if prefetch_related is None:
+            raise ValueError("prefetch_related parameter is required")
+        thumbnails = cls.objects.prefetch_related(*prefetch_related).filter(sha256_hash__in=sha256_list)
 
         return {thumb.sha256_hash: thumb for thumb in thumbnails}
 
@@ -435,6 +566,12 @@ class ThumbnailFiles(models.Model):
             expiration=300,
         )
 
+    # NOTE: Future optimization opportunity
+    # Current implementation uses asyncio.gather() which doesn't parallelize CPU-bound
+    # image processing operations. If batch thumbnail generation becomes slow, consider
+    # implementing a singleton ProcessPoolExecutor pattern similar to the SHA256 pool
+    # in frontend/utilities.py:46-169. This would parallelize PIL/PyMuPDF operations
+    # across multiple CPU cores while maintaining proper cleanup.
     @classmethod
     async def batch_create_async(cls, sha256_list: list[str], batchsize: int = 100, max_workers: int = 4) -> dict[str, bool]:
         """
@@ -442,6 +579,9 @@ class ThumbnailFiles(models.Model):
 
         This method processes multiple thumbnails in parallel using asyncio tasks,
         with batching to limit concurrent operations and avoid overwhelming the system.
+
+        MEMORY MANAGEMENT: Clears backend caches after batch completion to release
+        accumulated resources (especially important for Core Image on macOS).
 
         :Args:
             sha256_list: List of SHA256 hashes to create thumbnails for
@@ -484,6 +624,29 @@ class ThumbnailFiles(models.Model):
         if successful_count > 0:
             print(f"Successfully processed {successful_count}/{len(sha256_list)} thumbnails")
 
+        # MEMORY MANAGEMENT: Clear backend caches after batch completes
+        # This releases Core Image CIContext instances and their GPU resources
+        try:
+            from thumbnails.thumbnail_engine import clear_backend_caches, get_cache_stats
+
+            # Log cache stats before clearing
+            cache_stats_before = get_cache_stats()
+            if cache_stats_before["total_cached_instances"] > 0:
+                print(f"Cache stats before clearing: {cache_stats_before['total_cached_instances']} instances")
+
+                # Clear caches and get statistics
+                clear_stats = clear_backend_caches(force_gc=True)
+
+                print(
+                    f"Cleared {clear_stats['processors_cleared']} processors, "
+                    f"{clear_stats['backends_cleared']} backends. "
+                    f"GC collected {clear_stats['gc_objects_collected']} objects. "
+                    f"Memory change: {clear_stats['memory_freed_mb']:.1f} MB"
+                )
+        except Exception as e:
+            # Don't fail the batch if cache clearing fails
+            print(f"Warning: Cache clearing failed: {e}")
+
         return results
 
     @classmethod
@@ -501,7 +664,12 @@ class ThumbnailFiles(models.Model):
         """
         try:
             with transaction.atomic():
-                thumbnail = cls.get_or_create_thumbnail_record(sha256, suppress_save=False)
+                thumbnail = cls.get_or_create_thumbnail_record(
+                    sha256,
+                    suppress_save=False,
+                    prefetch_related_thumbnail=THUMBNAILFILES_PR_FILEINDEX_FILETYPE,
+                    select_related_fileindex=("filetype",),
+                )
             return True, sha256, thumbnail
         except IntegrityError as e:
             print(f"Error creating thumbnail for {sha256}: {e}")

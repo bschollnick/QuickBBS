@@ -27,7 +27,6 @@ from thumbnails.video_thumbnails import _get_video_info
 
 # Import shared foundation
 from .models import (
-    FILEINDEX_SELECT_RELATED_LIST,
     SORT_MATRIX,
     NaturalSortField,
     Owners,
@@ -46,6 +45,28 @@ from .models import (
 
 if TYPE_CHECKING:
     from .directoryindex import DirectoryIndex
+
+# =============================================================================
+# FILEINDEX SELECT_RELATED CONSTANTS
+# Colocated with FileIndex class for use by class methods and external callers
+# See related_fetches.md for usage details
+# NOTE: Using tuples (not lists) so they can be used as cache keys (hashable)
+# =============================================================================
+
+# Full - gallery display with link support
+FILEINDEX_SR_FILETYPE_HOME_VIRTUAL = ("filetype", "home_directory", "virtual_directory")
+
+# For downloads and file lists
+FILEINDEX_SR_FILETYPE_HOME = ("filetype", "home_directory")
+
+# For thumbnail view (needs filetype and virtual_directory for links)
+FILEINDEX_SR_FILETYPE_VIRTUAL = ("filetype", "virtual_directory")
+
+# For cache invalidation only
+FILEINDEX_SR_HOME = ("home_directory",)
+
+# For filetype checks only
+FILEINDEX_SR_FILETYPE = ("filetype",)
 
 
 class FileIndex(models.Model):
@@ -153,7 +174,13 @@ class FileIndex(models.Model):
         """
         Return the fully qualified pathname of the directory containing this file
         Returns: String representing the directory path from the parent DirectoryIndex object
+        Raises: ValueError if home_directory is None (orphaned record)
         """
+        if self.home_directory is None:
+            raise ValueError(
+                f"FileIndex record (id={self.id}, sha256={self.file_sha256}) has no home_directory. "
+                f"This indicates an orphaned record whose parent directory was deleted."
+            )
         return self.home_directory.fqpndirectory
 
     @property
@@ -161,6 +188,7 @@ class FileIndex(models.Model):
         """
         Return the complete file path including directory and filename
         Returns: String representing the full file path by concatenating directory + filename
+        Raises: ValueError if home_directory is None (orphaned record)
         """
         return self.fqpndirectory + self.name
 
@@ -210,41 +238,46 @@ class FileIndex(models.Model):
     @cached(fileindex_cache)
     @staticmethod
     def get_by_filters(
+        select_related: list[str],
         additional_filters: dict[str, Any] | None = None,
     ) -> "QuerySet[FileIndex]":
         """
         Return the files in the current directory, filtered by additional filters
 
         Args:
+            select_related: List of related fields to select (required)
             additional_filters: Additional filters to apply to the query
 
         Returns: The filtered query of files
         """
+        if select_related is None:
+            raise ValueError("select_related parameter is required")
         if additional_filters is None:
             additional_filters = {}
-        return FileIndex.objects.select_related(*FILEINDEX_SELECT_RELATED_LIST).filter(delete_pending=False, **additional_filters)
+        return FileIndex.objects.select_related(*select_related).filter(delete_pending=False, **additional_filters)
 
     @staticmethod
-    def return_by_sha256_list(sha256_list: list[str], sort: int = 0) -> "QuerySet[FileIndex]":
+    def return_by_sha256_list(sha256_list: list[str], sort: int, select_related: list[str]) -> "QuerySet[FileIndex]":
         """
         Return files matching the provided SHA256 list
 
         Args:
             sha256_list: List of file SHA256 hashes to filter by
             sort: The sort order of the files (0-2)
+            select_related: List of related fields to select (required)
 
         Returns: The sorted query of files matching the SHA256 list
         """
+        if select_related is None:
+            raise ValueError("select_related parameter is required")
         files = (
-            FileIndex.objects.select_related(*FILEINDEX_SELECT_RELATED_LIST)
-            .filter(file_sha256__in=sha256_list, delete_pending=False)
-            .order_by(*SORT_MATRIX[sort])
+            FileIndex.objects.select_related(*select_related).filter(file_sha256__in=sha256_list, delete_pending=False).order_by(*SORT_MATRIX[sort])
         )
         return files
 
     @cached(fileindex_cache)
     @staticmethod
-    def get_by_sha256(sha_value: str, unique: bool = False) -> FileIndex | None:
+    def get_by_sha256(sha_value: str, unique: bool, select_related: list[str]) -> FileIndex | None:
         """
         Return the FileIndex object by SHA256
 
@@ -252,20 +285,23 @@ class FileIndex(models.Model):
             sha_value: The SHA256 of the FileIndex object
             unique: If True, search by unique_sha256 (expects one result),
                     If False, search by file_sha256 (may return first of multiple)
+            select_related: List of related fields to select (required)
 
         Returns: FileIndex object or None if not found
         """
+        if select_related is None:
+            raise ValueError("select_related parameter is required")
         try:
             if unique:
-                return FileIndex.objects.select_related(*FILEINDEX_SELECT_RELATED_LIST).get(unique_sha256=sha_value, delete_pending=False)
+                return FileIndex.objects.select_related(*select_related).get(unique_sha256=sha_value, delete_pending=False)
             # When searching by file_sha256, there may be duplicates - return first
-            return FileIndex.objects.select_related(*FILEINDEX_SELECT_RELATED_LIST).filter(file_sha256=sha_value, delete_pending=False).first()
+            return FileIndex.objects.select_related(*select_related).filter(file_sha256=sha_value, delete_pending=False).first()
         except FileIndex.DoesNotExist:
             return None
 
     @cached(fileindex_download_cache)
     @staticmethod
-    def get_by_sha256_for_download(sha_value: str, unique: bool = False) -> FileIndex | None:
+    def get_by_sha256_for_download(sha_value: str, unique: bool, select_related: list[str]) -> FileIndex | None:
         """
         Return the FileIndex object by SHA256 optimized for file downloads.
 
@@ -275,16 +311,19 @@ class FileIndex(models.Model):
         Args:
             sha_value: The SHA256 of the FileIndex object
             unique: If True, search by unique_sha256, otherwise by file_sha256
+            select_related: List of related fields to select (required)
 
         Returns: FileIndex object or None if not found
         """
+        if select_related is None:
+            raise ValueError("select_related parameter is required")
         try:
             # Determine which SHA field to filter on
             filter_field = "unique_sha256" if unique else "file_sha256"
 
             # Only fetch fields needed for download
             return (
-                FileIndex.objects.select_related("filetype", "home_directory")
+                FileIndex.objects.select_related(*select_related)
                 .only(
                     "name",
                     "filetype__mimetype",
@@ -297,7 +336,7 @@ class FileIndex(models.Model):
             return None
 
     @classmethod
-    def set_generic_icon_for_sha(cls, file_sha256: str, is_generic: bool, clear_cache: bool = True) -> int:
+    def set_generic_icon_for_sha(cls, file_sha256: str, is_generic: bool, select_related: list[str], clear_cache: bool = True) -> int:
         """
         Set is_generic_icon for all FileIndex files with the given SHA256.
 
@@ -313,11 +352,14 @@ class FileIndex(models.Model):
         Args:
             file_sha256: SHA256 hash of the file(s) to update
             is_generic: New value for is_generic_icon (True = use filetype icon, False = custom thumbnail)
+            select_related: List of related fields to select (required)
             clear_cache: Whether to clear layout_manager_cache for affected directories (default: True)
 
         Returns:
             Number of files updated
         """
+        if select_related is None:
+            raise ValueError("select_related parameter is required")
         # Inline import to avoid circular dependency (frontend.utilities imports DirectoryIndex)
         from frontend.managers import clear_layout_cache_for_directories
 
@@ -327,7 +369,7 @@ class FileIndex(models.Model):
         # Clear layout cache for affected directories if requested
         if clear_cache and updated_count > 0:
             # Get unique directories containing these files
-            affected_files = cls.objects.filter(file_sha256=file_sha256).select_related("home_directory")
+            affected_files = cls.objects.filter(file_sha256=file_sha256).select_related(*select_related)
             affected_directories = list({f.home_directory for f in affected_files if f.home_directory})
 
             if affected_directories:
@@ -607,7 +649,7 @@ class FileIndex(models.Model):
             DirectoryIndex object for the target directory, or None if target cannot be resolved
         """
         # Inline import to avoid circular dependency (DirectoryIndex imports FileIndex)
-        from .directoryindex import DirectoryIndex
+        from .directoryindex import DirectoryIndex, DIRECTORYINDEX_SR_FILETYPE_THUMB
 
         try:
             redirect_path = None
@@ -637,7 +679,7 @@ class FileIndex(models.Model):
 
             # Common resolution logic (once)
             if redirect_path:
-                found, virtual_dir = DirectoryIndex.search_for_directory(redirect_path)
+                found, virtual_dir = DirectoryIndex.search_for_directory(redirect_path, DIRECTORYINDEX_SR_FILETYPE_THUMB, ())
                 if not found:
                     found, virtual_dir = DirectoryIndex.add_directory(redirect_path)
 

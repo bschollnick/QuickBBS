@@ -32,10 +32,10 @@ except ImportError:
 
 try:
     from .Abstractbase_thumbnails import AbstractBackend
-    from .core_image_thumbnails import CoreImageBackend
+    from .core_image_thumbnails import CoreImageBackend, autorelease_pool
 except ImportError:
     from Abstractbase_thumbnails import AbstractBackend
-    from core_image_thumbnails import CoreImageBackend
+    from core_image_thumbnails import CoreImageBackend, autorelease_pool
 
 
 class AVFoundationVideoBackend(AbstractBackend):
@@ -87,31 +87,33 @@ class AVFoundationVideoBackend(AbstractBackend):
         :raises FileNotFoundError: If video file doesn't exist
         :raises RuntimeError: If video processing fails
         """
-        file_path = Path(file_path)
+        # Wrap entire operation in autorelease pool to drain AVFoundation objects
+        with autorelease_pool():
+            file_path = Path(file_path)
 
-        if not file_path.exists():
-            raise FileNotFoundError(f"Video file not found: {file_path}")
+            if not file_path.exists():
+                raise FileNotFoundError(f"Video file not found: {file_path}")
 
-        output = {}
+            output = {}
 
-        # Get video metadata
-        video_data = _get_video_info(str(file_path))
-        output["duration"] = video_data["duration"]
+            # Get video metadata
+            video_data = _get_video_info(str(file_path))
+            output["duration"] = video_data["duration"]
 
-        # Calculate capture time (middle of video)
-        capture_time = video_data["duration"] / 2.0
+            # Calculate capture time (middle of video)
+            capture_time = video_data["duration"] / 2.0
 
-        # Extract frame as CIImage using AVFoundation
-        ci_image = _extract_frame_as_ciimage(str(file_path), capture_time)
+            # Extract frame as CIImage using AVFoundation
+            ci_image = _extract_frame_as_ciimage(str(file_path), capture_time)
 
-        # Process using Core Image backend for GPU-accelerated thumbnails
-        # pylint: disable=protected-access
-        image_output = self._image_backend._process_ci_image(ci_image, sizes, output_format, quality)
+            # Process using Core Image backend for GPU-accelerated thumbnails
+            # pylint: disable=protected-access
+            image_output = self._image_backend._process_ci_image(ci_image, sizes, output_format, quality)
 
-        output["format"] = output_format
-        output.update(image_output)
+            output["format"] = output_format
+            output.update(image_output)
 
-        return output
+            return output
 
     def process_from_memory(
         self,
@@ -167,55 +169,57 @@ def _extract_frame_as_ciimage(video_path: str, time_offset: float) -> "CIImage":
     :return: CIImage object of the video frame
     :raises RuntimeError: If frame extraction fails
     """
-    # Create URL for video file
-    file_url = NSURL.fileURLWithPath_(video_path)
+    # Wrap in autorelease pool to drain AVFoundation and Core Image objects
+    with autorelease_pool():
+        # Create URL for video file
+        file_url = NSURL.fileURLWithPath_(video_path)
 
-    # Load video asset
-    asset = AVAsset.assetWithURL_(file_url)
+        # Load video asset
+        asset = AVAsset.assetWithURL_(file_url)
 
-    if asset is None:
-        raise RuntimeError(f"Could not load video asset from {video_path}")
+        if asset is None:
+            raise RuntimeError(f"Could not load video asset from {video_path}")
 
-    # Create image generator
-    generator = AVAssetImageGenerator.assetImageGeneratorWithAsset_(asset)
+        # Create image generator
+        generator = AVAssetImageGenerator.assetImageGeneratorWithAsset_(asset)
 
-    # Configure generator for best quality
-    generator.setAppliesPreferredTrackTransform_(True)  # Handle rotation
-    generator.setApertureMode_(AVAssetImageGeneratorApertureModeCleanAperture)  # Clean aperture mode
+        # Configure generator for best quality
+        generator.setAppliesPreferredTrackTransform_(True)  # Handle rotation
+        generator.setApertureMode_(AVAssetImageGeneratorApertureModeCleanAperture)  # Clean aperture mode
 
-    # Create CMTime for requested timestamp
-    time_scale = 600  # Standard timescale for video
-    time_value = int(time_offset * time_scale)
-    requested_time = CMTimeMake(time_value, time_scale)
+        # Create CMTime for requested timestamp
+        time_scale = 600  # Standard timescale for video
+        time_value = int(time_offset * time_scale)
+        requested_time = CMTimeMake(time_value, time_scale)
 
-    # Extract frame
-    try:
-        # copyCGImageAtTime_actualTime_error_ returns (CGImage, actualTime) and raises on error
-        extraction_result = generator.copyCGImageAtTime_actualTime_error_(requested_time, None, None)
+        # Extract frame
+        try:
+            # copyCGImageAtTime_actualTime_error_ returns (CGImage, actualTime) and raises on error
+            extraction_result = generator.copyCGImageAtTime_actualTime_error_(requested_time, None, None)
 
-        if extraction_result is None or len(extraction_result) < 1:
-            raise RuntimeError("Failed to extract frame from video")
+            if extraction_result is None or len(extraction_result) < 1:
+                raise RuntimeError("Failed to extract frame from video")
 
-        # Result is (CGImage, actualTime)
-        cg_image = extraction_result[0]
+            # Result is (CGImage, actualTime)
+            cg_image = extraction_result[0]
 
-        if cg_image is None:
-            raise RuntimeError("Failed to extract frame from video")
+            if cg_image is None:
+                raise RuntimeError("Failed to extract frame from video")
 
-        # Convert CGImage to CIImage
-        ci_image = CIImage.imageWithCGImage_(cg_image)
+            # Convert CGImage to CIImage
+            ci_image = CIImage.imageWithCGImage_(cg_image)
 
-        # Clean up CGImage (important for memory management)
-        del cg_image
+            # Clean up CGImage (important for memory management)
+            del cg_image
 
-        return ci_image
+            return ci_image
 
-    except Exception as e:
-        raise RuntimeError(f"Error extracting frame: {e}") from e
-    finally:
-        # Clean up generator
-        generator = None
-        asset = None
+        except Exception as e:
+            raise RuntimeError(f"Error extracting frame: {e}") from e
+        finally:
+            # Clean up generator
+            generator = None
+            asset = None
 
 
 def _get_video_info(video_path: str) -> dict[str, any]:
@@ -227,59 +231,61 @@ def _get_video_info(video_path: str) -> dict[str, any]:
     :return: Dictionary containing video metadata (duration, width, height, fps, codec, format)
     :raises RuntimeError: If video info extraction fails
     """
-    # Create URL for video file
-    file_url = NSURL.fileURLWithPath_(video_path)
+    # Wrap in autorelease pool to drain AVFoundation objects
+    with autorelease_pool():
+        # Create URL for video file
+        file_url = NSURL.fileURLWithPath_(video_path)
 
-    # Load video asset
-    asset = AVAsset.assetWithURL_(file_url)
+        # Load video asset
+        asset = AVAsset.assetWithURL_(file_url)
 
-    if asset is None:
-        raise RuntimeError(f"Could not load video asset from {video_path}")
+        if asset is None:
+            raise RuntimeError(f"Could not load video asset from {video_path}")
 
-    try:
-        # Get duration
-        duration_cmtime = asset.duration()
-        duration = float(duration_cmtime.value) / float(duration_cmtime.timescale)
+        try:
+            # Get duration
+            duration_cmtime = asset.duration()
+            duration = float(duration_cmtime.value) / float(duration_cmtime.timescale)
 
-        # Get video tracks
-        video_tracks = asset.tracksWithMediaType_("vide")  # 'vide' is the media type for video
+            # Get video tracks
+            video_tracks = asset.tracksWithMediaType_("vide")  # 'vide' is the media type for video
 
-        if not video_tracks or len(video_tracks) == 0:
-            raise RuntimeError("No video tracks found in file")
+            if not video_tracks or len(video_tracks) == 0:
+                raise RuntimeError("No video tracks found in file")
 
-        video_track = video_tracks[0]
+            video_track = video_tracks[0]
 
-        # Get video dimensions
-        natural_size = video_track.naturalSize()
-        width = int(natural_size.width)
-        height = int(natural_size.height)
+            # Get video dimensions
+            natural_size = video_track.naturalSize()
+            width = int(natural_size.width)
+            height = int(natural_size.height)
 
-        # Get frame rate
-        nominal_frame_rate = video_track.nominalFrameRate()
+            # Get frame rate
+            nominal_frame_rate = video_track.nominalFrameRate()
 
-        # Get format descriptions for codec info
-        format_descriptions = video_track.formatDescriptions()
-        codec = "unknown"
-        if format_descriptions and len(format_descriptions) > 0:
-            # This is a simplified approach - format descriptions are complex
-            codec = str(format_descriptions[0])
+            # Get format descriptions for codec info
+            format_descriptions = video_track.formatDescriptions()
+            codec = "unknown"
+            if format_descriptions and len(format_descriptions) > 0:
+                # This is a simplified approach - format descriptions are complex
+                codec = str(format_descriptions[0])
 
-        info = {
-            "duration": duration,
-            "width": width,
-            "height": height,
-            "fps": float(nominal_frame_rate),
-            "codec": codec,
-            "format": "video",  # AVFoundation doesn't expose container format as easily
-        }
+            info = {
+                "duration": duration,
+                "width": width,
+                "height": height,
+                "fps": float(nominal_frame_rate),
+                "codec": codec,
+                "format": "video",  # AVFoundation doesn't expose container format as easily
+            }
 
-        return info
+            return info
 
-    except Exception as e:
-        raise RuntimeError(f"Error getting video info: {e}") from e
-    finally:
-        # Clean up
-        asset = None
+        except Exception as e:
+            raise RuntimeError(f"Error getting video info: {e}") from e
+        finally:
+            # Clean up
+            asset = None
 
 
 def _extract_frame_as_pil(video_path: str, time_offset: float, width: int = 320, height: int = 240) -> Image.Image:  # pylint: disable=unused-argument
@@ -297,43 +303,45 @@ def _extract_frame_as_pil(video_path: str, time_offset: float, width: int = 320,
     :return: PIL Image object of the video frame
     :raises RuntimeError: If frame extraction fails
     """
-    # Extract as CIImage
-    ci_image = _extract_frame_as_ciimage(video_path, time_offset)
+    # Wrap in autorelease pool to drain Core Image objects
+    with autorelease_pool():
+        # Extract as CIImage
+        ci_image = _extract_frame_as_ciimage(video_path, time_offset)
 
-    # Render to PNG bytes using Core Image context
-    context = CIContext.context()
-    extent = ci_image.extent()
-    cg_image = context.createCGImage_fromRect_(ci_image, extent)
+        # Render to PNG bytes using Core Image context
+        context = CIContext.context()
+        extent = ci_image.extent()
+        cg_image = context.createCGImage_fromRect_(ci_image, extent)
 
-    if cg_image is None:
-        raise RuntimeError("Failed to render CIImage to CGImage")
-
-    try:
-        # Convert to PNG data
-        output_data = NSData.data().mutableCopy()
-        uti_type = UTType.typeWithIdentifier_("public.png")
-        destination = CGImageDestinationCreateWithData(output_data, uti_type.identifier(), 1, None)
-
-        if destination is None:
-            raise RuntimeError("Failed to create image destination")
+        if cg_image is None:
+            raise RuntimeError("Failed to render CIImage to CGImage")
 
         try:
-            CGImageDestinationAddImage(destination, cg_image, None)
+            # Convert to PNG data
+            output_data = NSData.data().mutableCopy()
+            uti_type = UTType.typeWithIdentifier_("public.png")
+            destination = CGImageDestinationCreateWithData(output_data, uti_type.identifier(), 1, None)
 
-            if not CGImageDestinationFinalize(destination):
-                raise RuntimeError("Failed to finalize image destination")
+            if destination is None:
+                raise RuntimeError("Failed to create image destination")
 
-            # Convert to PIL Image
-            image_bytes = bytes(output_data)
-            image = Image.open(io.BytesIO(image_bytes))
+            try:
+                CGImageDestinationAddImage(destination, cg_image, None)
 
-            return image
+                if not CGImageDestinationFinalize(destination):
+                    raise RuntimeError("Failed to finalize image destination")
+
+                # Convert to PIL Image
+                image_bytes = bytes(output_data)
+                image = Image.open(io.BytesIO(image_bytes))
+
+                return image
+
+            finally:
+                del destination
 
         finally:
-            del destination
-
-    finally:
-        del cg_image
+            del cg_image
 
 
 # Example usage and testing

@@ -6,11 +6,14 @@ ASGI Support:
 - All functions with ORM queries can be wrapped with sync_to_async
 """
 
+import atexit
 import logging
 import os
 import os.path
+import threading
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from urllib.parse import quote
 
 # Third-party imports
 from asgiref.sync import sync_to_async
@@ -22,6 +25,7 @@ from django.db import close_old_connections
 from cache_watcher.models import Cache_Storage
 from frontend.file_listings import return_disk_listing
 from quickbbs.common import SORT_MATRIX, get_file_sha
+from quickbbs.directoryindex import DIRECTORYINDEX_SR_CACHE
 from quickbbs.models import DirectoryIndex
 
 logger = logging.getLogger(__name__)
@@ -39,33 +43,93 @@ BATCH_SIZES = {
     "file_io": 100,  # File system operations (stat, hash calculation)
 }
 
+# Module-level singleton ProcessPoolExecutor for SHA256 computation
+# Using a persistent pool avoids the overhead of spawning new processes on every call
+# Thread-safe initialization and proper cleanup on exit
+_sha_executor: ProcessPoolExecutor | None = None
+_sha_executor_lock = threading.Lock()
+
+
+def _get_sha_executor() -> ProcessPoolExecutor:
+    """
+    Get or create the singleton ProcessPoolExecutor for SHA256 computation.
+
+    Thread-safe lazy initialization of a module-level process pool.
+    The pool is reused across all calls to improve performance by avoiding
+    repeated process spawning overhead.
+
+    Returns:
+        ProcessPoolExecutor configured for SHA256 hashing operations
+    """
+    global _sha_executor  # pylint: disable=global-statement
+
+    if _sha_executor is None:
+        with _sha_executor_lock:
+            # Double-check locking pattern
+            if _sha_executor is None:
+                cpu_count = os.cpu_count() or 4
+                max_workers = min(cpu_count, 8)
+                _sha_executor = ProcessPoolExecutor(max_workers=max_workers)
+                logger.info("Initialized SHA256 ProcessPoolExecutor with %d workers", max_workers)
+
+                # Register cleanup handler to ensure workers are terminated
+                atexit.register(_cleanup_sha_executor)
+
+    return _sha_executor
+
+
+def _cleanup_sha_executor() -> None:
+    """
+    Clean up the SHA256 ProcessPoolExecutor on program exit.
+
+    Ensures all worker processes are properly terminated and cleaned up.
+    Called automatically via atexit registration.
+    """
+    global _sha_executor  # pylint: disable=global-statement
+
+    if _sha_executor is not None:
+        logger.info("Shutting down SHA256 ProcessPoolExecutor")
+        try:
+            # Wait for pending tasks but don't accept new ones
+            # cancel_futures=True is Python 3.9+
+            _sha_executor.shutdown(wait=True, cancel_futures=True)
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Error shutting down SHA256 ProcessPoolExecutor: %s", e)
+        finally:
+            _sha_executor = None
+
 
 def _batch_compute_file_shas(file_paths: list[str], max_workers: int | None = None) -> dict[str, tuple[str | None, str | None]]:
     """
-    Compute SHA256 hashes in parallel using multiprocessing.
+    Compute SHA256 hashes in parallel using a persistent process pool.
 
-    Uses ProcessPoolExecutor (NOT ThreadPoolExecutor) to avoid Django ORM issues.
+    Uses a module-level singleton ProcessPoolExecutor (NOT ThreadPoolExecutor) to:
+    - Avoid Django ORM threading issues (each process has isolated memory)
+    - Improve performance by reusing worker processes across calls
+    - Ensure proper cleanup via atexit handlers
+
     SHA256 computation is CPU-bound, so multiprocessing provides better performance
     than threading.
 
-    ASGI-SAFE: Does not touch Django ORM - only computes file hashes.
-    Safe to call from sync or async contexts.
+    DJANGO-SAFE: Does not touch Django ORM - only computes file hashes.
+    The singleton pool is safe because workers are isolated processes.
+
+    ASYNC-SAFE: This is a sync function. When called from async contexts,
+    it should be wrapped with sync_to_async() (see sync_database_disk).
+    The blocking ProcessPoolExecutor calls will run in a thread pool via
+    sync_to_async, preventing event loop blocking.
 
     :Args:
         file_paths: List of fully qualified file paths to hash
-        max_workers: Number of parallel workers (defaults to min(cpu_count, 8))
+        max_workers: Ignored (kept for backward compatibility)
 
     Returns:
         Dictionary mapping file paths to (file_sha256, unique_sha256) tuples
     """
+    # max_workers is kept for backward compatibility but ignored
+    _ = max_workers
     if not file_paths:
         return {}
-
-    # Default to reasonable number of workers (4-8 is optimal for most systems)
-    # Too many workers can saturate disk I/O, especially on HDDs
-    if max_workers is None:
-        cpu_count = os.cpu_count() or 4
-        max_workers = min(cpu_count, 8)
 
     results = {}
 
@@ -75,21 +139,22 @@ def _batch_compute_file_shas(file_paths: list[str], max_workers: int | None = No
             results[path] = get_file_sha(path)
         return results
 
-    # Use ProcessPoolExecutor for parallel SHA256 computation
+    # Use singleton ProcessPoolExecutor for parallel SHA256 computation
     # This is safe because get_file_sha() doesn't touch the database
     try:
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all tasks
-            future_to_path = {executor.submit(get_file_sha, path): path for path in file_paths}
+        executor = _get_sha_executor()
 
-            # Collect results as they complete
-            for future in as_completed(future_to_path):
-                path = future_to_path[future]
-                try:
-                    results[path] = future.result()
-                except Exception as e:
-                    logger.error(f"Error computing SHA256 for {path}: {e}")
-                    results[path] = (None, None)
+        # Submit all tasks to the persistent pool
+        future_to_path = {executor.submit(get_file_sha, path): path for path in file_paths}
+
+        # Collect results as they complete
+        for future in as_completed(future_to_path):
+            path = future_to_path[future]
+            try:
+                results[path] = future.result()
+            except Exception as e:
+                logger.error(f"Error computing SHA256 for {path}: {e}")
+                results[path] = (None, None)
 
     except Exception as e:
         logger.error(f"Error in batch SHA256 computation: {e}")
@@ -132,7 +197,7 @@ async def _get_or_create_directory(directory_sha256: str, dirpath: str) -> tuple
     """
     # Use select_related to prefetch the Cache_Watcher relationship
     # Use model method for standardized prefetching and caching
-    found, directory_record = await sync_to_async(DirectoryIndex.search_for_directory_by_sha)(directory_sha256)
+    found, directory_record = await sync_to_async(DirectoryIndex.search_for_directory_by_sha)(directory_sha256, DIRECTORYINDEX_SR_CACHE, ())
 
     if not found:
         found, directory_record = await sync_to_async(DirectoryIndex.add_directory)(dirpath)
@@ -188,7 +253,8 @@ def return_breadcrumbs(uri_path="") -> list[dict[str, str]]:
     parts = [p for p in webpath.split("/") if p]
 
     # Build breadcrumbs with cumulative paths using list slicing
-    return [{"name": part, "url": "/" + "/".join(parts[: i + 1])} for i, part in enumerate(parts)]
+    # URL-encode each path component while preserving / separators
+    return [{"name": part, "url": "/" + "/".join(quote(p, safe="") for p in parts[: i + 1])} for i, part in enumerate(parts)]
 
 
 async def sync_database_disk(directory_record: DirectoryIndex) -> bool | None:

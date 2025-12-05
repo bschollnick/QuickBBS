@@ -19,7 +19,6 @@ Despite variable names like "filedb", this is NOT a database - it's pure in-memo
 import os
 from hashlib import sha224
 from pathlib import Path
-from typing import Dict, Optional, Set, Tuple
 
 # Global variables for backward compatibility
 SCANNED_PATHS = {}
@@ -44,8 +43,8 @@ class cached_exist:
             **kwargs: Additional args for backward compatibility (ignored)
         """
         # Core data structures (only 2 instead of 5+)
-        self.filename_to_paths: Dict[str, Set[str]] = {}  # filename → set of directory paths
-        self.sha_to_paths: Dict[str, Tuple[str, str]] = {}  # sha → (dirpath, filename)
+        self.filename_to_paths: dict[str, set[str]] = {}  # filename → set of directory paths
+        self.sha_to_paths: dict[str, tuple[str, str]] = {}  # sha → (dirpath, filename)
 
         # Configuration (minimal set)
         self.use_shas = use_shas
@@ -97,7 +96,7 @@ class cached_exist:
             except OSError:
                 pass  # Skip files we can't access
 
-    def _calculate_sha224(self, filepath: str) -> Optional[str]:
+    def _calculate_sha224(self, filepath: str) -> str | None:
         """Calculate SHA224 hash efficiently using modern Python patterns."""
         try:
             hasher = sha224()
@@ -109,14 +108,14 @@ class cached_exist:
         except (OSError, IOError):
             return None
 
-    def generate_sha224(self, filename: str, hexdigest: bool = False) -> Optional[str]:
+    def generate_sha224(self, filename: str, hexdigest: bool = False) -> str | None:
         """Generate SHA224 for backward compatibility."""
         result = self._calculate_sha224(filename)
         if result and not hexdigest:
             return bytes.fromhex(result)
         return result
 
-    def search_file_exist(self, filename: str) -> Tuple[bool, Optional[str]]:
+    def search_file_exist(self, filename: str) -> tuple[bool, str | None]:
         """Check if file exists in cache (O(1) lookup).
 
         :Args:
@@ -131,7 +130,7 @@ class cached_exist:
             return True, next(iter(self.filename_to_paths[filename]))
         return False, None
 
-    def search_sha224_exist(self, shaHD: str) -> Tuple[bool, Optional[str]]:
+    def search_sha224_exist(self, shaHD: str) -> tuple[bool, str | None]:
         """Check if SHA hash exists in cache (O(1) lookup).
 
         :Args:
@@ -152,9 +151,9 @@ class cached_exist:
         self,
         dirpath: str,
         filename: str,
-        sha_hd: Optional[str],
-        filesize: Optional[int],
-        mtime: Optional[float],
+        sha_hd: str | None,
+        filesize: int | None,
+        mtime: float | None,
     ) -> None:
         """Add file to cache for backward compatibility.
 

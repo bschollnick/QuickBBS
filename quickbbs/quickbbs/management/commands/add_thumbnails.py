@@ -9,7 +9,7 @@ import time
 
 from django.db import close_old_connections
 from django.db.models import Q
-from thumbnails.models import ThumbnailFiles
+from thumbnails.models import ThumbnailFiles, THUMBNAILFILES_PR_FILEINDEX_FILETYPE
 
 from quickbbs.models import FileIndex
 
@@ -45,31 +45,44 @@ def add_thumbnails(max_count: int = 0) -> None:
     # Get thumbnailable files with no thumbnail record
     # Note: Don't use distinct() - we want ALL unlinked records to get linked
     # to their existing ThumbnailFiles record (by SHA256)
+    # EXCLUDE link files (.alias/.link) - they're marked thumbnailable to avoid generic icons
+    # but attempting to generate thumbnails for them causes ImageIO memory leaks
     files_without_records = FileIndex.objects.filter(
         Q(new_ftnail__isnull=True)
         & Q(is_generic_icon=False)
         & Q(delete_pending=False)
+        & Q(filetype__is_link=False)  # Exclude alias/link files
         & (Q(filetype__is_image=True) | Q(filetype__is_pdf=True) | Q(filetype__is_movie=True))
     )
 
-    count = files_without_records.count()
+    # Get list of SHA256 values only (lightweight - no FileIndex objects cached)
+    # This avoids memory spike from Django's queryset result caching
+    sha256_list = list(files_without_records.values_list('file_sha256', flat=True))
+    count = len(sha256_list)
     print(f"Found {count} files without ThumbnailFiles records")
 
     if count > 0:
         print("Creating ThumbnailFiles records and generating thumbnails...")
         processed = 0
 
-        # Fetch all records without using iterator to avoid server-side cursor issues
-        for file_record in files_without_records.all():
+        # Iterate through SHA256 list (no queryset caching, no server-side cursor)
+        for file_sha256 in sha256_list:
             try:
                 # Create ThumbnailFiles record and generate thumbnail
                 # (automatically skips if thumbnail already exists)
-                ThumbnailFiles.get_or_create_thumbnail_record(file_sha256=file_record.file_sha256, suppress_save=False)
+                # get_or_create_thumbnail_record fetches FileIndex internally
+                ThumbnailFiles.get_or_create_thumbnail_record(
+                    file_sha256=file_sha256,
+                    suppress_save=False,
+                    prefetch_related_thumbnail=THUMBNAILFILES_PR_FILEINDEX_FILETYPE,
+                    select_related_fileindex=("filetype",),
+                )
             except Exception as e:  # pylint: disable=broad-exception-caught
-                print(f"ERROR processing {file_record.name}: {e}")
+                print(f"ERROR processing SHA256 {file_sha256}: {e}")
 
             processed += 1
 
+            # Progress output and periodic cleanup
             if processed % 1000 == 0:
                 print(f"  Processed {processed} files...")
                 close_old_connections()
@@ -85,13 +98,22 @@ def add_thumbnails(max_count: int = 0) -> None:
     print("\nPASS 2: Generating missing thumbnails...")
 
     # Find ThumbnailFiles with empty small_thumb
-    empty_thumbnails = ThumbnailFiles.objects.filter(Q(small_thumb__in=[b"", None]))
+    # EXCLUDE link files - attempting to generate thumbnails causes ImageIO memory leaks
+    # Filter by FileIndex filetype (must use FileIndex__ prefix for reverse relationship)
+    # CRITICAL: Use distinct() because joining through FileIndex can create duplicates
+    empty_thumbnails_qs = ThumbnailFiles.objects.filter(
+        Q(small_thumb__in=[b"", None])
+        & Q(FileIndex__filetype__is_link=False)
+ #       & (Q(FileIndex__filetype__is_image=True) | Q(FileIndex__filetype__is_pdf=True) | Q(FileIndex__filetype__is_movie=True))
+    ).distinct()
 
     if max_count > 0:
-        empty_thumbnails = empty_thumbnails[:max_count]
+        empty_thumbnails_qs = empty_thumbnails_qs[:max_count]
         print(f"Limiting to {max_count} thumbnails...")
 
-    count = empty_thumbnails.count()
+    # Get list of SHA256 values only (lightweight - no ThumbnailFiles objects cached)
+    sha256_list = list(empty_thumbnails_qs.values_list('sha256_hash', flat=True))
+    count = len(sha256_list)
     print(f"Found {count} thumbnails to generate")
 
     if count == 0:
@@ -105,28 +127,25 @@ def add_thumbnails(max_count: int = 0) -> None:
     errors = 0
     start_time = time.time()
 
-    # Fetch all records without using iterator to avoid server-side cursor issues
-    for thumbnail in empty_thumbnails.all():
+    # Iterate through SHA256 list (no queryset caching, no server-side cursor)
+    for sha256_hash in sha256_list:
         try:
-            # Get any FileIndex record for this SHA256 (for file path)
-            index_record = FileIndex.objects.filter(file_sha256=thumbnail.sha256_hash).first()
-
-            if not index_record:
-                print(f"Warning: No FileIndex for SHA256 {thumbnail.sha256_hash}")
-                errors += 1
-                processed += 1
-                continue
-
             # Generate thumbnail (this will populate small/medium/large)
-            ThumbnailFiles.get_or_create_thumbnail_record(file_sha256=thumbnail.sha256_hash, suppress_save=False)
+            # get_or_create_thumbnail_record fetches FileIndex internally
+            ThumbnailFiles.get_or_create_thumbnail_record(
+                file_sha256=sha256_hash,
+                suppress_save=False,
+                prefetch_related_thumbnail=THUMBNAILFILES_PR_FILEINDEX_FILETYPE,
+                select_related_fileindex=("filetype",),
+            )
             success += 1
             processed += 1
 
-            # Progress
-            if processed % 50 == 0:
+            # Progress output
+            if processed % 10 == 0:
                 elapsed = time.time() - start_time
                 rate = success / elapsed if elapsed > 0 else 0
-                print(f"  {processed}/{count} " f"(Success: {success}, Errors: {errors}) " f"({rate:.1f}/sec)")
+                print(f"  {processed}/{count} (Success: {success}, Errors: {errors}) ({rate:.1f}/sec)")
 
             # Cleanup - close connections every 1000 entries
             if processed % 1000 == 0:
@@ -135,7 +154,15 @@ def add_thumbnails(max_count: int = 0) -> None:
         except Exception as e:  # pylint: disable=broad-exception-caught
             errors += 1
             processed += 1
-            print(f"Error: {e}")
+            # Print first few errors with traceback for debugging
+            if errors <= 3:
+                import traceback
+                print(f"Error details for debugging:")
+                print(f"  SHA256: {sha256_hash}")
+                traceback.print_exc()
+            else:
+                print(f"Error: {e}")
+                sys.exit()
 
     close_old_connections()
 

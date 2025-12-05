@@ -1,0 +1,89 @@
+{#
+  Gallery Item Card Macros for QuickBBS
+
+  This file provides reusable macros for displaying gallery item cards.
+
+  Usage:
+      {% from 'macros/gallery.jinja' import show_gallery_item_card %}
+#}
+
+{% from 'macros/htmx.jinja' import show_htmx_attrs %}
+{% from 'macros/metadata.jinja' import show_item_metadata %}
+
+{#
+  Gallery Item Card Macro
+
+  Creates a complete gallery item card with thumbnail, metadata, and navigation.
+
+  Args:
+      item: FileIndex or DirectoryIndex object
+      index (int): Item position in the list (from loop.index)
+      sort (int): Current sort parameter (default: 0)
+      fromtimestamp: Date formatting function (optional, for metadata display)
+
+  Usage:
+      {% for item in items_to_display %}
+          show_gallery_item_card(item, loop.index, sort, fromtimestamp)
+      {% endfor %}
+
+  Output:
+      <div class="gallery-item" style="background-color: #...">
+          <!-- Item header with title and index -->
+          <!-- Thumbnail with link -->
+          <!-- Metadata section -->
+      </div>
+#}
+{% macro show_gallery_item_card(item, index, sort=0, fromtimestamp=None) %}
+{% with
+    item_url = item.virtual_directory.get_view_url() if (item.filetype.is_link and item.virtual_directory) else (item.get_view_url() + "?sort=" + sort|string),
+    htmx_attrs = show_htmx_attrs(swap='outerHTML transition:true')
+%}
+{# Note: background-color must remain inline as it's dynamic based on filetype #}
+<div class="gallery-item" style="background-color: #{{ item.filetype.color }};">
+    <!-- Item Header -->
+    <div class="item-header">
+        <span class="item-index">{{ index }}</span>
+        <div class="item-title">
+            <a href="{{ item_url }}"
+               hx-get="{{ item_url }}"
+               {{ htmx_attrs|safe }}
+               class="gallery-item-link">
+                {% if item.filetype.is_link %}
+                    {{ item.name.split("*")[0] }}
+                {% else %}
+                    {{ item.name|wordwrap(width=24, break_long_words=True) }}
+                {% endif %}
+            </a>
+
+            {% if item.is_animated %}
+                <i class="fas fa-film film-indicator"></i>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Thumbnail Container -->
+    <div class="thumbnail-container">
+        <figure class="image">
+            <a href="{{ item_url }}"
+               hx-get="{{ item_url }}"
+               {{ htmx_attrs|safe }}
+               class="gallery-item-link">
+                <img src="{{ item.get_thumbnail_url() }}"
+                     alt="{{ item.name }}"
+                     class="thumbnail thumbnail-image gallery-item">
+            </a>
+        </figure>
+        <!-- External Link -->
+        <a href="{{ item_url }}"
+            target="_blank"
+            class="external-link"
+            hx-boost="false">
+            <i class="fas fa-external-link-alt"></i>
+        </a>
+    </div>
+
+    <!-- Metadata -->
+    {{ show_item_metadata(item, fromtimestamp) }}
+</div>
+{% endwith %}
+{% endmacro %}

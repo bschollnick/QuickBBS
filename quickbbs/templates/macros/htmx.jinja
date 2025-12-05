@@ -1,0 +1,95 @@
+{#
+  HTMX Macros for QuickBBS
+
+  This file provides reusable macros for generating HTMX-enabled links and elements
+  with consistent attributes across the application.
+
+  Usage:
+      {% from 'macros/htmx.jinja' import show_nav_link, show_nav_button, show_htmx_attrs %}
+#}
+
+{#
+  HTMX Navigation Link Macro
+
+  Creates a link with standard HTMX attributes for SPA-like navigation.
+
+  Args:
+      url (str): The URL to navigate to
+      text (str): Link text to display
+      css_class (str): Additional CSS classes (optional)
+      extra_attrs (str): Additional HTML attributes (optional)
+      swap (str): HTMX swap strategy (default: "outerHTML transition:true")
+
+  Usage:
+      {{ show_nav_link("/gallery/1", "View Gallery") }}
+      {{ show_nav_link(item.url, item.name, css_class="button is-primary") }}
+
+  Output:
+      <a href="/gallery/1" hx-get="/gallery/1" ...>View Gallery</a>
+#}
+{% macro show_nav_link(url, text, css_class='', extra_attrs='', swap='outerHTML transition:true') %}
+<a href="{{ url }}"
+   hx-get="{{ url }}"
+   hx-push-url="true"
+   hx-target="body"
+   hx-swap="{{ swap }}"
+   hx-headers='{"Cache-Control": "max-age=300"}'
+   {% if css_class %}class="{{ css_class }}"{% endif %}
+   {{ extra_attrs|safe }}>
+  {{ caller() if caller else text }}
+</a>
+{% endmacro %}
+
+{#
+  HTMX Navigation Button Macro
+
+  Creates a button/link with standard HTMX attributes for SPA-like navigation.
+  Designed for icon-based navigation buttons (up, download, etc.)
+
+  Args:
+      url (str): The URL to navigate to
+      icon_name (str): FontAwesome icon name (e.g., "arrow-up fa-2x")
+      title (str): Tooltip text (optional)
+      css_class (str): CSS classes (default: "button is-ghost")
+      extra_attrs (str): Additional HTML attributes (optional)
+
+  Usage:
+      {{ show_nav_button(up_uri, "arrow-up fa-2x", title="Go Up") }}
+
+  Output:
+      <a href="..." class="button is-ghost" ...><i class="fas fa-arrow-up fa-2x"></i></a>
+#}
+{% macro show_nav_button(url, icon_name, title='', css_class='button is-ghost', extra_attrs='') %}
+<a href="{{ url }}"
+   class="{{ css_class }}"
+   hx-get="{{ url }}"
+   hx-push-url="true"
+   hx-target="body"
+   hx-swap="innerHTML show:window:top"
+   {% if title %}title="{{ title }}"{% endif %}
+   {{ extra_attrs|safe }}>
+  {{ icon(icon_name) }}
+</a>
+{% endmacro %}
+
+{#
+  HTMX Attributes String Generator
+
+  Returns HTMX attributes as a string for inline use in templates.
+  Useful when you need to add HTMX behavior to existing HTML elements.
+
+  Args:
+      target (str): HTMX target selector (default: "body")
+      swap (str): HTMX swap strategy (default: "outerHTML transition:true")
+      cache (bool): Include cache-control headers (default: True)
+
+  Usage:
+      <a href="{{ url }}" {{ show_htmx_attrs()|safe }}>Link</a>
+      <a href="{{ url }}" {{ show_htmx_attrs(swap='innerHTML')|safe }}>Link</a>
+
+  Output:
+      hx-push-url="true" hx-target="body" hx-swap="outerHTML transition:true" hx-headers='{"Cache-Control": "max-age=300"}'
+#}
+{% macro show_htmx_attrs(target='body', swap='outerHTML transition:true', cache=True) %}
+hx-push-url="true" hx-target="{{ target }}" hx-swap="{{ swap }}"{% if cache %} hx-headers='{"Cache-Control": "max-age=300"}'{% endif %}
+{% endmacro %}

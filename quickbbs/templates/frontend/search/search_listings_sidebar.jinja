@@ -97,15 +97,17 @@
     <div class="sidebar-section">
       <div class="field">
         <label class="label is-small has-text-centered">Page</label>
-        <form action="?" method="GET" class="page-form"
-              hx-get="."
-              hx-target="body"
-              hx-swap="innerHTML show:window:top transition:true"
-              hx-push-url="true">
+        <form action="?" method="GET" class="page-form">
           <input type="hidden" name="searchtext" value="{{ searchtext }}">
           <input type="hidden" name="sort" value="{{sort}}">
           <div class="select is-small is-fullwidth">
-            <select name="page" hx-trigger="change"
+            <select name="page"
+                    hx-get="."
+                    hx-target="body"
+                    hx-swap="innerHTML show:window:top transition:true"
+                    hx-push-url="true"
+                    hx-trigger="change"
+                    hx-include="[name='searchtext'], [name='sort']"
               {% if total_pages <= 20 %}
                 {# Show all pages for small search results #}
                 {% for pagecnt in range(1, total_pages + 1) %}
@@ -157,15 +159,18 @@
     <div class="sidebar-section">
       <div class="field">
         <label class="label is-small has-text-centered">Sort</label>
-        <form action="?" method="GET" class="sort-form"
-              hx-get=""
-              hx-target="body"
-              hx-swap="innerHTML show:window:top transition:true"
-              hx-push-url="true">
+        <form action="?" method="GET" class="sort-form">
           <input type="hidden" name="searchtext" value="{{ searchtext }}">
           <input type="hidden" name="page" value="{{current_page}}">
           <div class="select is-small is-fullwidth">
-            <select name="sort" hx-trigger="change" onchange="this.form.requestSubmit()">
+            <select name="sort"
+                    hx-get=""
+                    hx-target="body"
+                    hx-swap="innerHTML show:window:top transition:true"
+                    hx-push-url="true"
+                    hx-trigger="change"
+                    hx-include="[name='searchtext'], [name='page']"
+                    onchange="this.form.requestSubmit()">
               <option value="0" {% if sort == 0 %}selected{% endif %}>A..Z</option>
               <option value="1" {% if sort == 1 %}selected{% endif %}>Last Modified</option>
               <option value="2" {% if sort == 2 %}selected{% endif %}>Created</option>

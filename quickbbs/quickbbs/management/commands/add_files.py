@@ -92,11 +92,11 @@ async def _add_files_async(max_count: int = 0, start_path: str | None = None) ->
     # Filter directories to only those under the albums_root if start_path was specified
     if start_path:
         directories = await sync_to_async(list, thread_sensitive=True)(
-            DirectoryIndex.objects.select_related("Cache_Watcher").filter(fqpndirectory__startswith=albums_root).order_by("fqpndirectory").all()
+            DirectoryIndex.objects.select_related("Cache_Watcher", "parent_directory").filter(fqpndirectory__startswith=albums_root).order_by("fqpndirectory").all()
         )
     else:
         directories = await sync_to_async(list, thread_sensitive=True)(
-            DirectoryIndex.objects.select_related("Cache_Watcher").order_by("fqpndirectory").all()
+            DirectoryIndex.objects.select_related("Cache_Watcher", "parent_directory").order_by("fqpndirectory").all()
         )
 
     for directory in directories:

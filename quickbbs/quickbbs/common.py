@@ -4,11 +4,10 @@ import hashlib
 import logging
 import os
 import pathlib
-from typing import Any, Callable, Optional, TypeVar
+from typing import TypeVar
 
 from cachetools import LRUCache, cached
 from django.db import models
-from django.http import HttpResponseBadRequest
 
 logger = logging.getLogger(__name__)
 
