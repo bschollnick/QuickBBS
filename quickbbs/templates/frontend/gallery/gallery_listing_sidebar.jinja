@@ -1,7 +1,7 @@
 {% extends 'components/sidebar_base.jinja' %}
 {% from 'macros/pagination.jinja' import show_first_page_button, show_previous_page_button, show_next_page_button, show_last_page_button, show_page_selector_standalone %}
 
-{% set up_url = up_uri ~ "?page=1&sort=" ~ sort %}
+{% set up_url = up_uri ~ "?page=" ~ page_locale ~ "&sort=" ~ sort %}
 {% set first_url = "?page=1&sort=" ~ sort %}
 {% set prev_url = ("?page=" ~ (current_page - 1) ~ "&sort=" ~ sort) if current_page > 1 else None %}
 {% set next_url = ("?page=" ~ (current_page + 1) ~ "&sort=" ~ sort) if current_page < total_pages else None %}
