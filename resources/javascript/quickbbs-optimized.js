@@ -341,11 +341,40 @@
             document.addEventListener("htmx:responseError", (evt) => {
                 console.error('HTMX Response Error:', evt.detail);
                 this.spinner.hide();
+                this.showErrorModal(evt.detail);
             });
 
             document.addEventListener("htmx:timeout", (evt) => {
                 console.warn('HTMX Request Timeout:', evt.detail);
                 this.spinner.hide();
+                this.showErrorModal({
+                    error: 'Request Timeout',
+                    statusCode: 408
+                });
+            });
+
+            // Error modal event listeners
+            document.addEventListener('DOMContentLoaded', () => {
+                const modal = document.getElementById('error-modal');
+                if (modal) {
+                    const modalBackground = modal.querySelector('.modal-background');
+                    const modalClose = modal.querySelector('.modal-close');
+
+                    if (modalBackground) {
+                        modalBackground.addEventListener('click', () => this.hideErrorModal());
+                    }
+
+                    if (modalClose) {
+                        modalClose.addEventListener('click', () => this.hideErrorModal());
+                    }
+                }
+            });
+
+            // Close modal on ESC key
+            document.addEventListener('keydown', (evt) => {
+                if (evt.key === 'Escape') {
+                    this.hideErrorModal();
+                }
             });
         }
 
@@ -389,6 +418,50 @@
 
         updateFiletypeColor(color) {
             document.documentElement.style.setProperty('--filetype-color', `#${color}`);
+        }
+
+        showErrorModal(detail) {
+            const modal = document.getElementById('error-modal');
+            const content = document.getElementById('error-message-content');
+
+            if (!modal || !content) {
+                console.error('Error modal elements not found');
+                return;
+            }
+
+            let message = 'An unexpected error occurred.';
+
+            if (detail.xhr) {
+                const status = detail.xhr.status;
+                const statusText = detail.xhr.statusText || 'Unknown Error';
+                message = `Server Error (${status}): ${statusText}`;
+
+                // Try to get more details from response
+                try {
+                    const responseText = detail.xhr.responseText;
+                    if (responseText && responseText.length < 200) {
+                        message += `\n\n${responseText}`;
+                    }
+                } catch (e) {
+                    // Ignore if we can't get response text
+                }
+            } else if (detail.error) {
+                message = detail.error;
+            } else if (detail.statusCode) {
+                message = `Error ${detail.statusCode}: ${detail.error || 'Request failed'}`;
+            }
+
+            content.textContent = message;
+            modal.classList.add('is-active');
+            document.documentElement.classList.add('is-clipped');
+        }
+
+        hideErrorModal() {
+            const modal = document.getElementById('error-modal');
+            if (modal) {
+                modal.classList.remove('is-active');
+                document.documentElement.classList.remove('is-clipped');
+            }
         }
 
         // Public API

@@ -44,6 +44,8 @@ settings.DEBUG = True
 
 from django.test import RequestFactory
 
+from quickbbs.directoryindex import DIRECTORYINDEX_SR_FILETYPE_THUMB
+from quickbbs.fileindex import FILEINDEX_SR_FILETYPE_HOME_VIRTUAL, FILEINDEX_SR_FILETYPE_HOME
 from quickbbs.models import (
     FileIndex,
     DirectoryIndex,
@@ -169,7 +171,7 @@ def run_indexdirs_read_benchmarks() -> list[BenchmarkResult]:
     results.append(
         benchmark_query(
             "DirectoryIndex.search_for_directory_by_sha(sha)",
-            lambda d: DirectoryIndex.search_for_directory_by_sha(d.dir_fqpn_sha256),
+            lambda d: DirectoryIndex.search_for_directory_by_sha(d.dir_fqpn_sha256, DIRECTORYINDEX_SR_FILETYPE_THUMB, ()),
             samples=sample_dirs,
         )
     )
@@ -178,7 +180,7 @@ def run_indexdirs_read_benchmarks() -> list[BenchmarkResult]:
     results.append(
         benchmark_query(
             "DirectoryIndex.search_for_directory(fqpn)",
-            lambda d: DirectoryIndex.search_for_directory(d.fqpndirectory),
+            lambda d: DirectoryIndex.search_for_directory(d.fqpndirectory, DIRECTORYINDEX_SR_FILETYPE_THUMB, ()),
             samples=sample_dirs,
         )
     )
@@ -187,7 +189,7 @@ def run_indexdirs_read_benchmarks() -> list[BenchmarkResult]:
     results.append(
         benchmark_query(
             "dir.dirs_in_dir(sort=0)",
-            lambda d: list(d.dirs_in_dir(sort=0)),
+            lambda d: list(d.dirs_in_dir(sort=0, select_related=DIRECTORYINDEX_SR_FILETYPE_THUMB, prefetch_related=())),
             samples=sample_dirs,
         )
     )
@@ -196,7 +198,7 @@ def run_indexdirs_read_benchmarks() -> list[BenchmarkResult]:
     results.append(
         benchmark_query(
             "dir.files_in_dir(sort=0)",
-            lambda d: list(d.files_in_dir(sort=0)),
+            lambda d: list(d.files_in_dir(sort=0, select_related=FILEINDEX_SR_FILETYPE_HOME_VIRTUAL)),
             samples=sample_dirs,
         )
     )
@@ -297,7 +299,9 @@ def run_indexdirs_read_benchmarks() -> list[BenchmarkResult]:
         results.append(
             benchmark_query(
                 "DirectoryIndex.return_by_sha256_list(sha_list, sort=0)",
-                lambda: list(DirectoryIndex.return_by_sha256_list(sha_list, sort=0)),
+                lambda: list(
+                    DirectoryIndex.return_by_sha256_list(sha_list, sort=0, select_related=DIRECTORYINDEX_SR_FILETYPE_THUMB, prefetch_related=())
+                ),
             )
         )
 
@@ -336,7 +340,7 @@ def run_indexdata_read_benchmarks() -> list[BenchmarkResult]:
     results.append(
         benchmark_query(
             "FileIndex.get_by_sha256(sha, unique=True)",
-            lambda f: FileIndex.get_by_sha256(f.unique_sha256, unique=True),
+            lambda f: FileIndex.get_by_sha256(f.unique_sha256, unique=True, select_related=FILEINDEX_SR_FILETYPE_HOME_VIRTUAL),
             samples=sample_files,
         )
     )
@@ -344,10 +348,10 @@ def run_indexdata_read_benchmarks() -> list[BenchmarkResult]:
     # 2. Get by SHA256 (cached method, unique=False)
     def get_by_sha_with_fallback(f):
         try:
-            return FileIndex.get_by_sha256(f.file_sha256, unique=False)
+            return FileIndex.get_by_sha256(f.file_sha256, unique=False, select_related=FILEINDEX_SR_FILETYPE_HOME_VIRTUAL)
         except FileIndex.MultipleObjectsReturned:
             # Fall back to unique SHA if file_sha256 has duplicates
-            return FileIndex.get_by_sha256(f.unique_sha256, unique=True)
+            return FileIndex.get_by_sha256(f.unique_sha256, unique=True, select_related=FILEINDEX_SR_FILETYPE_HOME_VIRTUAL)
 
     results.append(
         benchmark_query(
@@ -361,7 +365,7 @@ def run_indexdata_read_benchmarks() -> list[BenchmarkResult]:
     results.append(
         benchmark_query(
             "FileIndex.get_by_sha256_for_download(sha, unique=True)",
-            lambda f: FileIndex.get_by_sha256_for_download(f.unique_sha256, unique=True),
+            lambda f: FileIndex.get_by_sha256_for_download(f.unique_sha256, unique=True, select_related=FILEINDEX_SR_FILETYPE_HOME),
             samples=sample_files,
         )
     )
@@ -409,7 +413,7 @@ def run_indexdata_read_benchmarks() -> list[BenchmarkResult]:
         results.append(
             benchmark_query(
                 "FileIndex.return_by_sha256_list(sha_list, sort=0)",
-                lambda: list(FileIndex.return_by_sha256_list(sha_list, sort=0)),
+                lambda: list(FileIndex.return_by_sha256_list(sha_list, sort=0, select_related=FILEINDEX_SR_FILETYPE_HOME_VIRTUAL)),
             )
         )
 

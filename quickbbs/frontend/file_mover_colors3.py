@@ -26,7 +26,6 @@ import os
 import shutil
 import sys
 import time
-from hashlib import sha224
 from pathlib import Path
 from struct import unpack
 
@@ -36,88 +35,11 @@ from colorama import Fore, Style, init
 # Initialize colorama for cross-platform color support
 init(autoreset=True)
 
-# Simple file processing without external dependencies
-
 # Archive extensions to skip (replaces filedb._archives)
 ARCHIVE_EXTENSIONS = {".zip", ".rar", ".7z", ".lzh", ".gz"}
 
-# Maximum file size for SHA calculation (2MB)
-MAX_SHA_SIZE = 2 * 1024 * 1024
-
-
-def calculate_sha224(filepath: str) -> str:
-    """Calculate SHA224 hash for a file.
-
-    Args:
-        filepath: Path to the file
-
-    Returns:
-        SHA224 hash as hexadecimal string, or None if error
-    """
-    try:
-        file_size = os.path.getsize(filepath)
-        if file_size > MAX_SHA_SIZE:
-            return None
-
-        hasher = sha224()
-        with open(filepath, "rb") as f:
-            while chunk := f.read(65536):  # 64KB chunks
-                hasher.update(chunk)
-        return hasher.hexdigest()
-    except (OSError, IOError):
-        return None
-
-
-def build_global_filename_index(root_target_dir: str) -> set[str]:
-    """Build set of all filenames anywhere in target tree.
-
-    This prevents duplicates across the entire target tree - if a file exists
-    in Target/Alice/, it won't be copied again to Target/ or Target/Bob/.
-
-    Args:
-        root_target_dir: Root target directory path
-
-    Returns:
-        Set of sanitized filenames found anywhere in target tree
-    """
-    filenames = set()
-
-    if not os.path.exists(root_target_dir):
-        print(f"{Fore.YELLOW}Target directory does not exist yet - starting fresh{Style.RESET_ALL}")
-        return filenames
-
-    print(f"{Fore.CYAN}Scanning target tree for existing files...{Style.RESET_ALL}")
-    file_count = 0
-    start_time = time.time()
-
-    try:
-        for _, _, files in os.walk(root_target_dir):
-            for filename in files:
-                # Normalize and sanitize filename the same way we do for source files
-                # Strip whitespace first, then sanitize
-                normalized = filename.strip()
-                sanitized = normalized.translate(FILENAME_TRANS)
-                filenames.add(sanitized)
-
-                file_count += 1
-                if file_count % 1000 == 0:
-                    elapsed = time.time() - start_time
-                    rate = file_count / elapsed if elapsed > 0 else 0
-                    # \r returns cursor to start of line for overwriting
-                    print(
-                        f"\r{Fore.GREEN}  Scanned: {file_count:,} files " f"({rate:.0f} files/sec){Style.RESET_ALL}",
-                        end="",
-                        flush=True,
-                    )
-
-    except (OSError, PermissionError) as e:
-        print(f"\n{Fore.RED}Warning: Could not scan {root_target_dir}: {e}{Style.RESET_ALL}")
-
-    # Final newline after progress indicator
-    print()
-    elapsed = time.time() - start_time
-    print(f"{Fore.GREEN}Found {len(filenames):,} unique filenames in target tree " f"({elapsed:.1f}s){Style.RESET_ALL}")
-    return filenames
+# Filename sanitization translation table (faster than regex)
+FILENAME_TRANS = str.maketrans({"?": "", "/": "", ":": "", "#": "_", " ": "_"})
 
 
 class ProcessingStats:
@@ -128,7 +50,7 @@ class ProcessingStats:
         self.files_with_color_tags = 0
         self.files_actually_processed = 0
         self.files_skipped_existing = 0
-        self.files_skipped_sha = 0
+        self.files_skipped_no_color = 0
         self.errors_encountered = 0
         self.start_time = None
         self.end_time = None
@@ -171,7 +93,8 @@ class ProcessingStats:
         print(f"Files scanned: {self.total_files_scanned:,}")
         print(f"Files with color tags: {self.files_with_color_tags:,}")
         print(f"Files processed: {self.files_actually_processed:,}")
-        print(f"Skipped: {self.files_skipped_existing + self.files_skipped_sha:,}")
+        print(f"Skipped (no color): {self.files_skipped_no_color:,}")
+        print(f"Skipped (existing): {self.files_skipped_existing:,}")
         print(f"Errors: {self.errors_encountered:,}")
 
         if duration > 0 and self.total_files_scanned > 0:
@@ -182,38 +105,23 @@ class ProcessingStats:
 # Global statistics tracker
 stats = ProcessingStats()
 
-colornames = {
-    0: "none",
-    1: "gray",
-    2: "green",
-    3: "purple",
-    4: "blue",
-    5: "yellow",
-    6: "red",
-    7: "orange",
-}
-
-# Filename sanitization translation table (faster than regex)
-FILENAME_TRANS = str.maketrans({"?": "", "/": "", ":": "", "#": "_", " ": "_"})
-
 
 def get_color(filename):
-    """Get macOS Finder color label for a file using xattr method.
+    """Get macOS Finder color label code for a file.
 
     Args:
         filename: Path to the file to check
 
     Returns:
-        Tuple of (color_code, color_name)
+        Color code integer (0 = none, 1-7 = colors)
     """
     try:
         attrs = xattr.xattr(filename)
         finder_attrs = attrs["com.apple.FinderInfo"]
         flags = unpack(32 * "B", finder_attrs)
-        color = flags[9] >> 1 & 7
-        return (color, colornames[color])
+        return flags[9] >> 1 & 7
     except (KeyError, OSError, FileNotFoundError):
-        return (0, colornames[0])
+        return 0
 
 
 def copy_with_metadata(src: str, dst: str) -> None:
@@ -254,9 +162,20 @@ def process_folder(src_dir, dst_dir, files, config):
     Returns:
         True if processing should continue, False if max_count reached
     """
-    stats.total_files_scanned += len(files)
-
     for file_ in files:
+        stats.total_files_scanned += 1
+
+        # Show progress every 500 files
+        if stats.total_files_scanned % 500 == 0:
+            print(
+                f"\r{Fore.CYAN}Processed: {stats.total_files_scanned:,} | "
+                f"Colored: {stats.files_with_color_tags:,} | "
+                f"Copied: {stats.files_actually_processed:,} | "
+                f"Skipped: {stats.files_skipped_no_color + stats.files_skipped_existing:,}{Style.RESET_ALL}",
+                end="",
+                flush=True,
+            )
+
         # Check if max_count has been reached
         if config["max_count"] and stats.files_actually_processed >= config["max_count"]:
             stats.max_count_reached = True
@@ -269,8 +188,9 @@ def process_folder(src_dir, dst_dir, files, config):
             continue
 
         # Check color label
-        color_code = get_color(src_file)[0]
+        color_code = get_color(src_file)
         if color_code == 0:
+            stats.files_skipped_no_color += 1
             continue
 
         stats.files_with_color_tags += 1
@@ -280,8 +200,22 @@ def process_folder(src_dir, dst_dir, files, config):
         normalized_filename = file_.strip()
         dst_filename = normalized_filename.translate(FILENAME_TRANS)
 
-        # Check global index - prevents duplicates anywhere in target tree
-        if dst_filename in config["existing_files"]:
+        # Lazy-load directory contents on first access
+        if dst_dir not in config["existing_files"]:
+            # First time seeing this destination directory - scan it now
+            config["existing_files"][dst_dir] = set()
+            if os.path.exists(dst_dir):
+                try:
+                    for existing_file in os.listdir(dst_dir):
+                        # Normalize the same way we do for source files
+                        normalized = existing_file.strip()
+                        sanitized = normalized.translate(FILENAME_TRANS)
+                        config["existing_files"][dst_dir].add(sanitized)
+                except (OSError, PermissionError):
+                    pass  # Empty cache for inaccessible directories
+
+        # Check directory-specific index
+        if dst_filename in config["existing_files"][dst_dir]:
             stats.files_skipped_existing += 1
             continue
 
@@ -299,8 +233,8 @@ def process_folder(src_dir, dst_dir, files, config):
                 copy_with_metadata(src_file, dst_file)
                 os.remove(src_file)
 
-            # Update global index after successful operation
-            config["existing_files"].add(dst_filename)
+            # Update directory-specific index after successful operation
+            config["existing_files"].setdefault(dst_dir, set()).add(dst_filename)
 
             stats.files_actually_processed += 1
 
@@ -317,7 +251,6 @@ def main(args):
     Args:
         args: Parsed command line arguments
     """
-    use_shas = getattr(args, "use_shas", False)
     operation = getattr(args, "operation", "copy")
     max_count = getattr(args, "max_count", None)
 
@@ -327,7 +260,6 @@ def main(args):
     print(f"Starting with: {root_src_dir}")
     print(f"Target path: {root_target_dir}")
     print(f"Operation: {operation}")
-    print(f"SHA hashing: {'enabled' if use_shas else 'disabled'}")
     if max_count:
         print(f"Maximum files to process: {max_count}")
 
@@ -341,17 +273,16 @@ def main(args):
         print(f"Error: Source path '{root_src_dir}' is not a directory.")
         sys.exit(1)
 
-    # Build global filename index to prevent duplicates across entire target tree
-    existing_files = build_global_filename_index(str(root_target_dir))
+    # Start with empty cache - will populate on-demand per directory
+    existing_files = {}
 
     print("Processing directories...")
 
     # Create config dictionary to reduce function arguments
     config = {
-        "use_shas": use_shas,
         "operation": operation,
         "max_count": max_count,
-        "existing_files": existing_files,  # Global index shared across all processing
+        "existing_files": existing_files,  # Directory-specific index shared across all processing
     }
 
     def directory_generator():
@@ -372,17 +303,16 @@ def main(args):
                 # Normalize path: strip whitespace from each component and apply title case
                 # This handles directories like "alice_with_cats - tifa /" -> "alice_with_cats - tifa/"
                 parts = dst_dir.parts
-                normalized_parts = [parts[0]]  # Keep root as-is
-                for part in parts[1:]:
-                    # Strip leading/trailing whitespace and apply title case
-                    # CRITICAL: Convert spaces to underscores BEFORE title casing to prevent duplicates.
-                    # Without this, "Gonig South" and "goning_south" create two different directories.
-                    # Example: "Gonig South" -> "Gonig_South" -> "Gonig_South" (title case)
-                    #          "goning_south" -> "goning_south" -> "Goning_South" (title case)
-                    # Both now map to the same directory: "Goning_South"
-                    normalized_part = part.strip().replace(" ", "_").title()
-                    if normalized_part:  # Only add non-empty parts
-                        normalized_parts.append(normalized_part)
+                # CRITICAL: Convert spaces to underscores BEFORE title casing to prevent duplicates.
+                # Without this, "Gonig South" and "goning_south" create two different directories.
+                # Example: "Gonig South" -> "Gonig_South" -> "Gonig_South" (title case)
+                #          "goning_south" -> "goning_south" -> "Goning_South" (title case)
+                # Both now map to the same directory: "Goning_South"
+                normalized_parts = [parts[0]] + [
+                    p
+                    for p in (part.strip().replace(" ", "_").title() for part in parts[1:])
+                    if p
+                ]
 
                 dst_dir = Path(*normalized_parts) if len(normalized_parts) > 1 else Path(normalized_parts[0])
                 yield (src_dir, str(dst_dir), files)
@@ -397,6 +327,8 @@ def main(args):
             stats.errors_encountered += 1
             # Continue despite errors
 
+    # Print newline after progress indicator
+    print()
     stats.stop_timing()
     stats.print_summary()
 
@@ -411,11 +343,6 @@ if __name__ == "__main__":
         choices=["copy", "move"],
         default="copy",
         help="Operation to perform (default: copy)",
-    )
-    parser.add_argument(
-        "--use-shas",
-        action="store_true",
-        help="Use SHA224 hashing for duplicate detection (currently unused)",
     )
     parser.add_argument(
         "--max-count",

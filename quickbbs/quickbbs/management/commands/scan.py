@@ -14,15 +14,19 @@ Usage:
     python manage.py scan --add_directories [--max_count N] [--start PATH]
     python manage.py scan --add_files [--max_count N] [--start PATH]
     python manage.py scan --add_thumbnails [--max_count N]
+    python manage.py scan --verify_thumbnails
 """
 
 import asyncio
+import io
 import os
+import time
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from django.db import close_old_connections, connections
+from django.db import close_old_connections, connections, transaction
+from PIL import Image
 
 from cache_watcher.models import Cache_Storage, fs_Cache_Tracking
 from frontend.utilities import sync_database_disk
@@ -31,11 +35,12 @@ from quickbbs.management.commands.add_directories import add_directories
 from quickbbs.management.commands.add_files import add_files
 from quickbbs.management.commands.add_thumbnails import add_thumbnails
 from quickbbs.management.commands.management_helper import (
-    invalidate_empty_directories,
     invalidate_directories_with_null_sha256,
     invalidate_directories_with_null_virtual_directory,
+    invalidate_empty_directories,
 )
-from quickbbs.models import FileIndex, DirectoryIndex
+from quickbbs.models import DirectoryIndex, FileIndex
+from thumbnails.models import ThumbnailFiles
 
 
 def verify_directories(start_path: str | None = None):
@@ -138,6 +143,12 @@ async def _verify_files_async(start_path: str | None = None):
     """
     Async implementation of verify_files.
 
+    Verifies files in the database against the filesystem and performs cleanup:
+    - Invalidates directories with NULL SHA256 files
+    - Invalidates directories with NULL virtual_directory link files
+    - Deletes orphaned FileIndex records (where home_directory is None)
+    - Verifies all files exist on disk and syncs database with filesystem
+
     Args:
         start_path: Starting directory path to verify from (default: ALBUMS_PATH/albums)
 
@@ -149,6 +160,20 @@ async def _verify_files_async(start_path: str | None = None):
 
     # Invalidate directories with link files missing virtual_directory
     await sync_to_async(invalidate_directories_with_null_virtual_directory, thread_sensitive=True)(start_path=start_path)
+
+    # Delete orphaned FileIndex records (where home_directory is None)
+    print("-" * 60)
+    print("Checking for orphaned FileIndex records (home_directory=None)...")
+    orphaned_query = FileIndex.objects.filter(home_directory=None)
+    orphaned_count = await sync_to_async(orphaned_query.count, thread_sensitive=True)()
+    if orphaned_count > 0:
+        print(f"  Found {orphaned_count} orphaned FileIndex records")
+        print("  These records cannot be recovered and will be deleted...")
+        deleted_count, _ = await sync_to_async(orphaned_query.delete, thread_sensitive=True)()
+        print(f"  ✓ Deleted {deleted_count} orphaned FileIndex records")
+    else:
+        print("  ✓ No orphaned FileIndex records found")
+    print("-" * 60)
 
     print("Checking for invalid files in Database")
     start_count = await sync_to_async(FileIndex.objects.count, thread_sensitive=True)()
@@ -165,11 +190,11 @@ async def _verify_files_async(start_path: str | None = None):
         normalized_start = normalize_fqpn(start_path)
         print(f"\tFiltering directories under: {normalized_start}")
         directories = await sync_to_async(list, thread_sensitive=True)(
-            DirectoryIndex.objects.select_related("Cache_Watcher").filter(fqpndirectory__startswith=normalized_start).order_by("fqpndirectory").all()
+            DirectoryIndex.objects.select_related("Cache_Watcher", "parent_directory").filter(fqpndirectory__startswith=normalized_start).order_by("fqpndirectory").all()
         )
     else:
         directories = await sync_to_async(list, thread_sensitive=True)(
-            DirectoryIndex.objects.select_related("Cache_Watcher").order_by("fqpndirectory").all()
+            DirectoryIndex.objects.select_related("Cache_Watcher", "parent_directory").order_by("fqpndirectory").all()
         )
 
     for directory in directories:
@@ -196,6 +221,12 @@ def verify_files(start_path: str | None = None):
     """
     Synchronous wrapper for verify_files.
 
+    Verifies files in the database against the filesystem and performs cleanup:
+    - Invalidates directories with NULL SHA256 files
+    - Invalidates directories with NULL virtual_directory link files
+    - Deletes orphaned FileIndex records (where home_directory is None)
+    - Verifies all files exist on disk and syncs database with filesystem
+
     Args:
         start_path: Starting directory path to verify from (default: ALBUMS_PATH/albums)
 
@@ -203,6 +234,138 @@ def verify_files(start_path: str | None = None):
         None
     """
     asyncio.run(_verify_files_async(start_path=start_path))
+
+
+def verify_thumbnails():
+    """
+    Scan all thumbnails for all-white corrupted images and fix them in-place.
+
+    This function:
+    1. Iterates through ThumbnailFiles records checking for all-white pixel data
+    2. Immediately invalidates corrupted thumbnails (sets to b"") as they're found
+    3. Collects directory IDs (not objects) to minimize memory usage
+    4. Marks parent directories as invalidated in fs_Cache_Tracking
+    5. Ensures thumbnails will be regenerated on next access
+
+    Memory efficient: Processes thumbnails in batches, fixes in-place, stores only directory IDs.
+
+    Returns:
+        None
+    """
+    print("=" * 80)
+    print("THUMBNAIL VERIFICATION - Scanning for all-white corrupted thumbnails")
+    print("=" * 80)
+
+    # Get count for progress reporting
+    print("\nCounting thumbnails to check...")
+    total_thumbnails = ThumbnailFiles.objects.filter(small_thumb__isnull=False).exclude(small_thumb=b"").count()
+    print(f"Found {total_thumbnails} thumbnails to check")
+
+    # Track directories that need invalidation (only store IDs, not objects)
+    directories_to_invalidate = set()
+    batch_counter = 0
+    corrupted_count = 0
+    progress_interval = 1000  # Report progress every 1000 thumbnails
+
+    print("\nScanning and fixing thumbnails in-place...")
+    print("-" * 80)
+
+    # Process thumbnails with iterator to avoid loading all into memory
+    thumbnails = ThumbnailFiles.objects.filter(small_thumb__isnull=False).exclude(small_thumb=b"").select_related()
+
+    for thumbnail in thumbnails.iterator(chunk_size=1000):
+        batch_counter += 1
+
+        try:
+            # Check if thumbnail is all-white
+            img = Image.open(io.BytesIO(thumbnail.small_thumb))
+            extrema = img.getextrema()
+
+            # Check if all pixels are white
+            is_all_white = False
+            if img.mode == "RGB":
+                is_all_white = extrema == ((255, 255), (255, 255), (255, 255))
+            elif img.mode == "L":
+                is_all_white = extrema == (255, 255)
+
+            if is_all_white:
+                corrupted_count += 1
+                print(f"  ⚠️  Found white thumbnail: SHA256={thumbnail.sha256_hash[:16]}...")
+
+                # Invalidate immediately
+                with transaction.atomic():
+                    thumbnail.invalidate_thumb()
+                    thumbnail.save(update_fields=["small_thumb", "medium_thumb", "large_thumb"])
+
+                    # Get files using this thumbnail and collect directory IDs only
+                    file_dir_ids = (
+                        FileIndex.objects.filter(file_sha256=thumbnail.sha256_hash)
+                        .exclude(home_directory__isnull=True)
+                        .values_list("home_directory_id", flat=True)
+                    )
+                    directories_to_invalidate.update(file_dir_ids)
+
+                print(f"      ✓ Invalidated thumbnail immediately")
+
+        except Exception as e:
+            print(f"  ❌ Error checking thumbnail {thumbnail.sha256_hash}: {e}")
+            continue
+
+        # Progress reporting
+        if batch_counter % progress_interval == 0:
+            print(f"Processed {batch_counter}/{total_thumbnails} thumbnails ({corrupted_count} corrupted found)...")
+
+    # Close connections after iteration is complete
+    close_old_connections()
+
+    print("-" * 80)
+    print(f"Scan complete: Processed {batch_counter} thumbnails")
+    print(f"Found and fixed {corrupted_count} corrupted white thumbnails")
+
+    if corrupted_count == 0:
+        print("✅ No corrupted thumbnails found. Database is clean!")
+        return
+
+    print("-" * 80)
+    print(f"Invalidated {corrupted_count} thumbnails")
+
+    if directories_to_invalidate:
+        print(f"\nMarking {len(directories_to_invalidate)} directories as invalidated...")
+        print("-" * 80)
+
+        directory_counter = 0
+        total_dirs = len(directories_to_invalidate)
+
+        with transaction.atomic():
+            for directory in directories_to_invalidate:
+                directory_counter += 1
+
+                # Mark directory as invalidated in cache
+                fs_Cache_Tracking.objects.update_or_create(
+                    directory=directory,
+                    defaults={
+                        "invalidated": True,
+                        "lastscan": time.time(),
+                    },
+                )
+                # Invalidate directory thumbnail as well
+                directory.invalidate_thumb()
+
+                # Show progress for first few and then periodically
+                if directory_counter <= 5 or directory_counter % 100 == 0:
+                    print(f"  ✓ Invalidated directory {directory_counter}/{total_dirs}: {directory.fqpndirectory}")
+
+        print("-" * 80)
+        print(f"Marked {len(directories_to_invalidate)} directories for regeneration")
+
+    print("\n" + "=" * 80)
+    print("SUMMARY:")
+    print(f"  - Total thumbnails scanned: {batch_counter}")
+    print(f"  - Corrupted thumbnails found and fixed: {corrupted_count}")
+    print(f"  - Directories marked for regeneration: {len(directories_to_invalidate)}")
+    print("=" * 80)
+    print("\n✅ Thumbnail verification complete!")
+    print("Corrupted thumbnails will be regenerated on next access.")
 
 
 class Command(BaseCommand):
@@ -240,6 +403,11 @@ class Command(BaseCommand):
             "--add_thumbnails",
             action="store_true",
             help="Scan FileIndex for files missing thumbnails and generate them (images, videos, PDFs)",
+        )
+        parser.add_argument(
+            "--verify_thumbnails",
+            action="store_true",
+            help="Scan all thumbnails for all-white corrupted images, invalidate them, and mark directories for regeneration",
         )
         parser.add_argument(
             "--max_count",
@@ -306,6 +474,8 @@ class Command(BaseCommand):
             add_files(max_count=max_count, start_path=start_path)
         if options["add_thumbnails"]:
             add_thumbnails(max_count=max_count)
+        if options["verify_thumbnails"]:
+            verify_thumbnails()
 
 
 # # Use

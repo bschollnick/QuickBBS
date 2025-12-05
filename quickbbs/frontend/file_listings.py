@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import os
 from pathlib import Path
@@ -115,7 +117,7 @@ async def return_disk_listing(fqpn, use_async=True, batch_size=25, max_workers=4
         fs_data = {}
 
         # Use asyncio tasks for concurrent processing
-        async_process_batch = sync_to_async(_process_items, thread_sensitive=False)
+        async_process_batch = sync_to_async(_process_items, thread_sensitive=True)
 
         # Process batches with limited concurrency
         for i in range(0, len(batches), max_workers):

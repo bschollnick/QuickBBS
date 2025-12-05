@@ -7,6 +7,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from django.db import transaction
 from django.db.models import Count, Prefetch, Q
@@ -18,9 +19,6 @@ from filetypes.models import get_ftype_dict
 from quickbbs.common import normalize_string_title
 
 from .models import (
-    FILEINDEX_SELECT_RELATED_LIST,
-    DIRECTORYINDEX_PREFETCH_LIST,
-    DIRECTORYINDEX_SELECT_RELATED_LIST,
     SORT_MATRIX,
     NaturalSortField,
     cached,
@@ -40,6 +38,33 @@ if TYPE_CHECKING:
     from cache_watcher.models import fs_Cache_Tracking
 
     from .fileindex import FileIndex
+
+from .fileindex import FILEINDEX_SR_FILETYPE
+
+# =============================================================================
+# DIRECTORYINDEX SELECT_RELATED CONSTANTS
+# Colocated with DirectoryIndex class for use by class methods and external callers
+# See related_fetches.md for usage details
+# NOTE: Using tuples (not lists) so they can be used as cache keys (hashable)
+# =============================================================================
+
+# Full - gallery with navigation
+DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT = ("filetype", "thumbnail", "Cache_Watcher", "parent_directory")
+
+# For thumbnail view (no navigation needed)
+DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE = ("filetype", "thumbnail", "Cache_Watcher")
+
+# For directory listing display
+DIRECTORYINDEX_SR_FILETYPE_THUMB = ("filetype", "thumbnail")
+
+# For directory listing with navigation
+DIRECTORYINDEX_SR_FILETYPE_THUMB_PARENT = ("filetype", "thumbnail", "parent_directory")
+
+# For management commands
+DIRECTORYINDEX_SR_CACHE = ("Cache_Watcher",)
+
+# For parent navigation only
+DIRECTORYINDEX_SR_PARENT = ("parent_directory",)
 
 
 class DirectoryIndex(models.Model):
@@ -162,7 +187,7 @@ class DirectoryIndex(models.Model):
                     # Recursively add/update parent to ensure proper parent_directory chain
                     # This fixes both missing parents AND parents with NULL parent_directory
                     parent_sha = get_dir_sha(parent_dir)
-                    found, _ = DirectoryIndex.search_for_directory_by_sha(parent_sha)
+                    found, _ = DirectoryIndex.search_for_directory_by_sha(parent_sha, DIRECTORYINDEX_SR_CACHE, ())
 
                     if not found:
                         print(f"Creating parent directory: {parent_dir}")
@@ -287,7 +312,7 @@ class DirectoryIndex(models.Model):
         return hasattr(self, "Cache_Watcher") and not self.Cache_Watcher.invalidated
 
     @staticmethod
-    def get_all_parent_shas(sha_list: list[str]) -> set[str]:
+    def get_all_parent_shas(sha_list: list[str], select_related: list[str]) -> set[str]:
         """
         Get all parent directory SHAs using optimized batch queries.
 
@@ -296,6 +321,7 @@ class DirectoryIndex(models.Model):
 
         Args:
             sha_list: List of directory SHA256 hashes to find parents for
+            select_related: List of related fields to select (required)
 
         Returns:
             Set containing all input SHAs plus all ancestor SHAs
@@ -310,6 +336,8 @@ class DirectoryIndex(models.Model):
             Output: {"sha_of_/", "sha_of_/albums", "sha_of_/albums/photos",
                      "sha_of_/albums/photos/2024", "sha_of_/albums/videos"}
         """
+        if select_related is None:
+            raise ValueError("select_related parameter is required")
         if not sha_list:
             return set()
 
@@ -328,7 +356,7 @@ class DirectoryIndex(models.Model):
                     delete_pending=False,
                     parent_directory__isnull=False,
                 )
-                .select_related("parent_directory")
+                .select_related(*select_related)
                 .values_list("parent_directory__dir_fqpn_sha256", flat=True)
             )
 
@@ -451,24 +479,26 @@ class DirectoryIndex(models.Model):
 
     @cached(directoryindex_cache)
     @staticmethod
-    def search_for_directory_by_sha(sha_256: str) -> tuple[bool, "DirectoryIndex"]:
+    def search_for_directory_by_sha(sha_256: str, select_related: list[str], prefetch_related: list[str]) -> tuple[bool, "DirectoryIndex"]:
         """
         Return the database object matching the dir_fqpn_sha256
 
         Args:
             sha_256: The SHA-256 hash of the directory's fully qualified pathname
+            select_related: List of related fields to select (required)
+            prefetch_related: List of related fields to prefetch (required)
 
         Returns: A boolean representing the success of the search, and the resultant record
         """
-        # Internal prefetch list - excludes filetype (uses select_related instead)
-        search_prefetch_list = [
-            "FileIndex_entries",
-        ]
+        if select_related is None:
+            raise ValueError("select_related parameter is required")
+        if prefetch_related is None:
+            raise ValueError("prefetch_related parameter is required")
 
         try:
             record = (
-                DirectoryIndex.objects.select_related(*DIRECTORYINDEX_SELECT_RELATED_LIST)
-                .prefetch_related(*search_prefetch_list)
+                DirectoryIndex.objects.select_related(*select_related)
+                .prefetch_related(*prefetch_related)
                 .get(
                     dir_fqpn_sha256=sha_256,
                     delete_pending=False,
@@ -479,7 +509,7 @@ class DirectoryIndex(models.Model):
             return (False, None)  # Return None when not found
 
     @staticmethod
-    def search_for_directory(fqpn_directory: str) -> tuple[bool, "DirectoryIndex"]:
+    def search_for_directory(fqpn_directory: str, select_related: list[str], prefetch_related: list[str]) -> tuple[bool, "DirectoryIndex"]:
         """
         Return the database object matching the fqpn_directory
 
@@ -489,26 +519,40 @@ class DirectoryIndex(models.Model):
 
         Args:
             fqpn_directory: The fully qualified pathname of the directory
+            select_related: List of related fields to select (required)
+            prefetch_related: List of related fields to prefetch (required)
 
         Returns: A boolean representing the success of the search, and the resultant record
         """
+        if select_related is None:
+            raise ValueError("select_related parameter is required")
+        if prefetch_related is None:
+            raise ValueError("prefetch_related parameter is required")
         sha_256 = get_dir_sha(fqpn_directory)
-        return DirectoryIndex.search_for_directory_by_sha(sha_256)
+        return DirectoryIndex.search_for_directory_by_sha(sha_256, select_related, prefetch_related)
 
     @staticmethod
-    def return_by_sha256_list(sha256_list: list[str], sort: int = 0) -> "QuerySet[DirectoryIndex]":
+    def return_by_sha256_list(
+        sha256_list: list[str], sort: int, select_related: list[str], prefetch_related: list[str]
+    ) -> "QuerySet[DirectoryIndex]":
         """
         Return directories matching the provided SHA256 list
 
         Args:
             sha256_list: List of directory SHA256 hashes to filter by
             sort: The sort order of the dirs (0-2)
+            select_related: List of related fields to select (required)
+            prefetch_related: List of related fields to prefetch (required)
 
         Returns: The sorted query of directories matching the SHA256 list
         """
+        if select_related is None:
+            raise ValueError("select_related parameter is required")
+        if prefetch_related is None:
+            raise ValueError("prefetch_related parameter is required")
         dirs = (
-            DirectoryIndex.objects.select_related(*DIRECTORYINDEX_SELECT_RELATED_LIST)
-            .prefetch_related(*DIRECTORYINDEX_PREFETCH_LIST)
+            DirectoryIndex.objects.select_related(*select_related)
+            .prefetch_related(*prefetch_related)
             .filter(dir_fqpn_sha256__in=sha256_list)
             .filter(delete_pending=False)
             .order_by(*SORT_MATRIX[sort])
@@ -521,6 +565,7 @@ class DirectoryIndex(models.Model):
         distinct: bool = False,
         additional_filters: dict[str, Any] | None = None,
         fields_only: list[str] | None = None,
+        select_related: list[str] | None = None,
     ) -> "QuerySet[FileIndex] | list[FileIndex]":
         """
         Return the files in the current directory
@@ -532,6 +577,7 @@ class DirectoryIndex(models.Model):
             fields_only: If provided, return lightweight query with only these fields.
                         With distinct=True: Only optimizes if sort doesn't require related fields.
                         Current sort modes (0-2) use filetype relations, so fall back to full query.
+            select_related: List of related fields to select (required)
 
         Returns: QuerySet[FileIndex] when distinct=False, list[FileIndex] when distinct=True
 
@@ -550,6 +596,8 @@ class DirectoryIndex(models.Model):
             With distinct=True and fields_only, sort fields are automatically included
             to enable Python re-sorting, then objects contain only requested + sort fields.
         """
+        if select_related is None:
+            raise ValueError("select_related parameter is required")
         if additional_filters is None:
             additional_filters = {}
 
@@ -574,7 +622,7 @@ class DirectoryIndex(models.Model):
                     # Sort requires related fields - must use full select_related
                     # We can't use .only() effectively with related fields without causing N+1
                     # So fall back to full query for these cases
-                    files = files.select_related(*FILEINDEX_SELECT_RELATED_LIST)
+                    files = files.select_related(*select_related)
                 else:
                     # Sort only uses local fields - can safely use .only()
                     files = files.only(*all_fields_needed)
@@ -583,7 +631,7 @@ class DirectoryIndex(models.Model):
                 files = files.only(*fields_only)
         else:
             # Full query with all related objects
-            files = files.select_related(*FILEINDEX_SELECT_RELATED_LIST)
+            files = files.select_related(*select_related)
 
         if distinct:
             # Step 1: Get deduplicated records (PostgreSQL orders by file_sha256 first)
@@ -632,7 +680,7 @@ class DirectoryIndex(models.Model):
         Allows efficient pagination across multiple pages without re-fetching distinct files.
 
         Performance Impact:
-        - First call: Fetches and materializes all distinct files (expensive)
+        - First call: Fetches SHA256s with minimal data using fields_only (efficient)
         - Subsequent calls: Returns cached list (instant, no DB query)
         - Memory: ~64KB per 1,000 files (just SHA256 strings)
 
@@ -649,8 +697,18 @@ class DirectoryIndex(models.Model):
             List of unique_sha256 strings for distinct files in the directory,
             sorted according to sort order
         """
-        distinct_files = self.files_in_dir(sort=sort, distinct=True)
-        return [f.unique_sha256 for f in distinct_files]
+        # Use fields_only to minimize memory usage - only load fields needed for deduplication
+        # This prevents loading full FileIndex objects with all relationships (~1KB each)
+        # For a directory with 10,000 files, this saves ~10MB of memory per call
+        # Note: files_in_dir(distinct=True) returns a list after deduplication and re-sorting
+        # Import here to avoid circular import at module level
+        # pylint: disable-next=import-outside-toplevel
+        from .fileindex import FILEINDEX_SR_FILETYPE_HOME_VIRTUAL
+
+        distinct_files_list = self.files_in_dir(
+            sort=sort, distinct=True, fields_only=("unique_sha256", "file_sha256"), select_related=FILEINDEX_SR_FILETYPE_HOME_VIRTUAL
+        )
+        return [f.unique_sha256 for f in distinct_files_list]
 
     def get_cover_image(self) -> FileIndex | None:
         """
@@ -669,10 +727,14 @@ class DirectoryIndex(models.Model):
             4. If match found, return that file's FileIndex record
             5. If no match, return the first file in the query
         """
+        # Import here to avoid circular import at module level
+        # pylint: disable-next=import-outside-toplevel
+        from .fileindex import FILEINDEX_SR_FILETYPE
+
         # Get thumbnailable files (images, movies, PDFs), excluding link files
         thumbnailable_filters = (Q(filetype__is_image=True) & ~Q(filetype__is_link=True)) | Q(filetype__is_movie=True) | Q(filetype__is_pdf=True)
 
-        files = self.files_in_dir(sort=0).filter(thumbnailable_filters)
+        files = self.files_in_dir(sort=0, select_related=FILEINDEX_SR_FILETYPE).filter(thumbnailable_filters)
 
         # If no files exist, return None
         if not files.exists():
@@ -688,7 +750,9 @@ class DirectoryIndex(models.Model):
         # No match found, return first file
         return files.first()
 
-    def dirs_in_dir(self, sort: int = 0, fields_only: list[str] | None = None) -> "QuerySet[DirectoryIndex]":
+    def dirs_in_dir(
+        self, sort: int = 0, fields_only: list[str] | None = None, select_related: list[str] | None = None, prefetch_related: list[str] | None = None
+    ) -> "QuerySet[DirectoryIndex]":
         """
         Return the directories in the current directory
 
@@ -697,6 +761,8 @@ class DirectoryIndex(models.Model):
             fields_only: If provided, return lightweight query with only these fields.
                         Skips expensive select_related/prefetch_related operations.
                         Useful when only paths or IDs are needed for comparison.
+            select_related: List of related fields to select (required)
+            prefetch_related: List of related fields to prefetch (required)
 
         Returns: The sorted query of directories
 
@@ -707,6 +773,10 @@ class DirectoryIndex(models.Model):
             - Getting directory IDs for batch operations
             - Building simple directory lists
         """
+        if select_related is None:
+            raise ValueError("select_related parameter is required")
+        if prefetch_related is None:
+            raise ValueError("prefetch_related parameter is required")
         # Import here to avoid circular import at module level
         # pylint: disable-next=import-outside-toplevel
         from .fileindex import FileIndex
@@ -718,13 +788,20 @@ class DirectoryIndex(models.Model):
             return queryset.only(*fields_only).order_by(*SORT_MATRIX[sort])
 
         # Full query with all related objects prefetched
-        return (
-            queryset.select_related(*DIRECTORYINDEX_SELECT_RELATED_LIST)
-            .prefetch_related(
-                Prefetch("FileIndex_entries", queryset=FileIndex.objects.filter(delete_pending=False)),
-            )
-            .order_by(*SORT_MATRIX[sort])
-        )
+        # REMOVED: Hardcoded Prefetch("FileIndex_entries"...) - Phase 5 Fix 3
+        # Prefetching all files in a directory loads 1-2MB per directory unnecessarily
+        # File counts are obtained via annotation, not prefetch iteration
+        # Only prefetch if explicitly requested via prefetch_related parameter
+
+        # Apply select_related for forward FKs/OneToOne
+        if select_related:
+            queryset = queryset.select_related(*select_related)
+
+        # Apply prefetch_related for reverse FKs/M2M (on different relationships only)
+        if prefetch_related:
+            queryset = queryset.prefetch_related(*prefetch_related)
+
+        return queryset.order_by(*SORT_MATRIX[sort])
 
     @cached(directoryindex_cache)
     def get_view_url(self) -> str:
@@ -740,6 +817,10 @@ class DirectoryIndex(models.Model):
         from frontend.utilities import convert_to_webpath
 
         webpath = convert_to_webpath(self.fqpndirectory.removeprefix(self.get_albums_prefix()))
+        # URL-encode each path component while preserving / separators
+        parts = webpath.split("/")
+        encoded_parts = [quote(part, safe="") for part in parts]
+        webpath = "/".join(encoded_parts)
         return reverse("directories") + webpath
 
     # pylint: disable-next=unused-argument
@@ -755,29 +836,32 @@ class DirectoryIndex(models.Model):
         """
         return reverse(r"thumbnail2_dir", args=(self.dir_fqpn_sha256,))
 
-    async def get_prev_next_siblings(self, sort_order: int = 0) -> tuple[str | None, str | None]:
+    async def get_prev_next_siblings(self, sort_order: int = 0) -> tuple[dict | None, dict | None]:
         """
         Get the previous and next sibling directories in parent directory.
 
         Used for breadcrumb navigation to allow moving between siblings.
-        Returns URIs suitable for prev/next navigation links.
+        Returns dictionaries with 'url' and 'name' keys for prev/next navigation links.
 
         :Args:
             sort_order: Sort order to apply (0=name, 1=date, 2=name only)
 
-        :return: Tuple of (prev_uri, next_uri) or (None, None) if no parent directory
+        :return: Tuple of (prev_dict, next_dict) where each dict has 'url' and 'name' keys,
+                 or (None, None) if no parent directory
 
         Note:
             ORM only derived from https://stackoverflow.com/questions/1042596/
             get-the-index-of-an-element-in-a-queryset
             Specifically Richard's answer.
         """
+        from urllib.parse import unquote
+
         # No parent directory means this is a root directory
         if self.parent_directory is None:
             return (None, None)
 
         # Wrap queryset operations
-        directories = await sync_to_async(self.parent_directory.dirs_in_dir)(sort=sort_order)
+        directories = await sync_to_async(self.parent_directory.dirs_in_dir)(sort=sort_order, select_related=(), prefetch_related=())
         parent_dir_data = await sync_to_async(list)(directories.values("fqpndirectory"))
 
         prevdir = None
@@ -787,13 +871,27 @@ class DirectoryIndex(models.Model):
             if entry["fqpndirectory"] == self.fqpndirectory:
                 if count >= 1:
                     # Use pathlib to normalize path (removes trailing slashes)
-                    prevdir = str(Path(parent_dir_data[count - 1]["fqpndirectory"]))
-                    prevdir = prevdir.replace(settings.ALBUMS_PATH, "")
+                    prev_path = str(Path(parent_dir_data[count - 1]["fqpndirectory"]))
+                    prev_path = prev_path.replace(settings.ALBUMS_PATH, "")
+                    # URL-encode each path component while preserving / separators
+                    parts = prev_path.split("/")
+                    encoded_parts = [quote(part, safe="") for part in parts]
+                    prev_url = "/".join(encoded_parts)
+                    # Get human-readable name (last part of path, decoded)
+                    prev_name = unquote(parts[-1]) if parts and parts[-1] else ""
+                    prevdir = {"url": prev_url, "name": prev_name}
 
                 if count + 1 < len(parent_dir_data):
                     # Use pathlib to normalize path (removes trailing slashes)
-                    nextdir = str(Path(parent_dir_data[count + 1]["fqpndirectory"]))
-                    nextdir = nextdir.replace(settings.ALBUMS_PATH, "")
+                    next_path = str(Path(parent_dir_data[count + 1]["fqpndirectory"]))
+                    next_path = next_path.replace(settings.ALBUMS_PATH, "")
+                    # URL-encode each path component while preserving / separators
+                    parts = next_path.split("/")
+                    encoded_parts = [quote(part, safe="") for part in parts]
+                    next_url = "/".join(encoded_parts)
+                    # Get human-readable name (last part of path, decoded)
+                    next_name = unquote(parts[-1]) if parts and parts[-1] else ""
+                    nextdir = {"url": next_url, "name": next_name}
                 break
 
         return (prevdir, nextdir)
@@ -910,7 +1008,9 @@ class DirectoryIndex(models.Model):
         # Load full objects only for directories that exist in both DB and filesystem
         # This requires select_related for lastmod/size comparisons
         # Use queryset with iterator for memory-efficient streaming (single-pass iteration)
-        existing_dirs_qs = self.dirs_in_dir().filter(fqpndirectory__in=db_dirs & fs_dirs)
+        existing_dirs_qs = self.dirs_in_dir(select_related=(), prefetch_related=(), fields_only=("id", "fqpndirectory", "lastmod")).filter(
+            fqpndirectory__in=db_dirs & fs_dirs
+        )
         existing_count = existing_dirs_qs.count()
 
         print(f"Existing directories in database: {existing_count}")
@@ -1020,7 +1120,7 @@ class DirectoryIndex(models.Model):
         # Load full objects with prefetch only for files that need comparison
         # Convert matching lowercase names back to original database names
         matching_db_names = {name for name in all_db_filenames if name.lower() in matching_lower_names}
-        potential_updates = list(self.files_in_dir().filter(name__in=matching_db_names))
+        potential_updates = list(self.files_in_dir(select_related=FILEINDEX_SR_FILETYPE).filter(name__in=matching_db_names))
 
         # Batch compute SHA256 for files missing hashes
         files_needing_hash = []

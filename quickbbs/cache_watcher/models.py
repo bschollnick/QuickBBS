@@ -23,13 +23,14 @@ Known Behavior - macOS Duplicate Events:
 """
 
 import collections
+import gc
 import logging
 import os
 import pathlib
 import threading
 import time
 import warnings
-from typing import Any, Optional
+from typing import Any
 
 from asgiref.sync import async_to_sync, sync_to_async
 from django.conf import settings
@@ -63,7 +64,7 @@ class LockFreeEventBuffer:
     Do NOT convert to asyncio.Lock - it will break Watchdog integration.
     """
 
-    def __init__(self, max_size: int = 500):
+    def __init__(self, max_size: int = 200):
         """
         Args:
             max_size: Maximum number of events to buffer before auto-cleanup
@@ -266,11 +267,18 @@ class WatchdogManager:
                     Cache_Storage.remove_multiple_from_cache_indexdirs(index_dirs)
                     logger.info("Successfully processed pending events before restart")
 
+                # Explicitly delete large objects to free memory
+                del paths_to_process
+                del sha_list
+                del index_dirs
+
         except (RuntimeError, DatabaseError, OSError, AttributeError) as e:
             logger.error("Error processing pending events before restart: %s", e)
         finally:
             processing_semaphore.release()
             close_old_connections()
+            # Force garbage collection to free memory from processed events
+            gc.collect()
 
     def restart(self) -> None:
         """Restart the watchdog process and schedule the next restart."""
@@ -395,7 +403,16 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
         self._buffer_event(event)
 
     def _buffer_event(self, event: FileSystemEvent) -> None:
-        """Buffer events to process them in batches."""
+        """Buffer events to process them in batches.
+
+        MEMORY OPTIMIZATION: Only creates a new timer if one isn't already running.
+        During heavy file activity (e.g., copying thousands of files), this prevents
+        creating 10,000+ Timer objects/threads which would consume 500MB-10GB of memory.
+
+        Previous behavior: Cancel and recreate timer for EVERY event (360/min during copies)
+        New behavior: Create timer only once per 5-second batch window
+        Memory impact: Reduces Timer object creation by 99%+
+        """
         try:
             if event.is_directory:
                 dirpath = os.path.normpath(event.src_path)
@@ -405,22 +422,22 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
             # Add event to lock-free buffer
             optimized_event_buffer.add_event(dirpath)
 
-            # Reset or create timer with thread safety
+            # Only create timer if one doesn't already exist
             with self.timer_lock:
-                # Cancel existing timer if present
-                if self.event_timer is not None:
-                    self.event_timer.cancel()
-                    self.event_timer = None
+                # Check if timer exists - if so, let it handle all buffered events
+                # Don't create a new one for every single filesystem event
+                # NOTE: Don't check is_alive() - timer thread completes when it fires,
+                # even though processing is still ongoing. Only check if None.
+                if self.event_timer is None:
+                    # No active timer - create one to process accumulated events
+                    self.timer_generation += 1
+                    current_generation = self.timer_generation
 
-                # Increment generation counter - this invalidates any pending timers
-                self.timer_generation += 1
-                current_generation = self.timer_generation
-
-                # Create new timer with current generation captured in lambda
-                # If this timer fires after being superseded, it will detect the generation mismatch
-                self.event_timer = threading.Timer(EVENT_PROCESSING_DELAY, lambda: self._process_buffered_events(current_generation))
-                self.event_timer.daemon = True
-                self.event_timer.start()
+                    # Create new timer with current generation captured in lambda
+                    self.event_timer = threading.Timer(EVENT_PROCESSING_DELAY, lambda: self._process_buffered_events(current_generation))
+                    self.event_timer.daemon = True
+                    self.event_timer.start()
+                # else: Timer exists - events will be picked up when it fires or after processing completes
 
         except Exception as e:
             # Broad exception catch is intentional - ensure event processing failures don't crash watchdog
@@ -443,12 +460,16 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
         with self.timer_lock:
             if expected_generation != self.timer_generation:
                 return
-            # Clear timer reference now that we're executing
-            self.event_timer = None
+            # DON'T clear timer yet - keep it to prevent new timer creation during processing
+            # Will clear after processing completes
 
         # Try to acquire the global semaphore without blocking
         # If we can't acquire it, another thread is already processing
         if not processing_semaphore.acquire(blocking=False):
+            # Another thread is processing - clear our timer reference and exit
+            with self.timer_lock:
+                if expected_generation == self.timer_generation:
+                    self.event_timer = None
             return
 
         try:
@@ -476,13 +497,25 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
                         # Fallback to direct call if not in async context
                         Cache_Storage.remove_multiple_from_cache_indexdirs(index_dirs)
 
+                # Explicitly delete large objects to free memory
+                del paths_to_process
+                del sha_list
+                del index_dirs
+
         except (RuntimeError, DatabaseError, OSError, AttributeError) as e:
             logger.error("Error processing buffered events: %s", e)
         finally:
             # Release the global semaphore to allow next processing run
             processing_semaphore.release()
+            # Clear timer reference AFTER processing completes
+            # This prevents new timer creation during processing (race condition fix)
+            with self.timer_lock:
+                if expected_generation == self.timer_generation:
+                    self.event_timer = None
             # Watchdog runs in background thread - must close connections
             close_old_connections()
+            # Force garbage collection to free memory from processed events
+            gc.collect()
 
     async def _remove_from_cache_indexdirs_async(self, index_dirs: list[Any]) -> None:
         """Async wrapper for cache removal to support ASGI mode.
@@ -616,7 +649,7 @@ class fs_Cache_Tracking(models.Model):
             logger.error("Error adding DirectoryIndex record to cache: %s", e)
             return None
 
-    def add_to_cache(self, dir_path: str) -> Optional["fs_Cache_Tracking"]:
+    def add_to_cache(self, dir_path: str) -> "fs_Cache_Tracking" | None:
         """Add or update a directory in the cache.
 
         DEPRECATED: Use add_from_indexdirs() instead to avoid redundant SHA computation
@@ -644,12 +677,13 @@ class fs_Cache_Tracking(models.Model):
             from quickbbs.models import (
                 DirectoryIndex,  # pylint: disable=import-outside-toplevel
             )
+            from quickbbs.directoryindex import DIRECTORYINDEX_SR_CACHE
 
             dir_sha = get_dir_sha(dir_path)
             scan_time = time.time()
 
             # Fetch the DirectoryIndex instance by dir_sha using optimized cached lookup
-            found, index_dir = DirectoryIndex.search_for_directory_by_sha(dir_sha)
+            found, index_dir = DirectoryIndex.search_for_directory_by_sha(dir_sha, DIRECTORYINDEX_SR_CACHE, ())
             if not found:
                 logger.warning("Cannot add cache entry for %s - DirectoryIndex entry not found", dir_path)
                 return None
@@ -733,9 +767,10 @@ class fs_Cache_Tracking(models.Model):
             from quickbbs.models import (
                 DirectoryIndex,  # pylint: disable=import-outside-toplevel
             )
+            from quickbbs.directoryindex import DIRECTORYINDEX_SR_CACHE
 
             # Single optimized lookup with prefetched relationships
-            found, directory = DirectoryIndex.search_for_directory_by_sha(sha256)
+            found, directory = DirectoryIndex.search_for_directory_by_sha(sha256, DIRECTORYINDEX_SR_CACHE, ())
 
             if not found:
                 logger.warning("Cannot remove cache for SHA %s - DirectoryIndex not found", sha256)
@@ -766,7 +801,7 @@ class fs_Cache_Tracking(models.Model):
         :Args:
             index_dirs: List of DirectoryIndex instances to remove from cache
 
-        :Returns:
+        Returns:
             True if any entries were invalidated, False otherwise
         """
         if not index_dirs:
@@ -818,7 +853,7 @@ class fs_Cache_Tracking(models.Model):
             logger.error("Error removing %s from cache: %s", dir_path, e)
             return False
 
-    def _invalidate_cache_entry_indexdirs(self, index_dir: Any) -> Optional["fs_Cache_Tracking"]:
+    def _invalidate_cache_entry_indexdirs(self, index_dir: Any) -> "fs_Cache_Tracking" | None:
         """Set a cache entry to invalidated status using an DirectoryIndex record.
 
         Optimized version that accepts an DirectoryIndex record directly,
@@ -843,7 +878,7 @@ class fs_Cache_Tracking(models.Model):
         )
         return entry
 
-    def _invalidate_cache_entry(self, sha256: str) -> Optional["fs_Cache_Tracking"]:
+    def _invalidate_cache_entry(self, sha256: str) -> "fs_Cache_Tracking" | None:
         """Set a cache entry to invalidated status with current timestamp.
 
         Args:
@@ -859,9 +894,10 @@ class fs_Cache_Tracking(models.Model):
 
         # Import inside function to avoid circular dependency
         from quickbbs.models import DirectoryIndex  # pylint: disable=import-outside-toplevel
+        from quickbbs.directoryindex import DIRECTORYINDEX_SR_CACHE
 
         # Fetch the DirectoryIndex instance by dir_sha using optimized cached lookup
-        found, index_dir = DirectoryIndex.search_for_directory_by_sha(sha256)
+        found, index_dir = DirectoryIndex.search_for_directory_by_sha(sha256, DIRECTORYINDEX_SR_CACHE, ())
         if not found:
             logger.warning("Cannot invalidate cache for SHA %s - DirectoryIndex entry not found", sha256)
             return None
@@ -889,9 +925,10 @@ class fs_Cache_Tracking(models.Model):
         """
         # Import inside function to avoid circular dependency
         from quickbbs.models import DirectoryIndex  # pylint: disable=import-outside-toplevel
+        from quickbbs.directoryindex import DIRECTORYINDEX_SR_PARENT
 
         # Collect all parent directories using efficient batch query approach
-        all_dirs_to_invalidate = DirectoryIndex.get_all_parent_shas(sha_list)
+        all_dirs_to_invalidate = DirectoryIndex.get_all_parent_shas(sha_list, DIRECTORYINDEX_SR_PARENT)
 
         # Update cache entries using bulk operations
         with transaction.atomic():
@@ -920,6 +957,16 @@ class fs_Cache_Tracking(models.Model):
                 new_entries = [fs_Cache_Tracking(directory=sha_to_indexdir[sha], invalidated=True, lastscan=current_time) for sha in missing_shas]
                 fs_Cache_Tracking.objects.bulk_create(new_entries)
                 update_count += len(new_entries)
+                # Explicitly delete large objects to free memory
+                del sha_to_indexdir
+                del new_entries
+
+            # Explicitly delete large objects to free memory
+            del all_dirs_to_invalidate
+            del index_dirs_list
+            del found_shas
+            del existing_cache_shas
+            del missing_shas
 
         return update_count
 

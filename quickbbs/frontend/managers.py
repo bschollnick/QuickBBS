@@ -28,6 +28,8 @@ ASGI Support:
 - Async wrapper functions provided for core operations
 """
 
+from __future__ import annotations
+
 import datetime
 import logging
 import math
@@ -48,6 +50,11 @@ from frontend.utilities import (
     return_breadcrumbs,
 )
 from quickbbs.common import SORT_MATRIX
+from quickbbs.directoryindex import (
+    DIRECTORYINDEX_SR_FILETYPE_THUMB,
+    DIRECTORYINDEX_SR_FILETYPE_THUMB_PARENT,
+)
+from quickbbs.fileindex import FILEINDEX_SR_FILETYPE_HOME_VIRTUAL
 from quickbbs.models import FileIndex, distinct_files_cache
 
 layout_manager_cache = LRUCache(maxsize=500)
@@ -145,7 +152,7 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
         return HttpResponseBadRequest(content="No SHA256 provided.")
 
     unique_file_sha256 = unique_file_sha256.strip().lower()
-    entry = FileIndex.get_by_sha256(unique_file_sha256, unique=True)
+    entry = FileIndex.get_by_sha256(unique_file_sha256, unique=True, select_related=FILEINDEX_SR_FILETYPE_HOME_VIRTUAL)
     if entry is None:
         return HttpResponseBadRequest(content="No entry found.")
 
@@ -222,7 +229,7 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
         # Deduplicate - files_in_dir handles complex DISTINCT ON + re-sorting
         # Must use full objects for re-sorting (PostgreSQL limitation with DISTINCT ON)
         # This case already materializes due to Python re-sorting requirement
-        files_result = directory_entry.files_in_dir(sort=sort_order_value, distinct=True)
+        files_result = directory_entry.files_in_dir(sort=sort_order_value, distinct=True, select_related=FILEINDEX_SR_FILETYPE_HOME_VIRTUAL)
         all_shas = [f.unique_sha256 for f in files_result]
 
         # Get pagination data inline
@@ -305,6 +312,13 @@ def _get_no_thumbnails(directory, sort_ordering: int):
     """
     Get queryset of file SHA256s that don't have thumbnails.
 
+    Checks for BOTH:
+    1. Files with no ThumbnailFiles link (new_ftnail__isnull=True)
+    2. Files linked to empty ThumbnailFiles records (small_thumb is empty)
+
+    This handles the case where FileIndex is linked to a ThumbnailFiles record
+    BEFORE the thumbnail is generated (see get_or_create_thumbnail_record).
+
     Returns queryset instead of list to allow caller flexibility for:
     - Checking existence with .exists() (no materialization)
     - Getting count with .count() (single aggregate query)
@@ -321,7 +335,14 @@ def _get_no_thumbnails(directory, sort_ordering: int):
         Use .iterator() for memory-efficient iteration, list() if full list needed,
         or .count() for efficient counting.
     """
-    return directory.files_in_dir(sort=sort_ordering, additional_filters={"new_ftnail__isnull": True}).values_list("file_sha256", flat=True)
+    # Files need thumbnails if:
+    # - No ThumbnailFiles link exists (new_ftnail is NULL)
+    # - OR ThumbnailFiles exists but small_thumb is empty
+    return (
+        directory.files_in_dir(sort=sort_ordering, fields_only=("file_sha256",), select_related=())
+        .filter(Q(new_ftnail__isnull=True) | Q(new_ftnail__small_thumb__in=[b"", None]))
+        .values_list("file_sha256", flat=True)
+    )
 
 
 def calculate_page_bounds(page_number: int, chunk_size: int, dirs_count: int) -> dict:
@@ -385,20 +406,22 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
     chunk_size = settings.GALLERY_ITEMS_PER_PAGE
 
     # Get base querysets first
-    directories_qs = directory.dirs_in_dir(sort=sort_ordering)
+    directories_qs = directory.dirs_in_dir(sort=sort_ordering, fields_only=("dir_fqpn_sha256",), select_related=(), prefetch_related=())
     dirs_count = directories_qs.count()
 
     # Handle files differently based on show_duplicates to avoid over-fetching
     if show_duplicates:
         # Include duplicates - use simple queryset (no materialization needed)
-        files_qs = directory.files_in_dir(sort=sort_ordering, distinct=False)
+        files_qs = directory.files_in_dir(sort=sort_ordering, distinct=False, fields_only=("unique_sha256",), select_related=())
         files_count = files_qs.count()
+        all_distinct_shas = None  # Not needed for duplicates mode
     else:
         # Deduplicate - use cached distinct file list
         # This prevents materializing ALL files when we only need current page
         # DirectoryIndex.get_distinct_file_shas() caches results for efficient page navigation
         all_distinct_shas = directory.get_distinct_file_shas(sort=sort_ordering)
         files_count = len(all_distinct_shas)
+        files_qs = None  # Not used in distinct mode
 
     total_items = dirs_count + files_count
 

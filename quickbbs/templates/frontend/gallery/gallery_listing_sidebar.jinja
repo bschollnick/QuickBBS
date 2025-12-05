@@ -1,409 +1,45 @@
-<!-- Optimized Django Sidebar Template -->
-<aside class="sidebar is-narrow" id="sidebar">
-  <div class="sidebar-content">
-    
-    <!-- Navigation Up Button -->
-    <div class="sidebar-section">
-      <a class="button is-ghost is-fullwidth"
-         hx-push-url="{{ up_uri }}?page=1&sort={{sort}}"
-         hx-get="{{ up_uri }}?page=1&sort={{sort}}&newwin=True"
-         hx-swap="innerHTML show:window:top"
-         hx-target="body"
-         title="Go Up">
-        {{ icon("arrow-up fa-2x") }}
-      </a>
-    </div>
+{% extends 'components/sidebar_base.jinja' %}
+{% from 'macros/pagination.jinja' import show_first_page_button, show_previous_page_button, show_next_page_button, show_last_page_button, show_page_selector_standalone %}
 
-    <!-- Pagination Controls using Bulma Pagination -->
-    <div class="sidebar-section">
-      <nav class="pagination is-small is-centered" role="navigation" aria-label="pagination">
-        <!-- First/Previous combined -->
-        <a class="pagination-previous{% if current_page <= 1 %} is-disabled{% endif %}"
-           href="?page={{ current_page-1 if current_page > 1 else 1 }}&sort={{sort}}"
-           hx-get="?page={{ current_page-1 if current_page > 1 else 1 }}&sort={{sort}}"
-           hx-target="body"
-           hx-swap="innerHTML show:window:top"
-           hx-push-url="true"
-           {% if current_page <= 1 %}disabled{% endif %}
-           title="Previous">
-          {{ icon("angle-left") }}
-        </a>
+{% set up_url = up_uri ~ "?page=1&sort=" ~ sort %}
+{% set first_url = "?page=1&sort=" ~ sort %}
+{% set prev_url = ("?page=" ~ (current_page - 1) ~ "&sort=" ~ sort) if current_page > 1 else None %}
+{% set next_url = ("?page=" ~ (current_page + 1) ~ "&sort=" ~ sort) if current_page < total_pages else None %}
+{% set last_url = "?page=" ~ total_pages ~ "&sort=" ~ sort %}
 
-        <!-- Next/Last combined -->
-        <a class="pagination-next{% if current_page >= total_pages %} is-disabled{% endif %}"
-           href="?page={{ current_page+1 if current_page < total_pages else total_pages }}&sort={{sort}}"
-           hx-get="?page={{ current_page+1 if current_page < total_pages else total_pages }}&sort={{sort}}"
-           hx-target="body"
-           hx-swap="innerHTML show:window:top"
-           hx-push-url="true"
-           {% if current_page >= total_pages %}disabled{% endif %}
-           title="Next">
-          {{ icon("angle-right") }}
-        </a>
+{% block nav_up_button %}
+<a class="button is-ghost is-fullwidth"
+   hx-push-url="{{ up_url }}"
+   hx-get="{{ up_url }}&newwin=True"
+   hx-swap="innerHTML show:window:top"
+   hx-target="body"
+   title="Go Up">
+  {{ icon("arrow-up fa-2x") }}
+</a>
+{% endblock %}
 
-        <!-- Page list (First, Page Selector, Last) -->
-        <ul class="pagination-list">
-          <li>
-            <a href="?page=1&sort={{sort}}"
-               hx-get="?page=1&sort={{sort}}"
-               hx-target="body"
-               hx-swap="innerHTML show:window:top"
-               hx-push-url="true"
-               class="pagination-link{% if current_page <= 1 %} is-disabled{% endif %}"
-               {% if current_page <= 1 %}aria-disabled="true"{% endif %}
-               title="First Page">
-              {{ icon("angle-double-left") }}
-            </a>
-          </li>
+{% block first_page_button %}
+{{ show_first_page_button(first_url) }}
+{% endblock %}
 
-          <li class="pagination-page-selector">
-            <div class="field">
-              <label class="label is-small has-text-centered">Page</label>
-              <form action="?" method="GET" class="page-form"
-                    hx-get="."
-                    hx-target="body"
-                    hx-swap="innerHTML show:window:top transition:true"
-                    hx-push-url="true">
-                <input type="hidden" name="sort" value="{{sort}}">
-                <div class="select is-small">
-                  <select name="page" hx-trigger="change">
-                    {% if total_pages <= 20 %}
-                      {# Show all pages for small directories #}
-                      {% for pagecnt in range(1, total_pages + 1) %}
-                        <option value="{{pagecnt}}" {% if pagecnt == current_page %}selected{% endif %}>
-                          {{pagecnt}}
-                        </option>
-                      {% endfor %}
-                    {% else %}
-                      {# Smart pagination for large directories - show nearby pages #}
-                      {% if current_page - 10 > 1 %}
-                        {% set start_page = current_page - 10 %}
-                      {% else %}
-                        {% set start_page = 1 %}
-                      {% endif %}
+{% block previous_page_button %}
+{{ show_previous_page_button(prev_url) }}
+{% endblock %}
 
-                      {% if current_page + 10 < total_pages %}
-                        {% set end_page = current_page + 10 %}
-                      {% else %}
-                        {% set end_page = total_pages %}
-                      {% endif %}
+{% block page_selector %}
+{{ show_page_selector_standalone(current_page, total_pages, sort) }}
+{% endblock %}
 
-                      {# Always show page 1 #}
-                      {% if start_page > 1 %}
-                        <option value="1" {% if current_page == 1 %}selected{% endif %}>1</option>
-                        {% if start_page > 2 %}<option disabled>...</option>{% endif %}
-                      {% endif %}
+{% block next_page_button %}
+{{ show_next_page_button(next_url) }}
+{% endblock %}
 
-                      {# Show range around current page #}
-                      {% for pagecnt in range(start_page, end_page + 1) %}
-                        <option value="{{pagecnt}}" {% if pagecnt == current_page %}selected{% endif %}>
-                          {{pagecnt}}
-                        </option>
-                      {% endfor %}
+{# next_page_new_tab block remains empty for gallery listing #}
 
-                      {# Always show last page #}
-                      {% if end_page < total_pages %}
-                        {% if end_page < total_pages - 1 %}<option disabled>...</option>{% endif %}
-                        <option value="{{total_pages}}" {% if current_page == total_pages %}selected{% endif %}>{{total_pages}}</option>
-                      {% endif %}
-                    {% endif %}
-                  </select>
-                </div>
-                <p class="help has-text-centered">of {{ total_pages }}</p>
-              </form>
-            </div>
-          </li>
+{% block last_page_button %}
+{{ show_last_page_button(last_url) }}
+{% endblock %}
 
-          <li>
-            <a href="?page={{total_pages}}&sort={{sort}}"
-               hx-get="?page={{total_pages}}&sort={{sort}}"
-               hx-target="body"
-               hx-swap="innerHTML show:window:top"
-               hx-push-url="true"
-               class="pagination-link{% if current_page >= total_pages %} is-disabled{% endif %}"
-               {% if current_page >= total_pages %}aria-disabled="true"{% endif %}
-               title="Last Page">
-              {{ icon("angle-double-right") }}
-            </a>
-          </li>
-        </ul>
-      </nav>
-    </div>
+{# sort_options uses default from base template #}
 
-    <!-- Sort Options -->
-    <div class="sidebar-section">
-      <div class="field">
-        <label class="label is-small has-text-centered">Sort</label>
-        <form action="?" method="GET" class="sort-form"
-              hx-get=""
-              hx-target="body"
-              hx-swap="innerHTML show:window:top transition:true"
-              hx-push-url="true">
-          <input type="hidden" name="page" value="{{current_page}}">
-          <div class="select is-small is-fullwidth">
-            <select name="sort" hx-trigger="change" onchange="this.form.requestSubmit()">
-              <option value="0" {% if sort == 0 %}selected{% endif %}>A..Z</option>
-              <option value="1" {% if sort == 1 %}selected{% endif %}>Last Modified</option>
-              <option value="2" {% if sort == 2 %}selected{% endif %}>Created</option>
-            </select>
-          </div>
-        </form>
-      </div>
-    </div>
-
-    <!-- User Section -->
-    {% if user.is_authenticated %}
-      <div class="sidebar-section sidebar-user-section">
-        <div class="user-name">{{ user.username|title }}</div>
-        <hr class="user-divider">
-        <div class="user-options">
-          <a href="{{ url('admin:password_change') }}" class="user-button" hx-boost="false">Change Password</a>
-          <form method="post" action="{{ url('admin:logout') }}" class="logout-form" hx-boost="false">
-            {% csrf_token %}
-            <button type="submit" class="user-button logout-button">Logout</button>
-          </form>
-        </div>
-        {% if user.is_staff %}
-          <hr class="user-divider">
-          <div class="admin-link">
-            <a href="{{ url('admin:index') }}" class="user-button" hx-boost="false">Admin</a>
-          </div>
-        {% endif %}
-      </div>
-    {% endif %}
-
-  </div>
-</aside>
-
-<style>
-/* Custom CSS for the sidebar */
-.sidebar {
-  position: fixed;
-  left: 0;
-  top: 98px;
-  height: 100vh;
-  width: 7.5%;
-  background: hsl(0, 0%, 98%);
-  border-right: 1px solid hsl(0, 0%, 86%);
-  z-index: 30;
-  overflow-y: auto;
-}
-
-.sidebar-content {
-  padding: 0.5rem 0.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.sidebar-section {
-  padding: 0.25rem 0;
-}
-
-.sidebar-section:not(:last-child) {
-  border-bottom: 1px solid hsl(0, 0%, 86%);
-  padding-bottom: 0.5rem;
-  margin-bottom: 0.5rem;
-}
-
-/* Bulma pagination customization for vertical layout */
-.sidebar-section .pagination {
-  flex-wrap: wrap;
-  justify-content: center;
-}
-
-.sidebar-section .pagination-previous,
-.sidebar-section .pagination-next {
-  order: 1;
-  flex-basis: calc(50% - 0.25rem);
-  margin: 0.25rem;
-  min-height: 3.5rem;
-  font-size: 1.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.sidebar-section .pagination-list {
-  order: 2;
-  flex-basis: 100%;
-  justify-content: center;
-  margin-top: 0.5rem;
-  gap: 0.5rem;
-}
-
-.sidebar-section .pagination-link {
-  min-height: 3rem;
-  min-width: 3rem;
-  font-size: 1.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.sidebar-section .pagination-link.is-current {
-  font-size: 1rem;
-}
-
-.sidebar-section .pagination-page-selector {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.sidebar-section .pagination-page-selector .field {
-  margin-bottom: 0;
-}
-
-.sidebar-section .pagination-page-selector .label {
-  font-size: 0.65rem;
-  margin-bottom: 0.25rem;
-}
-
-.sidebar-section .pagination-page-selector .select {
-  margin: 0;
-}
-
-.sidebar-section .pagination-page-selector select {
-  min-width: 4rem;
-  text-align: center;
-  font-weight: 600;
-}
-
-.sidebar-section .pagination-page-selector .help {
-  font-size: 0.65rem;
-  margin-top: 0.25rem;
-}
-
-.sidebar-section .pagination-link.is-disabled,
-.sidebar-section .pagination-previous.is-disabled,
-.sidebar-section .pagination-next.is-disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  pointer-events: none;
-}
-
-.button.is-ghost {
-  border: 1px solid transparent;
-  padding: 0.75rem;
-  height: auto;
-  min-height: 3.5rem;
-}
-
-.button.is-ghost:hover {
-  background-color: hsl(0, 0%, 96%);
-  border-color: hsl(0, 0%, 86%);
-}
-
-.field {
-  margin-bottom: 0.5rem;
-}
-
-.label {
-  font-size: 0.75rem;
-  margin-bottom: 0.25rem;
-  text-align: center;
-}
-
-.help {
-  font-size: 0.65rem;
-  text-align: center;
-  margin-top: 0.25rem;
-}
-
-.select.is-small select {
-  font-size: 0.75rem;
-  height: 2rem;
-}
-
-/* Mobile responsiveness */
-@media screen and (max-width: 768px) {
-  .sidebar {
-    width: 60px;
-  }
-  
-  .sidebar-content {
-    padding: 0.25rem 0.125rem;
-  }
-  
-  .label,
-  .help {
-    display: none;
-  }
-  
-  .field {
-    margin-bottom: 0.25rem;
-  }
-  
-  .button.is-ghost {
-    padding: 0.5rem;
-    min-height: 3rem;
-  }
-}
-
-/* Sidebar user section styling */
-.sidebar-user-section {
-  font-size: 0.75rem;
-}
-
-.sidebar-user-section .user-name {
-  font-weight: bold;
-  margin-bottom: 0.5rem;
-  text-align: center;
-}
-
-.sidebar-user-section .user-divider {
-  margin: 0.5rem 0;
-  border: none;
-  border-top: 1px solid hsl(0, 0%, 86%);
-}
-
-.sidebar-user-section .user-options {
-  margin-left: 0.5rem;
-}
-
-.sidebar-user-section .user-button {
-  display: block;
-  width: 100%;
-  padding: 0.35rem 0.5rem;
-  margin-bottom: 0.25rem;
-  background: hsl(0, 0%, 96%);
-  border: 1px solid hsl(0, 0%, 86%);
-  border-radius: 4px;
-  color: hsl(0, 0%, 21%);
-  text-decoration: none;
-  text-align: left;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: inherit;
-  transition: background-color 0.15s ease;
-}
-
-.sidebar-user-section .user-button:hover {
-  background: hsl(0, 0%, 93%);
-}
-
-.sidebar-user-section .logout-button {
-  width: 100%;
-}
-
-.sidebar-user-section .admin-link {
-  text-align: left;
-}
-
-.sidebar-user-section .admin-link .user-button {
-  margin-left: 0;
-}
-
-/* Dark mode support */
-@media (prefers-color-scheme: dark) {
-  .sidebar {
-    background: hsl(0, 0%, 14%);
-    border-right-color: hsl(0, 0%, 29%);
-  }
-
-  .sidebar-section:not(:last-child) {
-    border-bottom-color: hsl(0, 0%, 29%);
-  }
-}
-</style>
+{# download_button block remains empty for gallery listing #}

@@ -1,0 +1,355 @@
+{#
+  Pagination Macros for QuickBBS
+
+  This file provides reusable macros for pagination controls used in both
+  gallery listings and item views.
+
+  Usage:
+      {% from 'macros/pagination.jinja' import show_pagination_controls %}
+#}
+
+{#
+  Unified Pagination Controls Macro
+
+  Creates a complete pagination navigation with prev/next buttons, first/last buttons,
+  and an optional page selector dropdown.
+
+  Args:
+      prev_url (str): URL for previous page/item (None if on first page)
+      next_url (str): URL for next page/item (None if on last page)
+      first_url (str): URL for first page/item
+      last_url (str): URL for last page/item
+      current_page (int): Current page number (optional, for page selector)
+      total_pages (int): Total number of pages (optional, for page selector)
+      page_selector (bool): Whether to show page dropdown (default: True)
+      sort (int): Sort parameter to preserve in URLs (default: 0)
+
+  Usage (Gallery pagination with page selector):
+      show_pagination_controls(
+          prev_url="?page=1&sort=0",
+          next_url="?page=3&sort=0",
+          first_url="?page=1&sort=0",
+          last_url="?page=10&sort=0",
+          current_page=2,
+          total_pages=10,
+          sort=0
+      )
+
+  Usage (Item pagination without page selector):
+      show_pagination_controls(
+          prev_url="/view_item/abc123?sort=0",
+          next_url="/view_item/def456?sort=0",
+          first_url="/view_item/first?sort=0",
+          last_url="/view_item/last?sort=0",
+          page_selector=False
+      )
+#}
+{% macro show_pagination_controls(prev_url=None, next_url=None, first_url=None, last_url=None,
+                                  current_page=None, total_pages=None, page_selector=True, sort=0) %}
+<nav class="pagination is-small is-centered" role="navigation" aria-label="pagination">
+    <!-- Previous Button -->
+    <a class="pagination-previous{% if not prev_url %} is-disabled{% endif %}"
+       {% if prev_url %}
+       href="{{ prev_url }}"
+       hx-get="{{ prev_url }}"
+       hx-target="body"
+       hx-swap="innerHTML show:window:top"
+       hx-push-url="true"
+       {% else %}
+       disabled aria-disabled="true"
+       {% endif %}
+       title="Previous">
+      {{ icon("angle-left") }}
+    </a>
+
+    <!-- Next Button -->
+    <a class="pagination-next{% if not next_url %} is-disabled{% endif %}"
+       {% if next_url %}
+       href="{{ next_url }}"
+       hx-target="body"
+       hx-swap="innerHTML show:window:top"
+       hx-push-url="true"
+       {% else %}
+       disabled aria-disabled="true"
+       {% endif %}
+       title="Next">
+      {{ icon("angle-right") }}
+    </a>
+
+    <!-- Page List -->
+    <ul class="pagination-list">
+      <li>
+        <a href="{{ first_url }}"
+           hx-get="{{ first_url }}"
+           hx-target="body"
+           hx-swap="innerHTML show:window:top"
+           hx-push-url="true"
+           class="pagination-link{% if not prev_url %} is-disabled{% endif %}"
+           {% if not prev_url %}aria-disabled="true"{% endif %}
+           title="First Page">
+          {{ icon("angle-double-left") }}
+        </a>
+      </li>
+
+      {% if page_selector and current_page and total_pages %}
+        {{ show_page_selector_widget(current_page, total_pages, sort) }}
+      {% endif %}
+
+      <li>
+        <a href="{{ last_url }}"
+           hx-get="{{ last_url }}"
+           hx-target="body"
+           hx-swap="innerHTML show:window:top"
+           hx-push-url="true"
+           class="pagination-link{% if not next_url %} is-disabled{% endif %}"
+           {% if not next_url %}aria-disabled="true"{% endif %}
+           title="Last Page">
+          {{ icon("angle-double-right") }}
+        </a>
+      </li>
+    </ul>
+</nav>
+{% endmacro %}
+
+{#
+  Page Selector Dropdown Widget Macro
+
+  Creates a dropdown for selecting pages. Shows all pages for small galleries,
+  or a smart subset for large galleries (shows pages around current page).
+
+  Args:
+      current_page (int): Current page number
+      total_pages (int): Total number of pages
+      sort (int): Sort parameter to preserve (default: 0)
+
+  Usage:
+      {{ show_page_selector_widget(5, 100, 0) }}
+#}
+{% macro show_page_selector_widget(current_page, total_pages, sort=0) %}
+<li class="pagination-page-selector">
+    <div class="field">
+      <label class="label is-small has-text-centered">Page</label>
+      <form action="?" method="GET" class="page-form">
+        <input type="hidden" name="sort" value="{{ sort }}">
+        <div class="select is-small">
+          <select name="page"
+                  hx-get="."
+                  hx-target="body"
+                  hx-swap="innerHTML show:window:top transition:true"
+                  hx-push-url="true"
+                  hx-trigger="change"
+                  hx-include="[name='sort']">
+            {% if total_pages <= 20 %}
+              {# Show all pages for small directories #}
+              {% for pagecnt in range(1, total_pages + 1) %}
+                <option value="{{ pagecnt }}" {% if pagecnt == current_page %}selected{% endif %}>
+                  {{ pagecnt }}
+                </option>
+              {% endfor %}
+            {% else %}
+              {# Smart pagination for large directories #}
+              {{ show_smart_page_options(current_page, total_pages) }}
+            {% endif %}
+          </select>
+        </div>
+        <p class="help has-text-centered">of {{ total_pages }}</p>
+      </form>
+    </div>
+</li>
+{% endmacro %}
+
+{#
+  Smart Page Options Macro
+
+  Generates <option> elements for large page counts, showing:
+  - Page 1 (always)
+  - ... (if needed)
+  - Pages around current page (±10 pages)
+  - ... (if needed)
+  - Last page (always)
+
+  Args:
+      current_page (int): Current page number
+      total_pages (int): Total number of pages
+
+  Usage:
+      {{ show_smart_page_options(50, 200) }}
+
+  Output example for page 50 of 200:
+      <option value="1">1</option>
+      <option disabled>...</option>
+      <option value="40">40</option>
+      ...
+      <option value="50" selected>50</option>
+      ...
+      <option value="60">60</option>
+      <option disabled>...</option>
+      <option value="200">200</option>
+#}
+{% macro show_smart_page_options(current_page, total_pages) %}
+  {% set start_page = [current_page - 10, 1]|max %}
+  {% set end_page = [current_page + 10, total_pages]|min %}
+
+  {# Always show page 1 #}
+  {% if start_page > 1 %}
+    <option value="1" {% if current_page == 1 %}selected{% endif %}>1</option>
+    {% if start_page > 2 %}<option disabled>...</option>{% endif %}
+  {% endif %}
+
+  {# Show range around current page #}
+  {% for pagecnt in range(start_page, end_page + 1) %}
+    <option value="{{ pagecnt }}" {% if pagecnt == current_page %}selected{% endif %}>
+      {{ pagecnt }}
+    </option>
+  {% endfor %}
+
+  {# Always show last page #}
+  {% if end_page < total_pages %}
+    {% if end_page < total_pages - 1 %}<option disabled>...</option>{% endif %}
+    <option value="{{ total_pages }}" {% if current_page == total_pages %}selected{% endif %}>{{ total_pages }}</option>
+  {% endif %}
+{% endmacro %}
+
+{#
+  Individual Pagination Button Macros
+
+  These macros provide individual pagination buttons for flexible sidebar layouts.
+  They allow custom ordering of first/prev/next/last buttons and page selector.
+#}
+
+{#
+  First Page Button
+
+  Args:
+      url (str): URL for first page
+
+  Usage:
+      show_first_page_button("?page=1&sort=0")
+#}
+{% macro show_first_page_button(url) %}
+<a href="{{ url }}"
+   hx-get="{{ url }}"
+   hx-target="body"
+   hx-swap="innerHTML show:window:top"
+   hx-push-url="true"
+   class="button is-ghost is-fullwidth"
+   title="First Page">
+  {{ icon("angle-double-left fa-2x") }}
+</a>
+{% endmacro %}
+
+{#
+  Previous Page Button
+
+  Args:
+      url (str or None): URL for previous page (None if on first page)
+
+  Usage:
+      show_previous_page_button("?page=5&sort=0" if current_page > 1 else None)
+#}
+{% macro show_previous_page_button(url) %}
+<a href="{{ url or '#' }}"
+   {% if url %}
+   hx-get="{{ url }}"
+   hx-target="body"
+   hx-swap="innerHTML show:window:top"
+   hx-push-url="true"
+   {% endif %}
+   class="button is-ghost is-fullwidth{% if not url %} is-disabled{% endif %}"
+   {% if not url %}disabled aria-disabled="true"{% endif %}
+   title="Previous Page">
+  {{ icon("angle-left fa-2x") }}
+</a>
+{% endmacro %}
+
+{#
+  Next Page Button
+
+  Args:
+      url (str or None): URL for next page (None if on last page)
+
+  Usage:
+      show_next_page_button("?page=7&sort=0" if current_page < total_pages else None)
+#}
+{% macro show_next_page_button(url) %}
+<a href="{{ url or '#' }}"
+   {% if url %}
+   hx-get="{{ url }}"
+   hx-target="body"
+   hx-swap="innerHTML show:window:top"
+   hx-push-url="true"
+   {% endif %}
+   class="button is-ghost is-fullwidth{% if not url %} is-disabled{% endif %}"
+   {% if not url %}disabled aria-disabled="true"{% endif %}
+   title="Next Page">
+  {{ icon("angle-right fa-2x") }}
+</a>
+{% endmacro %}
+
+{#
+  Last Page Button
+
+  Args:
+      url (str): URL for last page
+
+  Usage:
+      show_last_page_button("?page=100&sort=0")
+#}
+{% macro show_last_page_button(url) %}
+<a href="{{ url }}"
+   hx-get="{{ url }}"
+   hx-target="body"
+   hx-swap="innerHTML show:window:top"
+   hx-push-url="true"
+   class="button is-ghost is-fullwidth"
+   title="Last Page">
+  {{ icon("angle-double-right fa-2x") }}
+</a>
+{% endmacro %}
+
+{#
+  Standalone Page Selector
+
+  Just the page selector dropdown without navigation buttons.
+  Format: "Page <dropdown> of <total>"
+
+  Args:
+      current_page (int): Current page number
+      total_pages (int): Total number of pages
+      sort (int): Sort parameter (default: 0)
+
+  Usage:
+      show_page_selector_standalone(5, 100, 0)
+#}
+{% macro show_page_selector_standalone(current_page, total_pages, sort=0) %}
+<div class="page-selector">
+  <div class="field">
+    <label class="label is-small has-text-centered">Page</label>
+    <form action="?" method="GET" class="page-form">
+      <input type="hidden" name="sort" value="{{ sort }}">
+      <div class="select is-small is-fullwidth">
+        <select name="page"
+                hx-get="."
+                hx-target="body"
+                hx-swap="innerHTML show:window:top transition:true"
+                hx-push-url="true"
+                hx-trigger="change"
+                hx-include="[name='sort']">
+          {% if total_pages <= 20 %}
+            {# Show all pages for small directories #}
+            {% for pagecnt in range(1, total_pages + 1) %}
+              <option value="{{ pagecnt }}" {% if pagecnt == current_page %}selected{% endif %}>
+                {{ pagecnt }}
+              </option>
+            {% endfor %}
+          {% else %}
+            {# Smart pagination for large directories #}
+            {{ show_smart_page_options(current_page, total_pages) }}
+          {% endif %}
+        </select>
+      </div>
+      <p class="help has-text-centered">of {{ total_pages }}</p>
+    </form>
+  </div>
+</div>
+{% endmacro %}

@@ -94,41 +94,56 @@ class FastImageProcessor:
             case "image":
                 return ImageBackend()
             case "coreimage":
-                if not CORE_IMAGE_AVAILABLE:
-                    raise ImportError("Core Image backend not available on this system")
-                return CoreImageBackend()
+                # DISABLED 2025-12-02: CoreImage has unfixable GPU memory leak
+                # GPU memory grows unbounded (13+ GB observed) and is NOT released by:
+                # - clearCaches(), backend destruction, gc.collect(), autorelease pools
+                # This is a macOS framework limitation, not fixable in Python.
+                # See: thumbnails/MEMORY_LEAK_FIX.md for full analysis
+                #
+                # if not CORE_IMAGE_AVAILABLE:
+                #     raise ImportError("Core Image backend not available on this system")
+                # return CoreImageBackend()
+                return ImageBackend()  # Fall back to PIL (CPU-based, no GPU leak)
             case "video":
                 return VideoBackend()
             case "corevideo":
-                if not AVFOUNDATION_AVAILABLE:
-                    raise ImportError("AVFoundation backend not available on this system")
-                return AVFoundationVideoBackend()
+                # DISABLED 2025-12-02: AVFoundation uses CoreImage internally (GPU memory leak)
+                # if not AVFOUNDATION_AVAILABLE:
+                #     raise ImportError("AVFoundation backend not available on this system")
+                # return AVFoundationVideoBackend()
+                return VideoBackend()  # Fall back to ffmpeg-based backend
             case "pdf":
+                # DISABLED 2025-12-02: PDFKit disabled due to GPU memory concerns
                 # Auto-select: Prefer PDFKit on Apple Silicon if available, fallback to PyMuPDF
-                if PDFKIT_AVAILABLE and self._is_apple_silicon():
-                    try:
-                        return PDFKitBackend()
-                    except Exception:
-                        # Fall back to PyMuPDF if PDFKit initialization fails
-                        return PDFBackend()
-                else:
-                    return PDFBackend()
+                # if PDFKIT_AVAILABLE and self._is_apple_silicon():
+                #     try:
+                #         return PDFKitBackend()
+                #     except Exception:
+                #         # Fall back to PyMuPDF if PDFKit initialization fails
+                #         return PDFBackend()
+                # else:
+                #     return PDFBackend()
+                return PDFBackend()  # Always use PyMuPDF (CPU-based)
             case "pymupdf":
                 return PDFBackend()
             case "pdfkit":
-                if not PDFKIT_AVAILABLE:
-                    raise ImportError("PDFKit backend not available on this system")
-                return PDFKitBackend()
+                # DISABLED 2025-12-02: PDFKit has GPU memory concerns
+                # if not PDFKIT_AVAILABLE:
+                #     raise ImportError("PDFKit backend not available on this system")
+                # return PDFKitBackend()
+                return PDFBackend()  # Fall back to PyMuPDF
             case "auto":
+                # DISABLED 2025-12-02: Core Image auto-selection disabled (GPU memory leak)
                 # Auto-select: Prefer Core Image on Apple Silicon if available, fallback to PIL
-                if CORE_IMAGE_AVAILABLE and self._is_apple_silicon():
-                    try:
-                        return CoreImageBackend()
-                    except Exception:
-                        # Fall back to PIL if Core Image initialization fails
-                        return ImageBackend()
-                else:
-                    return ImageBackend()
+                # if CORE_IMAGE_AVAILABLE and self._is_apple_silicon():
+                #     try:
+                #         return CoreImageBackend()
+                #     except Exception:
+                #         # Fall back to PIL if Core Image initialization fails
+                #         return ImageBackend()
+                # else:
+                #     return ImageBackend()
+                return ImageBackend()  # Always use PIL
             case _:
                 raise ValueError(f"Unknown backend type: {self.backend_type}")
 
@@ -167,6 +182,99 @@ def _get_cached_processor(sizes: dict[str, tuple[int, int]], backend: BackendTyp
     if cache_key not in _processor_cache:
         _processor_cache[cache_key] = FastImageProcessor(sizes, backend)
     return _processor_cache[cache_key]
+
+
+def clear_backend_caches(force_gc: bool = True) -> dict[str, int]:
+    """
+    Clear cached processor and backend instances to release resources.
+
+    Call this periodically (e.g., after processing batches of thumbnails)
+    to release accumulated resources in both the processor cache and
+    the backend cache.
+
+    This is particularly important for Core Image backends on macOS, where
+    CIContext instances accumulate GPU resources. Clearing caches forces
+    recreation of these instances, releasing GPU memory.
+
+    :Args:
+        force_gc: If True, run garbage collection after clearing caches
+
+    :return: Dictionary with cache statistics:
+        - processors_cleared: Number of processor instances cleared
+        - backends_cleared: Number of backend instances cleared
+        - gc_objects_collected: Number of objects collected by GC
+        - memory_freed_mb: Estimated memory freed (if available)
+
+    Example:
+        >>> # After batch thumbnail generation
+        >>> stats = clear_backend_caches()
+        >>> print(f"Cleared {stats['processors_cleared']} processors")
+    """
+    global _processor_cache
+
+    # Capture statistics before clearing
+    processors_cleared = len(_processor_cache)
+    backends_cleared = len(FastImageProcessor._backend_cache)
+
+    # Clear processor cache (contains FastImageProcessor instances)
+    _processor_cache.clear()
+
+    # Clear backend cache (contains CoreImageBackend, ImageBackend, etc.)
+    FastImageProcessor._backend_cache.clear()
+
+    # Optional garbage collection to force cleanup
+    if force_gc:
+        import gc
+        import resource
+
+        # Measure memory before GC
+        usage_before = resource.getrusage(resource.RUSAGE_SELF)
+        rss_before_kb = usage_before.ru_maxrss
+
+        # Force collection of all generations
+        collected = gc.collect(generation=2)
+
+        # Measure memory after GC
+        usage_after = resource.getrusage(resource.RUSAGE_SELF)
+        rss_after_kb = usage_after.ru_maxrss
+
+        # Calculate freed memory (may be negative due to OS caching)
+        memory_freed_kb = rss_before_kb - rss_after_kb
+        memory_freed_mb = memory_freed_kb / 1024  # Convert to MB
+    else:
+        collected = 0
+        memory_freed_mb = 0
+
+    return {
+        "processors_cleared": processors_cleared,
+        "backends_cleared": backends_cleared,
+        "gc_objects_collected": collected,
+        "memory_freed_mb": memory_freed_mb,
+    }
+
+
+def get_cache_stats() -> dict[str, int]:
+    """
+    Get current cache statistics without clearing.
+
+    Useful for monitoring cache growth and determining when to call
+    clear_backend_caches().
+
+    :return: Dictionary with current cache statistics:
+        - processor_cache_size: Number of cached processors
+        - backend_cache_size: Number of cached backends
+        - total_cached_instances: Combined total
+
+    Example:
+        >>> stats = get_cache_stats()
+        >>> if stats['total_cached_instances'] > 10:
+        ...     clear_backend_caches()
+    """
+    return {
+        "processor_cache_size": len(_processor_cache),
+        "backend_cache_size": len(FastImageProcessor._backend_cache),
+        "total_cached_instances": len(_processor_cache) + len(FastImageProcessor._backend_cache),
+    }
 
 
 # Simplified interface functions

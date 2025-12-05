@@ -44,10 +44,29 @@ from frontend.utilities import (
     sync_database_disk,
 )
 from quickbbs.common import get_dir_sha, normalize_fqpn
+from quickbbs.directoryindex import (
+    DIRECTORYINDEX_SR_FILETYPE_THUMB,
+    DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE,
+    DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT,
+)
+from quickbbs.fileindex import FILEINDEX_SR_FILETYPE_HOME_VIRTUAL, FILEINDEX_SR_FILETYPE_HOME
 from quickbbs.models import FileIndex, DirectoryIndex
 from thumbnails.models import ThumbnailFiles
 
 # download_cache = LRUCache(maxsize=1000)
+
+# =============================================================================
+# SEARCH PREFETCH_RELATED CONSTANTS
+# Colocated with search functions
+# See related_fetches.md for usage details
+# NOTE: Using tuples (not lists) so they can be used as cache keys (hashable)
+# =============================================================================
+
+# Directory search results
+SEARCH_PR_FILETYPE = ("filetype",)
+
+# File search results
+SEARCH_PR_FILETYPE_HOME = ("filetype", "home_directory")
 
 
 class HtmxHttpRequest(HttpRequest):
@@ -206,7 +225,9 @@ def _safe_regex_search(model, field_name: str, regex_pattern: str, fallback_text
     return qs.order_by(*order_by)
 
 
-def get_search_results(searchtext: str, search_regex_pattern: str, sort_order_value: int) -> tuple:
+def get_search_results(
+    searchtext: str, search_regex_pattern: str, sort_order_value: int, prefetch_dirs: list[str], prefetch_files: list[str]
+) -> tuple:
     """
     Get both directory and file search results with optimized queries.
 
@@ -216,10 +237,16 @@ def get_search_results(searchtext: str, search_regex_pattern: str, sort_order_va
         searchtext: Original search text for fallback
         search_regex_pattern: Compiled regex pattern
         sort_order_value: Sort order index
+        prefetch_dirs: List of related fields to prefetch for directories (required)
+        prefetch_files: List of related fields to prefetch for files (required)
 
     Returns:
         Tuple of (dirs_queryset, files_queryset)
     """
+    if prefetch_dirs is None:
+        raise ValueError("prefetch_dirs parameter is required")
+    if prefetch_files is None:
+        raise ValueError("prefetch_files parameter is required")
     if not search_regex_pattern:
         return DirectoryIndex.objects.none(), FileIndex.objects.none()
 
@@ -233,7 +260,7 @@ def get_search_results(searchtext: str, search_regex_pattern: str, sort_order_va
         search_regex_pattern,
         searchtext,
         order_by,
-        prefetch_fields=["filetype", "FileIndex_entries__filetype"],
+        prefetch_fields=prefetch_dirs,
         annotate_kwargs={
             "file_count_cached": Count(
                 "FileIndex_entries",
@@ -250,7 +277,7 @@ def get_search_results(searchtext: str, search_regex_pattern: str, sort_order_va
         search_regex_pattern,
         searchtext,
         order_by,
-        prefetch_fields=["filetype", "home_directory", "new_ftnail"],
+        prefetch_fields=prefetch_files,
         **base_filters,
     )
 
@@ -290,7 +317,7 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
         HttpResponseBadRequest: If the directory cannot be found
     """
     # Use optimized model method with prefetched relationships
-    success, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha256)
+    success, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha256, DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT, ())
     if not success:
         print(f"Directory not found: {dir_sha256}")
         return Http404
@@ -337,7 +364,14 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
 
     # Ensure thumbnail record exists
     if not directory.thumbnail.new_ftnail:
-        thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(directory.thumbnail.file_sha256)
+        from thumbnails.models import THUMBNAILFILES_PR_FILEINDEX_FILETYPE
+
+        thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(
+            directory.thumbnail.file_sha256,
+            suppress_save=False,
+            prefetch_related_thumbnail=THUMBNAILFILES_PR_FILEINDEX_FILETYPE,
+            select_related_fileindex=("filetype",),
+        )
         directory.thumbnail.new_ftnail = thumbnail
         directory.save()
 
@@ -368,14 +402,18 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
     Returns:
         The sent thumbnail
     """
-    thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(sha256)
+    from thumbnails.models import THUMBNAILFILES_PR_FILEINDEX_FILETYPE
+
+    thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(
+        sha256, suppress_save=False, prefetch_related_thumbnail=THUMBNAILFILES_PR_FILEINDEX_FILETYPE, select_related_fileindex=("filetype",)
+    )
 
     # Get associated FileIndex - try reverse FK first, fall back to model method
     try:
         index_data_item = thumbnail.FileIndex.first()
         if not index_data_item:
             # Fallback: prefetch cache might be stale, use cached model method
-            index_data_item = FileIndex.get_by_sha256(sha256, unique=False)
+            index_data_item = FileIndex.get_by_sha256(sha256, unique=False, select_related=FILEINDEX_SR_FILETYPE_HOME_VIRTUAL)
             if not index_data_item:
                 return HttpResponseBadRequest(content="No associated file data found.")
     except (AttributeError, IndexError):
@@ -458,7 +496,9 @@ async def search_viewresults(request: WSGIRequest):
     search_regex_pattern = create_search_regex_pattern(searchtext)
     print(f"Search text: '{searchtext}' -> Regex pattern: '{search_regex_pattern}'")
 
-    dirs, files = await sync_to_async(get_search_results)(searchtext, search_regex_pattern, context["sort"])
+    dirs, files = await sync_to_async(get_search_results)(
+        searchtext, search_regex_pattern, context["sort"], prefetch_dirs=SEARCH_PR_FILETYPE, prefetch_files=SEARCH_PR_FILETYPE_HOME
+    )
 
     # Combine and limit results (async wrapped list conversion)
     max_search_results = 10000
@@ -569,7 +609,9 @@ def _find_directory(paths: dict):
         dir_sha = get_dir_sha(dirpath)
 
         # Search for directory in database (uses optimized prefetches)
-        found, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha)
+        # REMOVED: ("FileIndex_entries",) prefetch - Phase 5 Fix 4
+        # Files loaded separately via files_in_dir() when needed - no need to prefetch all
+        found, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha, DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT, ())
 
         if not found:
             # Create directory record - add_directory handles:
@@ -585,7 +627,8 @@ def _find_directory(paths: dict):
 
             # Reload with optimized prefetches for view rendering
             # add_directory uses update_or_create without prefetch_related
-            _, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha)
+            # REMOVED: ("FileIndex_entries",) prefetch - Phase 5 Fix 4
+            _, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha, DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT, ())
 
             # Sync newly created directory to populate file entries
             directory = async_to_sync(sync_database_disk)(directory)
@@ -693,9 +736,11 @@ async def new_viewgallery(request: WSGIRequest):
     # Only fetch directories if there are any on this page (async wrapped)
     if layout["data"]["directories"]:
         dirs_to_display = await sync_to_async(list)(
-            directory.dirs_in_dir(sort=context["sort"])
-            .filter(dir_fqpn_sha256__in=layout["data"]["directories"])
-            .select_related("thumbnail__new_ftnail")  # Only add nested join (filetype already in dirs_in_dir)
+            directory.dirs_in_dir(sort=context["sort"], select_related=DIRECTORYINDEX_SR_FILETYPE_THUMB, prefetch_related=()).filter(
+                dir_fqpn_sha256__in=layout["data"]["directories"]
+            )
+            # REMOVED: .select_related("thumbnail__new_ftnail") - Phase 5 Fix 1
+            # Thumbnails load on-demand via thumbnail2_dir() - no need for 750KB binary blobs
             .annotate(
                 file_count_cached=Count(
                     "FileIndex_entries",
@@ -710,7 +755,11 @@ async def new_viewgallery(request: WSGIRequest):
     if layout["data"]["files"]:
         # Fetch and separate files and links in one pass
         # Note: select_related already handled by files_in_dir() - no need to duplicate
-        all_items = await sync_to_async(list)(directory.files_in_dir(sort=context["sort"]).filter(unique_sha256__in=layout["data"]["files"]))
+        all_items = await sync_to_async(list)(
+            directory.files_in_dir(sort=context["sort"], select_related=FILEINDEX_SR_FILETYPE_HOME_VIRTUAL).filter(
+                unique_sha256__in=layout["data"]["files"]
+            )
+        )
         files_list = [f for f in all_items if not f.filetype.is_link]
         links_list = [f for f in all_items if f.filetype.is_link]
     else:
@@ -817,7 +866,7 @@ async def download_file(request: WSGIRequest):  # , filename=None):
 
     try:
         # Wrap database query - use optimized download method
-        file_to_send = await sync_to_async(FileIndex.get_by_sha256_for_download)(sha_value, unique=True)
+        file_to_send = await sync_to_async(FileIndex.get_by_sha256_for_download)(sha_value, unique=True, select_related=FILEINDEX_SR_FILETYPE_HOME)
         if file_to_send:
             # Use async sendfile method to avoid sync iterator warning
             response = await file_to_send.async_inline_sendfile(request, ranged=file_to_send.filetype.is_movie)
