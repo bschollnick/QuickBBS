@@ -1,5 +1,8 @@
-{% extends 'components/sidebar_base.jinja' %}
-{% from 'macros/pagination.jinja' import show_first_page_button, show_previous_page_button, show_next_page_button, show_last_page_button %}
+{# Item View Sidebar - Uses unified pagination sidebar component #}
+
+{% set show_page_selector = false %}
+{% set show_next_tab = true %}
+{% set show_download = true %}
 
 {% set up_url = up_uri ~ "?page=" ~ page_locale ~ "&sort=" ~ sort %}
 {% set first_url = "/view_item/" ~ first_sha ~ "?sort=" ~ sort %}
@@ -8,65 +11,4 @@
 {% set next_new_tab_url = "/view_item/" ~ next_sha ~ "?sort=" ~ sort ~ "&newwin=True" if next_sha else None %}
 {% set last_url = "/view_item/" ~ last_sha ~ "?sort=" ~ sort %}
 
-{% block nav_up_button %}
-<a class="button is-ghost is-fullwidth"
-   href="{{ up_url }}"
-   hx-get="{{ up_url }}"
-   hx-swap="innerHTML show:window:top"
-   hx-target="body"
-   hx-push-url="true"
-   title="Go Up">
-  {{ icon("arrow-up fa-2x") }}
-</a>
-{% endblock %}
-
-{% block first_page_button %}
-{{ show_first_page_button(first_url) }}
-{% endblock %}
-
-{% block previous_page_button %}
-{{ show_previous_page_button(prev_url) }}
-{% endblock %}
-
-{% block page_selector %}
-<div class="field">
-  <label class="label is-small has-text-centered">Page</label>
-  <div class="page-display">
-    <span style="font-weight: 600; font-size: 1rem;">{{ page }}</span>
-  </div>
-  <p class="help has-text-centered">of {{ pagecount }}</p>
-</div>
-{% endblock %}
-
-{% block next_page_button %}
-{{ show_next_page_button(next_url) }}
-{% endblock %}
-
-{% block next_page_new_tab %}
-{% if next_new_tab_url %}
-<a class="button is-ghost is-fullwidth"
-   href="{{ next_new_tab_url }}"
-   target="_blank"
-   hx-boost="false"
-   title="Open Next in New Tab">
-  {{ icon('fas fa-external-link-alt fa-2x') }}
-</a>
-{% endif %}
-{% endblock %}
-
-{% block last_page_button %}
-{{ show_last_page_button(last_url) }}
-{% endblock %}
-
-{# sort_options uses default from base template #}
-
-{% block download_button %}
-<div class="sidebar-section">
-  <a class="button is-ghost is-fullwidth"
-     href="{{ download_uri }}"
-     hx-boost="false"
-     title="Download">
-    {{ icon('arrow-down fa-2x') }}
-  </a>
-</div>
-{% endblock %}
+{% include 'components/pagination_sidebar.jinja' %}

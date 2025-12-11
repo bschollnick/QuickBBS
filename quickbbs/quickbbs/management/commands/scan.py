@@ -24,6 +24,7 @@ import time
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.core.management.base import BaseCommand, CommandError
 from django.db import close_old_connections, connections, transaction
 from PIL import Image
@@ -98,7 +99,9 @@ def verify_directories(start_path: str | None = None):
             DirectoryIndex.delete_directory_record(directory)
         else:
             # Check if directory exists in fs_Cache_Tracking using 1-to-1 relationship
-            if not hasattr(directory, "Cache_Watcher"):
+            try:
+                _ = directory.Cache_Watcher
+            except ObjectDoesNotExist:
                 cache_instance.add_from_indexdirs(directory)
                 print(f"Added directory to fs_Cache_Tracking: {directory.fqpndirectory}")
 

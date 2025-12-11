@@ -1006,8 +1006,15 @@ class FileIndex(models.Model):
             path_obj = Path(self.name)
             fext = path_obj.suffix.lower() if path_obj.suffix else ""
             if fext:  # Only process files with extensions
-                # Use prefetched filetype from select_related
-                filetype = self.filetype if hasattr(self, "filetype") else filetypes.return_filetype(fileext=fext)
+                # Use prefetched filetype (check if loaded without triggering query)
+                if "filetype" in self.__dict__:
+                    filetype = self.filetype
+                else:
+                    # Fall back to lazy load (safe in sync context) or lookup by extension
+                    try:
+                        filetype = self.filetype
+                    except Exception:
+                        filetype = filetypes.return_filetype(fileext=fext)
 
                 # Fix broken link files - process virtual_directory if missing
                 if filetype.is_link and self.virtual_directory is None:

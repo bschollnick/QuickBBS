@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import time
 
+from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import Count
 
 from cache_watcher.models import Cache_Storage
@@ -56,12 +57,15 @@ def invalidate_empty_directories(start_path: str | None = None, verbose: bool = 
     # Invalidate each empty directory in fs_Cache_Tracking
     for directory in empty_directories:
         # Check if directory has a Cache_Watcher entry (1-to-1 relationship)
-        if hasattr(directory, "Cache_Watcher"):
+        try:
             # Update existing cache entry to invalidated
             directory.Cache_Watcher.invalidated = True
             directory.Cache_Watcher.lastscan = time.time()
             directory.Cache_Watcher.save()
             invalidated_count += 1
+        except ObjectDoesNotExist:
+            # No cache entry for this directory - skip it
+            pass
 
     if verbose:
         print(f"Invalidated {invalidated_count} empty directories in cache")

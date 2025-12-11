@@ -12,17 +12,25 @@
   HTMX Navigation Link Macro
 
   Creates a link with standard HTMX attributes for SPA-like navigation.
+  Supports both simple text and custom HTML content via caller() functionality.
 
   Args:
       url (str): The URL to navigate to
-      text (str): Link text to display
+      text (str): Link text to display (used when caller() is not provided)
       css_class (str): Additional CSS classes (optional)
       extra_attrs (str): Additional HTML attributes (optional)
       swap (str): HTMX swap strategy (default: "outerHTML transition:true")
 
   Usage:
-      {{ show_nav_link("/gallery/1", "View Gallery") }}
-      {{ show_nav_link(item.url, item.name, css_class="button is-primary") }}
+      Simple text link:
+          {{ show_nav_link("/gallery/1", "View Gallery") }}
+          {{ show_nav_link(item.url, item.name, css_class="button is-primary") }}
+
+      Custom content with caller():
+          {% call show_nav_link(prev_uri.url, css_class='nav-link') %}
+              <i class="fas fa-angle-left"></i>
+              {{ prev_uri.name[:25] }}
+          {% endcall %}
 
   Output:
       <a href="/gallery/1" hx-get="/gallery/1" ...>View Gallery</a>
@@ -36,7 +44,7 @@
    hx-headers='{"Cache-Control": "max-age=300"}'
    {% if css_class %}class="{{ css_class }}"{% endif %}
    {{ extra_attrs|safe }}>
-  {{ caller() if caller else text }}
+  {% if caller %}{{ caller()|safe }}{% else %}{{ text }}{% endif %}
 </a>
 {% endmacro %}
 
@@ -92,4 +100,71 @@
 #}
 {% macro show_htmx_attrs(target='body', swap='outerHTML transition:true', cache=True) %}
 hx-push-url="true" hx-target="{{ target }}" hx-swap="{{ swap }}"{% if cache %} hx-headers='{"Cache-Control": "max-age=300"}'{% endif %}
+{% endmacro %}
+
+{#
+  HTMX Page Title Update
+
+  Renders a hidden div for HTMX page title updates.
+  The div is picked up by JavaScript to update document.title.
+
+  Args:
+      title (str): The page title to set
+      only_htmx (bool): Only render for HTMX requests (default: False)
+      request (object): Django request object (required when only_htmx=True)
+
+  Usage:
+      show_page_title_meta("My Page Title", request=request)
+      show_page_title_meta(filename, only_htmx=True, request=request)
+
+  Note:
+      The request parameter must be explicitly passed as macros don't have
+      automatic access to template context variables.
+#}
+{% macro show_page_title_meta(title, only_htmx=False, request=None) %}
+{% if not only_htmx or (request and request.htmx) %}
+<div data-page-title="{{ title }}" style="display:none;"></div>
+{% endif %}
+{% endmacro %}
+
+{#
+  Partial Template Wrapper
+
+  Wraps partial template content with optional HTMX features.
+  Uses Jinja2's caller() functionality for flexible content inclusion.
+
+  Args:
+      show_title_update (bool): Include HTMX page title update (default: False)
+      show_hx_boost (bool): Wrap in hx-boost container (default: False)
+      title (str): Page title for HTMX updates (if show_title_update=True)
+      request (object): Django request object (required when show_title_update=True)
+
+  Usage:
+      Gallery listing (with hx-boost):
+          {% call show_partial_wrapper(show_hx_boost=True) %}
+              {% include 'components/navbar.jinja' %}
+              {% include 'frontend/gallery/gallery_listing_sidebar.jinja' %}
+              {% include 'frontend/gallery/gallery_listing_images.jinja' %}
+          {% endcall %}
+
+      Item view (with title update):
+          {% call show_partial_wrapper(show_title_update=True, title=filename, request=request) %}
+              {% include 'components/navbar.jinja' %}
+              {% include 'frontend/item/gallery_htmx_sidebar.jinja' %}
+              {% include 'frontend/item/gallery_htmx_image.jinja' %}
+          {% endcall %}
+
+  Note:
+      The request parameter must be explicitly passed as macros don't have
+      automatic access to template context variables.
+#}
+{% macro show_partial_wrapper(show_title_update=False, show_hx_boost=False, title='', request=None) %}
+{% if show_hx_boost %}<div hx-boost="true" class="partial-container">{% endif %}
+{% if show_title_update and request and request.htmx %}
+<div data-page-title="{{ title }}" style="display:none;"></div>
+{% endif %}
+{% autoescape off %}
+{{ caller() }}
+{% endautoescape %}
+{% if show_hx_boost %}</div>{% endif %}
 {% endmacro %}

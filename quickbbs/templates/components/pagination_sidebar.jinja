@@ -1,0 +1,93 @@
+{% extends 'components/sidebar_base.jinja' %}
+{% from 'macros/pagination.jinja' import show_first_page_button, show_previous_page_button, show_next_page_button, show_last_page_button, show_page_selector_standalone %}
+
+{#
+  Unified Pagination Sidebar Component
+
+  Replaces both gallery_listing_sidebar.jinja and gallery_htmx_sidebar.jinja
+  with a single, configurable component.
+
+  Context variables expected:
+  - up_url, first_url, prev_url, next_url, last_url (required)
+  - next_new_tab_url (optional, for item view)
+  - download_uri (optional, for item view)
+  - current_page, total_pages (optional, for gallery page selector)
+  - page, pagecount (optional, for item view page display)
+  - show_page_selector (bool, for gallery dropdown)
+  - show_next_tab (bool, for item view)
+  - show_download (bool, for item view)
+  - sort (required)
+  - up_url_newwin (optional, for gallery listing nav up with newwin param)
+#}
+
+{% block nav_up_button %}
+<a class="button is-ghost is-fullwidth"
+   {% if up_url_newwin %}
+   hx-push-url="{{ up_url }}"
+   hx-get="{{ up_url_newwin }}"
+   {% else %}
+   href="{{ up_url }}"
+   hx-get="{{ up_url }}"
+   hx-push-url="true"
+   {% endif %}
+   hx-swap="innerHTML show:window:top"
+   hx-target="body"
+   title="Go Up">
+  {{ icon("arrow-up fa-2x") }}
+</a>
+{% endblock %}
+
+{% block first_page_button %}
+{{ show_first_page_button(first_url) }}
+{% endblock %}
+
+{% block previous_page_button %}
+{{ show_previous_page_button(prev_url) }}
+{% endblock %}
+
+{% block page_selector %}
+{% if show_page_selector %}
+  {{ show_page_selector_standalone(current_page, total_pages, sort) }}
+{% elif page is defined %}
+  <div class="field">
+    <label class="label is-small has-text-centered">Page</label>
+    <div class="page-display">
+      <span style="font-weight: 600; font-size: 1rem;">{{ page }}</span>
+    </div>
+    <p class="help has-text-centered">of {{ pagecount }}</p>
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block next_page_button %}
+{{ show_next_page_button(next_url) }}
+{% endblock %}
+
+{% block next_page_new_tab %}
+{% if show_next_tab and next_new_tab_url %}
+<a class="button is-ghost is-fullwidth"
+   href="{{ next_new_tab_url }}"
+   target="_blank"
+   hx-boost="false"
+   title="Open Next in New Tab">
+  {{ icon('fas fa-external-link-alt fa-2x') }}
+</a>
+{% endif %}
+{% endblock %}
+
+{% block last_page_button %}
+{{ show_last_page_button(last_url) }}
+{% endblock %}
+
+{% block download_button %}
+{% if show_download and download_uri %}
+<div class="sidebar-section">
+  <a class="button is-ghost is-fullwidth"
+     href="{{ download_uri }}"
+     hx-boost="false"
+     title="Download">
+    {{ icon('arrow-down fa-2x') }}
+  </a>
+</div>
+{% endif %}
+{% endblock %}

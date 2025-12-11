@@ -1,9 +1,10 @@
 {% extends 'base.jinja' %}
+{% from 'macros/htmx.jinja' import show_page_title_meta %}
 
 {% block body_attrs %} id="entire_document"{% endblock %}
 
 {% block content %}
-<div data-page-title="{{ gallery_name }}" style="display:none;"></div>
+{{ show_page_title_meta(gallery_name, request=request) }}
 
 {% autoescape off %}
 {% include 'frontend/gallery/gallery_listing_partial.jinja' %}

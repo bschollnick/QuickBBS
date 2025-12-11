@@ -160,6 +160,7 @@ cython_debug/
 quickbbs/static/
 quickbbs/*/migrations/
 poetry.lock
+quickbbs/site/*
 
 # SSL Certs
 certs/

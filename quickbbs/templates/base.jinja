@@ -6,19 +6,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="shortcut icon" type="image/png" href="/resources/images/open_folder_yellow.png">
 
+    {{ htmx_script() }}
     <!-- Preload critical resources -->
     <link rel="preload" href="/resources/css/bulma.min.css" as="style">
     <link rel="preload" href="/resources/css/all.min.css" as="style">
     <link rel="preload" href="/resources/javascript/htmx.min.js" as="script">
     <link rel="preload" href="/resources/css/quickbbs-optimized.css" as="style">
+    <link rel="preload" href="/resources/css/filetype-layout.css" as="style">
 
     <!-- Stylesheets -->
     <link rel="stylesheet" href="/resources/css/bulma.min.css">
     <link rel="stylesheet" href="/resources/css/all.min.css">
     <link rel="stylesheet" href="/resources/css/quickbbs-optimized.css">
+    <link rel="stylesheet" href="/resources/css/filetype-layout.css">
 
     <!-- HTMX -->
-    <script src="/resources/javascript/htmx.min.js" defer></script>
+    {{ htmx_script()}}
     {{ django_htmx_script() }}
 
     <!-- Custom JavaScript -->
