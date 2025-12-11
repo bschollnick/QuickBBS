@@ -1,10 +1,8 @@
-{% autoescape off %}
-<!-- Force document title update if HTMX partial -->
-{% if request.htmx %}
-<div data-page-title="{{ filename }}" style="display:none;"></div>
-{% endif %}
+{# Item View Partial - HTMX Content Only #}
+{% from 'macros/htmx.jinja' import show_partial_wrapper %}
 
-{% include 'frontend/item/gallery_htmx_menu.jinja' %}
+{% call show_partial_wrapper(show_title_update=True, title=filename, request=request) %}
+{% include 'components/navbar.jinja' %}
 {% include 'frontend/item/gallery_htmx_sidebar.jinja' %}
 {% include 'frontend/item/gallery_htmx_image.jinja' %}
-{% endautoescape %}
+{% endcall %}

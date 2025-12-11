@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django.db.models import Count, Prefetch, Q
 from django.db.models.query import QuerySet
@@ -309,7 +310,10 @@ class DirectoryIndex(models.Model):
         Returns:
             True if directory is cached and not invalidated, False otherwise
         """
-        return hasattr(self, "Cache_Watcher") and not self.Cache_Watcher.invalidated
+        try:
+            return not self.Cache_Watcher.invalidated
+        except ObjectDoesNotExist:
+            return False
 
     @staticmethod
     def get_all_parent_shas(sha_list: list[str], select_related: list[str]) -> set[str]:

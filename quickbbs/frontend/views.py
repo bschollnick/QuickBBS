@@ -538,11 +538,11 @@ async def search_viewresults(request: WSGIRequest):
     if "/search/" in str(context["originator"]) or context["originator"] is None:
         context["originator"] = request.GET.get("originator", "/albums")
 
-    # Check for missing thumbnails
+    # Check for missing thumbnails (FileIndex only, using FK ID to avoid query)
     files_needing_thumbnails = [
         item.file_sha256
         for item in page_items
-        if hasattr(item, "file_sha256") and hasattr(item, "new_ftnail") and item.new_ftnail is None and item.filetype.is_image
+        if isinstance(item, FileIndex) and item.new_ftnail_id is None and item.filetype.is_image
     ]
 
     if files_needing_thumbnails:

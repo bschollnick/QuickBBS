@@ -1,10 +1,8 @@
-<!-- Gallery Listing Partial - HTMX Content Only -->
-<div hx-boost="true" class="partial-container">
-{% autoescape off %}
-{% include 'frontend/gallery/gallery_listing_menu.jinja' %}
+{# Gallery Listing Partial - HTMX Content Only #}
+{% from 'macros/htmx.jinja' import show_partial_wrapper %}
+
+{% call show_partial_wrapper(show_hx_boost=True) %}
+{% include 'components/navbar.jinja' %}
 {% include 'frontend/gallery/gallery_listing_sidebar.jinja' %}
 {% include 'frontend/gallery/gallery_listing_images.jinja' %}
-
-{% endautoescape %}
-
-</div>
+{% endcall %}

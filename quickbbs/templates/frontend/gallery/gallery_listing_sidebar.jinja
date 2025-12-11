@@ -1,45 +1,14 @@
-{% extends 'components/sidebar_base.jinja' %}
-{% from 'macros/pagination.jinja' import show_first_page_button, show_previous_page_button, show_next_page_button, show_last_page_button, show_page_selector_standalone %}
+{# Gallery Listing Sidebar - Uses unified pagination sidebar component #}
+
+{% set show_page_selector = true %}
+{% set show_next_tab = false %}
+{% set show_download = false %}
 
 {% set up_url = up_uri ~ "?page=" ~ page_locale ~ "&sort=" ~ sort %}
+{% set up_url_newwin = up_url ~ "&newwin=True" %}
 {% set first_url = "?page=1&sort=" ~ sort %}
 {% set prev_url = ("?page=" ~ (current_page - 1) ~ "&sort=" ~ sort) if current_page > 1 else None %}
 {% set next_url = ("?page=" ~ (current_page + 1) ~ "&sort=" ~ sort) if current_page < total_pages else None %}
 {% set last_url = "?page=" ~ total_pages ~ "&sort=" ~ sort %}
 
-{% block nav_up_button %}
-<a class="button is-ghost is-fullwidth"
-   hx-push-url="{{ up_url }}"
-   hx-get="{{ up_url }}&newwin=True"
-   hx-swap="innerHTML show:window:top"
-   hx-target="body"
-   title="Go Up">
-  {{ icon("arrow-up fa-2x") }}
-</a>
-{% endblock %}
-
-{% block first_page_button %}
-{{ show_first_page_button(first_url) }}
-{% endblock %}
-
-{% block previous_page_button %}
-{{ show_previous_page_button(prev_url) }}
-{% endblock %}
-
-{% block page_selector %}
-{{ show_page_selector_standalone(current_page, total_pages, sort) }}
-{% endblock %}
-
-{% block next_page_button %}
-{{ show_next_page_button(next_url) }}
-{% endblock %}
-
-{# next_page_new_tab block remains empty for gallery listing #}
-
-{% block last_page_button %}
-{{ show_last_page_button(last_url) }}
-{% endblock %}
-
-{# sort_options uses default from base template #}
-
-{# download_button block remains empty for gallery listing #}
+{% include 'components/pagination_sidebar.jinja' %}

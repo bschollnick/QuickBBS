@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING
 from asgiref.sync import sync_to_async
 from cachetools import LRUCache, cached
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import models, transaction
 from django.db.utils import IntegrityError
 
@@ -282,11 +283,11 @@ class ThumbnailFiles(models.Model):
             # If parent is invalidated (rescanned), retry thumbnail creation
             # If parent is NOT invalidated, skip creation (use filetype thumbnail)
             if index_data_item.is_generic_icon:
-                parent_invalidated = False
                 # Check if parent directory has been invalidated/rescanned
-                parent_invalidated = (
-                    hasattr(index_data_item.home_directory, "Cache_Watcher") and index_data_item.home_directory.Cache_Watcher.invalidated
-                )
+                try:
+                    parent_invalidated = index_data_item.home_directory.Cache_Watcher.invalidated
+                except ObjectDoesNotExist:
+                    parent_invalidated = False
 
                 if not parent_invalidated:
                     # Parent not rescanned, skip thumbnail creation

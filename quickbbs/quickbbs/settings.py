@@ -18,7 +18,7 @@ import socket
 from pathlib import Path
 
 import humanize
-from django_htmx.jinja import django_htmx_script
+from django_htmx.jinja import django_htmx_script, htmx_script
 
 # Apply PIL/Pillow configuration from quickbbs_settings
 from PIL import Image, ImageFile
@@ -287,6 +287,7 @@ TEMPLATES = [
                 "icon": "django_icons.templatetags.icons.icon_tag",
                 "static": "django.templatetags.static.static",
                 "url": "django.urls.reverse",
+                "htmx_script": htmx_script,
                 "django_htmx_script": django_htmx_script,
                 "any": any,
                 "all": all,
