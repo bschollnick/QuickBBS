@@ -64,6 +64,39 @@ class SafeTimedRotatingFileHandler(logging.handlers.TimedRotatingFileHandler):
             self.stream = self._open()
 
 
+class SuppressCancelledErrorFilter(logging.Filter):
+    """
+    Logging filter to suppress CancelledError exceptions from asgiref.
+
+    CancelledError is raised when clients disconnect during async operations
+    (e.g., user navigates away before page finishes loading). This is expected
+    behavior and should not be logged as an error.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """
+        Filter out CancelledError exceptions from asgiref.
+
+        Args:
+            record: Log record to filter
+        Returns:
+            False if record should be suppressed, True otherwise
+        """
+        # Check if this is a CancelledError exception
+        if record.exc_info:
+            exc_type = record.exc_info[0]
+            if exc_type and exc_type.__name__ == "CancelledError":
+                # Check if it's from asgiref (expected) vs application code (unexpected)
+                if record.name.startswith("asyncio") or "asgiref" in record.pathname:
+                    return False
+
+        # Check if message contains the specific asgiref error
+        if "CancelledError exception in shielded future" in record.getMessage():
+            return False
+
+        return True
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -446,6 +479,11 @@ DBBACKUP_MEDIA_FILENAME_TEMPLATE = "quickbbs-media-{datetime}.{extension}"
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+    "filters": {
+        "suppress_cancelled": {
+            "()": "quickbbs.settings.SuppressCancelledErrorFilter",
+        },
+    },
     "formatters": {
         "verbose": {
             "format": "{levelname} {asctime} {module} {process:d} {thread:d} {message}",
@@ -466,11 +504,13 @@ LOGGING = {
             "backupCount": 30,
             "formatter": "verbose",
             "encoding": "utf-8",
+            "filters": ["suppress_cancelled"],
         },
         "console": {
             "level": "INFO",
             "class": "logging.StreamHandler",
             "formatter": "simple",
+            "filters": ["suppress_cancelled"],
         },
     },
     "root": {
