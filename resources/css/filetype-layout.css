@@ -24,7 +24,7 @@
 
 /* Ensure all container divs respect height constraints */
 .filetype-content-container > div,
-.thumbnail,
+.filetype-content-container .thumbnail,
 #thumbnail_frame,
 #movie_frame {
     max-height: 100%;

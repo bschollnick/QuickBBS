@@ -69,6 +69,14 @@
       {% endblock %}
     </div>
 
+    <!-- Version Display -->
+    <div class="sidebar-section version-section">
+      <div class="version-display">
+        <span class="label is-small has-text-centered">Version</span>
+        <p class="has-text-centered version-number">{{ app_version }}</p>
+      </div>
+    </div>
+
     <!-- Download Button (Item view only) -->
     {% block download_button %}{% endblock %}
 
@@ -156,6 +164,23 @@
   height: 2rem;
 }
 
+/* Version display styling */
+.version-section {
+  margin-top: 1rem;
+}
+
+.version-display {
+  text-align: center;
+  padding: 0.5rem 0;
+}
+
+.version-number {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: hsl(0, 0%, 48%);
+  margin-top: 0.25rem;
+}
+
 /* Page selector styling */
 .page-selector {
   display: flex;
@@ -223,6 +248,15 @@
   .button.is-ghost {
     padding: 0.5rem;
     min-height: 3rem;
+  }
+
+  /* Mobile: Hide version label but keep number */
+  .version-display .label {
+    display: none;
+  }
+
+  .version-number {
+    font-size: 0.65rem;
   }
 }
 

@@ -2,10 +2,16 @@
 {% from 'macros/pagination.jinja' import show_first_page_button, show_previous_page_button, show_next_page_button, show_last_page_button, show_page_selector_standalone %}
 
 {#
-  Unified Pagination Sidebar Component
+  Unified Pagination Sidebar Component with Fragment Caching
 
   Replaces both gallery_listing_sidebar.jinja and gallery_htmx_sidebar.jinja
   with a single, configurable component.
+
+  Fragment Caching Strategy:
+  - Pagination buttons cached for 2 minutes (120 seconds) per page/sort combination (gallery only)
+  - Item view disables caching (each item has unique SHA-based URLs)
+  - Nav up, next tab, and download buttons NOT cached (vary by context/item)
+  - Cache keys vary by current_page, total_pages, and sort parameters
 
   Context variables expected:
   - up_url, first_url, prev_url, next_url, last_url (required)
@@ -16,8 +22,11 @@
   - show_page_selector (bool, for gallery dropdown)
   - show_next_tab (bool, for item view)
   - show_download (bool, for item view)
+  - disable_pagination_cache (bool, set true for item view to disable button caching)
   - sort (required)
   - up_url_newwin (optional, for gallery listing nav up with newwin param)
+
+  ASGI/WSGI Compatible: Django cache framework handles both contexts.
 #}
 
 {% block nav_up_button %}
@@ -38,17 +47,32 @@
 {% endblock %}
 
 {% block first_page_button %}
+{% if disable_pagination_cache %}
 {{ show_first_page_button(first_url) }}
+{% else %}
+{% cache 120 "pagination_first" current_page total_pages sort %}
+{{ show_first_page_button(first_url) }}
+{% endcache %}
+{% endif %}
 {% endblock %}
 
 {% block previous_page_button %}
+{% if disable_pagination_cache %}
 {{ show_previous_page_button(prev_url) }}
+{% else %}
+{% cache 120 "pagination_prev" current_page total_pages sort %}
+{{ show_previous_page_button(prev_url) }}
+{% endcache %}
+{% endif %}
 {% endblock %}
 
 {% block page_selector %}
 {% if show_page_selector %}
+  {% cache 120 "pagination_selector" current_page total_pages sort %}
   {{ show_page_selector_standalone(current_page, total_pages, sort) }}
+  {% endcache %}
 {% elif page is defined %}
+  {# Item view page display - varies by item, don't cache #}
   <div class="field">
     <label class="label is-small has-text-centered">Page</label>
     <div class="page-display">
@@ -60,7 +84,13 @@
 {% endblock %}
 
 {% block next_page_button %}
+{% if disable_pagination_cache %}
 {{ show_next_page_button(next_url) }}
+{% else %}
+{% cache 120 "pagination_next" current_page total_pages sort %}
+{{ show_next_page_button(next_url) }}
+{% endcache %}
+{% endif %}
 {% endblock %}
 
 {% block next_page_new_tab %}
@@ -76,10 +106,17 @@
 {% endblock %}
 
 {% block last_page_button %}
+{% if disable_pagination_cache %}
 {{ show_last_page_button(last_url) }}
+{% else %}
+{% cache 120 "pagination_last" current_page total_pages sort %}
+{{ show_last_page_button(last_url) }}
+{% endcache %}
+{% endif %}
 {% endblock %}
 
 {% block download_button %}
+{# Download button - varies by item, don't cache #}
 {% if show_download and download_uri %}
 <div class="sidebar-section">
   <a class="button is-ghost is-fullwidth"

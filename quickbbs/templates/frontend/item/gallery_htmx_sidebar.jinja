@@ -3,6 +3,11 @@
 {% set show_page_selector = false %}
 {% set show_next_tab = true %}
 {% set show_download = true %}
+{% set disable_pagination_cache = true %}
+
+{# Map context variables to pagination component cache keys (unused when cache disabled) #}
+{% set current_page = page %}
+{% set total_pages = pagecount %}
 
 {% set up_url = up_uri ~ "?page=" ~ page_locale ~ "&sort=" ~ sort %}
 {% set first_url = "/view_item/" ~ first_sha ~ "?sort=" ~ sort %}
