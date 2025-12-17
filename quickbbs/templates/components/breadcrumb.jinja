@@ -1,4 +1,14 @@
+{#
+  Breadcrumb Navigation Component with Fragment Caching
+
+  Cached for 5 minutes (300 seconds) per directory path.
+  Cache key is based on webpath to ensure unique cache per directory.
+
+  ASGI/WSGI Compatible: Django cache framework handles both contexts.
+#}
 {% from 'macros/breadcrumb.jinja' import show_breadcrumb_nav %}
+{% cache 300 "breadcrumb" webpath %}
 {% autoescape off %}
 {{ show_breadcrumb_nav(breadcrumbs, gallery_name) }}
 {% endautoescape %}
+{% endcache %}

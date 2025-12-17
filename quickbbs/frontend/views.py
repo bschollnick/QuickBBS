@@ -263,10 +263,16 @@ def get_search_results(
         order_by,
         prefetch_fields=prefetch_dirs,
         annotate_kwargs={
-            "file_count_cached": Count(
+            "file_count_annotated": Count(
                 "FileIndex_entries",
                 filter=Q(FileIndex_entries__delete_pending=False),
-            )
+                distinct=True,
+            ),
+            "dir_count_annotated": Count(
+                "parent_dir",
+                filter=Q(parent_dir__delete_pending=False),
+                distinct=True,
+            ),
         },
         **base_filters,
     )
@@ -744,10 +750,16 @@ async def new_viewgallery(request: WSGIRequest):
             # REMOVED: .select_related("thumbnail__new_ftnail") - Phase 5 Fix 1
             # Thumbnails load on-demand via thumbnail2_dir() - no need for 750KB binary blobs
             .annotate(
-                file_count_cached=Count(
+                file_count_annotated=Count(
                     "FileIndex_entries",
                     filter=Q(FileIndex_entries__delete_pending=False),
-                )
+                    distinct=True,
+                ),
+                dir_count_annotated=Count(
+                    "parent_dir",
+                    filter=Q(parent_dir__delete_pending=False),
+                    distinct=True,
+                ),
             )
         )
     else:

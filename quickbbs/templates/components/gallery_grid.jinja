@@ -1,0 +1,83 @@
+{% from 'macros/metadata.jinja' import show_item_metadata %}
+{% from 'macros/htmx.jinja' import show_htmx_attrs, show_nav_link %}
+{% from 'macros/gallery.jinja' import show_gallery_item_card %}
+
+{#
+  Unified Gallery Grid Component
+
+  Used by both gallery listings and search results.
+
+  Context variables expected:
+  - items_to_display: List of FileIndex/DirectoryIndex objects to render
+  - sort: Sort parameter (integer)
+  - fromtimestamp: Date formatting function
+  - prev_uri: Previous directory navigation (optional, for gallery only)
+  - next_uri: Next directory navigation (optional, for gallery only)
+  - show_directory_nav: Boolean (default True for gallery, False for search)
+  - small_width: Thumbnail width for CSS variables
+  - small_height: Thumbnail height for CSS variables
+
+  Usage:
+    Gallery listing:
+      {% set show_directory_nav = True %}
+      {% include 'components/gallery_grid.jinja' with context %}
+
+    Search listing:
+      {% set show_directory_nav = False %}
+      {% include 'components/gallery_grid.jinja' with context %}
+
+  ASGI/WSGI Compatible: Template rendering is synchronous and thread-safe.
+#}
+
+{% set show_directory_nav = show_directory_nav|default(True) %}
+
+<style>
+/* Dynamic thumbnail size CSS variables */
+:root {
+    --thumbnail-small-width: {{small_width}}px;
+    --thumbnail-small-height: {{small_height}}px;
+}
+</style>
+
+<div class="gallery-container">
+    <!-- Navigation Header using Bulma Level -->
+    {% with
+        sort_param = '?sort=' ~ sort,
+        swap_mode = 'innerHTML show:window:top transition:true'
+    %}
+    <nav class="level">
+        <div class="level-left">
+            {% if show_directory_nav and prev_uri not in ["", None] %}
+                <div class="level-item">
+                    {% call show_nav_link(prev_uri.url ~ sort_param, '', css_class='nav-link', swap=swap_mode) %}
+                        <i class="fas fa-angle-left"></i>
+                        {{ prev_uri.name[:25] }}
+                    {% endcall %}
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="level-item is-breadcrumb">
+            {% include 'components/breadcrumb.jinja' %}
+        </div>
+
+        <div class="level-right">
+            {% if show_directory_nav and next_uri not in ["", None] %}
+                <div class="level-item">
+                    {% call show_nav_link(next_uri.url ~ sort_param, '', css_class='nav-link', swap=swap_mode) %}
+                        {{ next_uri.name[:25] }}
+                        <i class="fas fa-angle-right"></i>
+                    {% endcall %}
+                </div>
+            {% endif %}
+        </div>
+    </nav>
+    {% endwith %}
+
+    <!-- Gallery Grid -->
+    <div class="gallery-grid">
+        {%- for item in items_to_display -%}
+            {{ show_gallery_item_card(item, loop.index, sort, fromtimestamp) }}
+        {% endfor %}
+    </div>
+</div>
