@@ -3,11 +3,11 @@
 
 {# Cache URLs and set HTMX attributes once #}
 {% if item.filetype.is_link and item.virtual_directory %}
-    {% set item_url = item.virtual_directory.get_view_url() %}
+    {% set view_url = item.virtual_directory.get_view_url() %}
 {% else %}
-    {% set item_url = item.get_view_url() + "?sort=" + sort|string %}
+    {% set view_url = item.get_view_url() + "?sort=" + sort|string %}
 {% endif %}
-{% set htmx_attrs = 'hx-push-url="true" hx-target="body" hx-swap="outerHTML transition:true"' %}
+{% set htmx_html_attrs = 'hx-push-url="true" hx-target="body" hx-swap="outerHTML transition:true"' %}
 
 {# Note: background-color must remain inline as it's dynamic based on filetype #}
 <div class="gallery-item" style="background-color: #{{ item.filetype.color }};">
@@ -15,9 +15,9 @@
     <div class="item-header">
         <span class="item-index">{{ loop.index }}</span>
         <div class="item-title">
-            <a href="{{ item_url }}"
-               hx-get="{{ item_url }}"
-               {{ htmx_attrs|safe }}
+            <a href="{{ view_url }}"
+               hx-get="{{ view_url }}"
+               {{ htmx_html_attrs|safe }}
                class="gallery-item-link">
                 {% if item.filetype.is_link %}
                     {{ item.name.split("*")[0] }}
@@ -35,9 +35,9 @@
     <!-- Thumbnail Container -->
     <div class="thumbnail-container">
         <figure class="image">
-            <a href="{{ item_url }}"
-               hx-get="{{ item_url }}"
-               {{ htmx_attrs|safe }}
+            <a href="{{ view_url }}"
+               hx-get="{{ view_url }}"
+               {{ htmx_html_attrs|safe }}
                class="gallery-item-link">
                 <img src="{{ item.get_thumbnail_url() }}"
                      alt="{{ item.name }}"
@@ -45,7 +45,7 @@
             </a>
         </figure>
         <!-- External Link -->
-        <a href="{{ item_url }}"
+        <a href="{{ view_url }}"
             target="_blank"
             class="external-link"
             hx-boost="false">
@@ -56,19 +56,19 @@
     <!-- Metadata -->
     <div class="item-metadata">
         {% if item.filetype.is_dir %}
-            {% set dir_counts = item.dir_count_annotated if item.dir_count_annotated is defined else item.get_dir_counts() %}
-            {% if dir_counts not in [0, None, "", -1] %}
+            {% set directory_count = item.directory_count if item.directory_count is defined else item.get_dir_counts() %}
+            {% if directory_count not in [0, None, "", -1] %}
                 <div class="metadata-item">
                     <i class="far fa-folder"></i>
-                    <span>{{ dir_counts | intcomma }}</span>
+                    <span>{{ directory_count | intcomma }}</span>
                 </div>
             {% endif %}
 
-            {% set file_counts = item.file_count_annotated if item.file_count_annotated is defined else item.get_file_counts() %}
-            {% if file_counts not in [0, None, "", -1] %}
+            {% set file_count = item.file_count if item.file_count is defined else item.get_file_counts() %}
+            {% if file_count not in [0, None, "", -1] %}
                 <div class="metadata-item">
                     <i class="far fa-file"></i>
-                    <span>{{ file_counts | intcomma }}</span>
+                    <span>{{ file_count | intcomma }}</span>
                 </div>
             {% endif %}
         {% endif %}

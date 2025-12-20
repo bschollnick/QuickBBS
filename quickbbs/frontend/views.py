@@ -70,6 +70,23 @@ SEARCH_PR_FILETYPE = ("filetype",)
 SEARCH_PR_FILETYPE_HOME = ("filetype", "home_directory")
 
 
+# =============================================================================
+# Custom Exceptions for Directory Operations
+# =============================================================================
+
+
+class DirectoryNotFoundError(Exception):
+    """Raised when a directory doesn't exist physically on the filesystem."""
+
+    pass
+
+
+class DirectoryInvalidError(Exception):
+    """Raised when a directory path is invalid or inaccessible."""
+
+    pass
+
+
 class HtmxHttpRequest(HttpRequest):
     """HttpRequest class with HTMX details."""
 
@@ -120,8 +137,8 @@ def _create_base_context(request: WSGIRequest) -> dict:
         "current_page": int(request.GET.get("page", 1)),
         "missing": [],
         "items_to_display": [],
-        "no_thumbnails": [],
-        "page_cnt": [],
+        "files_needing_thumbnails": [],
+        "page_range": [],
         "has_previous": False,
         "has_next": False,
     }
@@ -263,12 +280,12 @@ def get_search_results(
         order_by,
         prefetch_fields=prefetch_dirs,
         annotate_kwargs={
-            "file_count_annotated": Count(
+            "file_count": Count(
                 "FileIndex_entries",
                 filter=Q(FileIndex_entries__delete_pending=False),
                 distinct=True,
             ),
-            "dir_count_annotated": Count(
+            "directory_count": Count(
                 "parent_dir",
                 filter=Q(parent_dir__delete_pending=False),
                 distinct=True,
@@ -509,10 +526,10 @@ async def search_viewresults(request: WSGIRequest):
 
     # Combine and limit results (async wrapped list conversion)
     max_search_results = 10000
-    dir_list, file_list = await asyncio.gather(
+    directory_results, file_results = await asyncio.gather(
         sync_to_async(list)(dirs[: max_search_results // 2]), sync_to_async(list)(files[: max_search_results // 2])
     )
-    combined_results = dir_list + file_list
+    combined_results = directory_results + file_results
 
     if len(combined_results) >= max_search_results:
         print(f"Search results limited to {max_search_results} items for performance")
@@ -530,7 +547,7 @@ async def search_viewresults(request: WSGIRequest):
     # Update context with pagination data (consistent with gallery view)
     context.update(
         {
-            "page_cnt": list(range(1, total_pages + 1)),
+            "page_range": list(range(1, total_pages + 1)),
             "total_pages": total_pages,
             "total_items": total_items,
             "current_page": current_page,
@@ -545,15 +562,10 @@ async def search_viewresults(request: WSGIRequest):
         context["originator"] = request.GET.get("originator", "/albums")
 
     # Check for missing thumbnails (FileIndex only, using FK ID to avoid query)
-    files_needing_thumbnails = [
-        item.file_sha256
-        for item in page_items
-        if isinstance(item, FileIndex) and item.new_ftnail_id is None and item.filetype.is_image
-    ]
-
-    if files_needing_thumbnails:
-        print(f"{len(files_needing_thumbnails)} search results need thumbnails")
-        context["no_thumbnails"] = files_needing_thumbnails
+    # Creating missing thumbnails during search would result in searching the entire database,
+    # instead of being a focused creation in a particular directory.
+    # Use an empty queryset to maintain consistent type (QuerySet) with gallery view.
+    context["files_needing_thumbnails"] = FileIndex.objects.none()
 
     response = await async_render(request, template_name, context, using="Jinja2")
     print("search View, processing time: ", time.perf_counter() - start_time)
@@ -593,21 +605,23 @@ def _determine_template(request: WSGIRequest, template_type: str = "gallery") ->
     return template_set["partial"] if is_partial else template_set["complete"]
 
 
-def _find_directory(paths: dict):
+def _find_directory(paths: dict) -> DirectoryIndex:
     """
     Find directory in database, create if missing, and validate existence.
 
     Uses DirectoryIndex model methods to handle database operations efficiently.
     DirectoryIndex.add_directory() already validates physical path existence,
-    so we only need to handle the happy path and error responses.
+    so we only need to handle the happy path and raise exceptions on errors.
 
     :Args:
         paths: Dictionary containing path information (must have 'album_viewing' key)
 
     Returns:
-        Tuple of (True, directory) on success
-        HttpResponseNotFound if directory doesn't exist physically
-        HttpResponseBadRequest on invalid path or other errors
+        DirectoryIndex: The directory object on success
+
+    Raises:
+        DirectoryNotFoundError: If directory doesn't exist physically on filesystem
+        DirectoryInvalidError: If path is invalid or other errors occur
     """
     try:
         # Normalize path once and compute SHA (DirectoryIndex methods will do this again,
@@ -630,7 +644,7 @@ def _find_directory(paths: dict):
             if not created and not directory:
                 # Physical directory doesn't exist on filesystem
                 logger.info("Directory not found on filesystem: %s", dirpath)
-                return HttpResponseNotFound("<h1>gallery not found</h1>")
+                raise DirectoryNotFoundError(f"Gallery not found: {dirpath}")
 
             # Reload with optimized prefetches for view rendering
             # add_directory uses update_or_create without prefetch_related
@@ -642,7 +656,7 @@ def _find_directory(paths: dict):
 
             if not directory:
                 logger.info("Directory sync failed: %s", dirpath)
-                return HttpResponseNotFound("<h1>gallery not found</h1>")
+                raise DirectoryNotFoundError(f"Gallery sync failed: {dirpath}")
 
         # Validate physical directory still exists (race condition check)
         # This handles the case where directory was in DB but deleted from disk
@@ -653,14 +667,17 @@ def _find_directory(paths: dict):
                 Cache_Storage.remove_from_cache_indexdirs(index_dir=directory.parent_directory)
             Cache_Storage.remove_from_cache_indexdirs(index_dir=directory)
             async_to_sync(sync_database_disk)(directory)
-            return HttpResponseNotFound("<h1>gallery not found</h1>")
+            raise DirectoryNotFoundError(f"Gallery not found on filesystem: {dirpath}")
 
         logger.info("Viewing: %s", dirpath)
-        return True, directory
+        return directory
 
+    except DirectoryNotFoundError:
+        # Re-raise our custom exceptions
+        raise
     except Exception as e:
         logger.error("Error finding directory '%s': %s", paths["album_viewing"], e)
-        return HttpResponseBadRequest("<h1>Invalid path specified</h1>")
+        raise DirectoryInvalidError(f"Invalid path specified: {paths['album_viewing']}") from e
 
 
 @vary_on_headers("HX-Request")
@@ -694,11 +711,13 @@ async def new_viewgallery(request: WSGIRequest):
         "thumbpath": ensures_endswith(request.path.replace(r"/albums/", r"/thumbnails/"), "/"),
     }
 
-    # Get directory and handle early returns
-    result = await sync_to_async(_find_directory)(paths)
-    if isinstance(result, (HttpResponseNotFound, HttpResponseBadRequest)):
-        return result
-    _, directory = result
+    # Get directory and handle errors via exceptions
+    try:
+        directory = await sync_to_async(_find_directory)(paths)
+    except DirectoryNotFoundError as e:
+        return HttpResponseNotFound("<h1>gallery not found</h1>")
+    except DirectoryInvalidError as e:
+        return HttpResponseBadRequest("<h1>Invalid path specified</h1>")
 
     # Ensure directory data is up to date
     await sync_database_disk(directory)
@@ -733,7 +752,7 @@ async def new_viewgallery(request: WSGIRequest):
     context.update(
         {
             "total_pages": layout["total_pages"],
-            "page_cnt": list(range(1, layout["total_pages"] + 1)),
+            "page_range": list(range(1, layout["total_pages"] + 1)),
             "page_locale": layout["page_locale"],
         }
     )
@@ -742,20 +761,20 @@ async def new_viewgallery(request: WSGIRequest):
     context["prev_uri"], context["next_uri"] = await directory.get_prev_next_siblings(sort_order=context["sort"])
 
     # Only fetch directories if there are any on this page (async wrapped)
-    if layout["data"]["directories"]:
+    if layout["page_items"]["directory_shas"]:
         dirs_to_display = await sync_to_async(list)(
             directory.dirs_in_dir(sort=context["sort"], select_related=DIRECTORYINDEX_SR_FILETYPE_THUMB, prefetch_related=()).filter(
-                dir_fqpn_sha256__in=layout["data"]["directories"]
+                dir_fqpn_sha256__in=layout["page_items"]["directory_shas"]
             )
             # REMOVED: .select_related("thumbnail__new_ftnail") - Phase 5 Fix 1
             # Thumbnails load on-demand via thumbnail2_dir() - no need for 750KB binary blobs
             .annotate(
-                file_count_annotated=Count(
+                file_count=Count(
                     "FileIndex_entries",
                     filter=Q(FileIndex_entries__delete_pending=False),
                     distinct=True,
                 ),
-                dir_count_annotated=Count(
+                directory_count=Count(
                     "parent_dir",
                     filter=Q(parent_dir__delete_pending=False),
                     distinct=True,
@@ -766,12 +785,12 @@ async def new_viewgallery(request: WSGIRequest):
         dirs_to_display = []
 
     # Only fetch files if there are any on this page (async wrapped)
-    if layout["data"]["files"]:
+    if layout["page_items"]["file_shas"]:
         # Fetch and separate files and links in one pass
         # Note: select_related already handled by files_in_dir() - no need to duplicate
         all_items = await sync_to_async(list)(
             directory.files_in_dir(sort=context["sort"], select_related=FILEINDEX_SR_FILETYPE_HOME_VIRTUAL).filter(
-                unique_sha256__in=layout["data"]["files"]
+                unique_sha256__in=layout["page_items"]["file_shas"]
             )
         )
         files_list = [f for f in all_items if not f.filetype.is_link]
@@ -785,17 +804,18 @@ async def new_viewgallery(request: WSGIRequest):
     # print("elapsed view gallery (pre-thumb) time - ", time.time() - start_time)
 
     # Check if thumbnails are needed (async-safe existence check)
-    has_missing_thumbnails = await sync_to_async(layout["no_thumbnails"].exists)()
+    files_needing_thumbnails = layout["files_needing_thumbnails"]
+    has_missing_thumbnails = await sync_to_async(files_needing_thumbnails.exists)()
     if has_missing_thumbnails:
         no_thumb_start = time.time()
         # Use .count() for efficient SQL COUNT instead of materializing all records
-        missing_count = await sync_to_async(layout["no_thumbnails"].count)()
+        missing_count = await sync_to_async(files_needing_thumbnails.count)()
         print(f"{missing_count} entries need thumbnails")
-        # print(layout["no_thumbnails"][0:10])  # Show first 10 entries needing thumbs
+        # print(files_needing_thumbnails[0:10])  # Show first 10 entries needing thumbs
 
         if missing_count > 0:  # Process first 100 entries
             # Materialize sliced queryset to get list of SHA256 hashes
-            no_thumbs = await sync_to_async(list)(layout["no_thumbnails"][:100])
+            no_thumbs = await sync_to_async(list)(files_needing_thumbnails[:100])
 
             # Use ThumbnailFiles batch processing method
             results = await ThumbnailFiles.batch_create_async(no_thumbs, batchsize=100, max_workers=6)

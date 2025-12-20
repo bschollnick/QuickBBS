@@ -232,8 +232,8 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
         # Deduplicate - files_in_dir handles complex DISTINCT ON + re-sorting
         # Must use full objects for re-sorting (PostgreSQL limitation with DISTINCT ON)
         # This case already materializes due to Python re-sorting requirement
-        files_result = directory_entry.files_in_dir(sort=sort_order_value, distinct=True, select_related=FILEINDEX_SR_FILETYPE_HOME_VIRTUAL)
-        all_shas = [f.unique_sha256 for f in files_result]
+        files_list = directory_entry.files_in_dir(sort=sort_order_value, distinct=True, select_related=FILEINDEX_SR_FILETYPE_HOME_VIRTUAL)
+        all_shas = [f.unique_sha256 for f in files_list]
 
         # Get pagination data inline
         try:
@@ -268,7 +268,7 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
         "is_animated": entry.is_animated,
         "lastmod": lastmod_timestamp,
         "lastmod_ds": datetime.datetime.fromtimestamp(lastmod_timestamp).strftime("%m/%d/%y %H:%M:%S"),
-        "ft_filename": entry.filetype.icon_filename,
+        "filetype_icon_filename": entry.filetype.icon_filename,
         "download_uri": entry.get_download_url(),
         "thumbnail_uri": entry.get_thumbnail_url(size="large"),
         # Pagination (computed inline)
@@ -311,7 +311,7 @@ async def async_build_context_info(request: WSGIRequest, unique_file_sha256: str
     )
 
 
-def _get_no_thumbnails(directory, sort_ordering: int):
+def _get_files_needing_thumbnails(directory, sort_ordering: int):
     """
     Get queryset of file SHA256s that don't have thumbnails.
 
@@ -406,7 +406,7 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
     if directory is None:
         raise ValueError("Directory parameter is required")
 
-    chunk_size = settings.GALLERY_ITEMS_PER_PAGE
+    items_per_page = settings.GALLERY_ITEMS_PER_PAGE
 
     # Get base querysets first
     directories_qs = directory.dirs_in_dir(sort=sort_ordering, fields_only=("dir_fqpn_sha256",), select_related=(), prefetch_related=())
@@ -429,8 +429,8 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
     total_items = dirs_count + files_count
 
     # Calculate pagination
-    total_pages = max(1, math.ceil(total_items / chunk_size))
-    bounds = calculate_page_bounds(page_number, chunk_size, dirs_count)
+    total_pages = max(1, math.ceil(total_items / items_per_page))
+    bounds = calculate_page_bounds(page_number, items_per_page, dirs_count)
 
     # Fetch ONLY current page data using database slicing
     page_data = {}
@@ -438,11 +438,11 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
     if bounds["dirs_slice"]:
         start, end = bounds["dirs_slice"]
         page_directories = list(directories_qs[start:end].values_list("dir_fqpn_sha256", flat=True))
-        page_data["directories"] = page_directories
-        page_data["cnt_dirs"] = len(page_directories)
+        page_data["directory_shas"] = page_directories
+        page_data["dir_count"] = len(page_directories)
     else:
-        page_data["directories"] = []
-        page_data["cnt_dirs"] = 0
+        page_data["directory_shas"] = []
+        page_data["dir_count"] = 0
 
     if bounds["files_slice"]:
         start, end = bounds["files_slice"]
@@ -452,42 +452,42 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
         else:
             # Slice the cached distinct list - cheap list slicing (no DB query)
             page_files = all_distinct_shas[start:end]
-        page_data["files"] = page_files
-        page_data["cnt_files"] = len(page_files)
+        page_data["file_shas"] = page_files
+        page_data["file_count"] = len(page_files)
     else:
-        page_data["files"] = []
-        page_data["cnt_files"] = 0
+        page_data["file_shas"] = []
+        page_data["file_count"] = 0
 
-    page_data["total_cnt"] = page_data["cnt_dirs"] + page_data["cnt_files"]
+    page_data["total_count"] = page_data["dir_count"] + page_data["file_count"]
     page_data["page"] = page_number
 
     # Build optimized output structure - only current page data
     output = {
-        "data": page_data,  # Single page data instead of all pages
+        "page_items": page_data,  # Current page items (directories and files)
         "page_number": page_number,
         "dirs_count": dirs_count,
-        "chunk_size": chunk_size,
+        "chunk_size": items_per_page,
         "files_count": files_count,
         "total_pages": total_pages,
-        "numb_of_dirs_on_dir_lastpage": dirs_count % chunk_size,
-        "numb_of_files_on_dir_lastpage": chunk_size - (dirs_count % chunk_size),
+        "dirs_on_last_page": dirs_count % items_per_page,
+        "files_on_last_page": items_per_page - (dirs_count % items_per_page),
     }
 
-    # Generate all_shas for current page only (much smaller)
-    output["all_shas"] = page_data["directories"] + page_data["files"]
+    # Generate page_shas (SHA256s for current page only)
+    output["page_shas"] = page_data["directory_shas"] + page_data["file_shas"]
 
-    # Get no_thumbnails data efficiently
-    output["no_thumbnails"] = _get_no_thumbnails(directory, sort_ordering)
+    # Get files needing thumbnails efficiently
+    output["files_needing_thumbnails"] = _get_files_needing_thumbnails(directory, sort_ordering)
 
     # Calculate page_locale - which page this directory appears on in its parent
     if directory.parent_directory:
-        parent_dirs = directory.parent_directory.dirs_in_dir(
+        sibling_directories = directory.parent_directory.dirs_in_dir(
             sort=sort_ordering, fields_only=("dir_fqpn_sha256",), select_related=(), prefetch_related=()
         )
-        parent_dir_list = list(parent_dirs.values_list("dir_fqpn_sha256", flat=True))
+        sibling_dir_shas = list(sibling_directories.values_list("dir_fqpn_sha256", flat=True))
         try:
-            position = parent_dir_list.index(directory.dir_fqpn_sha256)
-            page_locale = int(position / chunk_size) + 1
+            position = sibling_dir_shas.index(directory.dir_fqpn_sha256)
+            page_locale = int(position / items_per_page) + 1
         except ValueError:
             page_locale = 1
     else:

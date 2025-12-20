@@ -866,12 +866,11 @@ class FileIndex(models.Model):
         Uses HttpResponse for non-ranged, RangedFileResponse for ranged (videos).
         """
         mtype = self.filetype.mimetype or "application/octet-stream"
-        fqpn_filename = self.full_filepathname
 
         if not ranged:
             # Load entire file into memory - matches old fast code
             try:
-                with open(fqpn_filename, "rb") as fh:
+                with open(self.full_filepathname, "rb") as fh:
                     response = HttpResponse(fh.read(), content_type=mtype)
                     response["Content-Disposition"] = f"inline; filename={self.name}"
                     response["Cache-Control"] = "public, max-age=300"
@@ -882,7 +881,7 @@ class FileIndex(models.Model):
             try:
                 response = RangedFileResponse(
                     request,
-                    file=open(fqpn_filename, "rb"),  # pylint: disable=consider-using-with
+                    file=open(self.full_filepathname, "rb"),  # pylint: disable=consider-using-with
                     as_attachment=False,
                     filename=self.name,
                 )
@@ -913,13 +912,12 @@ class FileIndex(models.Model):
             asyncio.CancelledError: Re-raised if client disconnects (file handle cleaned up)
         """
         mtype = self.filetype.mimetype or "application/octet-stream"
-        fqpn_filename = self.full_filepathname
         file_handle = None
 
         try:
             if not ranged:
                 # Non-ranged: Load file async and serve from memory (eliminates sync iterator warning)
-                async with aiofiles.open(fqpn_filename, "rb") as f:
+                async with aiofiles.open(self.full_filepathname, "rb") as f:
                     content = await f.read()
 
                 response = FileResponse(
@@ -941,7 +939,7 @@ class FileIndex(models.Model):
                 # - Errors: Exception handlers below close handle (FileNotFoundError, CancelledError)
                 # - Concurrent streams: 50+ simultaneous open handles is safe (system limit ~1024)
                 def _open_file():
-                    return open(fqpn_filename, "rb")
+                    return open(self.full_filepathname, "rb")
 
                 file_handle = await sync_to_async(_open_file)()
                 response = RangedFileResponse(
