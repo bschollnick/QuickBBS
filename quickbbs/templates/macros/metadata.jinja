@@ -72,11 +72,11 @@
 {% macro show_item_metadata(item, fromtimestamp=None) %}
 <div class="item-metadata">
     {% if item.filetype.is_dir %}
-        {% set dir_counts = item.dir_count_annotated if item.dir_count_annotated is defined else item.get_dir_counts() %}
-        {{ show_icon_text('far fa-folder', dir_counts | intcomma, dir_counts not in [0, None, "", -1]) }}
+        {% set directory_count = item.directory_count if item.directory_count is defined else item.get_dir_counts() %}
+        {{ show_icon_text('far fa-folder', directory_count | intcomma, directory_count not in [0, None, "", -1]) }}
 
-        {% set file_counts = item.file_count_annotated if item.file_count_annotated is defined else item.get_file_counts() %}
-        {{ show_icon_text('far fa-file', file_counts | intcomma, file_counts not in [0, None, "", -1]) }}
+        {% set file_count = item.file_count if item.file_count is defined else item.get_file_counts() %}
+        {{ show_icon_text('far fa-file', file_count | intcomma, file_count not in [0, None, "", -1]) }}
     {% endif %}
 
     {% if fromtimestamp %}

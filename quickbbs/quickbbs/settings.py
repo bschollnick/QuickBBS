@@ -24,12 +24,13 @@ from django_htmx.jinja import django_htmx_script, htmx_script
 from PIL import Image, ImageFile
 
 from quickbbs.quickbbs_settings import *
+from quickbbs import __version__ as QUICKBBS_VERSION
 
 #
 #   Debug, enables the debugging mode
 #
 DEBUG = False
-# DEBUG = not DEBUG
+DEBUG = not DEBUG
 print(f"* Debug Mode is {DEBUG}")
 
 #   Django Debug Toolbar, is controlled separately from the debug mode,
@@ -329,6 +330,7 @@ TEMPLATES = [
                 "naturalsize": humanize.naturalsize,
             },
             "constants": {
+                "app_version": QUICKBBS_VERSION,
                 # "bulma_uri": BULMA_URI,
                 # "fontawesome_uri": FONTAWESOME_URI,
                 # "fontawesome_script_uri": FONTAWESOME_SCRIPT_URI,

@@ -76,9 +76,9 @@ def _process_items(items, ext_ignore, files_ignore, ignore_dots):
     """
     fs_data = {}
     for item in items:
-        result = _filter_and_process_item(item, ext_ignore, files_ignore, ignore_dots)
-        if result:
-            fs_data[result[0]] = result[1]
+        processed_item = _filter_and_process_item(item, ext_ignore, files_ignore, ignore_dots)
+        if processed_item:
+            fs_data[processed_item[0]] = processed_item[1]
     return fs_data
 
 

@@ -876,6 +876,13 @@ class fs_Cache_Tracking(models.Model):
                 "lastscan": time.time(),
             },
         )
+
+        # Clear LRU cache to prevent stale DirectoryIndex data
+        # This ensures next access will fetch fresh data with updated invalidation status
+        from quickbbs.models import directoryindex_cache  # pylint: disable=import-outside-toplevel
+
+        directoryindex_cache.pop(index_dir.dir_fqpn_sha256, None)
+
         return entry
 
     def _invalidate_cache_entry(self, sha256: str) -> "fs_Cache_Tracking" | None:
@@ -909,6 +916,12 @@ class fs_Cache_Tracking(models.Model):
                 "lastscan": time.time(),
             },
         )
+
+        # Clear LRU cache to prevent stale DirectoryIndex data
+        from quickbbs.models import directoryindex_cache  # pylint: disable=import-outside-toplevel
+
+        directoryindex_cache.pop(sha256, None)
+
         return entry
 
     def _bulk_invalidate_by_shas(self, sha_list: list[str]) -> int:
