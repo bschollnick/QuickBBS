@@ -30,7 +30,7 @@ from quickbbs import __version__ as QUICKBBS_VERSION
 #   Debug, enables the debugging mode
 #
 DEBUG = False
-DEBUG = not DEBUG
+#DEBUG = not DEBUG
 print(f"* Debug Mode is {DEBUG}")
 
 #   Django Debug Toolbar, is controlled separately from the debug mode,

@@ -102,10 +102,11 @@ What sets this apart is several changes from standard "gallery" designs.
 
 ### Why Database-Stored Thumbnails?
 
-Traditional approaches create separate thumbnail files on disk, but could create I/O bottlenecks. 
+Traditional approaches create separate thumbnail files on disk, which under heavy load could be vulnerable to Disk (I/O) bottlenecks. 
+
 In addition, most galleries end up creating thumbnail cache directories which eat up significant disk space.
 
-QuickBBS stores three thumbnail sizes (Small: 200x200, Medium: 740x740, Large: 1024x1024) as binary blobs in PostgreSQL, making the database the bottleneck rather than disk I/O for better performance.
+QuickBBS stores three thumbnail sizes (by default, Small: 200x200, Medium: 740x740, Large: 1024x1024) as binary blobs in PostgreSQL, making the database the bottleneck rather than disk I/O for better performance.
 
 ### Request Processing
 
@@ -117,7 +118,9 @@ Web requests are handled as:
 
 ### Cache Management
 
-[Watchdog File System Monitor](https://github.com/gorakhargosh/watchdog/) continuously monitors the ALBUMS_PATH. When file system changes are detected, directories are marked for rescanning without immediate database updates, providing efficient cache invalidation.
+[Watchdog File System Monitor](https://github.com/gorakhargosh/watchdog/) continuously monitors the ALBUMS_PATH. When file system changes are detected, directories are marked for rescanning on the next access.  This prevents disk trashing when multiple files are being updated within a particular directory, but ensures efficient cache invalidation.  
+
+When that directory is next accessed (via the web) the cached data will be detected as being invalidated, and an immediate rescan of the directory will be performed.  The newly updated data is marked as being validated, and the normal workflow is resumed.
 
 **Event Batching**: File system changes are buffered for 5 seconds before processing, preventing database thrashing during bulk file operations (copies, moves, deletions). This batching strategy efficiently handles large-scale file system changes while maintaining responsiveness.
 
@@ -167,12 +170,13 @@ The database is broken into individual applications to aid in the upgrade and mo
 	- **DirectoryIndex**: Contains the Index for the Directories, virtual/alias directories.
 	- **FileIndex**: Contains the Index for the individual files 
 	- **Thumbnails**: 
-		- **ThumbnailFiles**: The Database table that contains the Thumbnail data for the Index* records.  
+		- **ThumbnailFiles**: The Database table that contains the Thumbnail data for the File Index, and Directory Index records.  
 		- The thumbnail engine uses a modular system for generating thumbnails:
 			- **PDF** - Uses PyMuPDF to render the first page of the PDF into a PIL image and is converted into a thumbnail.
 			- **PIL / PILLOW** - Uses PILLOW to convert image formats into a thumbnail
 			- **video** - converts a variety of video formats into thumbnails (takes a frame from ½ through the video, converts it to a PIL image, and then into a thumbnail)
-		- **v3.75 -** In addition native mac OS support for Core Image, PDFKit, and AVFoundation means that when run under mac OS the thumbnail engine will use those native libraries to optimize the performance of the thumbnail engine.
+		- ~~**v3.75 -** In addition native mac OS support for Core Image, PDFKit, and AVFoundation means that when run under mac OS the thumbnail engine will use those native libraries to optimize the performance of the thumbnail engine.~~
+			- There appears to be a memory leak in the Mac OS optimized code.  So while the plugins do still exist, they have been temporarily disabled.  This memory leak seems to be in the GPU side not releasing the memory, and not in the python based code.  
 	- Cache_Watcher: 
 		- **fs_Cache_Tracking**: The Database table used to store the cache status for the directories in the file system
 		- It also contains the Caching engine for the File System that monitors for file system changes (using WatchDog) 
@@ -225,8 +229,16 @@ The database is broken into individual applications to aid in the upgrade and mo
 - **Context Building Cache**: Optimized single-pass dictionary creation for item views
 - **Async-Compatible Operations**: Database operations wrapped with `sync_to_async` for ASGI/WSGI compatibility
 
+**Template System (v3.95+)**:
+- **Jinja2 Macro System**: Reusable template components reduce code duplication by 70-80%
+- **Component Architecture**: Modular UI fragments (navbar, breadcrumbs, pagination, cards)
+- **External CSS**: All styles extracted from templates for better browser caching
+- **DRY Principles**: Single source of truth for HTMX patterns, metadata display, and navigation
+
 **HTMX Integration**:
-- HTMX is used to make this gallery into an progress web applet, reducing the latency, and simplifying the web front-end.
+- HTMX is used to make this gallery into a progressive web application, reducing latency and simplifying the web front-end
+- Smart partial page updates without full reloads
+- Optimized scroll behavior and loading states
 
 #### 4. **quickbbs** - Core Configuration & Shared Models
 **Purpose**: Django project configuration and shared database models.
@@ -280,17 +292,6 @@ QuickBBS uses HTMX-enabled endpoints for dynamic gallery interactions. All endpo
 - **`GET /static/{path}`** - Static assets (CSS, JS, images)
 - **`GET /resources/{path}`** - Resource files (fonts, icons)
 
-**CRITICAL: Static Files Organization**
-
-- **NEVER place custom files in `static/` directory** - This is reserved exclusively for Django and third-party package assets
-- **ALWAYS place custom resources in `quickbbs/resources/` directory**:
-  - `resources/css/` - Custom stylesheets
-  - `resources/javascript/` - Custom JavaScript files
-  - `resources/fonts/` - Custom font files
-  - `resources/webfonts/` - Additional font resources
-  - `resources/images/` - Custom UI graphics and icons
-- **Rule**: If you created it, it goes in `resources/`. If Django or a package created it, it stays in `static/`.
-
 ### HTMX Integration
 
 QuickBBS extensively uses HTMX for seamless navigation:
@@ -326,8 +327,11 @@ The application automatically selects templates based on request type:
 - ✅ **v3.0 Core Features** - Gallery system, thumbnail caching, Watchdog monitoring
 - ✅ **v3.5 Release** - Full HTMX support, performance optimizations, code cleanup
 - ✅ **v3.75 Release** - Enhance Bulma Framework utilization, enhance HTMX support, performance optimizations, code cleanup
-- ✅ **v3.80 Release** - Major code cleanup, reducing redundant string operations, utilizing more functionality from the move to SHA256 based identifiers, adding the ability to hide duplicate images in a gallery via user-preferences.
-- 🔄 **Active Development** - Further cleanup of legacy code, Enhanced search capabilities, UI improvements, performance optimization
+- ✅ **v3.80 Release** - Major code cleanup, reducing redundant string operations, utilizing more functionality from the move to SHA256 based identifiers, adding the ability to hide duplicate images in a gallery via user-preferences
+- ✅ **v3.85 Release** - Database performance optimizations, composite indexes, virtual directory bug fixes
+- ✅ **v3.90 Release** - Model renaming and code organization (FileIndex, DirectoryIndex)
+- ✅ **v3.95 Release** - Template system optimization with Jinja2 macros, CSS extraction, component architecture
+- 🔄 **Active Development** - Enhanced search capabilities, UI improvements, continued performance optimization
 
 [Detailed Version History](Version%20History.md)
 

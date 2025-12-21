@@ -335,6 +335,64 @@ Version 3.90 focuses on significant code organization improvements through model
 
 ---
 
+## Version 3.95 (December 2025)
+**Technology**: Django 6.0, HTMX, Template System Optimization
+
+Version 3.95 focuses on comprehensive template system optimization using Jinja2 macros, eliminating code duplication and improving maintainability while enhancing performance through better browser caching.
+
+### Major Enhancements:
+
+**Template System Optimization:**
+- **Jinja2 Macro System**: Implemented comprehensive macro system for reusable template components
+  - `htmx.jinja` - HTMX navigation, buttons, and utility macros
+  - `metadata.jinja` - Item metadata display with icons
+  - `gallery.jinja` - Gallery item card generation
+  - `pagination.jinja` - Pagination controls and navigation
+  - `breadcrumb.jinja` - Breadcrumb navigation
+- **Code Reduction**: Eliminated 173 lines of template duplication (70-80% reduction in sidebar code)
+- **DRY Principles**: Single source of truth for common patterns (navigation, metadata, cards)
+
+**Component Architecture:**
+- **Unified Sidebar**: Consolidated `gallery_listing_sidebar` and `gallery_htmx_sidebar` into single component
+- **Reusable Components**: Created modular UI fragments (navbar, pagination, error modals, gallery grids)
+- **Template Consolidation**: Removed redundant menu files, simplified partial template structure
+
+**CSS Extraction & Performance:**
+- **External CSS Files**: Extracted all inline styles to external CSS for better browser caching
+  - `filetype-layout.css` - File type container layouts (67 lines extracted)
+  - `gallery-grid.css` - Gallery grid styling
+- **Eliminated Sync Requirements**: No more manual CSS synchronization between templates
+- **Better Caching**: External CSS enables browser caching, reducing HTMX partial update overhead
+
+**Template Best Practices:**
+- **Macro Usage**: Import only needed macros for clean, efficient templates
+- **Explicit Context**: Macros accept context parameters explicitly (e.g., `request=request`)
+- **Caller() Pattern**: Flexible content inclusion with Jinja2 caller() functionality
+- **Consistent HTMX Patterns**: Standard attributes across all navigation (`hx-push-url`, `hx-target`, `hx-swap`)
+
+**Performance Benefits:**
+- **Faster HTMX Updates**: No CSS re-parsing on partial page updates
+- **Reduced Template Size**: 70+ lines of macro code replace 173 lines of duplicated template code
+- **Better Maintainability**: Updates in one place propagate everywhere
+- **Improved Parsing**: Smaller templates parse faster
+
+**Documentation:**
+- **Macro Documentation**: Comprehensive README in `templates/macros/` with usage examples
+- **Template Guide**: Updated `.claude/templates-frontend.md` with complete macro system documentation
+
+**Code Quality & Refactoring:**
+- **Dead Code Removal**: Removed unused logger.py, abstract wrappers, and unnecessary comments for cleaner codebase
+- **Model Organization**: Refactored class-related helper methods into DirectoryIndex and FileIndex models for better encapsulation
+- **FileIndex Simplification**: Streamlined `from_filesystem()` method for improved maintainability
+- **Configuration Consolidation**: Moved pylint configuration from .pylintrc into pyproject.toml for centralized project configuration
+
+**Bug Fixes & Stability:**
+- **Async Error Handling**: Suppressed CancelledError exceptions when clients disconnect early, preventing unnecessary error logging
+- **Pagination Navigation**: Fixed pagination dropdown to use explicit directory paths instead of context-dependent URLs, ensuring correct navigation across directory changes
+- **Thumbnail Engine**: Disabled macOS GPU optimizations to prevent memory leaks during thumbnail generation
+
+---
+
 ## Performance Evolution Summary:
 
 | Version | Release Date        | Storage                    | Thumbnails     | Monitoring             |
@@ -348,4 +406,5 @@ Version 3.90 focuses on significant code organization improvements through model
 | v3.80   | October 24, 2025    | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI |
 | v3.85   | November 3, 2025    | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI |
 | v3.90   | November 15, 2025   | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI |
+| v3.95   | December 2025       | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI + Macro Templates |
 

@@ -68,8 +68,8 @@
 
 {% block page_selector %}
 {% if show_page_selector %}
-  {% cache 120 "pagination_selector" current_page total_pages sort %}
-  {{ show_page_selector_standalone(current_page, total_pages, sort) }}
+  {% cache 120 "pagination_selector" current_page total_pages sort webpath %}
+  {{ show_page_selector_standalone(current_page, total_pages, sort, webpath) }}
   {% endcache %}
 {% elif page is defined %}
   {# Item view page display - varies by item, don't cache #}
