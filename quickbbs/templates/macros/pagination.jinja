@@ -45,7 +45,7 @@
       )
 #}
 {% macro show_pagination_controls(prev_url=None, next_url=None, first_url=None, last_url=None,
-                                  current_page=None, total_pages=None, page_selector=True, sort=0) %}
+                                  current_page=None, total_pages=None, page_selector=True, sort=0, webpath=None) %}
 <nav class="pagination is-small is-centered" role="navigation" aria-label="pagination">
     <!-- Previous Button -->
     <a class="pagination-previous{% if not prev_url %} is-disabled{% endif %}"
@@ -92,7 +92,7 @@
       </li>
 
       {% if page_selector and current_page and total_pages %}
-        {{ show_page_selector_widget(current_page, total_pages, sort) }}
+        {{ show_page_selector_widget(current_page, total_pages, sort, webpath) }}
       {% endif %}
 
       <li>
@@ -125,7 +125,7 @@
   Usage:
       {{ show_page_selector_widget(5, 100, 0) }}
 #}
-{% macro show_page_selector_widget(current_page, total_pages, sort=0) %}
+{% macro show_page_selector_widget(current_page, total_pages, sort=0, webpath=None) %}
 <li class="pagination-page-selector">
     <div class="field">
       <label class="label is-small has-text-centered">Page</label>
@@ -133,7 +133,7 @@
         <input type="hidden" name="sort" value="{{ sort }}">
         <div class="select is-small">
           <select name="page"
-                  hx-get="."
+                  hx-get="{{ webpath or '.' }}"
                   hx-target="body"
                   hx-swap="innerHTML show:window:top transition:true"
                   hx-push-url="true"
@@ -321,7 +321,7 @@
   Usage:
       show_page_selector_standalone(5, 100, 0)
 #}
-{% macro show_page_selector_standalone(current_page, total_pages, sort=0) %}
+{% macro show_page_selector_standalone(current_page, total_pages, sort=0, webpath=None) %}
 <div class="page-selector">
   <div class="field">
     <label class="label is-small has-text-centered">Page</label>
@@ -329,7 +329,7 @@
       <input type="hidden" name="sort" value="{{ sort }}">
       <div class="select is-small is-fullwidth">
         <select name="page"
-                hx-get="."
+                hx-get="{{ webpath or '.' }}"
                 hx-target="body"
                 hx-swap="innerHTML show:window:top transition:true"
                 hx-push-url="true"

@@ -102,7 +102,7 @@
           <input type="hidden" name="sort" value="{{sort}}">
           <div class="select is-small is-fullwidth">
             <select name="page"
-                    hx-get="."
+                    hx-get="{{ webpath }}"
                     hx-target="body"
                     hx-swap="innerHTML show:window:top transition:true"
                     hx-push-url="true"

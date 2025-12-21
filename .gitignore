@@ -141,6 +141,8 @@ dmypy.json
 # Claude Code files
 .claude_code/
 .claude/
+claude/
+claude_docs/
 
 
 # pytype static type analyzer
