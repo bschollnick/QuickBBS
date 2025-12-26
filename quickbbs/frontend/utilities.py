@@ -115,7 +115,7 @@ def _batch_compute_file_shas(file_paths: list[str], max_workers: int | None = No
     The singleton pool is safe because workers are isolated processes.
 
     ASYNC-SAFE: This is a sync function. When called from async contexts,
-    it should be wrapped with sync_to_async() (see sync_database_disk).
+    it should be wrapped with sync_to_async() (see update_database_from_disk).
     The blocking ProcessPoolExecutor calls will run in a thread pool via
     sync_to_async, preventing event loop blocking.
 
@@ -257,9 +257,9 @@ def return_breadcrumbs(uri_path="") -> list[dict[str, str]]:
     return [{"name": part, "url": "/" + "/".join(quote(p, safe="") for p in parts[: i + 1])} for i, part in enumerate(parts)]
 
 
-async def sync_database_disk(directory_record: DirectoryIndex) -> bool | None:
+async def update_database_from_disk(directory_record: DirectoryIndex) -> bool | None:
     """
-    Synchronize database entries with filesystem for a given directory.
+    Update database entries to match filesystem state for a given directory.
 
     Args:
         directory_record: DirectoryIndex record for the directory to synchronize

@@ -50,7 +50,7 @@
 {% if disable_pagination_cache %}
 {{ show_first_page_button(first_url) }}
 {% else %}
-{% cache 120 "pagination_first" current_page total_pages sort %}
+{% cache 120 "pagination_first" current_page total_pages sort webpath %}
 {{ show_first_page_button(first_url) }}
 {% endcache %}
 {% endif %}
@@ -60,7 +60,7 @@
 {% if disable_pagination_cache %}
 {{ show_previous_page_button(prev_url) }}
 {% else %}
-{% cache 120 "pagination_prev" current_page total_pages sort %}
+{% cache 120 "pagination_prev" current_page total_pages sort webpath %}
 {{ show_previous_page_button(prev_url) }}
 {% endcache %}
 {% endif %}
@@ -87,7 +87,7 @@
 {% if disable_pagination_cache %}
 {{ show_next_page_button(next_url) }}
 {% else %}
-{% cache 120 "pagination_next" current_page total_pages sort %}
+{% cache 120 "pagination_next" current_page total_pages sort webpath %}
 {{ show_next_page_button(next_url) }}
 {% endcache %}
 {% endif %}
@@ -109,7 +109,7 @@
 {% if disable_pagination_cache %}
 {{ show_last_page_button(last_url) }}
 {% else %}
-{% cache 120 "pagination_last" current_page total_pages sort %}
+{% cache 120 "pagination_last" current_page total_pages sort webpath %}
 {{ show_last_page_button(last_url) }}
 {% endcache %}
 {% endif %}

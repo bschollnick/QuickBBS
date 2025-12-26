@@ -1,5 +1,6 @@
 {# Gallery Item Card - Reusable component for displaying gallery items #}
 {# Parameters expected: item, sort, loop.index #}
+{% from 'macros/htmx.jinja' import show_htmx_attrs %}
 
 {# Cache URLs and set HTMX attributes once #}
 {% if item.filetype.is_link and item.virtual_directory %}
@@ -7,10 +8,11 @@
 {% else %}
     {% set view_url = item.get_view_url() + "?sort=" + sort|string %}
 {% endif %}
-{% set htmx_html_attrs = 'hx-push-url="true" hx-target="body" hx-swap="outerHTML transition:true"' %}
+{% set thumbnail_url = item.get_thumbnail_url() %}
+{% set htmx_html_attrs = show_htmx_attrs(swap='outerHTML transition:true') %}
 
-{# Note: background-color must remain inline as it's dynamic based on filetype #}
-<div class="gallery-item" style="background-color: #{{ item.filetype.color }};">
+{# Using CSS custom property for dynamic filetype color - more performant than inline background-color #}
+<div class="gallery-item" style="--item-bg-color: #{{ item.filetype.color }};">
     <!-- Item Header -->
     <div class="item-header">
         <span class="item-index">{{ loop.index }}</span>
@@ -39,9 +41,10 @@
                hx-get="{{ view_url }}"
                {{ htmx_html_attrs|safe }}
                class="gallery-item-link">
-                <img src="{{ item.get_thumbnail_url() }}"
+                <img src="{{ thumbnail_url }}"
                      alt="{{ item.name }}"
-                     class="thumbnail thumbnail-image gallery-item">
+                     class="thumbnail thumbnail-image gallery-item"
+                     {% if loop.index > 8 %}loading="lazy" data-lazy-timeout="5000"{% endif %}>
             </a>
         </figure>
         <!-- External Link -->

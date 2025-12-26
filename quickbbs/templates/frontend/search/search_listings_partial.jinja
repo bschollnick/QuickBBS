@@ -2,7 +2,16 @@
 <div hx-boost="true" class="partial-container">
 {% autoescape off %}
 {% include 'frontend/search/search_listings_menu.jinja' %}
-{% include 'frontend/search/search_listings_sidebar.jinja' %}
+
+{# Build pagination URLs with searchtext parameter #}
+{% set up_url = originator %}
+{% set first_url = "?searchtext=" ~ searchtext ~ "&page=1&sort=" ~ sort %}
+{% set prev_url = ("?searchtext=" ~ searchtext ~ "&page=" ~ (current_page - 1) ~ "&sort=" ~ sort) if current_page > 1 else None %}
+{% set next_url = ("?searchtext=" ~ searchtext ~ "&page=" ~ (current_page + 1) ~ "&sort=" ~ sort) if current_page < total_pages else None %}
+{% set last_url = "?searchtext=" ~ searchtext ~ "&page=" ~ total_pages ~ "&sort=" ~ sort %}
+{% set show_page_selector = True %}
+
+{% include 'components/pagination_sidebar_search.jinja' %}
 {% include 'frontend/search/search_listings_images.jinja' %}
 
 {% endautoescape %}

@@ -68,14 +68,18 @@ class cache_startup(AppConfig):
             else:
                 logger.info(f"Acquired watchdog lock (PID {os.getpid()}) - starting in production server worker")
 
-        except (IOError, OSError, BlockingIOError):
+        except (IOError, OSError, BlockingIOError) as e:
             # Lock already held by another process - don't start
+            logger.warning("Failed to acquire lock file: %s", e)
             should_start = False
             try:
                 lock_fd.close()
-            except:
-                pass
-            logger.info(f"Watchdog already running in another process (PID {os.getpid()}) - skipping startup")
+            except (IOError, OSError, AttributeError) as close_error:
+                logger.debug("Failed to close lock file: %s", close_error)
+            logger.info(
+                "Watchdog already running in another process (PID %s) - skipping startup",
+                os.getpid(),
+            )
 
         # Start watchdog if this is the designated process
         if should_start:

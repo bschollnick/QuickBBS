@@ -38,16 +38,6 @@
     100% { transform: rotate(360deg); }
 }
 
-/* HTMX Indicator */
-.htmx-indicator {
-    opacity: 0;
-    transition: opacity 100ms ease-in;
-}
-
-.htmx-request .htmx-indicator {
-    opacity: 1;
-}
-
 /* Title and Text Styles */
 #title, .title, h1, h2, h3, h4, h5, h6 {
     color: black !important;
@@ -62,27 +52,7 @@
     padding: 0.25rem;
 }
 
-/* Navigation Header */
-.nav-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-top: 1rem;
-    margin-bottom: .5rem;
-    gap: .5rem;
-}
-
-.nav-breadcrumb {
-    flex: 1;
-    text-align: center;
-}
-
-.nav-controls {
-    display: flex;
-    gap: 1rem;
-    min-width: 120px;
-}
-
+/* Navigation Link */
 .nav-link {
     font-size: 0.875rem;
     color: #3273dc;
@@ -118,20 +88,6 @@
 
 .filetype-bg {
     background-color: var(--filetype-color);
-}
-
-/* Image Optimization */
-.lazy-image {
-    loading: lazy;
-    transition: opacity 0.3s ease-in-out;
-}
-
-.lazy-image[data-loaded="false"] {
-    opacity: 0.5;
-}
-
-.lazy-image[data-loaded="true"] {
-    opacity: 1;
 }
 
 /* Responsive Image Sizing - Scales to container */
@@ -183,26 +139,12 @@
         margin-left: 0;
         padding: 0.125rem;
     }
-
-    .nav-header {
-        flex-direction: column;
-        gap: 0.25rem;
-    }
-
-    .nav-controls {
-        min-width: auto;
-        justify-content: center;
-    }
 }
 
 /* Accessibility */
 @media (prefers-reduced-motion: reduce) {
     .spinner-icon {
         animation: none;
-    }
-
-    .lazy-image {
-        transition: none;
     }
 }
 

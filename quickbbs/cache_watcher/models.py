@@ -125,13 +125,41 @@ class LockFreeEventBuffer:
             self._events.clear()
 
 
+# ============================================================================
+# MODULE-LEVEL GLOBAL STATE
+# ============================================================================
+# The following globals are intentionally module-scoped and thread-safe:
+#
+# 1. optimized_event_buffer: Lock-free event buffer for batch processing
+#    - Thread-safe via LockFreeEventBuffer implementation (uses threading.Lock internally)
+#    - Global scope required because watchdog event handlers need shared access
+#    - Survives watchdog restarts to prevent event loss
+#
+# 2. processing_semaphore: Serializes cache invalidation operations
+#    - MUST be threading.Semaphore (not asyncio.Lock) - watchdog uses OS threads
+#    - Acts as mutex (Semaphore(1)) to prevent concurrent cache invalidation
+#    - Shared across all handler instances to coordinate multi-process safety
+#    - Semaphore used instead of Lock to support timeout operations
+#
+# Threading Model:
+#    - Watchdog observer runs in separate OS threads (not asyncio event loop)
+#    - Event handlers are called from watchdog threads
+#    - Must use threading primitives (not asyncio) for synchronization
+#
+# Lifecycle:
+#    - Initialized on module import (Django app startup)
+#    - Persists for application lifetime
+#    - Cleaned up on Django shutdown (atexit handlers)
+# ============================================================================
+
 # Global event buffer for batch processing (optimized lock-free version)
 optimized_event_buffer = LockFreeEventBuffer()
-EVENT_PROCESSING_DELAY = 5  # seconds
+
+# Event processing configuration
+EVENT_PROCESSING_DELAY = 5  # seconds - debounce delay for batching events
 WATCHDOG_RESTART_INTERVAL = 4 * 60 * 60  # 4 hours in seconds
 
-# Global processing semaphore - shared across all handler instances
-# This ensures only one cache invalidation runs at a time, even across handler restarts
+# Global processing semaphore - ensures serialized cache invalidation
 # MUST use threading.Semaphore - accessed by watchdog threads (OS threads, not asyncio)
 processing_semaphore = threading.Semaphore(1)
 
@@ -278,7 +306,9 @@ class WatchdogManager:
             processing_semaphore.release()
             close_old_connections()
             # Force garbage collection to free memory from processed events
-            gc.collect()
+            # NOTE: Manual gc.collect() commented out - Python's automatic GC is sufficient
+            # See bug_hunt.md issue #7 for details
+            # gc.collect()
 
     def restart(self) -> None:
         """Restart the watchdog process and schedule the next restart."""
@@ -484,10 +514,14 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
                     DirectoryIndex,  # pylint: disable=import-outside-toplevel
                 )
 
-                sha_list = [get_dir_sha(path) for path in paths_to_process]
+                # Convert paths to SHAs and build path->SHA mapping for reverse lookup
+                path_to_sha = {path: get_dir_sha(path) for path in paths_to_process}
+                sha_list = list(path_to_sha.values())
+
                 # Load only required fields to reduce memory footprint
                 index_dirs = list(DirectoryIndex.objects.filter(dir_fqpn_sha256__in=sha_list).only("dir_fqpn_sha256", "id", "fqpndirectory"))
 
+                # Process existing directories (current behavior)
                 if index_dirs:
                     # Wrap DB operation for ASGI compatibility
                     try:
@@ -497,10 +531,76 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
                         # Fallback to direct call if not in async context
                         Cache_Storage.remove_multiple_from_cache_indexdirs(index_dirs)
 
-                # Explicitly delete large objects to free memory
-                del paths_to_process
-                del sha_list
-                del index_dirs
+                # NEW: Handle paths that don't exist in DirectoryIndex
+                found_shas = {d.dir_fqpn_sha256 for d in index_dirs}
+                missing_shas = set(sha_list) - found_shas
+
+                if missing_shas:
+                    # Get the original paths for missing SHAs
+                    sha_to_path = {sha: path for path, sha in path_to_sha.items()}
+                    missing_paths = [sha_to_path[sha] for sha in missing_shas]
+
+                    # Filter to only directories that actually exist on filesystem
+                    verified_paths = [p for p in missing_paths if os.path.isdir(p)]
+
+                    if verified_paths:
+                        logger.info(
+                            "[Gen %d] Found %d new directories not in DirectoryIndex, creating placeholders: %s",
+                            expected_generation,
+                            len(verified_paths),
+                            verified_paths[:5],  # Log first 5 for debugging
+                        )
+
+                        # Create placeholder DirectoryIndex entries using add_directory
+                        created_dirs = []
+                        parent_dirs_to_invalidate = []
+
+                        for path in verified_paths:
+                            # Use DirectoryIndex.add_directory which handles parent creation
+                            # Returns (success, directory_object)
+                            created, dir_obj = DirectoryIndex.add_directory(path)
+
+                            if created and dir_obj:
+                                created_dirs.append(dir_obj)
+                                logger.debug("Created DirectoryIndex placeholder for: %s", path)
+
+                                # Track parent directory for invalidation
+                                if dir_obj.parent_directory:
+                                    parent_dirs_to_invalidate.append(dir_obj.parent_directory)
+
+                        # Create invalidated fs_Cache_Tracking entries for new directories
+                        if created_dirs:
+                            with transaction.atomic():
+                                for dir_obj in created_dirs:
+                                    fs_Cache_Tracking.objects.update_or_create(
+                                        directory=dir_obj,
+                                        defaults={
+                                            "invalidated": True,
+                                            "lastscan": time.time(),
+                                        },
+                                    )
+
+                            logger.info(
+                                "[Gen %d] Created %d fs_Cache_Tracking entries for new directories",
+                                expected_generation,
+                                len(created_dirs),
+                            )
+
+                        # Invalidate parent directories so they rescan and update subdirectory lists
+                        if parent_dirs_to_invalidate:
+                            # Deduplicate parents
+                            unique_parents = list({p.dir_fqpn_sha256: p for p in parent_dirs_to_invalidate if p}.values())
+
+                            if unique_parents:
+                                logger.info(
+                                    "[Gen %d] Invalidating %d parent directories for new subdirectories",
+                                    expected_generation,
+                                    len(unique_parents),
+                                )
+                                try:
+                                    async_to_sync(self._remove_from_cache_indexdirs_async)(unique_parents)
+                                except RuntimeError:
+                                    Cache_Storage.remove_multiple_from_cache_indexdirs(unique_parents)
 
         except (RuntimeError, DatabaseError, OSError, AttributeError) as e:
             logger.error("Error processing buffered events: %s", e)
@@ -515,7 +615,9 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
             # Watchdog runs in background thread - must close connections
             close_old_connections()
             # Force garbage collection to free memory from processed events
-            gc.collect()
+            # NOTE: Manual gc.collect() commented out - Python's automatic GC is sufficient
+            # See bug_hunt.md issue #7 for details
+            # gc.collect()
 
     async def _remove_from_cache_indexdirs_async(self, index_dirs: list[Any]) -> None:
         """Async wrapper for cache removal to support ASGI mode.
@@ -674,10 +776,10 @@ class fs_Cache_Tracking(models.Model):
 
         try:
             # Import inside function to avoid circular dependency
+            from quickbbs.directoryindex import DIRECTORYINDEX_SR_CACHE
             from quickbbs.models import (
                 DirectoryIndex,  # pylint: disable=import-outside-toplevel
             )
-            from quickbbs.directoryindex import DIRECTORYINDEX_SR_CACHE
 
             dir_sha = get_dir_sha(dir_path)
             scan_time = time.time()
@@ -764,10 +866,10 @@ class fs_Cache_Tracking(models.Model):
         """
         try:
             # Import inside function to avoid circular dependency
+            from quickbbs.directoryindex import DIRECTORYINDEX_SR_CACHE
             from quickbbs.models import (
                 DirectoryIndex,  # pylint: disable=import-outside-toplevel
             )
-            from quickbbs.directoryindex import DIRECTORYINDEX_SR_CACHE
 
             # Single optimized lookup with prefetched relationships
             found, directory = DirectoryIndex.search_for_directory_by_sha(sha256, DIRECTORYINDEX_SR_CACHE, ())
@@ -879,7 +981,9 @@ class fs_Cache_Tracking(models.Model):
 
         # Clear LRU cache to prevent stale DirectoryIndex data
         # This ensures next access will fetch fresh data with updated invalidation status
-        from quickbbs.models import directoryindex_cache  # pylint: disable=import-outside-toplevel
+        from quickbbs.models import (
+            directoryindex_cache,  # pylint: disable=import-outside-toplevel
+        )
 
         directoryindex_cache.pop(index_dir.dir_fqpn_sha256, None)
 
@@ -900,8 +1004,10 @@ class fs_Cache_Tracking(models.Model):
             return None
 
         # Import inside function to avoid circular dependency
-        from quickbbs.models import DirectoryIndex  # pylint: disable=import-outside-toplevel
         from quickbbs.directoryindex import DIRECTORYINDEX_SR_CACHE
+        from quickbbs.models import (
+            DirectoryIndex,  # pylint: disable=import-outside-toplevel
+        )
 
         # Fetch the DirectoryIndex instance by dir_sha using optimized cached lookup
         found, index_dir = DirectoryIndex.search_for_directory_by_sha(sha256, DIRECTORYINDEX_SR_CACHE, ())
@@ -918,7 +1024,9 @@ class fs_Cache_Tracking(models.Model):
         )
 
         # Clear LRU cache to prevent stale DirectoryIndex data
-        from quickbbs.models import directoryindex_cache  # pylint: disable=import-outside-toplevel
+        from quickbbs.models import (
+            directoryindex_cache,  # pylint: disable=import-outside-toplevel
+        )
 
         directoryindex_cache.pop(sha256, None)
 
@@ -937,8 +1045,10 @@ class fs_Cache_Tracking(models.Model):
             Number of cache entries invalidated
         """
         # Import inside function to avoid circular dependency
-        from quickbbs.models import DirectoryIndex  # pylint: disable=import-outside-toplevel
         from quickbbs.directoryindex import DIRECTORYINDEX_SR_PARENT
+        from quickbbs.models import (
+            DirectoryIndex,  # pylint: disable=import-outside-toplevel
+        )
 
         # Collect all parent directories using efficient batch query approach
         all_dirs_to_invalidate = DirectoryIndex.get_all_parent_shas(sha_list, DIRECTORYINDEX_SR_PARENT)
@@ -1020,7 +1130,9 @@ class fs_Cache_Tracking(models.Model):
             return False
 
         # Import inside function to avoid circular dependency
-        from quickbbs.models import DirectoryIndex  # pylint: disable=import-outside-toplevel
+        from quickbbs.models import (
+            DirectoryIndex,  # pylint: disable=import-outside-toplevel
+        )
 
         # Convert all directory names to SHA256 hashes (deduplicate first for efficiency)
         # Compute SHA→path mapping ONCE, then extract SHAs to avoid duplicate computation

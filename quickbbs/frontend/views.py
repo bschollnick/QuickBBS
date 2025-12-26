@@ -33,16 +33,16 @@ from PIL import Image
 
 from cache_watcher.models import Cache_Storage
 from frontend.managers import (
-    clear_layout_cache_for_directories,
-    async_layout_manager,
     async_build_context_info,
+    async_layout_manager,
+    clear_layout_cache_for_directories,
 )
 from frontend.utilities import (
     SORT_MATRIX,
     convert_to_webpath,
     ensures_endswith,
     return_breadcrumbs,
-    sync_database_disk,
+    update_database_from_disk,
 )
 from quickbbs.common import get_dir_sha, normalize_fqpn
 from quickbbs.directoryindex import (
@@ -50,8 +50,11 @@ from quickbbs.directoryindex import (
     DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE,
     DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT,
 )
-from quickbbs.fileindex import FILEINDEX_SR_FILETYPE_HOME_VIRTUAL, FILEINDEX_SR_FILETYPE_HOME
-from quickbbs.models import FileIndex, DirectoryIndex
+from quickbbs.fileindex import (
+    FILEINDEX_SR_FILETYPE_HOME,
+    FILEINDEX_SR_FILETYPE_HOME_VIRTUAL,
+)
+from quickbbs.models import DirectoryIndex, FileIndex
 from thumbnails.models import ThumbnailFiles
 
 # download_cache = LRUCache(maxsize=1000)
@@ -113,6 +116,28 @@ async def async_render(request, template_name, context=None, **kwargs):
     return await sync_to_async(render)(request, template_name, context, **kwargs)
 
 
+def get_sort_param(request: WSGIRequest) -> int:
+    """
+    Get and validate sort parameter from query string.
+
+    Valid values are defined by SORT_MATRIX keys.
+
+    :Args:
+        request: Django request object
+
+    :Returns:
+        Sort parameter (validated against SORT_MATRIX), defaults to 0 if invalid
+    """
+    DEFAULT_SORT = 0
+
+    try:
+        sort_value = int(request.GET.get("sort", str(DEFAULT_SORT)))
+        # Use existing SORT_MATRIX keys - no need to duplicate valid values
+        return sort_value if sort_value in SORT_MATRIX else DEFAULT_SORT
+    except (ValueError, TypeError):
+        return DEFAULT_SORT
+
+
 def _create_base_context(request: WSGIRequest) -> dict:
     """
     Create base context dictionary shared by all view functions.
@@ -121,18 +146,16 @@ def _create_base_context(request: WSGIRequest) -> dict:
         request: Django WSGIRequest object
     Returns: Base context dictionary
     """
-    from frontend.web import g_option
-
     small_size = settings.IMAGE_SIZE["small"]
     small_width, small_height = small_size
 
     return {
         "debug": settings.DEBUG,
-        "small": g_option(request, "size", small_size),
+        "small": request.GET.get("size", small_size),
         "small_width": small_width,
         "small_height": small_height,
         "user": request.user,
-        "sort": int(request.GET.get("sort", default=0)),
+        "sort": get_sort_param(request),
         "fromtimestamp": datetime.datetime.fromtimestamp,
         "current_page": int(request.GET.get("page", 1)),
         "missing": [],
@@ -370,7 +393,7 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
 
     # If no cover image found, try syncing from disk and retry
     if not cover_image:
-        async_to_sync(sync_database_disk)(directory)
+        async_to_sync(update_database_from_disk)(directory)
         cover_image = directory.get_cover_image()
 
     # If still no cover image found, return default directory icon
@@ -498,12 +521,10 @@ async def search_viewresults(request: WSGIRequest):
     context["show_duplicates"] = show_duplicates
 
     # Add search-specific context
-    from frontend.web import g_option
-
     context.update(
         {
-            "medium": g_option(request, "size", settings.IMAGE_SIZE["medium"]),
-            "large": g_option(request, "size", settings.IMAGE_SIZE["large"]),
+            "medium": request.GET.get("size", settings.IMAGE_SIZE["medium"]),
+            "large": request.GET.get("size", settings.IMAGE_SIZE["large"]),
             "searchtext": searchtext,
             "originator": request.headers.get("referer"),
             "gallery_name": f"Searching for {searchtext}",
@@ -652,7 +673,7 @@ def _find_directory(paths: dict) -> DirectoryIndex:
             _, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha, DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT, ())
 
             # Sync newly created directory to populate file entries
-            directory = async_to_sync(sync_database_disk)(directory)
+            directory = async_to_sync(update_database_from_disk)(directory)
 
             if not directory:
                 logger.info("Directory sync failed: %s", dirpath)
@@ -666,7 +687,7 @@ def _find_directory(paths: dict) -> DirectoryIndex:
             if directory.parent_directory:
                 Cache_Storage.remove_from_cache_indexdirs(index_dir=directory.parent_directory)
             Cache_Storage.remove_from_cache_indexdirs(index_dir=directory)
-            async_to_sync(sync_database_disk)(directory)
+            async_to_sync(update_database_from_disk)(directory)
             raise DirectoryNotFoundError(f"Gallery not found on filesystem: {dirpath}")
 
         logger.info("Viewing: %s", dirpath)
@@ -720,7 +741,7 @@ async def new_viewgallery(request: WSGIRequest):
         return HttpResponseBadRequest("<h1>Invalid path specified</h1>")
 
     # Ensure directory data is up to date
-    await sync_database_disk(directory)
+    await update_database_from_disk(directory)
 
     # Build initial context - start with shared base context
     context = _create_base_context(request)

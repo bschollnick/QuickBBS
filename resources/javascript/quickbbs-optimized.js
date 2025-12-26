@@ -180,6 +180,59 @@
         }
     }
 
+    // Browser Native Lazy Loading Manager with Timeout
+    class NativeLazyLoadManager {
+        constructor() {
+            this.timeouts = new Map();
+            this.init();
+        }
+
+        init() {
+            this.setupLazyImages();
+        }
+
+        setupLazyImages() {
+            const lazyImages = document.querySelectorAll('img[loading="lazy"][data-lazy-timeout]');
+
+            if (lazyImages.length === 0) return;
+
+            console.log(`Found ${lazyImages.length} native lazy-loaded images with timeout`);
+
+            lazyImages.forEach(img => {
+                const timeout = parseInt(img.dataset.lazyTimeout) || 5000;
+
+                // Clear existing timeout for this image if any
+                if (this.timeouts.has(img)) {
+                    clearTimeout(this.timeouts.get(img));
+                }
+
+                // Set a timeout to force load the image
+                const timeoutId = setTimeout(() => {
+                    // Check if image hasn't loaded yet (still has loading="lazy")
+                    if (img.loading === 'lazy' && !img.complete) {
+                        console.log('Auto-loading lazy image after timeout:', img.alt);
+                        // Force load by setting loading to eager
+                        img.loading = 'eager';
+                    }
+                    this.timeouts.delete(img);
+                }, timeout);
+
+                this.timeouts.set(img, timeoutId);
+            });
+        }
+
+        cleanup() {
+            // Clear all pending timeouts
+            this.timeouts.forEach(timeoutId => clearTimeout(timeoutId));
+            this.timeouts.clear();
+        }
+
+        refresh() {
+            this.cleanup();
+            this.setupLazyImages();
+        }
+    }
+
     // Cache Manager for HTMX Requests
     class CacheManager {
         constructor() {
@@ -243,6 +296,7 @@
         constructor() {
             this.spinner = new SpinnerManager();
             this.lazyLoader = new LazyLoadManager();
+            this.nativeLazyLoader = new NativeLazyLoadManager();
             this.cache = new CacheManager();
             this.performance = new PerformanceMonitor();
             this.init();
@@ -284,11 +338,13 @@
             document.addEventListener("htmx:afterSettle", () => {
                 this.spinner.hide();
                 this.lazyLoader.refresh();
+                this.nativeLazyLoader.refresh();
             });
 
             document.addEventListener("htmx:beforeSwap", () => {
                 // Clean up timers before content swap
                 this.lazyLoader.cleanup();
+                this.nativeLazyLoader.cleanup();
             });
 
             // Regular link clicks (non-HTMX)
@@ -350,6 +406,15 @@
                 this.showErrorModal({
                     error: 'Request Timeout',
                     statusCode: 408
+                });
+            });
+
+            document.addEventListener("htmx:sendError", (evt) => {
+                console.error('HTMX Network Error:', evt.detail);
+                this.spinner.hide();
+                this.showErrorModal({
+                    error: 'Network Error - Unable to connect to server',
+                    statusCode: 0
                 });
             });
 

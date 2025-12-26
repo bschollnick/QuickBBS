@@ -19,7 +19,7 @@ cd "$(dirname "$0")"
 
 # Server configuration
 BIND_ADDRESS="0.0.0.0:8888"
-WORKERS="6"  # Adjust based on CPU cores (2-4 * num_cores)
+WORKERS="4"  # Adjust based on CPU cores (2-4 * num_cores)
 
 # SSL certificate paths (adjust to your certificate locations)
 SSL_CERT="../certs/quickbbs_cert.pem"

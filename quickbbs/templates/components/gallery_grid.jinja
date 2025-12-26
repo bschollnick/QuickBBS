@@ -75,9 +75,11 @@
     {% endwith %}
 
     <!-- Gallery Grid -->
+    {% cache 120 "gallery_grid" webpath current_page sort %}
     <div class="gallery-grid">
         {%- for item in items_to_display -%}
             {{ show_gallery_item_card(item, loop.index, sort, fromtimestamp) }}
         {% endfor %}
     </div>
+    {% endcache %}
 </div>

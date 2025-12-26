@@ -8,7 +8,7 @@ from PIL import Image, ImageOps
 
 # Try to import Core Image and related macOS frameworks
 try:
-    from Foundation import NSAutoreleasePool, NSData, NSURL
+    from Foundation import NSURL, NSAutoreleasePool, NSData
     from Quartz import (
         CGColorSpaceCreateDeviceRGB,
         CGImageDestinationAddImage,
@@ -105,8 +105,10 @@ class CoreImageBackend(AbstractBackend):
                 self._context = None
                 del old_context
                 # Force cleanup of Python references
-                import gc
-                gc.collect()
+                # NOTE: Manual gc.collect() commented out - Python's automatic GC is sufficient
+                # See bug_hunt.md issue #7 for details
+                # import gc
+                # gc.collect()
 
             # Create fresh GPU-accelerated Core Image context
             self._context = CIContext.contextWithOptions_(
@@ -150,10 +152,17 @@ class CoreImageBackend(AbstractBackend):
                 # Force cache clear on failure to prevent accumulation
                 try:
                     self.context.clearCaches()
-                except:
-                    pass
-                import gc
-                gc.collect()
+                except (RuntimeError, OSError, Exception) as e:
+                    # Best-effort cache clearing; failure is non-critical
+                    # Log but continue to raise the original error
+                    import logging
+
+                    logger = logging.getLogger(__name__)
+                    logger.debug("Failed to clear Core Image caches: %s", e)
+                # NOTE: Manual gc.collect() commented out - Python's automatic GC is sufficient
+                # See bug_hunt.md issue #7 for details
+                # import gc
+                # gc.collect()
 
                 raise ValueError(f"Could not load image from {file_path}")
 

@@ -297,8 +297,9 @@ class DjangoWatchdog:
                     try:
                         self.observer.stop()
                         time.sleep(0.5)
-                    except:
-                        pass
+                    except (RuntimeError, Exception) as e:
+                        # Best-effort shutdown; observer may already be stopped
+                        logger.debug("[%s] Failed to force-stop observer: %s", self.name, e)
 
             self.observer = None
 

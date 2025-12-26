@@ -3,7 +3,7 @@
 {% block body_attrs %} id="entire_document"{% endblock %}
 
 {% block content %}
-<div data-page-title="{{ gallery_name }}" style="display:none;"></div>
+<title>{{ gallery_name }}</title>
 
 {% autoescape off %}
 {% include 'frontend/search/search_listings_partial.jinja' %}

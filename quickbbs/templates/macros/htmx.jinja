@@ -123,7 +123,7 @@ hx-push-url="true" hx-target="{{ target }}" hx-swap="{{ swap }}"{% if cache %} h
 #}
 {% macro show_page_title_meta(title, only_htmx=False, request=None) %}
 {% if not only_htmx or (request and request.htmx) %}
-<div data-page-title="{{ title }}" style="display:none;"></div>
+<title>{{ title }}</title>
 {% endif %}
 {% endmacro %}
 
@@ -161,7 +161,7 @@ hx-push-url="true" hx-target="{{ target }}" hx-swap="{{ swap }}"{% if cache %} h
 {% macro show_partial_wrapper(show_title_update=False, show_hx_boost=False, title='', request=None) %}
 {% if show_hx_boost %}<div hx-boost="true" class="partial-container">{% endif %}
 {% if show_title_update and request and request.htmx %}
-<div data-page-title="{{ title }}" style="display:none;"></div>
+<title>{{ title }}</title>
 {% endif %}
 {% autoescape off %}
 {{ caller() }}
