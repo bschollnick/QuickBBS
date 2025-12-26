@@ -6,7 +6,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="shortcut icon" type="image/png" href="/resources/images/open_folder_yellow.png">
 
-    {{ htmx_script() }}
     <!-- Preload critical resources -->
     <link rel="preload" href="/resources/css/bulma.min.css" as="style">
     <link rel="preload" href="/resources/css/all.min.css" as="style">
@@ -25,6 +24,9 @@
     <!-- HTMX -->
     {{ htmx_script()}}
     {{ django_htmx_script() }}
+
+    <!-- HTMX Configuration -->
+    <meta name="htmx-config" content='{"historyCacheSize": 20, "defaultSwapStyle": "outerHTML", "timeout": 10000}'>
 
     <!-- Custom JavaScript -->
     <script src="/resources/javascript/quickbbs-optimized.js?v=2" defer></script>

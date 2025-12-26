@@ -1,0 +1,80 @@
+/* Unused CSS Classes - Archived from quickbbs-optimized.css */
+/* Date Archived: 2025-12-26 */
+/* Reason: These classes are not referenced anywhere in templates or JavaScript */
+
+/* ========================================
+   HTMX Indicator Styles
+   Removed: Not used - application uses custom spinner overlay instead
+   ======================================== */
+
+/* HTMX Indicator */
+.htmx-indicator {
+    opacity: 0;
+    transition: opacity 100ms ease-in;
+}
+
+.htmx-request .htmx-indicator {
+    opacity: 1;
+}
+
+/* ========================================
+   Navigation Layout Styles
+   Removed: Navigation uses different layout approach (Bulma classes)
+   NOTE: .nav-link was kept in quickbbs-optimized.css as it IS used
+   ======================================== */
+
+/* Navigation Header */
+.nav-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 1rem;
+    margin-bottom: .5rem;
+    gap: .5rem;
+}
+
+.nav-breadcrumb {
+    flex: 1;
+    text-align: center;
+}
+
+.nav-controls {
+    display: flex;
+    gap: 1rem;
+    min-width: 120px;
+}
+
+/* ========================================
+   Lazy Image Loading Styles
+   Removed: Now using browser-native loading="lazy" instead of custom data-src system
+   ======================================== */
+
+/* Image Optimization */
+.lazy-image {
+    loading: lazy;
+    transition: opacity 0.3s ease-in-out;
+}
+
+.lazy-image[data-loaded="false"] {
+    opacity: 0.5;
+}
+
+.lazy-image[data-loaded="true"] {
+    opacity: 1;
+}
+
+/* ========================================
+   Responsive Media Query Rules for Removed Classes
+   ======================================== */
+
+@media (max-width: 768px) {
+    .nav-header {
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .nav-controls {
+        min-width: auto;
+        justify-content: center;
+    }
+}

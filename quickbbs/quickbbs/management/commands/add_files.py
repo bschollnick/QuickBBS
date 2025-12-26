@@ -2,7 +2,7 @@
 Function to add missing files from filesystem to database.
 
 This module iterates through directories in the database and adds any missing
-files to FileIndex. It uses the sync_database_disk function to properly scan
+files to FileIndex. It uses the update_database_from_disk function to properly scan
 directories and add files.
 """
 
@@ -13,15 +13,15 @@ import time
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.db import close_old_connections
-from frontend.utilities import sync_database_disk
 
+from frontend.utilities import update_database_from_disk
 from quickbbs.common import normalize_fqpn
 from quickbbs.management.commands.management_helper import (
-    invalidate_empty_directories,
     invalidate_directories_with_null_sha256,
     invalidate_directories_with_null_virtual_directory,
+    invalidate_empty_directories,
 )
-from quickbbs.models import FileIndex, DirectoryIndex
+from quickbbs.models import DirectoryIndex, FileIndex
 
 
 async def _add_files_async(max_count: int = 0, start_path: str | None = None) -> None:
@@ -29,7 +29,7 @@ async def _add_files_async(max_count: int = 0, start_path: str | None = None) ->
     Async implementation of add_files.
 
     Iterates through directories in database and adds any missing files.
-    Uses sync_database_disk to properly scan directories and add files.
+    Uses update_database_from_disk to properly scan directories and add files.
 
     Args:
         max_count: Maximum number of directories to process (0 = unlimited)
@@ -92,7 +92,10 @@ async def _add_files_async(max_count: int = 0, start_path: str | None = None) ->
     # Filter directories to only those under the albums_root if start_path was specified
     if start_path:
         directories = await sync_to_async(list, thread_sensitive=True)(
-            DirectoryIndex.objects.select_related("Cache_Watcher", "parent_directory").filter(fqpndirectory__startswith=albums_root).order_by("fqpndirectory").all()
+            DirectoryIndex.objects.select_related("Cache_Watcher", "parent_directory")
+            .filter(fqpndirectory__startswith=albums_root)
+            .order_by("fqpndirectory")
+            .all()
         )
     else:
         directories = await sync_to_async(list, thread_sensitive=True)(
@@ -101,8 +104,8 @@ async def _add_files_async(max_count: int = 0, start_path: str | None = None) ->
 
     for directory in directories:
         try:
-            # Use sync_database_disk to scan the directory and add missing files
-            await sync_database_disk(directory)
+            # Use update_database_from_disk to scan the directory and add missing files
+            await update_database_from_disk(directory)
 
             processed_count += 1
 
@@ -151,7 +154,7 @@ def add_files(max_count: int = 0, start_path: str | None = None) -> None:
     Synchronous wrapper for add_files.
 
     Iterates through directories in database and adds any missing files.
-    Uses sync_database_disk to properly scan directories and add files.
+    Uses update_database_from_disk to properly scan directories and add files.
 
     Args:
         max_count: Maximum number of directories to process (0 = unlimited)

@@ -38,8 +38,8 @@
     item_url = item.virtual_directory.get_view_url() if (item.filetype.is_link and item.virtual_directory) else (item.get_view_url() + "?sort=" + sort|string),
     htmx_attrs = show_htmx_attrs(swap='outerHTML transition:true')
 %}
-{# Note: background-color must remain inline as it's dynamic based on filetype #}
-<div class="gallery-item" style="background-color: #{{ item.filetype.color }};">
+{# Using CSS custom property for dynamic filetype color - more performant than inline background-color #}
+<div class="gallery-item" style="--item-bg-color: #{{ item.filetype.color }};">
     <!-- Item Header -->
     <div class="item-header">
         <span class="item-index">{{ index }}</span>

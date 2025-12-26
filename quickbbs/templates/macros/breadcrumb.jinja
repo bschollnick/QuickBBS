@@ -42,10 +42,8 @@
             {# First breadcrumb #}
             {{ show_breadcrumb_item(breadcrumbs[0]) }}
 
-            {# Middle collapsed breadcrumbs as "..." #}
-            {% for breadcrumb in breadcrumbs[1:-3] %}
-                {{ show_breadcrumb_item(breadcrumb, text='...') }}
-            {% endfor %}
+            {# Single ellipsis for all collapsed breadcrumbs #}
+            <li><span>...</span></li>
 
             {# Last 3 breadcrumbs #}
             {% for breadcrumb in breadcrumbs[-3:] %}

@@ -180,7 +180,6 @@ class ThumbnailFiles(models.Model):
         #
         # This provides sufficient memory management without the overhead and GPU memory
         # issues caused by too-frequent cache clearing.
-
         # CRITICAL: Advisory lock for Gunicorn multi-process environments
         # Multiple worker processes generating the same thumbnail concurrently can cause corrupted/white
         # thumbnails when Core Image GPU operations conflict or saves are interleaved.
@@ -231,7 +230,9 @@ class ThumbnailFiles(models.Model):
                 matching_files_count = FileIndex.objects.filter(file_sha256=file_sha256).count()
                 if matching_files_count > 0:
                     # Found FileIndex records - link them
-                    print(f"Orphaned ThumbnailFiles {thumbnail.id}: Found {matching_files_count} FileIndex records with SHA256 {file_sha256[:16]}..., linking...")
+                    print(
+                        f"Orphaned ThumbnailFiles {thumbnail.id}: Found {matching_files_count} FileIndex records with SHA256 {file_sha256[:16]}..., linking..."
+                    )
                     has_unlinked_fix, updated_count_fix = FileIndex.link_to_thumbnail(file_sha256, thumbnail)
                     if updated_count_fix > 0:
                         print(f"  ✓ Linked {updated_count_fix} FileIndex records to ThumbnailFiles {thumbnail.id}")
@@ -266,10 +267,7 @@ class ThumbnailFiles(models.Model):
             # This can happen when a directory is deleted but FileIndex records remain
             if index_data_item.home_directory is None:
                 # Orphaned record - mark as generic icon and skip thumbnail generation
-                print(
-                    f"WARNING: Orphaned FileIndex record (id={index_data_item.id}, "
-                    f"sha256={file_sha256[:16]}...) has no home_directory"
-                )
+                print(f"WARNING: Orphaned FileIndex record (id={index_data_item.id}, " f"sha256={file_sha256[:16]}...) has no home_directory")
                 print("  This record should be cleaned up. Marking thumbnail as generic icon.")
 
                 # Mark both FileIndex and ThumbnailFiles as generic
@@ -538,8 +536,12 @@ class ThumbnailFiles(models.Model):
                 index_data_list = list(self.FileIndex.all())
                 if index_data_list:
                     index_data_item = index_data_list[0]
-            except:
-                pass
+            except (AttributeError, ObjectDoesNotExist) as e:
+                # FileIndex relationship may not exist for this thumbnail
+                import logging
+
+                logger = logging.getLogger(__name__)
+                logger.debug("FileIndex not available for thumbnail %s: %s", self.pk, e)
 
         # If file is marked as generic icon OR filetype is generic, use filetype thumbnail instead
         # This handles both explicit marking (is_generic_icon) and filetype-based generic status (filetype.generic)
@@ -628,7 +630,10 @@ class ThumbnailFiles(models.Model):
         # MEMORY MANAGEMENT: Clear backend caches after batch completes
         # This releases Core Image CIContext instances and their GPU resources
         try:
-            from thumbnails.thumbnail_engine import clear_backend_caches, get_cache_stats
+            from thumbnails.thumbnail_engine import (
+                clear_backend_caches,
+                get_cache_stats,
+            )
 
             # Log cache stats before clearing
             cache_stats_before = get_cache_stats()

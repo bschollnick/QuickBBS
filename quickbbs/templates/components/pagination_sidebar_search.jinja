@@ -1,0 +1,68 @@
+{% extends 'components/pagination_sidebar.jinja' %}
+
+{#
+  Search Results Pagination Sidebar
+
+  Extends the unified pagination sidebar with search-specific customizations:
+  - Custom "Back to Originator" button instead of "Go Up"
+  - Search results info display (searchtext, result count)
+  - Searchtext parameter included in sort form
+
+  Context variables expected (in addition to pagination_sidebar requirements):
+  - searchtext (required): The search query string
+  - originator (required): URL to return to original location
+  - total_items (optional): Total number of search results
+
+  All pagination URLs (first_url, prev_url, next_url, last_url) should already
+  include the searchtext parameter from the view.
+#}
+
+{# Override nav_up_button to show "Back to Originator" instead of "Go Up" #}
+{% block nav_up_button %}
+<a class="button is-ghost is-fullwidth"
+   href="{{ originator }}"
+   hx-get="{{ originator }}"
+   hx-push-url="true"
+   hx-target="body"
+   hx-swap="innerHTML show:window:top transition:true"
+   title="Back to {{ originator.split('/')[-1] if originator else 'Gallery' }}">
+  {{ icon("arrow-left fa-2x") }}
+</a>
+{% endblock %}
+
+{# Add search results info display #}
+{% block custom_info_section %}
+<div class="sidebar-section">
+  <div class="has-text-centered">
+    <p class="is-size-7 has-text-weight-bold">Search Results</p>
+    <p class="is-size-7">"{{ searchtext }}"</p>
+    {% if total_items is defined %}
+    <p class="is-size-7">{{ total_items }} results</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{# Override sort_options to include searchtext parameter #}
+{% block sort_options %}
+<div class="field">
+  <label class="label is-small has-text-centered">Sort</label>
+  <form action="?" method="GET" class="sort-form">
+    <input type="hidden" name="searchtext" value="{{ searchtext }}">
+    <input type="hidden" name="page" value="{{current_page}}">
+    <div class="select is-small is-fullwidth">
+      <select name="sort"
+              hx-get=""
+              hx-target="body"
+              hx-swap="innerHTML show:window:top transition:true"
+              hx-push-url="true"
+              hx-trigger="change"
+              hx-include="[name='searchtext'], [name='page']">
+        <option value="0" {% if sort == 0 %}selected{% endif %}>A..Z</option>
+        <option value="1" {% if sort == 1 %}selected{% endif %}>Last Modified</option>
+        <option value="2" {% if sort == 2 %}selected{% endif %}>Created</option>
+      </select>
+    </div>
+  </form>
+</div>
+{% endblock %}

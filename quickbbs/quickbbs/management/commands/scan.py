@@ -30,7 +30,7 @@ from django.db import close_old_connections, connections, transaction
 from PIL import Image
 
 from cache_watcher.models import Cache_Storage, fs_Cache_Tracking
-from frontend.utilities import sync_database_disk
+from frontend.utilities import update_database_from_disk
 from quickbbs.common import normalize_fqpn
 from quickbbs.management.commands.add_directories import add_directories
 from quickbbs.management.commands.add_files import add_files
@@ -193,7 +193,10 @@ async def _verify_files_async(start_path: str | None = None):
         normalized_start = normalize_fqpn(start_path)
         print(f"\tFiltering directories under: {normalized_start}")
         directories = await sync_to_async(list, thread_sensitive=True)(
-            DirectoryIndex.objects.select_related("Cache_Watcher", "parent_directory").filter(fqpndirectory__startswith=normalized_start).order_by("fqpndirectory").all()
+            DirectoryIndex.objects.select_related("Cache_Watcher", "parent_directory")
+            .filter(fqpndirectory__startswith=normalized_start)
+            .order_by("fqpndirectory")
+            .all()
         )
     else:
         directories = await sync_to_async(list, thread_sensitive=True)(
@@ -202,7 +205,7 @@ async def _verify_files_async(start_path: str | None = None):
 
     for directory in directories:
         await sync_to_async(Cache_Storage.remove_from_cache_sha, thread_sensitive=True)(sha256=directory.dir_fqpn_sha256)
-        await sync_database_disk(directory)
+        await update_database_from_disk(directory)
 
         # Periodic connection cleanup to prevent exhaustion
         batch_counter += 1
