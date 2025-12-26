@@ -55,9 +55,6 @@ def toggle_show_duplicates(request: HttpRequest) -> HttpResponse:
     # Return redirect response with cache-control headers
     response = redirect(referer)
 
-    # Trigger client-side cache clearing via HTMX event
-    response["HX-Trigger"] = "clearPreferenceCache"
-
     # Prevent caching of the toggle response
     response["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
     response["Pragma"] = "no-cache"
