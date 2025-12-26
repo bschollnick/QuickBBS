@@ -186,7 +186,13 @@ async def _get_show_duplicates_preference(request: WSGIRequest) -> bool:
         if not request.user.is_authenticated:
             return False
         try:
-            return request.user.preferences.show_duplicates
+            # Import here to avoid circular imports
+            from user_preferences.models import UserPreferences
+
+            # Query database directly instead of using request.user.preferences
+            # This avoids Django's relationship caching which may return stale data
+            preferences = UserPreferences.objects.filter(user=request.user).first()
+            return preferences.show_duplicates if preferences else False
         except Exception:
             return False
 
@@ -589,6 +595,11 @@ async def search_viewresults(request: WSGIRequest):
     context["files_needing_thumbnails"] = FileIndex.objects.none()
 
     response = await async_render(request, template_name, context, using="Jinja2")
+
+    # Prevent browser caching when user preferences might change
+    if request.user.is_authenticated:
+        response["Cache-Control"] = "private, no-cache, must-revalidate"
+
     print("search View, processing time: ", time.perf_counter() - start_time)
     # ASGI: close_old_connections() commented out for ASGI compatibility
     # ASGI handles connection lifecycle automatically
@@ -890,7 +901,13 @@ async def htmx_view_item(request: HtmxHttpRequest, sha256: str):
     context["user"] = request.user
     context["show_duplicates"] = show_duplicates
 
-    return await async_render(request, template_name, context, using="Jinja2")
+    response = await async_render(request, template_name, context, using="Jinja2")
+
+    # Prevent browser caching when user preferences might change
+    if request.user.is_authenticated:
+        response["Cache-Control"] = "private, no-cache, must-revalidate"
+
+    return response
 
 
 async def download_file(request: WSGIRequest):  # , filename=None):
