@@ -259,7 +259,9 @@ class ThumbnailFiles(models.Model):
 
                 # Clear prefetch cache since we just updated the links
                 # This ensures thumbnail.FileIndex.all() returns fresh data
-                if updated_count > 0 and hasattr(thumbnail, "_prefetched_objects_cache"):
+                # Use has_unlinked instead of updated_count to handle race conditions
+                # (if another process linked records between check and update, updated_count=0 but cache is stale)
+                if has_unlinked and hasattr(thumbnail, "_prefetched_objects_cache"):
                     thumbnail._prefetched_objects_cache.clear()
 
             # File I/O operations (inside transaction to maintain lock during generation)
