@@ -124,8 +124,8 @@ def get_color(filename):
         return 0
 
 
-def copy_with_metadata(src: str, dst: str) -> None:
-    """Copy file preserving all metadata including extended attributes.
+def copy_with_metadata(src: str, dst: str, move: bool = False) -> None:
+    """Copy or move file preserving all metadata including extended attributes.
 
     This function preserves:
     - File content
@@ -135,6 +135,7 @@ def copy_with_metadata(src: str, dst: str) -> None:
     Args:
         src: Source file path
         dst: Destination file path
+        move: If True, move the file (copy + delete source); if False, copy only
     """
     # Copy file + basic metadata (timestamps, permissions)
     shutil.copy2(src, dst)
@@ -148,6 +149,10 @@ def copy_with_metadata(src: str, dst: str) -> None:
     except (OSError, IOError):
         # Silently continue if xattr copy fails - file is still copied
         pass
+
+    # Remove source file if moving
+    if move:
+        os.remove(src)
 
 
 def process_folder(src_dir, dst_dir, files, config):
@@ -226,12 +231,8 @@ def process_folder(src_dir, dst_dir, files, config):
 
         # Perform file operation
         try:
-            if config["operation"] == "copy":
-                copy_with_metadata(src_file, dst_file)
-            elif config["operation"] == "move":
-                # Move preserves xattrs on same filesystem, but copy+delete for cross-filesystem
-                copy_with_metadata(src_file, dst_file)
-                os.remove(src_file)
+            move_file = config["operation"] == "move"
+            copy_with_metadata(src_file, dst_file, move=move_file)
 
             # Update directory-specific index after successful operation
             config["existing_files"].setdefault(dst_dir, set()).add(dst_filename)

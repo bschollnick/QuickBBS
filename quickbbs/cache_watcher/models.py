@@ -987,6 +987,10 @@ class fs_Cache_Tracking(models.Model):
 
         directoryindex_cache.pop(index_dir.dir_fqpn_sha256, None)
 
+        # Clear cached Cache_Watcher relationship to force fresh query
+        # When invalidated=True is set, subsequent is_cached checks should see updated value
+        self._clear_cached_relationship(index_dir)
+
         return entry
 
     def _invalidate_cache_entry(self, sha256: str) -> "fs_Cache_Tracking" | None:
@@ -1030,7 +1034,24 @@ class fs_Cache_Tracking(models.Model):
 
         directoryindex_cache.pop(sha256, None)
 
+        # Clear cached Cache_Watcher relationship to force fresh query
+        # When invalidated=True is set, subsequent is_cached checks should see updated value
+        self._clear_cached_relationship(index_dir)
+
         return entry
+
+    def _clear_cached_relationship(self, index_dir: Any) -> None:
+        """Clear Django's cached Cache_Watcher relationship on a DirectoryIndex object.
+
+        Django caches OneToOne and ForeignKey relationships as _<name>_cache attributes.
+        When we update fs_Cache_Tracking.invalidated in the database, we need to clear
+        this cached attribute so the next access to is_cached gets fresh data.
+
+        Args:
+            index_dir: DirectoryIndex object to clear cached relationship from
+        """
+        if hasattr(index_dir, "_Cache_Watcher_cache"):
+            delattr(index_dir, "_Cache_Watcher_cache")
 
     def _bulk_invalidate_by_shas(self, sha_list: list[str]) -> int:
         """Perform bulk cache invalidation for a list of SHA256 hashes.
@@ -1227,7 +1248,12 @@ class fs_Cache_Tracking(models.Model):
             for directory in directories:
                 if directory and hasattr(directory, "dir_fqpn_sha256"):
                     sha = directory.dir_fqpn_sha256
-                    if directoryindex_cache.pop(sha, None) is not None:
+                    # Get the cached object before removing it
+                    cached_obj = directoryindex_cache.pop(sha, None)
+                    if cached_obj is not None:
+                        # Clear Django ORM relationship cache on the object
+                        # This prevents stale is_cached checks if the object is held elsewhere
+                        self._clear_cached_relationship(cached_obj)
                         cleared_count += 1
 
             logger.debug("Cleared %d DirectoryIndex cache entries for %d directories", cleared_count, len(directories))
