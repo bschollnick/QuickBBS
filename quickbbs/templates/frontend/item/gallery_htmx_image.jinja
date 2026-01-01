@@ -6,7 +6,7 @@
     {% include 'components/title_display.jinja' %}
 
     <div class="filetype-content-container" width="98%">
-        <div hx-boost="true">
+        <div>
                 {% if any([filetype.is_html, filetype.is_text, filetype.is_markdown]) %}
                 <div class="has-text-left filetype-bg item-text-frame" id="text_frame">
                     <p class="has-text-left" id="text_frame" defer>
@@ -17,11 +17,11 @@
                 <div class="thumbnail filetype-bg" id="thumbnail_frame">
                     <div class="has-text-centered">
                         <figure class="image">
-                            <a href="{{ download_uri }}" hx-boost="false" id="image_link">
+                            <a href="{{ download_uri }}" id="image_link">
                                 {% if not is_animated %}
                                     <img id="display_image" class="responsive-image" src="{{thumbnail_uri}}"/>
                                 {% else %}
-                                    <img id="display_image" class="responsive-image" src="{{download_uri}}" hx-boost="false"/>
+                                    <img id="display_image" class="responsive-image" src="{{download_uri}}"/>
                                 {% endif %}
                             </a>
                         </figure>
@@ -30,16 +30,16 @@
                 <div class="thumbnail filetype-bg" id="thumbnail_frame">
                     <div class="has-text-centered">
                         <figure class="image">
-                            <a href="/resources/javascript/pdfjs/web/viewer.html?file={{ download_uri }}" hx-boost="false" id="image_link">
+                            <a href="/resources/javascript/pdfjs/web/viewer.html?file={{ download_uri }}" id="image_link">
                                 <img id="display_image" class="responsive-image" src="{{thumbnail_uri}}"/>
                             </a>
                         </figure>
                     </div>
 
                 {% elif filetype.is_movie %}
-                <div class="thumbnail filetype-bg" id="movie_frame" hx-boost="false">
+                <div class="thumbnail filetype-bg" id="movie_frame">
                     <div class="has-text-centered">
-                        <video class="responsive-video" controls poster="{{ thumbnail_uri }}" preload="metadata" hx-boost="false">
+                        <video class="responsive-video" controls poster="{{ thumbnail_uri }}" preload="metadata">
                             <source src="{{ download_uri }}" type="video/mp4" />
                           Your browser does not support the video tag.
                         </video>

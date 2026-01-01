@@ -518,9 +518,9 @@ async def search_viewresults(request: WSGIRequest):
     # Use standardized template selection
     template_name = _determine_template(request, "search")
 
-    # Get search parameters
-    searchtext = request.GET.get("searchtext", default=None)
-    current_page = int(request.GET.get("page", 1))
+    # Get search parameters (support both POST and GET)
+    searchtext = request.POST.get("searchtext") or request.GET.get("searchtext", default=None)
+    current_page = int(request.POST.get("page") or request.GET.get("page", 1))
 
     # Build base context using shared function
     context = _create_base_context(request)
@@ -596,9 +596,13 @@ async def search_viewresults(request: WSGIRequest):
 
     response = await async_render(request, template_name, context, using="Jinja2")
 
-    # Prevent browser caching when user preferences might change
-    if request.user.is_authenticated:
-        response["Cache-Control"] = "private, no-cache, must-revalidate"
+    # Prevent HTMX history caching AND browser caching for search results
+    # This fixes the issue where subsequent searches show cached results from the first search
+    response["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response["Pragma"] = "no-cache"
+    response["Expires"] = "0"
+    # Tell HTMX not to add this page to history cache
+    response["HX-Replace-Url"] = "false"
 
     print("search View, processing time: ", time.perf_counter() - start_time)
     # ASGI: close_old_connections() commented out for ASGI compatibility
