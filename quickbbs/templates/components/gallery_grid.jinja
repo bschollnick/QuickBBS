@@ -75,7 +75,7 @@
     {% endwith %}
 
     <!-- Gallery Grid -->
-    {% cache 120 "gallery_grid" webpath current_page sort %}
+    {% cache 120 "gallery_grid" webpath current_page sort searchtext|default('') %}
     <div class="gallery-grid">
         {%- for item in items_to_display -%}
             {{ show_gallery_item_card(item, loop.index, sort, fromtimestamp) }}

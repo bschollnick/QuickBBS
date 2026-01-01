@@ -1,9 +1,17 @@
 {% extends 'base.jinja' %}
 
-{% block body_attrs %} id="entire_document"{% endblock %}
+{% block body_attrs %} id="entire_document" hx-history="false"{% endblock %}
 
 {% block content %}
 <title>{{ gallery_name }}</title>
+
+<script>
+// Clear HTMX localStorage cache on search results page load
+// This prevents HTMX from restoring cached search results from previous searches
+if (typeof(Storage) !== "undefined" && localStorage.getItem("htmx-history-cache")) {
+    localStorage.removeItem("htmx-history-cache");
+}
+</script>
 
 {% autoescape off %}
 {% include 'frontend/search/search_listings_partial.jinja' %}

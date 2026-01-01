@@ -1,7 +1,7 @@
 {# Gallery Listing Partial - HTMX Content Only #}
 {% from 'macros/htmx.jinja' import show_partial_wrapper %}
 
-{% call show_partial_wrapper(show_hx_boost=True) %}
+{% call show_partial_wrapper() %}
 {% include 'components/navbar.jinja' %}
 {% include 'frontend/gallery/gallery_listing_sidebar.jinja' %}
 {% include 'frontend/gallery/gallery_listing_images.jinja' %}

@@ -63,11 +63,14 @@
     <div class="navbar-end">
       <!-- Search form -->
       <div class="navbar-item">
-        <form action="{{ url('search_viewresults') }}" method="get" hx-boost="false">
+        <form method="post" action="{{ url('search_viewresults') }}"
+              autocomplete="off">
+          {% csrf_token %}
           <div class="field has-addons">
             <div class="control">
               <input id="searchtext" name="searchtext" class="input" type="text"
-                     placeholder="Search titles..." value="{{ request.GET.searchtext or searchtext or '' }}">
+                     placeholder="Search titles..." value="{{ request.POST.searchtext or request.GET.searchtext or searchtext or '' }}"
+                     autocomplete="off">
             </div>
             <div class="control">
               <button type="submit" class="button is-link">
