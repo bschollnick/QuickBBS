@@ -137,6 +137,7 @@
                   hx-target="body"
                   hx-swap="innerHTML show:window:top transition:true"
                   hx-push-url="true"
+                  hx-sync="body:abort"
                   hx-trigger="change"
                   hx-include="[name='sort']">
             {% if total_pages <= 20 %}
@@ -232,6 +233,7 @@
    hx-target="body"
    hx-swap="innerHTML show:window:top"
    hx-push-url="true"
+   hx-sync="body:abort"
    class="button is-ghost is-fullwidth"
    title="First Page">
   {{ icon("angle-double-left fa-2x") }}
@@ -254,6 +256,7 @@
    hx-target="body"
    hx-swap="innerHTML show:window:top"
    hx-push-url="true"
+   hx-sync="body:abort"
    {% endif %}
    class="button is-ghost is-fullwidth{% if not url %} is-disabled{% endif %}"
    {% if not url %}disabled aria-disabled="true"{% endif %}
@@ -278,6 +281,7 @@
    hx-target="body"
    hx-swap="innerHTML show:window:top"
    hx-push-url="true"
+   hx-sync="body:abort"
    {% endif %}
    class="button is-ghost is-fullwidth{% if not url %} is-disabled{% endif %}"
    {% if not url %}disabled aria-disabled="true"{% endif %}
@@ -301,6 +305,7 @@
    hx-target="body"
    hx-swap="innerHTML show:window:top"
    hx-push-url="true"
+   hx-sync="body:abort"
    class="button is-ghost is-fullwidth"
    title="Last Page">
   {{ icon("angle-double-right fa-2x") }}
@@ -333,6 +338,7 @@
                 hx-target="body"
                 hx-swap="innerHTML show:window:top transition:true"
                 hx-push-url="true"
+                hx-sync="body:abort"
                 hx-trigger="change"
                 hx-include="[name='sort']">
           {% if total_pages <= 20 %}

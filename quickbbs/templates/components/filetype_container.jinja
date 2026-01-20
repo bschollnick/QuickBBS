@@ -1,4 +1,3 @@
-{% autoescape off %}
 <div class="column is-10 is-gapless is-centered filetype-bg filetype-main-container">
 
     {% include 'components/breadcrumb.jinja' %}
@@ -7,10 +6,9 @@
 
     <div class="container filetype-content-container" width="98%">
         <div>
-            {{ content }}
+            {{ content|safe }}
         </div>
     </div>
 </div>
 
 <title>{{ title_text }}</title>
-{% endautoescape %}

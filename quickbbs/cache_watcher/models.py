@@ -1221,9 +1221,10 @@ class fs_Cache_Tracking(models.Model):
                 clear_layout_cache_for_directories,
             )
 
-            # Use shared cache clearing function
-            cleared_count = clear_layout_cache_for_directories(directories)
-            logger.debug("Cleared %d layout cache entries for %d directories", cleared_count, len(directories))
+            # Use shared cache clearing function - extract PKs from directory objects
+            directory_ids = {d.pk for d in directories if d and hasattr(d, "pk") and d.pk}
+            cleared_count = clear_layout_cache_for_directories(directory_ids)
+            logger.debug("Cleared %d layout cache entries for %d directories", cleared_count, len(directory_ids))
 
         except (KeyError, ImportError, AttributeError) as e:
             logger.error("Error clearing layout cache for directories: %s", e)

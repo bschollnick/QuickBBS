@@ -62,7 +62,7 @@ layout_manager_cache = LRUCache(maxsize=500)
 build_context_info_cache = LRUCache(maxsize=500)
 
 
-def clear_layout_cache_for_directories(directories: list) -> int:
+def clear_layout_cache_for_directories(directory_ids: set[int]) -> int:
     """
     Clear layout_manager_cache and distinct_files_cache entries for one or more directories.
 
@@ -78,19 +78,16 @@ def clear_layout_cache_for_directories(directories: list) -> int:
     Note: distinct_files_cache is imported from quickbbs.models where it's used by
     the DirectoryIndex.get_distinct_file_shas() method.
 
-    :Args:
-        directories: List of DirectoryIndex objects to clear cache for
+    Args:
+        directory_ids: Set of directory PKs to clear cache for
 
     Returns:
         Number of cache entries cleared (combined from both caches)
     """
-    if not directories:
+    if not directory_ids:
         return 0
 
-    # Extract directory PKs for efficient matching
-    dir_pks = {d.pk for d in directories if d and hasattr(d, "pk") and d.pk}
-    if not dir_pks:
-        return 0
+    dir_pks = directory_ids
 
     # Clear layout_manager_cache entries
     layout_keys_to_delete = []
@@ -262,7 +259,7 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
         "filetype": entry.filetype.__dict__,
         "sha": entry.unique_sha256,
         "filename": entry.name,
-        "gallery_name": entry.name,  # For template breadcrumb display
+        "gallery_name": "",  # Don't show filename in breadcrumb (already shown in title)
         "filesize": entry.size,
         "duration": entry.duration,
         "is_animated": entry.is_animated,

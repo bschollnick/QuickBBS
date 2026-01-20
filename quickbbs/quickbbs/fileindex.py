@@ -20,6 +20,7 @@ from django.db.models import Count
 from django.db.models.query import QuerySet
 from django.http import FileResponse, Http404, HttpResponse
 from django.urls import reverse
+from django.utils.http import content_disposition_header
 from PIL import Image
 
 from quickbbs.common import normalize_fqpn, normalize_string_title
@@ -45,6 +46,53 @@ from .models import (
 
 if TYPE_CHECKING:
     from .directoryindex import DirectoryIndex
+
+
+# =============================================================================
+# FILENAME SANITIZATION FOR HTTP HEADERS
+# =============================================================================
+
+
+def sanitize_filename_for_http(filename: str) -> str:
+    """
+    Sanitize filename for safe use in Content-Disposition headers.
+
+    Removes control characters and characters that could cause header injection
+    or filename confusion. This prevents:
+    - HTTP header injection (via newlines, semicolons)
+    - Filename truncation (via angle brackets)
+    - Control character exploits
+
+    Args:
+        filename: Original filename from filesystem
+
+    Returns:
+        Sanitized filename safe for HTTP headers
+
+    Example:
+        >>> sanitize_filename_for_http("test.pdf")
+        'test.pdf'
+        >>> sanitize_filename_for_http("file;evil.exe")
+        'file_evil.exe'
+        >>> sanitize_filename_for_http("<script>alert(1)</script>.txt")
+        'scriptalert(1)script.txt'
+    """
+    import re
+
+    # Single regex to remove control characters (0x00-0x1F, 0x7F) and angle brackets
+    # Note: \r (0x0D) and \n (0x0A) are included in 0x00-0x1F range
+    filename = re.sub(r"[\x00-\x1F\x7F<>]", "", filename)
+
+    # Replace semicolon with underscore (parameter separator in headers)
+    filename = filename.replace(";", "_")
+
+    # Ensure filename is not empty after sanitization
+    filename = filename.strip()
+    if not filename:
+        return "download.bin"
+
+    return filename
+
 
 # =============================================================================
 # FILEINDEX SELECT_RELATED CONSTANTS
@@ -336,7 +384,7 @@ class FileIndex(models.Model):
             return None
 
     @classmethod
-    def set_generic_icon_for_sha(cls, file_sha256: str, is_generic: bool, select_related: list[str], clear_cache: bool = True) -> int:
+    def set_generic_icon_for_sha(cls, file_sha256: str, is_generic: bool, clear_cache: bool = True) -> int:
         """
         Set is_generic_icon for all FileIndex files with the given SHA256.
 
@@ -352,30 +400,33 @@ class FileIndex(models.Model):
         Args:
             file_sha256: SHA256 hash of the file(s) to update
             is_generic: New value for is_generic_icon (True = use filetype icon, False = custom thumbnail)
-            select_related: List of related fields to select (required)
             clear_cache: Whether to clear layout_manager_cache for affected directories (default: True)
 
         Returns:
             Number of files updated
         """
-        if select_related is None:
-            raise ValueError("select_related parameter is required")
         # Inline import to avoid circular dependency (frontend.utilities imports DirectoryIndex)
         from frontend.managers import clear_layout_cache_for_directories
+
+        # Get directory IDs BEFORE update (same pattern as link_to_thumbnail)
+        directory_ids = set()
+        if clear_cache:
+            directory_ids = set(
+                cls.objects.filter(file_sha256=file_sha256)
+                .values_list("home_directory", flat=True)
+                .distinct()
+            )
+            # Remove None values
+            directory_ids.discard(None)
 
         # Update all files with this SHA256
         updated_count = cls.objects.filter(file_sha256=file_sha256).update(is_generic_icon=is_generic)
 
-        # Clear layout cache for affected directories if requested
-        if clear_cache and updated_count > 0:
-            # Get unique directories containing these files
-            affected_files = cls.objects.filter(file_sha256=file_sha256).select_related(*select_related)
-            affected_directories = list({f.home_directory for f in affected_files if f.home_directory})
-
-            if affected_directories:
-                cleared_count = clear_layout_cache_for_directories(affected_directories)
-                if cleared_count > 0:
-                    print(f"Cleared {cleared_count} layout cache entries for {len(affected_directories)} directories")
+        # Clear layout cache for affected directories
+        if directory_ids and updated_count > 0:
+            cleared_count = clear_layout_cache_for_directories(directory_ids)
+            if cleared_count > 0:
+                print(f"Cleared {cleared_count} layout cache entries for {len(directory_ids)} directories")
 
         return updated_count
 
@@ -397,16 +448,32 @@ class FileIndex(models.Model):
                 - has_unlinked: Whether there were any unlinked records before update
                 - updated_count: Number of records linked
         """
-        # Check if there are any unlinked FileIndex records for this SHA256
-        has_unlinked = cls.objects.filter(file_sha256=file_sha256, new_ftnail__isnull=True).exists()
+        # Import here to avoid circular dependency
+        # pylint: disable-next=import-outside-toplevel
+        from frontend.managers import clear_layout_cache_for_directories
+
+        # Get affected directories BEFORE updating for cache clearing
+        # This also determines if there are any unlinked records (replaces separate .exists() query)
+        affected_dirs = list(
+            cls.objects.filter(file_sha256=file_sha256, new_ftnail__isnull=True)
+            .values_list("home_directory", flat=True)
+            .distinct()
+        )
+        has_unlinked = bool(affected_dirs)
 
         # Link unlinked records to the thumbnail
         updated_count = 0
         if has_unlinked:
+
+            # Update thumbnail links
             updated_count = cls.objects.filter(
                 file_sha256=file_sha256,
                 new_ftnail__isnull=True,
             ).update(new_ftnail=thumbnail)
+
+            # Clear layout caches for affected directories
+            if affected_dirs and updated_count > 0:
+                clear_layout_cache_for_directories(set(affected_dirs))
 
         return has_unlinked, updated_count
 
@@ -527,11 +594,22 @@ class FileIndex(models.Model):
         Raises:
             Exception: If any database operation fails
         """
+        # Import here to avoid circular dependency
+        # pylint: disable-next=import-outside-toplevel
+        from frontend.managers import clear_layout_cache_for_directories
+
         try:
+            # Collect affected directories for cache clearing
+            affected_directories = set()
+
             # Batch delete using IDs with optimized chunking
             if records_to_delete_ids:
                 # Convert to list for efficient slicing
                 delete_ids_list = list(records_to_delete_ids)
+
+                # Get home directories BEFORE deleting for cache clearing
+                deleted_dirs = cls.objects.filter(id__in=delete_ids_list).values_list("home_directory", flat=True)
+                affected_directories.update(deleted_dirs)
 
                 with transaction.atomic():
                     # Process deletes in optimally-sized chunks
@@ -544,6 +622,9 @@ class FileIndex(models.Model):
 
             # Batch update in chunks for memory efficiency
             if records_to_update:
+                # Collect home directories from updated records
+                affected_directories.update(record.home_directory for record in records_to_update if record.home_directory)
+
                 for i in range(0, len(records_to_update), bulk_size):
                     chunk = records_to_update[i : i + bulk_size]
                     with transaction.atomic():
@@ -580,6 +661,9 @@ class FileIndex(models.Model):
 
             # Batch create in chunks for memory efficiency
             if records_to_create:
+                # Collect home directories from created records
+                affected_directories.update(record.home_directory for record in records_to_create if record.home_directory)
+
                 for i in range(0, len(records_to_create), bulk_size):
                     chunk = records_to_create[i : i + bulk_size]
                     with transaction.atomic():
@@ -589,6 +673,14 @@ class FileIndex(models.Model):
                             ignore_conflicts=True,  # Handle duplicates gracefully
                         )
                 logger.info(f"Created {len(records_to_create)} records")
+
+            # Clear layout caches for all affected directories
+            if affected_directories:
+                # Remove None values and extract PKs
+                directory_ids = {d.pk for d in affected_directories if d is not None and hasattr(d, "pk")}
+                if directory_ids:
+                    cleared_count = clear_layout_cache_for_directories(directory_ids)
+                    logger.info(f"Cleared {cleared_count} layout cache entries for {len(directory_ids)} affected directories")
 
         except Exception as e:
             logger.error(f"Database operation failed: {e}")
@@ -649,7 +741,7 @@ class FileIndex(models.Model):
             DirectoryIndex object for the target directory, or None if target cannot be resolved
         """
         # Inline import to avoid circular dependency (DirectoryIndex imports FileIndex)
-        from .directoryindex import DirectoryIndex, DIRECTORYINDEX_SR_FILETYPE_THUMB
+        from .directoryindex import DIRECTORYINDEX_SR_FILETYPE_THUMB, DirectoryIndex
 
         try:
             redirect_path = None
@@ -872,18 +964,25 @@ class FileIndex(models.Model):
             try:
                 with open(self.full_filepathname, "rb") as fh:
                     response = HttpResponse(fh.read(), content_type=mtype)
-                    response["Content-Disposition"] = f"inline; filename={self.name}"
+                    # SECURITY: Use Django's built-in helper to prevent header injection
+                    # Sanitize filename to remove control chars and problematic characters
+                    safe_filename = sanitize_filename_for_http(self.name)
+                    response["Content-Disposition"] = content_disposition_header(
+                        as_attachment=False, filename=safe_filename
+                    )
                     response["Cache-Control"] = "public, max-age=300"
             except FileNotFoundError as exc:
                 raise Http404 from exc
         else:
             # Ranged request for video streaming
             try:
+                # SECURITY: Sanitize filename to prevent header injection
+                safe_filename = sanitize_filename_for_http(self.name)
                 response = RangedFileResponse(
                     request,
                     file=open(self.full_filepathname, "rb"),  # pylint: disable=consider-using-with
                     as_attachment=False,
-                    filename=self.name,
+                    filename=safe_filename,
                 )
                 response["Cache-Control"] = "public, max-age=300"
             except FileNotFoundError as exc:
@@ -914,6 +1013,9 @@ class FileIndex(models.Model):
         mtype = self.filetype.mimetype or "application/octet-stream"
         file_handle = None
 
+        # SECURITY: Sanitize filename to prevent header injection
+        safe_filename = sanitize_filename_for_http(self.name)
+
         try:
             if not ranged:
                 # Non-ranged: Load file async and serve from memory (eliminates sync iterator warning)
@@ -924,7 +1026,7 @@ class FileIndex(models.Model):
                     io.BytesIO(content),
                     content_type=mtype,
                     as_attachment=False,
-                    filename=self.name,
+                    filename=safe_filename,
                 )
             else:
                 # Ranged request for video streaming - requires seekable sync file handle
@@ -946,7 +1048,7 @@ class FileIndex(models.Model):
                     request,
                     file=file_handle,
                     as_attachment=False,
-                    filename=self.name,
+                    filename=safe_filename,
                 )
                 response["Content-Type"] = mtype
 
@@ -1000,19 +1102,19 @@ class FileIndex(models.Model):
                 fs_stat = fs_entry.stat()
             update_needed = False
 
-            # Extract file extension using pathlib for consistency
-            path_obj = Path(self.name)
-            fext = path_obj.suffix.lower() if path_obj.suffix else ""
-            if fext:  # Only process files with extensions
-                # Use prefetched filetype (check if loaded without triggering query)
-                if "filetype" in self.__dict__:
+            # Get filetype (should be prefetched via select_related)
+            if "filetype" in self.__dict__:
+                filetype = self.filetype
+            else:
+                # Fall back to lazy load (safe in sync context)
+                try:
                     filetype = self.filetype
-                else:
-                    # Fall back to lazy load (safe in sync context) or lookup by extension
-                    try:
-                        filetype = self.filetype
-                    except Exception:
-                        filetype = filetypes.return_filetype(fileext=fext)
+                except Exception:
+                    filetype = None
+
+            # Use filetype.fileext instead of parsing Path object (avoids object creation overhead)
+            fext = filetype.fileext if filetype else ""
+            if fext and fext != ".none":  # Only process files with valid extensions
 
                 # Fix broken link files - process virtual_directory if missing
                 if filetype.is_link and self.virtual_directory is None:
@@ -1131,9 +1233,8 @@ class FileIndex(models.Model):
 
         filename = self.full_filepathname
         try:
-            # Use single stat call for both size and mtime
-            file_path = Path(filename)
-            stat_info = file_path.stat()
+            # Use os.stat directly (avoids Path object creation overhead)
+            stat_info = os.stat(filename)
 
             # Check file size limit
             if stat_info.st_size > max_text_file_size:

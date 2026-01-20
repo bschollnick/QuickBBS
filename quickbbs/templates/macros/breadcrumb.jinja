@@ -56,10 +56,12 @@
             {% endfor %}
         {% endif %}
 
-        {# Current page (active) #}
+        {# Current page (active) - only show if name provided #}
+        {% if current_name %}
         <li class="is-active">
             <B>{{ current_name|wordwrap(width=50, break_long_words=True) }}</B>
         </li>
+        {% endif %}
     </ul>
 </nav>
 {% endmacro %}

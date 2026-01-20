@@ -4,6 +4,7 @@ Serve Resources, and Static documents from Django
 
 import io
 import os.path
+import re
 
 import aiofiles
 from django.conf import settings
@@ -12,6 +13,29 @@ from django.http import FileResponse, Http404
 # TODO: Examine django-sage-streaming as a replacement for RangedFileResponse
 # https://github.com/sageteamorg/django-sage-streaming
 from ranged_fileresponse import RangedFileResponse
+
+
+def sanitize_filename_for_http(filename: str) -> str:
+    """
+    Sanitize filename for safe use in Content-Disposition headers.
+
+    Removes control characters and characters that could cause header injection.
+    This is a simplified version - for full implementation see quickbbs.fileindex.
+
+    Args:
+        filename: Original filename
+
+    Returns:
+        Sanitized filename safe for HTTP headers
+    """
+    # Remove control characters
+    filename = re.sub(r"[\x00-\x1F\x7F]", "", filename)
+    # Remove header injection chars
+    filename = filename.replace("\r", "").replace("\n", "")
+    filename = filename.replace("<", "").replace(">", "")
+    filename = filename.replace(";", "_")
+    filename = filename.strip()
+    return filename if filename else "download.bin"
 
 
 def _locate_static_or_resource_file(pathstr: str) -> str | None:
@@ -113,12 +137,15 @@ def _build_file_response(content_to_send, filename: str, mtype: str, attachment:
     Returns:
         FileResponse or RangedFileResponse with appropriate headers
     """
+    # SECURITY: Sanitize filename to prevent header injection
+    safe_filename = sanitize_filename_for_http(filename)
+
     if not request:
         response = FileResponse(
             content_to_send,
             content_type=mtype,
             as_attachment=attachment,
-            filename=filename,
+            filename=safe_filename,
         )
     else:
         response = RangedFileResponse(
@@ -126,7 +153,7 @@ def _build_file_response(content_to_send, filename: str, mtype: str, attachment:
             file=content_to_send,
             content_type=mtype,
             as_attachment=attachment,
-            filename=filename,
+            filename=safe_filename,
         )
     response["Cache-Control"] = f"public, max-age={expiration}"
 

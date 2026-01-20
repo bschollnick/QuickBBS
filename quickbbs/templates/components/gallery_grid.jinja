@@ -37,6 +37,48 @@
     --thumbnail-small-width: {{small_width}}px;
     --thumbnail-small-height: {{small_height}}px;
 }
+
+/* Flexible breadcrumb navigation layout - Override Bulma's level-item flex: none */
+.level-item.is-breadcrumb {
+    flex: 1 1 auto !important;
+    max-width: 75%;
+    min-width: 200px;
+    margin-left: 1rem !important;
+    margin-right: 1rem !important;
+    justify-content: center;
+}
+
+/* Ensure breadcrumb itself stays centered and doesn't overflow */
+.level-item.is-breadcrumb .breadcrumb {
+    width: 100%;
+    max-width: 100%;
+}
+
+/* Responsive breadcrumb sizing */
+@media screen and (max-width: 768px) {
+    .level-item.is-breadcrumb {
+        max-width: 100%;
+        min-width: 150px;
+        margin-left: 0.5rem !important;
+        margin-right: 0.5rem !important;
+    }
+}
+
+@media screen and (min-width: 769px) and (max-width: 1024px) {
+    .level-item.is-breadcrumb {
+        max-width: 60%;
+    }
+}
+
+/* Ensure level navigation maintains proper spacing */
+.gallery-container .level {
+    gap: 0.5rem;
+}
+
+.gallery-container .level-left,
+.gallery-container .level-right {
+    flex-shrink: 0 !important;
+}
 </style>
 
 <div class="gallery-container">

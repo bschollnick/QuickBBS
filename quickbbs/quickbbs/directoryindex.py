@@ -23,10 +23,10 @@ from .models import (
     SORT_MATRIX,
     NaturalSortField,
     cached,
+    directoryindex_cache,
     distinct_files_cache,
     filetypes,
     get_dir_sha,
-    directoryindex_cache,
     logger,
     models,
     normalize_fqpn,
@@ -1061,6 +1061,8 @@ class DirectoryIndex(models.Model):
             with transaction.atomic():
                 for dir_to_create in new_dirs:
                     DirectoryIndex.add_directory(fqpn_directory=dir_to_create)
+            # Clear cache for parent directory (self) to show new subdirectories in web view
+            Cache_Storage.remove_from_cache_indexdirs(self)
 
         # Delete directories that no longer exist in filesystem
         deleted_dirs = db_dirs - fs_dirs
