@@ -1,6 +1,5 @@
 <!-- Search Listings Partial - HTMX Content Only -->
 <div class="partial-container" hx-history="false">
-{% autoescape off %}
 {% include 'frontend/search/search_listings_menu.jinja' %}
 
 {# Build pagination URLs with searchtext parameter #}
@@ -13,7 +12,5 @@
 
 {% include 'components/pagination_sidebar_search.jinja' %}
 {% include 'frontend/search/search_listings_images.jinja' %}
-
-{% endautoescape %}
 
 </div>

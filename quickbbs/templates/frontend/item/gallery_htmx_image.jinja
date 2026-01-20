@@ -1,4 +1,3 @@
-{% autoescape off %}
 <div class="filetype-bg filetype-main-container">
 
     {% include 'components/breadcrumb.jinja' %}
@@ -7,13 +6,13 @@
 
     <div class="filetype-content-container" width="98%">
         <div>
-                {% if any([filetype.is_html, filetype.is_text, filetype.is_markdown]) %}
+                {% if filetype.is_html or filetype.is_text or filetype.is_markdown %}
                 <div class="has-text-left filetype-bg item-text-frame" id="text_frame">
                     <p class="has-text-left" id="text_frame" defer>
-                        {{html}}
+                        {{ html|safe }}
                     </p>
                 {% endif %}
-                {% if any([filetype.is_image, filetype.is_dir, filetype.is_link, filetype.is_archive]) %}
+                {% if filetype.is_image or filetype.is_dir or filetype.is_link or filetype.is_archive %}
                 <div class="thumbnail filetype-bg" id="thumbnail_frame">
                     <div class="has-text-centered">
                         <figure class="image">
@@ -64,4 +63,3 @@
         </div>
     </div>
 </div>
-{% endautoescape %}

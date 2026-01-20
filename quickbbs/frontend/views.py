@@ -18,6 +18,7 @@ import warnings
 from asgiref.sync import async_to_sync, sync_to_async
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
+from django.db import transaction
 from django.db.models import Count, Q
 from django.db.utils import DatabaseError, OperationalError
 from django.http import (
@@ -408,12 +409,14 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
 
     # Set directory thumbnail to the selected cover image
     # Clear layout cache to ensure users see updated thumbnail
-    directory.thumbnail = cover_image
-    directory.is_generic_icon = False
-    directory.save()
+    # Wrap in transaction to prevent race conditions with concurrent requests
+    with transaction.atomic():
+        directory.thumbnail = cover_image
+        directory.is_generic_icon = False
+        directory.save()
 
     # Clear cache for this directory
-    clear_layout_cache_for_directories([directory])
+    clear_layout_cache_for_directories({directory.pk})
 
     # Ensure thumbnail record exists
     if not directory.thumbnail.new_ftnail:
@@ -425,8 +428,10 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
             prefetch_related_thumbnail=THUMBNAILFILES_PR_FILEINDEX_FILETYPE,
             select_related_fileindex=("filetype",),
         )
-        directory.thumbnail.new_ftnail = thumbnail
-        directory.save()
+        # Wrap in transaction to prevent race conditions
+        with transaction.atomic():
+            directory.thumbnail.new_ftnail = thumbnail
+            directory.save()
 
     # Try to return the thumbnail, fall back to generic icon on error
     try:
@@ -435,11 +440,13 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
         # If thumbnail generation/serving fails, mark directory as generic and return filetype icon
         # Clear layout cache to ensure users see updated generic icon state
         print(f"Directory thumbnail generation failed for {directory.fqpndirectory}: {e}")
-        directory.is_generic_icon = True
-        directory.save(update_fields=["is_generic_icon"])
+        # Wrap in transaction to prevent race conditions
+        with transaction.atomic():
+            directory.is_generic_icon = True
+            directory.save(update_fields=["is_generic_icon"])
 
         # Clear cache for this directory
-        clear_layout_cache_for_directories([directory])
+        clear_layout_cache_for_directories({directory.pk})
 
         return directory.filetype.send_thumbnail()
 
@@ -682,6 +689,11 @@ def _find_directory(paths: dict) -> DirectoryIndex:
                 logger.info("Directory not found on filesystem: %s", dirpath)
                 raise DirectoryNotFoundError(f"Gallery not found: {dirpath}")
 
+            # Clear parent's cache if this is a new directory (web discovery case)
+            # This ensures the parent directory listing shows the new subdirectory
+            if created and directory.parent_directory:
+                Cache_Storage.remove_from_cache_indexdirs(directory.parent_directory)
+
             # Reload with optimized prefetches for view rendering
             # add_directory uses update_or_create without prefetch_related
             # REMOVED: ("FileIndex_entries",) prefetch - Phase 5 Fix 4
@@ -859,7 +871,7 @@ async def new_viewgallery(request: WSGIRequest):
             if any(results.values()):
                 # Clear ALL layout cache entries for this directory (all pages, all sort orders)
                 # Thumbnails were created, so cached counts are now stale
-                cleared_count = clear_layout_cache_for_directories([directory])
+                cleared_count = clear_layout_cache_for_directories({directory.pk})
                 if cleared_count > 0:
                     print(f"Cleared {cleared_count} layout cache entries for directory " "after thumbnail processing")
         print("elapsed thumbnail time - ", time.time() - no_thumb_start)

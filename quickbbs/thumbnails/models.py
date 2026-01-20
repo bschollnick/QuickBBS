@@ -165,7 +165,6 @@ class ThumbnailFiles(models.Model):
 
         from django.db import connection
 
-        from quickbbs.fileindex import FILEINDEX_SR_HOME
         from quickbbs.models import FileIndex
 
         # MEMORY MANAGEMENT NOTE:
@@ -359,7 +358,7 @@ class ThumbnailFiles(models.Model):
                         f"File type {filetype.fileext} doesn't support custom thumbnails, "
                         f"marking all instances as generic: {index_data_item.name}"
                     )
-                    FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, select_related=FILEINDEX_SR_HOME, clear_cache=True)
+                    FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
 
                     # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
                     thumbnailfiles_cache.pop(file_sha256, None)
@@ -378,7 +377,7 @@ class ThumbnailFiles(models.Model):
                 # Use FileIndex classmethod to ensure layout cache is cleared
                 if index_data_item.is_generic_icon:
                     print(f"Thumbnail creation succeeded on retry for {index_data_item.name}, " f"turning off generic flag for all instances")
-                    FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=False, select_related=FILEINDEX_SR_HOME, clear_cache=True)
+                    FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=False, clear_cache=True)
 
                     # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
                     thumbnailfiles_cache.pop(file_sha256, None)
@@ -388,7 +387,7 @@ class ThumbnailFiles(models.Model):
                 # Use FileIndex classmethod to ensure layout cache is cleared
                 print(f"Thumbnail creation failed for {index_data_item.name}: {e}")
                 if not index_data_item.is_generic_icon:
-                    FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, select_related=FILEINDEX_SR_HOME, clear_cache=True)
+                    FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
 
                     # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
                     thumbnailfiles_cache.pop(file_sha256, None)

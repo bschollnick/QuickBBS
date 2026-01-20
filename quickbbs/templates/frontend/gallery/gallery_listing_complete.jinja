@@ -6,7 +6,5 @@
 {% block content %}
 {{ show_page_title_meta(gallery_name, request=request) }}
 
-{% autoescape off %}
 {% include 'frontend/gallery/gallery_listing_partial.jinja' %}
-{% endautoescape %}
 {% endblock %}

@@ -13,7 +13,5 @@ if (typeof(Storage) !== "undefined" && localStorage.getItem("htmx-history-cache"
 }
 </script>
 
-{% autoescape off %}
 {% include 'frontend/search/search_listings_partial.jinja' %}
-{% endautoescape %}
 {% endblock %}

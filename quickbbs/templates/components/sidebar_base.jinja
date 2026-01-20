@@ -59,9 +59,9 @@
                     hx-target="body"
                     hx-swap="innerHTML show:window:top transition:true"
                     hx-push-url="true"
+                    hx-sync="body:abort"
                     hx-trigger="change"
-                    hx-include="[name='page']"
-                    onchange="this.form.requestSubmit()">
+                    hx-include="[name='page']">
               <option value="0" {% if sort == 0 %}selected{% endif %}>A..Z</option>
               <option value="1" {% if sort == 1 %}selected{% endif %}>Last Modified</option>
               <option value="2" {% if sort == 2 %}selected{% endif %}>Created</option>
