@@ -17,6 +17,8 @@ Usage:
     python manage.py scan --verify_thumbnails
 """
 
+from __future__ import annotations
+
 import asyncio
 import io
 import os
@@ -43,10 +45,59 @@ from quickbbs.management.commands.management_helper import (
 from quickbbs.models import DirectoryIndex, FileIndex
 from thumbnails.models import ThumbnailFiles
 
+# Batch size for chunked processing operations
+BULK_UPDATE_BATCH_SIZE = 250
+
+
+def _process_directory_verification_chunk(
+    directory_pks: list[int],
+    cache_instance: fs_Cache_Tracking,
+    deleted_count: int,
+    cache_added_count: int,
+) -> tuple[int, int]:
+    """
+    Process a chunk of directories for verification.
+
+    Args:
+        directory_pks: List of DirectoryIndex primary keys to process
+        cache_instance: fs_Cache_Tracking instance for adding cache entries
+        deleted_count: Current count of deleted directories
+        cache_added_count: Current count of cache entries added
+
+    Returns:
+        Tuple of (updated deleted_count, updated cache_added_count)
+    """
+    # Fetch full directory objects for this chunk with related data
+    directories = list(
+        DirectoryIndex.objects.select_related("Cache_Watcher")
+        .filter(pk__in=directory_pks)
+        .order_by("fqpndirectory")
+    )
+
+    for directory in directories:
+        if not os.path.exists(directory.fqpndirectory):
+            print(f"Directory: {directory.fqpndirectory} does not exist")
+            DirectoryIndex.delete_directory_record(directory)
+            deleted_count += 1
+        else:
+            # Check if directory exists in fs_Cache_Tracking using 1-to-1 relationship
+            try:
+                _ = directory.Cache_Watcher
+            except ObjectDoesNotExist:
+                cache_instance.add_from_indexdirs(directory)
+                cache_added_count += 1
+                if cache_added_count <= 10 or cache_added_count % 100 == 0:
+                    print(f"Added directory to fs_Cache_Tracking: {directory.fqpndirectory}")
+
+    return deleted_count, cache_added_count
+
 
 def verify_directories(start_path: str | None = None):
     """
     Verify directories in the database against the filesystem.
+
+    Uses chunked PK processing to avoid loading all directories into memory.
+    Includes timing statistics and batch processing for efficiency.
 
     Args:
         start_path: Starting directory path to verify from (default: ALBUMS_PATH/albums)
@@ -54,9 +105,12 @@ def verify_directories(start_path: str | None = None):
     Returns:
         None
     """
+    print("=" * 60)
     print("Checking for invalid directories in Database (eg. Deleted, Moved, etc).")
+    print("=" * 60)
+    start_time = time.time()
     start_count = DirectoryIndex.objects.count()
-    print("Starting Directory Count: ", start_count)
+    print(f"Starting Directory Count: {start_count}")
     albums_root = os.path.join(settings.ALBUMS_PATH, "albums") + os.sep
 
     # Invalidate directories with link files missing virtual_directory
@@ -71,75 +125,139 @@ def verify_directories(start_path: str | None = None):
     invalidate_empty_directories(start_path=start_path, verbose=True)
     print("-" * 30)
 
-    # Filter directories to only those under start_path if specified
+    # Build base queryset
     if start_path:
         normalized_start = normalize_fqpn(start_path)
         print(f"Filtering directories under: {normalized_start}")
-        directories_to_scan = (
-            DirectoryIndex.objects.select_related("Cache_Watcher")
-            .filter(fqpndirectory__startswith=normalized_start)
+        base_qs = (
+            DirectoryIndex.objects.filter(fqpndirectory__startswith=normalized_start)
             .order_by("fqpndirectory")
-            .iterator(chunk_size=1000)
         )
     else:
-        print("Gathering Directories")
-        # Prefetch Cache_Watcher relationship to avoid N+1 queries
-        directories_to_scan = DirectoryIndex.objects.select_related("Cache_Watcher").order_by("fqpndirectory").all().iterator(chunk_size=1000)
+        print("Gathering all directories")
+        base_qs = DirectoryIndex.objects.order_by("fqpndirectory")
+
+    # Fetch only primary keys (lightweight)
+    all_pks = list(base_qs.values_list("pk", flat=True))
+    total_dirs = len(all_pks)
+    print(f"Found {total_dirs} directories to verify (chunked mode)...")
 
     print("Starting Scan")
-
-    # Process directories WITHOUT closing connections during iteration
-    # Server-side cursors don't survive close_old_connections()
-    batch_counter = 0
     cache_instance = fs_Cache_Tracking()
+    processed_count = 0
+    deleted_count = 0
+    cache_added_count = 0
+    scan_start = time.time()
 
-    for directory in directories_to_scan:
-        if not os.path.exists(directory.fqpndirectory):
-            print(f"Directory: {directory.fqpndirectory} does not exist")
-            DirectoryIndex.delete_directory_record(directory)
-        else:
-            # Check if directory exists in fs_Cache_Tracking using 1-to-1 relationship
-            try:
-                _ = directory.Cache_Watcher
-            except ObjectDoesNotExist:
-                cache_instance.add_from_indexdirs(directory)
-                print(f"Added directory to fs_Cache_Tracking: {directory.fqpndirectory}")
+    # Process in chunks
+    for i in range(0, len(all_pks), BULK_UPDATE_BATCH_SIZE):
+        chunk_pks = all_pks[i : i + BULK_UPDATE_BATCH_SIZE]
 
-        batch_counter += 1
-        if batch_counter % 1000 == 0:
-            print(f"Processed {batch_counter} directories...")
+        deleted_count, cache_added_count = _process_directory_verification_chunk(
+            chunk_pks, cache_instance, deleted_count, cache_added_count
+        )
 
-    # Only close connections AFTER iteration is complete
-    close_old_connections()
+        processed_count += len(chunk_pks)
+
+        # Progress indicator
+        if processed_count % 1000 == 0 or processed_count == total_dirs:
+            elapsed = time.time() - scan_start
+            rate = processed_count / elapsed if elapsed > 0 else 0
+            print(f"Processed {processed_count}/{total_dirs} directories ({rate:.1f} dirs/sec)...")
+
+        # Close connections after each chunk
+        close_old_connections()
 
     end_count = DirectoryIndex.objects.count()
-    print("Ending Count: ", end_count)
-    print("Difference : ", start_count - end_count)
+    print("-" * 30)
+    print(f"Verification complete: Deleted {deleted_count} directories, added {cache_added_count} cache entries")
+    print(f"Starting Count: {start_count}, Ending Count: {end_count}, Difference: {start_count - end_count}")
+
+    # Check for unlinked parents
     print("-" * 30)
     print("Checking for unlinked parents")
     unlinked_parents = DirectoryIndex.objects.filter(parent_directory__isnull=True).exclude(fqpndirectory=albums_root)
-    # exclude the albums_root, since that is suppose to have no parent.  You can't tranverse below the albums_root
-    print(f"Found {unlinked_parents.count()} directories with no parents")
+    unlinked_count = unlinked_parents.count()
+    print(f"Found {unlinked_count} directories with no parents")
 
-    # CRITICAL: Order by fqpndirectory to process parent directories before children
-    # Shallower paths (fewer separators) naturally sort before deeper paths
-    batch_counter = 0
-    for directory in unlinked_parents.order_by("fqpndirectory").iterator(chunk_size=1000):
-        print(f"Fixing Parent directory for {directory.fqpndirectory}")
-        DirectoryIndex.add_directory(directory.fqpndirectory)
+    if unlinked_count > 0:
+        # Fetch PKs for unlinked parents
+        unlinked_pks = list(unlinked_parents.order_by("fqpndirectory").values_list("pk", flat=True))
+        fixed_count = 0
 
-        batch_counter += 1
-        if batch_counter % 1000 == 0:
-            print(f"Processed {batch_counter} unlinked parents...")
+        # Process in chunks - CRITICAL: Order by fqpndirectory to process parents before children
+        for i in range(0, len(unlinked_pks), BULK_UPDATE_BATCH_SIZE):
+            chunk_pks = unlinked_pks[i : i + BULK_UPDATE_BATCH_SIZE]
 
-    # Close connections after second iteration is complete
-    close_old_connections()
+            # Fetch directories for this chunk
+            directories = list(
+                DirectoryIndex.objects.filter(pk__in=chunk_pks).order_by("fqpndirectory")
+            )
+
+            for directory in directories:
+                print(f"Fixing Parent directory for {directory.fqpndirectory}")
+                DirectoryIndex.add_directory(directory.fqpndirectory)
+                fixed_count += 1
+
+            close_old_connections()
+
+        print(f"Fixed {fixed_count} unlinked parent directories")
 
     # Invalidate empty directories after all verification operations
     print("-" * 30)
     print("Invalidating empty directories (after verification)...")
     invalidate_empty_directories(start_path=start_path, verbose=True)
-    print("-" * 30)
+
+    # Final statistics
+    total_time = time.time() - start_time
+    print("=" * 60)
+    print("Directory verification complete")
+    print(f"  Total time: {total_time:.1f} seconds")
+    print(f"  Directories processed: {processed_count}")
+    print(f"  Directories deleted: {deleted_count}")
+    print(f"  Cache entries added: {cache_added_count}")
+    print("=" * 60)
+
+
+async def _process_verify_files_chunk(
+    directory_pks: list[int],
+    processed_count: int,
+    start_time: float,
+) -> int:
+    """
+    Process a chunk of directories for file verification.
+
+    Args:
+        directory_pks: List of DirectoryIndex primary keys to process
+        processed_count: Current count of directories processed
+        start_time: Start time for rate calculations
+
+    Returns:
+        Updated processed_count
+    """
+    # Fetch full directory objects for this chunk with related data
+    directories = await sync_to_async(list, thread_sensitive=True)(
+        DirectoryIndex.objects.select_related("Cache_Watcher", "parent_directory")
+        .filter(pk__in=directory_pks)
+        .order_by("fqpndirectory")
+    )
+
+    for directory in directories:
+        # Remove from cache
+        await sync_to_async(Cache_Storage.remove_from_cache_sha, thread_sensitive=True)(
+            sha256=directory.dir_fqpn_sha256
+        )
+        # Verify and sync files
+        await update_database_from_disk(directory)
+        processed_count += 1
+
+        # Progress indicator every 100 directories
+        if processed_count % 100 == 0:
+            elapsed = time.time() - start_time
+            rate = processed_count / elapsed if elapsed > 0 else 0
+            print(f"\tProcessed {processed_count} directories ({rate:.1f} dirs/sec)...")
+
+    return processed_count
 
 
 async def _verify_files_async(start_path: str | None = None):
@@ -152,12 +270,20 @@ async def _verify_files_async(start_path: str | None = None):
     - Deletes orphaned FileIndex records (where home_directory is None)
     - Verifies all files exist on disk and syncs database with filesystem
 
+    Uses chunked PK processing to avoid loading all directories into memory.
+    Includes timing statistics and batch processing for efficiency.
+
     Args:
         start_path: Starting directory path to verify from (default: ALBUMS_PATH/albums)
 
     Returns:
         None
     """
+    print("=" * 60)
+    print("Verifying files in database against filesystem")
+    print("=" * 60)
+    overall_start = time.time()
+
     # Invalidate directories containing files with NULL SHA256
     await sync_to_async(invalidate_directories_with_null_sha256, thread_sensitive=True)(start_path=start_path)
 
@@ -180,47 +306,52 @@ async def _verify_files_async(start_path: str | None = None):
 
     print("Checking for invalid files in Database")
     start_count = await sync_to_async(FileIndex.objects.count, thread_sensitive=True)()
-    print("\tStarting File Count: ", start_count)
+    print(f"\tStarting File Count: {start_count}")
 
-    # Process directories in batches with connection cleanup
-    batch_counter = 0
-    cleanup_interval = 25  # Close connections every 25 directories
-
-    # Fetch all directories first with Cache_Watcher prefetched
-    # This prevents sync DB queries when accessing is_cached property
-    # Filter directories to only those under start_path if specified
+    # Build base queryset
     if start_path:
         normalized_start = normalize_fqpn(start_path)
         print(f"\tFiltering directories under: {normalized_start}")
-        directories = await sync_to_async(list, thread_sensitive=True)(
-            DirectoryIndex.objects.select_related("Cache_Watcher", "parent_directory")
-            .filter(fqpndirectory__startswith=normalized_start)
-            .order_by("fqpndirectory")
-            .all()
-        )
+        base_qs = DirectoryIndex.objects.filter(fqpndirectory__startswith=normalized_start).order_by("fqpndirectory")
     else:
-        directories = await sync_to_async(list, thread_sensitive=True)(
-            DirectoryIndex.objects.select_related("Cache_Watcher", "parent_directory").order_by("fqpndirectory").all()
+        base_qs = DirectoryIndex.objects.order_by("fqpndirectory")
+
+    # Fetch only primary keys (lightweight - avoids loading full objects into memory)
+    all_pks = await sync_to_async(list, thread_sensitive=True)(
+        base_qs.values_list("pk", flat=True)
+    )
+    total_dirs = len(all_pks)
+    print(f"\tFound {total_dirs} directories to process (chunked mode)...")
+
+    # Process in chunks
+    processed_count = 0
+    start_time = time.time()
+
+    for i in range(0, len(all_pks), BULK_UPDATE_BATCH_SIZE):
+        chunk_pks = all_pks[i : i + BULK_UPDATE_BATCH_SIZE]
+
+        processed_count = await _process_verify_files_chunk(
+            chunk_pks, processed_count, start_time
         )
 
-    for directory in directories:
-        await sync_to_async(Cache_Storage.remove_from_cache_sha, thread_sensitive=True)(sha256=directory.dir_fqpn_sha256)
-        await update_database_from_disk(directory)
+        # Close connections after each chunk to prevent exhaustion
+        await sync_to_async(connections.close_all, thread_sensitive=True)()
 
-        # Periodic connection cleanup to prevent exhaustion
-        batch_counter += 1
-        if batch_counter % cleanup_interval == 0:
-            # Close connections in async context
-            await sync_to_async(connections.close_all, thread_sensitive=True)()
-            print(f"\tProcessed {batch_counter} directories...")
-
-    # Final cleanup
-    await sync_to_async(connections.close_all, thread_sensitive=True)()
-
+    # Final statistics
     end_count = await sync_to_async(FileIndex.objects.count, thread_sensitive=True)()
-    print("\tStarting File Count: ", start_count)
-    print("\tEnding Count: ", end_count)
-    print("\tDifference : ", start_count - end_count)
+    total_time = time.time() - overall_start
+    scan_time = time.time() - start_time
+    dir_rate = processed_count / scan_time if scan_time > 0 else 0
+
+    print("=" * 60)
+    print("File verification complete")
+    print(f"  Starting File Count: {start_count}")
+    print(f"  Ending File Count: {end_count}")
+    print(f"  Difference: {start_count - end_count}")
+    print(f"  Directories processed: {processed_count}")
+    print(f"  Directory rate: {dir_rate:.1f} dirs/sec")
+    print(f"  Total time: {total_time:.1f} seconds")
+    print("=" * 60)
 
 
 def verify_files(start_path: str | None = None):
@@ -311,7 +442,7 @@ def verify_thumbnails():
                     )
                     directories_to_invalidate.update(file_dir_ids)
 
-                print(f"      ✓ Invalidated thumbnail immediately")
+                print("      ✓ Invalidated thumbnail immediately")
 
         except Exception as e:
             print(f"  ❌ Error checking thumbnail {thumbnail.sha256_hash}: {e}")
@@ -342,24 +473,36 @@ def verify_thumbnails():
         directory_counter = 0
         total_dirs = len(directories_to_invalidate)
 
-        with transaction.atomic():
-            for directory in directories_to_invalidate:
-                directory_counter += 1
+        # Convert directory IDs to list for chunked processing
+        dir_ids_list = list(directories_to_invalidate)
 
-                # Mark directory as invalidated in cache
-                fs_Cache_Tracking.objects.update_or_create(
-                    directory=directory,
-                    defaults={
-                        "invalidated": True,
-                        "lastscan": time.time(),
-                    },
-                )
-                # Invalidate directory thumbnail as well
-                directory.invalidate_thumb()
+        # Process in chunks to avoid memory issues with large sets
+        for i in range(0, len(dir_ids_list), BULK_UPDATE_BATCH_SIZE):
+            chunk_ids = dir_ids_list[i : i + BULK_UPDATE_BATCH_SIZE]
 
-                # Show progress for first few and then periodically
-                if directory_counter <= 5 or directory_counter % 100 == 0:
-                    print(f"  ✓ Invalidated directory {directory_counter}/{total_dirs}: {directory.fqpndirectory}")
+            # Fetch actual DirectoryIndex objects for this chunk
+            directories = DirectoryIndex.objects.filter(pk__in=chunk_ids)
+
+            with transaction.atomic():
+                for directory in directories:
+                    directory_counter += 1
+
+                    # Mark directory as invalidated in cache
+                    fs_Cache_Tracking.objects.update_or_create(
+                        directory=directory,
+                        defaults={
+                            "invalidated": True,
+                            "lastscan": time.time(),
+                        },
+                    )
+                    # Invalidate directory thumbnail as well
+                    directory.invalidate_thumb()
+
+                    # Show progress for first few and then periodically
+                    if directory_counter <= 5 or directory_counter % 100 == 0:
+                        print(f"  ✓ Invalidated directory {directory_counter}/{total_dirs}: {directory.fqpndirectory}")
+
+            close_old_connections()
 
         print("-" * 80)
         print(f"Marked {len(directories_to_invalidate)} directories for regeneration")
@@ -425,7 +568,10 @@ class Command(BaseCommand):
             "--start",
             type=str,
             default=None,
-            help="Starting directory path to walk from (default: ALBUMS_PATH/albums). Used with --verify_directories, --verify_files, --add_directories, or --add_files",
+            help=(
+                "Starting directory path to walk from (default: ALBUMS_PATH/albums). "
+                "Used with --verify_directories, --verify_files, --add_directories, or --add_files"
+            ),
         )
 
         parser.add_argument(

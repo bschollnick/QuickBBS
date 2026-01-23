@@ -178,7 +178,7 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
         sort_fields = SORT_MATRIX[sort_order_value]
 
         # Strip ordering prefixes for .values() call (remove '-' prefix)
-        value_fields = [f.lstrip('-') for f in sort_fields]
+        value_fields = [f.lstrip("-") for f in sort_fields]
 
         # Get the current entry's sort values for comparison
         current_file = FileIndex.objects.filter(unique_sha256=unique_file_sha256).values(*value_fields).first()

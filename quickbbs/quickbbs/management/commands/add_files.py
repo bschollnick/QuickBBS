@@ -4,7 +4,12 @@ Function to add missing files from filesystem to database.
 This module iterates through directories in the database and adds any missing
 files to FileIndex. It uses the update_database_from_disk function to properly scan
 directories and add files.
+
+Memory-optimized: Uses chunked processing to avoid loading all directories into
+memory at once. Tracks file additions locally instead of expensive count() queries.
 """
+
+from __future__ import annotations
 
 import asyncio
 import os
@@ -23,6 +28,69 @@ from quickbbs.management.commands.management_helper import (
 )
 from quickbbs.models import DirectoryIndex, FileIndex
 
+# Batch size for chunked directory processing
+BULK_UPDATE_BATCH_SIZE = 250
+
+
+async def _process_directory_chunk(
+    directory_pks: list[int],
+    processed_count: int,
+    files_added: int,
+    max_count: int,
+    start_time: float,
+) -> tuple[int, int, bool]:
+    """
+    Process a chunk of directories by their primary keys.
+
+    Args:
+        directory_pks: List of DirectoryIndex primary keys to process
+        processed_count: Current count of directories processed
+        files_added: Current count of files added
+        max_count: Maximum number of directories to process (0 = unlimited)
+        start_time: Start time for rate calculations
+
+    Returns:
+        Tuple of (updated processed_count, updated files_added, reached_max_count flag)
+    """
+    # Fetch full directory objects for this chunk with related data
+    directories = await sync_to_async(list, thread_sensitive=True)(
+        DirectoryIndex.objects.select_related("Cache_Watcher", "parent_directory").filter(pk__in=directory_pks).order_by("fqpndirectory")
+    )
+
+    for directory in directories:
+        try:
+            # Count files in this directory before processing
+            files_before = await sync_to_async(lambda d: d.FileIndex_entries.count(), thread_sensitive=True)(directory)
+
+            # Use update_database_from_disk to scan the directory and add missing files
+            await update_database_from_disk(directory)
+
+            # Count files after processing to track additions locally
+            files_after = await sync_to_async(lambda d: d.FileIndex_entries.count(), thread_sensitive=True)(directory)
+            files_added += files_after - files_before
+
+            processed_count += 1
+
+            # Progress indicator every 100 directories (reduced from 10 to avoid spam)
+            if processed_count % 100 == 0:
+                elapsed_time = time.time() - start_time
+                dir_rate = processed_count / elapsed_time if elapsed_time > 0 else 0
+                file_rate = files_added / elapsed_time if elapsed_time > 0 else 0
+                print(
+                    f"Processed {processed_count} directories, " f"added {files_added} files ({dir_rate:.1f} dirs/sec, {file_rate:.1f} files/sec)..."
+                )
+
+            # Check if we've hit the max_count limit
+            if 0 < max_count <= processed_count:
+                print(f"Reached max_count limit of {max_count}")
+                return processed_count, files_added, True
+
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            print(f"Error processing directory {directory.fqpndirectory}: {e}")
+            continue
+
+    return processed_count, files_added, False
+
 
 async def _add_files_async(max_count: int = 0, start_path: str | None = None) -> None:
     """
@@ -30,6 +98,9 @@ async def _add_files_async(max_count: int = 0, start_path: str | None = None) ->
 
     Iterates through directories in database and adds any missing files.
     Uses update_database_from_disk to properly scan directories and add files.
+
+    Memory-optimized: Fetches directory PKs in chunks instead of loading all
+    directory objects into memory at once. Tracks file additions locally.
 
     Args:
         max_count: Maximum number of directories to process (0 = unlimited)
@@ -67,8 +138,14 @@ async def _add_files_async(max_count: int = 0, start_path: str | None = None) ->
 
     print(f"Scanning albums root: {albums_root}")
 
-    # Get total count for progress reporting
-    total_dirs = await sync_to_async(DirectoryIndex.objects.count, thread_sensitive=True)()
+    # Build the base queryset for directories
+    if start_path:
+        base_qs = DirectoryIndex.objects.filter(fqpndirectory__startswith=albums_root).order_by("fqpndirectory")
+    else:
+        base_qs = DirectoryIndex.objects.order_by("fqpndirectory")
+
+    # Get total count and directory PKs (lightweight - just integers)
+    total_dirs = await sync_to_async(base_qs.count, thread_sensitive=True)()
     print(f"Found {total_dirs} directories in database")
 
     if total_dirs == 0:
@@ -77,62 +154,37 @@ async def _add_files_async(max_count: int = 0, start_path: str | None = None) ->
 
     # Determine how many to process
     dirs_to_process = max_count if max_count > 0 else total_dirs
-    print(f"Processing {dirs_to_process} directories to add missing files...")
+    print(f"Processing up to {dirs_to_process} directories to add missing files (chunked mode)...")
 
-    # Track file additions across all directories
+    # Get initial file count for final statistics
     initial_file_count = await sync_to_async(FileIndex.objects.count, thread_sensitive=True)()
     print(f"Initial file count in database: {initial_file_count}")
 
-    # Iterate through directories
+    # Fetch only primary keys (lightweight - avoids loading full objects into memory)
+    all_pks = await sync_to_async(list, thread_sensitive=True)(base_qs.values_list("pk", flat=True))
+
+    # Process in chunks
     processed_count = 0
+    files_added = 0
     start_time = time.time()
+    reached_max = False
 
-    # Fetch all directories first with Cache_Watcher prefetched
-    # This prevents sync DB queries when accessing is_cached property
-    # Filter directories to only those under the albums_root if start_path was specified
-    if start_path:
-        directories = await sync_to_async(list, thread_sensitive=True)(
-            DirectoryIndex.objects.select_related("Cache_Watcher", "parent_directory")
-            .filter(fqpndirectory__startswith=albums_root)
-            .order_by("fqpndirectory")
-            .all()
-        )
-    else:
-        directories = await sync_to_async(list, thread_sensitive=True)(
-            DirectoryIndex.objects.select_related("Cache_Watcher", "parent_directory").order_by("fqpndirectory").all()
-        )
+    for i in range(0, len(all_pks), BULK_UPDATE_BATCH_SIZE):
+        if reached_max:
+            break
 
-    for directory in directories:
-        try:
-            # Use update_database_from_disk to scan the directory and add missing files
-            await update_database_from_disk(directory)
+        chunk_pks = all_pks[i : i + BULK_UPDATE_BATCH_SIZE]
 
-            processed_count += 1
+        processed_count, files_added, reached_max = await _process_directory_chunk(chunk_pks, processed_count, files_added, max_count, start_time)
 
-            # Progress indicator
-            if processed_count % 10 == 0:
-                current_file_count = await sync_to_async(FileIndex.objects.count, thread_sensitive=True)()
-                files_added = current_file_count - initial_file_count
-                elapsed_time = time.time() - start_time
-                file_rate = files_added / elapsed_time if elapsed_time > 0 else 0
-                print(f"Processed {processed_count} directories, " f"added {files_added} files ({file_rate:.1f} files/sec)...")
-
-            # Check if we've hit the max_count limit
-            if 0 < max_count <= processed_count:
-                print(f"Reached max_count limit of {max_count}")
-                break
-
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            print(f"Error processing directory {directory.fqpndirectory}: {e}")
-            continue
-
-    # Only close connections AFTER iteration is complete
-    close_old_connections()
+        # Close old connections after each chunk to prevent exhaustion
+        await sync_to_async(close_old_connections, thread_sensitive=True)()
 
     # Calculate final statistics
     final_file_count = await sync_to_async(FileIndex.objects.count, thread_sensitive=True)()
     total_files_added = final_file_count - initial_file_count
     total_time = time.time() - start_time
+    dir_rate = processed_count / total_time if total_time > 0 else 0
     file_rate = total_files_added / total_time if total_time > 0 else 0
 
     # Invalidate empty directories after all file additions
@@ -143,8 +195,9 @@ async def _add_files_async(max_count: int = 0, start_path: str | None = None) ->
 
     print("=" * 60)
     print(f"Successfully processed {processed_count} directories")
-    print(f"Total files added: {total_files_added}")
+    print(f"Total files added: {total_files_added} (tracked: {files_added})")
     print(f"Total time: {total_time:.1f} seconds")
+    print(f"Directory rate: {dir_rate:.1f} dirs/sec")
     print(f"File addition rate: {file_rate:.1f} files/sec")
     print("=" * 60)
 

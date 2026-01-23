@@ -5,6 +5,9 @@ This module scans FileIndex for files missing thumbnails and generates them.
 Only processes files with non-generic filetypes (images, videos, PDFs).
 """
 
+from __future__ import annotations
+
+import sys
 import time
 
 from django.db import close_old_connections
@@ -13,13 +16,95 @@ from thumbnails.models import ThumbnailFiles, THUMBNAILFILES_PR_FILEINDEX_FILETY
 
 from quickbbs.models import FileIndex
 
+# Batch size for bulk_create and bulk_update operations
+BULK_UPDATE_BATCH_SIZE = 250
+
+
+def _bulk_create_thumbnail_records(unique_sha256s: list[str]) -> int:
+    """
+    Create ThumbnailFiles records in bulk for SHA256 hashes that don't have records.
+
+    Args:
+        unique_sha256s: List of unique SHA256 hashes to create records for
+
+    Returns:
+        Number of records created
+    """
+    if not unique_sha256s:
+        return 0
+
+    # Find which SHA256s already have ThumbnailFiles records
+    existing_sha256s = set(ThumbnailFiles.objects.filter(sha256_hash__in=unique_sha256s).values_list("sha256_hash", flat=True))
+
+    # Create records only for SHA256s that don't exist
+    records_to_create = [
+        ThumbnailFiles(
+            sha256_hash=sha256,
+            small_thumb=b"",
+            medium_thumb=b"",
+            large_thumb=b"",
+        )
+        for sha256 in unique_sha256s
+        if sha256 not in existing_sha256s
+    ]
+
+    if records_to_create:
+        ThumbnailFiles.objects.bulk_create(
+            records_to_create,
+            batch_size=BULK_UPDATE_BATCH_SIZE,
+            ignore_conflicts=True,  # Skip if another process created it
+        )
+
+    return len(records_to_create)
+
+
+def _bulk_link_fileindex_to_thumbnails(sha256_list: list[str]) -> int:
+    """
+    Link FileIndex records to their ThumbnailFiles records in bulk.
+
+    Args:
+        sha256_list: List of SHA256 hashes to link
+
+    Returns:
+        Number of FileIndex records updated
+    """
+    if not sha256_list:
+        return 0
+
+    # Get ThumbnailFiles records for these SHA256s
+    thumbnail_map = {t.sha256_hash: t for t in ThumbnailFiles.objects.filter(sha256_hash__in=sha256_list)}
+
+    # Get FileIndex records that need linking
+    files_to_update = list(
+        FileIndex.objects.filter(
+            file_sha256__in=sha256_list,
+            new_ftnail__isnull=True,
+        ).only("id", "file_sha256", "new_ftnail")
+    )
+
+    # Update the new_ftnail field
+    for file_record in files_to_update:
+        thumbnail = thumbnail_map.get(file_record.file_sha256)
+        if thumbnail:
+            file_record.new_ftnail = thumbnail
+
+    # Bulk update
+    if files_to_update:
+        FileIndex.objects.bulk_update(
+            files_to_update,
+            fields=["new_ftnail"],
+            batch_size=BULK_UPDATE_BATCH_SIZE,
+        )
+
+    return len(files_to_update)
+
 
 def add_thumbnails(max_count: int = 0) -> None:
     """
     Scan FileIndex for files missing thumbnails and generate them.
 
     Two-pass approach:
-    1. Ensure all thumbnailable files have a ThumbnailFiles record
+    1. Ensure all thumbnailable files have a ThumbnailFiles record (uses bulk operations)
     2. Generate thumbnails for records with empty thumbnail data
 
     Only processes files with thumbnailable filetypes:
@@ -39,12 +124,11 @@ def add_thumbnails(max_count: int = 0) -> None:
 
     # ========================================================================
     # PASS 1: Ensure all thumbnailable files have a ThumbnailFiles record
+    # Uses bulk_create and bulk_update for efficiency
     # ========================================================================
-    print("\nPASS 1: Ensuring ThumbnailFiles records exist...")
+    print("\nPASS 1: Ensuring ThumbnailFiles records exist (bulk mode)...")
 
     # Get thumbnailable files with no thumbnail record
-    # Note: Don't use distinct() - we want ALL unlinked records to get linked
-    # to their existing ThumbnailFiles record (by SHA256)
     # EXCLUDE link files (.alias/.link) - they're marked thumbnailable to avoid generic icons
     # but attempting to generate thumbnails for them causes ImageIO memory leaks
     files_without_records = FileIndex.objects.filter(
@@ -55,39 +139,44 @@ def add_thumbnails(max_count: int = 0) -> None:
         & (Q(filetype__is_image=True) | Q(filetype__is_pdf=True) | Q(filetype__is_movie=True))
     )
 
-    # Get list of SHA256 values only (lightweight - no FileIndex objects cached)
-    # This avoids memory spike from Django's queryset result caching
-    sha256_list = list(files_without_records.values_list('file_sha256', flat=True))
-    count = len(sha256_list)
-    print(f"Found {count} files without ThumbnailFiles records")
+    # Get list of SHA256 values (may have duplicates for files with same content)
+    sha256_list = list(files_without_records.values_list("file_sha256", flat=True))
+    total_files = len(sha256_list)
 
-    if count > 0:
-        print("Creating ThumbnailFiles records and generating thumbnails...")
-        processed = 0
+    # Get unique SHA256s for bulk_create
+    unique_sha256s = list(set(sha256_list))
+    print(f"Found {total_files} files without ThumbnailFiles records ({len(unique_sha256s)} unique SHA256s)")
 
-        # Iterate through SHA256 list (no queryset caching, no server-side cursor)
-        for file_sha256 in sha256_list:
-            try:
-                # Create ThumbnailFiles record and generate thumbnail
-                # (automatically skips if thumbnail already exists)
-                # get_or_create_thumbnail_record fetches FileIndex internally
-                ThumbnailFiles.get_or_create_thumbnail_record(
-                    file_sha256=file_sha256,
-                    suppress_save=False,
-                    prefetch_related_thumbnail=THUMBNAILFILES_PR_FILEINDEX_FILETYPE,
-                    select_related_fileindex=("filetype",),
-                )
-            except Exception as e:  # pylint: disable=broad-exception-caught
-                print(f"ERROR processing SHA256 {file_sha256}: {e}")
+    if total_files > 0:
+        print("Creating ThumbnailFiles records in bulk...")
+        start_time = time.time()
 
-            processed += 1
+        # Process in batches
+        total_created = 0
+        total_linked = 0
 
-            # Progress output and periodic cleanup
-            if processed % 1000 == 0:
-                print(f"  Processed {processed} files...")
+        for i in range(0, len(unique_sha256s), BULK_UPDATE_BATCH_SIZE):
+            batch = unique_sha256s[i : i + BULK_UPDATE_BATCH_SIZE]
+
+            # Bulk create ThumbnailFiles records
+            created = _bulk_create_thumbnail_records(batch)
+            total_created += created
+
+            # Bulk link FileIndex records to ThumbnailFiles
+            linked = _bulk_link_fileindex_to_thumbnails(batch)
+            total_linked += linked
+
+            # Progress indicator
+            processed = min(i + BULK_UPDATE_BATCH_SIZE, len(unique_sha256s))
+            if processed % 1000 == 0 or processed == len(unique_sha256s):
+                elapsed = time.time() - start_time
+                rate = processed / elapsed if elapsed > 0 else 0
+                print(f"  Processed {processed}/{len(unique_sha256s)} unique SHA256s ({rate:.1f}/sec)...")
                 close_old_connections()
 
-        print(f"Total processed: {processed} files")
+        elapsed = time.time() - start_time
+        print(f"Pass 1 complete: Created {total_created} ThumbnailFiles records, linked {total_linked} FileIndex records")
+        print(f"  Time: {elapsed:.1f}s")
         close_old_connections()
     else:
         print("All thumbnailable files already have ThumbnailFiles records")
@@ -104,7 +193,7 @@ def add_thumbnails(max_count: int = 0) -> None:
     empty_thumbnails_qs = ThumbnailFiles.objects.filter(
         Q(small_thumb__in=[b"", None])
         & Q(FileIndex__filetype__is_link=False)
- #       & (Q(FileIndex__filetype__is_image=True) | Q(FileIndex__filetype__is_pdf=True) | Q(FileIndex__filetype__is_movie=True))
+        #       & (Q(FileIndex__filetype__is_image=True) | Q(FileIndex__filetype__is_pdf=True) | Q(FileIndex__filetype__is_movie=True))
     ).distinct()
 
     if max_count > 0:
@@ -112,7 +201,7 @@ def add_thumbnails(max_count: int = 0) -> None:
         print(f"Limiting to {max_count} thumbnails...")
 
     # Get list of SHA256 values only (lightweight - no ThumbnailFiles objects cached)
-    sha256_list = list(empty_thumbnails_qs.values_list('sha256_hash', flat=True))
+    sha256_list = list(empty_thumbnails_qs.values_list("sha256_hash", flat=True))
     count = len(sha256_list)
     print(f"Found {count} thumbnails to generate")
 
@@ -157,6 +246,7 @@ def add_thumbnails(max_count: int = 0) -> None:
             # Print first few errors with traceback for debugging
             if errors <= 3:
                 import traceback
+
                 print(f"Error details for debugging:")
                 print(f"  SHA256: {sha256_hash}")
                 traceback.print_exc()
