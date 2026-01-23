@@ -411,11 +411,7 @@ class FileIndex(models.Model):
         # Get directory IDs BEFORE update (same pattern as link_to_thumbnail)
         directory_ids = set()
         if clear_cache:
-            directory_ids = set(
-                cls.objects.filter(file_sha256=file_sha256)
-                .values_list("home_directory", flat=True)
-                .distinct()
-            )
+            directory_ids = set(cls.objects.filter(file_sha256=file_sha256).values_list("home_directory", flat=True).distinct())
             # Remove None values
             directory_ids.discard(None)
 
@@ -454,11 +450,7 @@ class FileIndex(models.Model):
 
         # Get affected directories BEFORE updating for cache clearing
         # This also determines if there are any unlinked records (replaces separate .exists() query)
-        affected_dirs = list(
-            cls.objects.filter(file_sha256=file_sha256, new_ftnail__isnull=True)
-            .values_list("home_directory", flat=True)
-            .distinct()
-        )
+        affected_dirs = list(cls.objects.filter(file_sha256=file_sha256, new_ftnail__isnull=True).values_list("home_directory", flat=True).distinct())
         has_unlinked = bool(affected_dirs)
 
         # Link unlinked records to the thumbnail
@@ -967,9 +959,7 @@ class FileIndex(models.Model):
                     # SECURITY: Use Django's built-in helper to prevent header injection
                     # Sanitize filename to remove control chars and problematic characters
                     safe_filename = sanitize_filename_for_http(self.name)
-                    response["Content-Disposition"] = content_disposition_header(
-                        as_attachment=False, filename=safe_filename
-                    )
+                    response["Content-Disposition"] = content_disposition_header(as_attachment=False, filename=safe_filename)
                     response["Cache-Control"] = "public, max-age=300"
             except FileNotFoundError as exc:
                 raise Http404 from exc

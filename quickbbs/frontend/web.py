@@ -42,10 +42,7 @@ def verify_login_status(request, force_login=False) -> bool:
         Never returns (raises NotImplementedError)
     """
     warnings.warn(
-        (
-            "verify_login_status() is deprecated and will be removed in v4.0. "
-            "Use django-allauth and @login_required instead."
-        ),
+        ("verify_login_status() is deprecated and will be removed in v4.0. " "Use django-allauth and @login_required instead."),
         DeprecationWarning,
         stacklevel=2,
     )
@@ -69,10 +66,7 @@ def respond_as_attachment(request, file_path, original_filename):
         Never returns (raises NotImplementedError)
     """
     warnings.warn(
-        (
-            "respond_as_attachment() is deprecated and will be removed in v4.0. "
-            "Use serve_up.send_file_response() instead."
-        ),
+        ("respond_as_attachment() is deprecated and will be removed in v4.0. " "Use serve_up.send_file_response() instead."),
         DeprecationWarning,
         stacklevel=2,
     )

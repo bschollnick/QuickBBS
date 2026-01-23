@@ -309,11 +309,7 @@ def main(args):
                 # Example: "Gonig South" -> "Gonig_South" -> "Gonig_South" (title case)
                 #          "goning_south" -> "goning_south" -> "Goning_South" (title case)
                 # Both now map to the same directory: "Goning_South"
-                normalized_parts = [parts[0]] + [
-                    p
-                    for p in (part.strip().replace(" ", "_").title() for part in parts[1:])
-                    if p
-                ]
+                normalized_parts = [parts[0]] + [p for p in (part.strip().replace(" ", "_").title() for part in parts[1:]) if p]
 
                 dst_dir = Path(*normalized_parts) if len(normalized_parts) > 1 else Path(normalized_parts[0])
                 yield (src_dir, str(dst_dir), files)
