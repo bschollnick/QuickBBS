@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 # Third-party imports
 from asgiref.sync import sync_to_async
-from cachetools import LRUCache, cached
+from cachetools import cached
 
 # Django imports
 from django.conf import settings
@@ -33,6 +33,9 @@ from ranged_fileresponse import RangedFileResponse
 # Local application imports
 from filetypes.models import filetypes, get_ftype_dict
 from quickbbs.common import SORT_MATRIX, get_dir_sha, get_file_sha, normalize_fqpn
+
+# Local cache imports
+from quickbbs.MonitoredCache import create_cache
 from quickbbs.natsort_model import NaturalSortField
 from thumbnails.models import ThumbnailFiles
 
@@ -42,14 +45,29 @@ if TYPE_CHECKING:
 # Logger
 logger = logging.getLogger(__name__)
 
+# =============================================================================
+# CACHE CONFIGURATION
+# Set CACHE_MONITORING = True to enable hit/miss tracking for performance analysis
+# After running the app, check stats in Django shell:
+#   from quickbbs.models import directoryindex_cache
+#   print(directoryindex_cache.stats())
+# =============================================================================
+CACHE_MONITORING = True
+
+# Cache size constants - adjust based on monitoring stats
+DIRECTORYINDEX_CACHE_SIZE = 750
+FILEINDEX_CACHE_SIZE = 250
+FILEINDEX_DOWNLOAD_CACHE_SIZE = 250
+DISTINCT_FILES_CACHE_SIZE = 250
+
 # Async-safe caches for database object lookups
-directoryindex_cache = LRUCache(maxsize=1000)
-fileindex_cache = LRUCache(maxsize=1000)
-fileindex_download_cache = LRUCache(maxsize=500)
+directoryindex_cache = create_cache(DIRECTORYINDEX_CACHE_SIZE, "directoryindex", monitored=CACHE_MONITORING)
+fileindex_cache = create_cache(FILEINDEX_CACHE_SIZE, "fileindex", monitored=CACHE_MONITORING)
+fileindex_download_cache = create_cache(FILEINDEX_DOWNLOAD_CACHE_SIZE, "fileindex_download", monitored=CACHE_MONITORING)
 
 # Cache for distinct file lists per directory (for pagination efficiency)
 # Cache key: (directory_instance, sort_ordering)
-distinct_files_cache = LRUCache(maxsize=500)
+distinct_files_cache = create_cache(DISTINCT_FILES_CACHE_SIZE, "distinct_files", monitored=CACHE_MONITORING)
 
 
 class Owners(models.Model):
@@ -85,9 +103,10 @@ class Favorites(models.Model):
 # - ThumbnailFiles constants: See thumbnails/models.py (THUMBNAILFILES_PR_*)
 
 
+from .directoryindex import DirectoryIndex  # noqa: E402
+
 # Import and re-export main models (allows: from quickbbs.models import DirectoryIndex, FileIndex)
 from .fileindex import FileIndex  # noqa: E402
-from .directoryindex import DirectoryIndex  # noqa: E402
 
 __all__ = [
     "Owners",

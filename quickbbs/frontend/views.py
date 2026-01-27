@@ -36,14 +36,18 @@ from cache_watcher.models import Cache_Storage
 from frontend.managers import (
     async_build_context_info,
     async_layout_manager,
+    build_context_info_cache,
     clear_layout_cache_for_directories,
+    layout_manager_cache,
 )
 from frontend.utilities import (
     SORT_MATRIX,
+    breadcrumbs_cache,
     convert_to_webpath,
     ensures_endswith,
     return_breadcrumbs,
     update_database_from_disk,
+    webpaths_cache,
 )
 from quickbbs.common import get_dir_sha, normalize_fqpn
 from quickbbs.directoryindex import (
@@ -55,7 +59,9 @@ from quickbbs.fileindex import (
     FILEINDEX_SR_FILETYPE_HOME,
     FILEINDEX_SR_FILETYPE_HOME_VIRTUAL,
 )
-from quickbbs.models import DirectoryIndex, FileIndex
+
+from quickbbs.models import DirectoryIndex, FileIndex, directoryindex_cache, fileindex_cache, fileindex_download_cache, distinct_files_cache
+
 from thumbnails.models import ThumbnailFiles
 
 # download_cache = LRUCache(maxsize=1000)
@@ -887,7 +893,18 @@ async def new_viewgallery(request: WSGIRequest):
     if request.user.is_authenticated:
         response["Cache-Control"] = "private, no-cache, must-revalidate"
 
+    from pprint import pprint
+
+    print(pprint(directoryindex_cache.stats()))
+    print(pprint(fileindex_cache.stats()))
+    print(pprint(fileindex_download_cache.stats()))
+    print(pprint(distinct_files_cache.stats()))
+    print(pprint(layout_manager_cache.stats()))
+    print(pprint(build_context_info_cache.stats()))
+    print(pprint(webpaths_cache.stats()))
+    print(pprint(breadcrumbs_cache.stats()))
     print("Gallery View, processing time: ", time.perf_counter() - start_time)
+
     return response
 
 

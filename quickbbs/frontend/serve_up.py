@@ -4,7 +4,6 @@ Serve Resources, and Static documents from Django
 
 import io
 import os.path
-import re
 
 import aiofiles
 from django.conf import settings
@@ -13,6 +12,19 @@ from django.http import FileResponse, Http404
 # TODO: Examine django-sage-streaming as a replacement for RangedFileResponse
 # https://github.com/sageteamorg/django-sage-streaming
 from ranged_fileresponse import RangedFileResponse
+
+# Translation table for sanitizing filenames - faster than regex
+# Removes: control chars (0x00-0x1F, 0x7F), angle brackets (<>)
+# Replaces: semicolon with underscore (header parameter separator)
+_SANITIZE_TABLE = str.maketrans(
+    {
+        ";": "_",
+        "<": None,
+        ">": None,
+        "\x7f": None,
+        **{chr(i): None for i in range(0x20)},
+    }
+)
 
 
 def sanitize_filename_for_http(filename: str) -> str:
@@ -28,14 +40,9 @@ def sanitize_filename_for_http(filename: str) -> str:
     Returns:
         Sanitized filename safe for HTTP headers
     """
-    # Remove control characters
-    filename = re.sub(r"[\x00-\x1F\x7F]", "", filename)
-    # Remove header injection chars
-    filename = filename.replace("\r", "").replace("\n", "")
-    filename = filename.replace("<", "").replace(">", "")
-    filename = filename.replace(";", "_")
-    filename = filename.strip()
-    return filename if filename else "download.bin"
+    # Use translate() - faster than regex for character removal/replacement
+    filename = filename.translate(_SANITIZE_TABLE).strip()
+    return filename or "download.bin"
 
 
 def _locate_static_or_resource_file(pathstr: str) -> str | None:

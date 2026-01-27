@@ -52,6 +52,19 @@ if TYPE_CHECKING:
 # FILENAME SANITIZATION FOR HTTP HEADERS
 # =============================================================================
 
+# Translation table for sanitizing filenames - faster than regex
+# Removes: control chars (0x00-0x1F, 0x7F), angle brackets (<>)
+# Replaces: semicolon with underscore (header parameter separator)
+_SANITIZE_TABLE = str.maketrans(
+    {
+        ";": "_",  # Replace semicolon with underscore
+        "<": None,  # Remove angle brackets
+        ">": None,
+        "\x7f": None,  # Remove DEL character
+        **{chr(i): None for i in range(0x20)},  # Remove control chars 0x00-0x1F
+    }
+)
+
 
 def sanitize_filename_for_http(filename: str) -> str:
     """
@@ -77,21 +90,9 @@ def sanitize_filename_for_http(filename: str) -> str:
         >>> sanitize_filename_for_http("<script>alert(1)</script>.txt")
         'scriptalert(1)script.txt'
     """
-    import re
-
-    # Single regex to remove control characters (0x00-0x1F, 0x7F) and angle brackets
-    # Note: \r (0x0D) and \n (0x0A) are included in 0x00-0x1F range
-    filename = re.sub(r"[\x00-\x1F\x7F<>]", "", filename)
-
-    # Replace semicolon with underscore (parameter separator in headers)
-    filename = filename.replace(";", "_")
-
-    # Ensure filename is not empty after sanitization
-    filename = filename.strip()
-    if not filename:
-        return "download.bin"
-
-    return filename
+    # Use translate() - faster than regex for character removal/replacement
+    filename = filename.translate(_SANITIZE_TABLE).strip()
+    return filename or "download.bin"
 
 
 # =============================================================================

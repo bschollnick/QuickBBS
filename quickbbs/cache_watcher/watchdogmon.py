@@ -64,6 +64,8 @@ class WatchdogMonitor:
     a rescan is performed.
     """
 
+    __slots__ = ("my_observer", "my_event_handler", "current_watch")
+
     def __init__(self) -> None:
         """Initialize the watchdog monitor."""
         self.my_observer = None

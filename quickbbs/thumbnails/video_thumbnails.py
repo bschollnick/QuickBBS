@@ -23,6 +23,8 @@ class VideoBackend(AbstractBackend):
     Includes optimization for backend reuse.
     """
 
+    __slots__ = ("_image_backend",)
+
     def __init__(self):
         # Cache ImageBackend instance for reuse
         self._image_backend = ImageBackend()
