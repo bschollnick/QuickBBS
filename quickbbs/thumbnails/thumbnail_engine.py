@@ -69,8 +69,10 @@ BackendType = Literal["image", "coreimage", "auto", "video", "corevideo", "pdf",
 class FastImageProcessor:
     """Multi-backend image processor with automatic backend selection and caching."""
 
+    __slots__ = ("image_sizes", "backend_type", "_backend")
+
     # Class-level backend cache to reuse backend instances
-    _backend_cache = {}
+    _backend_cache: dict = {}
 
     def __init__(self, image_sizes: dict[str, tuple[int, int]], backend: BackendType = "auto"):
         """

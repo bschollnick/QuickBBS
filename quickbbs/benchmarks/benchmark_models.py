@@ -45,18 +45,23 @@ settings.DEBUG = True
 from django.test import RequestFactory
 
 from quickbbs.directoryindex import DIRECTORYINDEX_SR_FILETYPE_THUMB
-from quickbbs.fileindex import FILEINDEX_SR_FILETYPE_HOME_VIRTUAL, FILEINDEX_SR_FILETYPE_HOME
+from quickbbs.fileindex import (
+    FILEINDEX_SR_FILETYPE_HOME,
+    FILEINDEX_SR_FILETYPE_HOME_VIRTUAL,
+)
 from quickbbs.models import (
-    FileIndex,
     DirectoryIndex,
+    FileIndex,
+    directoryindex_cache,
     fileindex_cache,
     fileindex_download_cache,
-    directoryindex_cache,
 )
 
 
 class BenchmarkResult:
     """Store benchmark results with timing statistics."""
+
+    __slots__ = ("name", "times", "query_count", "max_query_count", "result_count")
 
     def __init__(self, name: str):
         self.name = name

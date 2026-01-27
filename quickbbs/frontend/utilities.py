@@ -17,7 +17,7 @@ from urllib.parse import quote
 
 # Third-party imports
 from asgiref.sync import sync_to_async
-from cachetools import LRUCache, cached
+from cachetools import cached
 from django.conf import settings
 from django.db import close_old_connections
 
@@ -26,13 +26,18 @@ from cache_watcher.models import Cache_Storage
 from frontend.file_listings import return_disk_listing
 from quickbbs.common import SORT_MATRIX, get_file_sha
 from quickbbs.directoryindex import DIRECTORYINDEX_SR_CACHE
-from quickbbs.models import DirectoryIndex
+from quickbbs.models import CACHE_MONITORING, DirectoryIndex
+from quickbbs.MonitoredCache import create_cache
 
 logger = logging.getLogger(__name__)
 
+# Cache size constants - adjust based on monitoring stats
+WEBPATHS_CACHE_SIZE = 500
+BREADCRUMBS_CACHE_SIZE = 250
+
 # Async-safe caches for utility functions
-webpaths_cache = LRUCache(maxsize=500)
-breadcrumbs_cache = LRUCache(maxsize=500)
+webpaths_cache = create_cache(WEBPATHS_CACHE_SIZE, "webpaths", monitored=CACHE_MONITORING)
+breadcrumbs_cache = create_cache(BREADCRUMBS_CACHE_SIZE, "breadcrumbs", monitored=CACHE_MONITORING)
 
 # Batch sizes for database operations - kept simple for performance
 # These values are optimized for typical directory/file counts in gallery operations

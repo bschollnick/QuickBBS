@@ -37,7 +37,7 @@ import time
 from pathlib import Path
 
 from asgiref.sync import sync_to_async
-from cachetools import LRUCache, cached
+from cachetools import cached
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.db.models import Q
@@ -55,11 +55,16 @@ from quickbbs.directoryindex import (
     DIRECTORYINDEX_SR_FILETYPE_THUMB_PARENT,
 )
 from quickbbs.fileindex import FILEINDEX_SR_FILETYPE_HOME_VIRTUAL
-from quickbbs.models import FileIndex, distinct_files_cache
+from quickbbs.models import CACHE_MONITORING, FileIndex, distinct_files_cache
+from quickbbs.MonitoredCache import create_cache
 
-layout_manager_cache = LRUCache(maxsize=500)
+# Cache size constants - adjust based on monitoring stats
+LAYOUT_MANAGER_CACHE_SIZE = 500
+BUILD_CONTEXT_INFO_CACHE_SIZE = 250
 
-build_context_info_cache = LRUCache(maxsize=500)
+layout_manager_cache = create_cache(LAYOUT_MANAGER_CACHE_SIZE, "layout_manager", monitored=CACHE_MONITORING)
+
+build_context_info_cache = create_cache(BUILD_CONTEXT_INFO_CACHE_SIZE, "build_context_info", monitored=CACHE_MONITORING)
 
 
 def clear_layout_cache_for_directories(directory_ids: set[int]) -> int:

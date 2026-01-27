@@ -19,6 +19,8 @@ class PDFBackend(AbstractBackend):
     Includes optimization for zoom calculation caching and backend reuse.
     """
 
+    __slots__ = ("_image_backend",)
+
     def __init__(self):
         # Cache ImageBackend instance for reuse
         self._image_backend = ImageBackend()

@@ -52,6 +52,8 @@ class ImageBackend(AbstractBackend):
     supporting multiple output formats and sizes.
     """
 
+    __slots__ = ()
+
     def process_from_file(
         self,
         file_path: str,

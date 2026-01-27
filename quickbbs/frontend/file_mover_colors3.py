@@ -45,6 +45,18 @@ FILENAME_TRANS = str.maketrans({"?": "", "/": "", ":": "", "#": "_", " ": "_"})
 class ProcessingStats:
     """Simple statistics tracking without thread-local complexity."""
 
+    __slots__ = (
+        "total_files_scanned",
+        "files_with_color_tags",
+        "files_actually_processed",
+        "files_skipped_existing",
+        "files_skipped_no_color",
+        "errors_encountered",
+        "start_time",
+        "end_time",
+        "max_count_reached",
+    )
+
     def __init__(self):
         self.total_files_scanned = 0
         self.files_with_color_tags = 0

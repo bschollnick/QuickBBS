@@ -10,6 +10,8 @@ from PIL import Image
 class AbstractBackend(ABC):
     """Abstract base class for image processing backends."""
 
+    __slots__ = ()
+
     @abstractmethod
     def process_from_file(
         self,

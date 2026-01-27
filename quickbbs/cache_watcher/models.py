@@ -64,6 +64,8 @@ class LockFreeEventBuffer:
     Do NOT convert to asyncio.Lock - it will break Watchdog integration.
     """
 
+    __slots__ = ("_events", "_lock", "_max_size")
+
     def __init__(self, max_size: int = 200):
         """
         Args:
@@ -177,6 +179,8 @@ class WatchdogManager:
 
     Do NOT convert to asyncio.Lock - it will break timer-based restarts.
     """
+
+    __slots__ = ("restart_timer", "lock", "monitor_path", "event_handler", "is_running")
 
     def __init__(self) -> None:
         self.restart_timer = None

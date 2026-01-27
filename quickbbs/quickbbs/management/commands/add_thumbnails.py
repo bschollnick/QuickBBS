@@ -12,9 +12,9 @@ import time
 
 from django.db import close_old_connections
 from django.db.models import Q
-from thumbnails.models import ThumbnailFiles, THUMBNAILFILES_PR_FILEINDEX_FILETYPE
 
 from quickbbs.models import FileIndex
+from thumbnails.models import THUMBNAILFILES_PR_FILEINDEX_FILETYPE, ThumbnailFiles
 
 # Batch size for bulk_create and bulk_update operations
 BULK_UPDATE_BATCH_SIZE = 250
@@ -112,6 +112,10 @@ def add_thumbnails(max_count: int = 0) -> None:
     - is_pdf=True (PDF documents)
     - is_movie=True (videos: mp4, avi, etc.)
 
+    Note: --start is not supported for thumbnail operations because thumbnails are
+    content-addressed by SHA256. A thumbnail benefits all files with the same hash,
+    regardless of directory location.
+
     Args:
         max_count: Maximum number of thumbnails to generate (0 = unlimited)
 
@@ -186,15 +190,10 @@ def add_thumbnails(max_count: int = 0) -> None:
     # ========================================================================
     print("\nPASS 2: Generating missing thumbnails...")
 
-    # Find ThumbnailFiles with empty small_thumb
-    # EXCLUDE link files - attempting to generate thumbnails causes ImageIO memory leaks
-    # Filter by FileIndex filetype (must use FileIndex__ prefix for reverse relationship)
-    # CRITICAL: Use distinct() because joining through FileIndex can create duplicates
+    # Simple query - no reverse FK joins needed since we're not filtering by path
     empty_thumbnails_qs = ThumbnailFiles.objects.filter(
-        Q(small_thumb__in=[b"", None])
-        & Q(FileIndex__filetype__is_link=False)
-        #       & (Q(FileIndex__filetype__is_image=True) | Q(FileIndex__filetype__is_pdf=True) | Q(FileIndex__filetype__is_movie=True))
-    ).distinct()
+        small_thumb__in=[b"", None],
+    )
 
     if max_count > 0:
         empty_thumbnails_qs = empty_thumbnails_qs[:max_count]
@@ -214,6 +213,7 @@ def add_thumbnails(max_count: int = 0) -> None:
     processed = 0
     success = 0
     errors = 0
+    orphaned = 0
     start_time = time.time()
 
     # Iterate through SHA256 list (no queryset caching, no server-side cursor)
@@ -240,6 +240,21 @@ def add_thumbnails(max_count: int = 0) -> None:
             if processed % 1000 == 0:
                 close_old_connections()
 
+        except ValueError as e:
+            processed += 1
+            # Check if this is an orphaned ThumbnailFiles error - skip silently
+            error_msg = str(e)
+            if "Orphaned ThumbnailFiles" in error_msg and "No FileIndex records found" in error_msg:
+                orphaned += 1
+            else:
+                # Other ValueError - treat as regular error
+                errors += 1
+                if errors <= 3:
+                    import traceback
+
+                    print(f"ValueError for SHA256: {sha256_hash}")
+                    traceback.print_exc()
+
         except Exception as e:  # pylint: disable=broad-exception-caught
             errors += 1
             processed += 1
@@ -250,9 +265,8 @@ def add_thumbnails(max_count: int = 0) -> None:
                 print(f"Error details for debugging:")
                 print(f"  SHA256: {sha256_hash}")
                 traceback.print_exc()
-            else:
-                print(f"Error: {e}")
-                sys.exit()
+            elif errors <= 10:
+                print(f"Error #{errors}: {e}")
 
     close_old_connections()
 
@@ -264,7 +278,11 @@ def add_thumbnails(max_count: int = 0) -> None:
     print("Complete:")
     print(f"  Total processed: {processed}")
     print(f"  Success: {success}")
+    print(f"  Orphaned (skipped): {orphaned}")
     print(f"  Errors: {errors}")
     print(f"  Time: {total_time:.1f}s")
     print(f"  Rate: {rate:.1f} thumbnails/sec")
+    if orphaned > 0:
+        print(f"\nNote: {orphaned} orphaned ThumbnailFiles records were skipped.")
+        print("Run 'python manage.py scan --verify_thumbnails' to clean them up.")
     print("=" * 60)

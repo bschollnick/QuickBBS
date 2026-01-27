@@ -243,9 +243,8 @@ class ThumbnailFiles(models.Model):
                         print(f"  ERROR: Failed to link FileIndex records (already linked elsewhere?)")
                         raise ValueError(f"Cannot link orphaned ThumbnailFiles {thumbnail.id} to FileIndex records")
                 else:
-                    # No FileIndex exists for this SHA256
-                    print(f"ERROR: Orphaned ThumbnailFiles {thumbnail.id} has SHA256 {file_sha256[:16]}... but NO FileIndex records exist")
-                    print(f"  This thumbnail record is invalid and should be deleted manually")
+                    # No FileIndex exists for this SHA256 - orphaned record
+                    # Raise ValueError so caller can handle (skip or delete)
                     raise ValueError(f"Orphaned ThumbnailFiles {thumbnail.id}: No FileIndex records found for SHA256 {file_sha256}")
 
                 # If still no FileIndex after linking attempt, raise error
