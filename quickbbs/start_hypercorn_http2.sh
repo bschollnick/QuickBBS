@@ -19,7 +19,7 @@ cd "$(dirname "$0")"
 
 # Server configuration
 BIND_ADDRESS="0.0.0.0:8888"
-WORKERS="4"  # Adjust based on CPU cores (2-4 * num_cores)
+WORKERS="3"  # Adjust based on CPU cores (2-4 * num_cores)
 
 # SSL certificate paths (adjust to your certificate locations)
 SSL_CERT="../certs/quickbbs_cert.pem"
@@ -50,6 +50,16 @@ echo ""
 echo "h2: $(python -c 'import h2; print("INSTALLED (HTTP/2)")' 2>/dev/null || echo 'NOT INSTALLED')"
 echo ""
 
+# Start steady-queue worker in the background
+OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES python manage.py steady_queue 2>&1 &
+QUEUE_PID=$!
+echo "steady-queue worker started (PID: $QUEUE_PID)"
+echo ""
+
+# Trap SIGINT so Ctrl+C stops hypercorn (via its graceful shutdown)
+# but does NOT kill this script — allowing post-shutdown commands to run.
+trap '' INT
+
 # Start Hypercorn with HTTP/2
 # -b sets bind address
 # --certfile and --keyfile enable HTTPS with HTTP/2 via ALPN
@@ -69,3 +79,13 @@ hypercorn quickbbs.asgi:application \
     --access-logfile - \
     --error-logfile - \
     --log-level info
+
+echo ""
+echo "Hypercorn has exited."
+
+# Stop steady-queue worker
+echo "Stopping steady-queue worker (PID: $QUEUE_PID)..."
+kill -9 "$QUEUE_PID" 2>/dev/null
+pkill -9 -f "steady_queue" 2>/dev/null
+wait "$QUEUE_PID" 2>/dev/null
+echo "steady-queue worker stopped."

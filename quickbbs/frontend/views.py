@@ -34,6 +34,7 @@ from PIL import Image
 
 from cache_watcher.models import Cache_Storage
 from frontend.managers import (
+    _get_files_needing_thumbnails,
     async_build_context_info,
     async_layout_manager,
     build_context_info_cache,
@@ -857,29 +858,18 @@ async def new_viewgallery(request: WSGIRequest):
     context["show_duplicates"] = show_duplicates
     # print("elapsed view gallery (pre-thumb) time - ", time.time() - start_time)
 
-    # Check if thumbnails are needed (async-safe existence check)
-    files_needing_thumbnails = layout["files_needing_thumbnails"]
-    has_missing_thumbnails = await sync_to_async(files_needing_thumbnails.exists)()
-    if has_missing_thumbnails:
+    # Check if thumbnails are needed (computed separately from cached layout
+    # to avoid invalidating layout cache when thumbnails are generated)
+    files_needing_thumbnails = await sync_to_async(_get_files_needing_thumbnails)(directory, context["sort"])
+    no_thumbs = await sync_to_async(list)(files_needing_thumbnails[:100])
+    missing_count = len(no_thumbs)
+    if missing_count > 0:
         no_thumb_start = time.time()
-        # Use .count() for efficient SQL COUNT instead of materializing all records
-        missing_count = await sync_to_async(files_needing_thumbnails.count)()
         print(f"{missing_count} entries need thumbnails")
-        # print(files_needing_thumbnails[0:10])  # Show first 10 entries needing thumbs
-
-        if missing_count > 0:  # Process first 100 entries
-            # Materialize sliced queryset to get list of SHA256 hashes
-            no_thumbs = await sync_to_async(list)(files_needing_thumbnails[:100])
-
-            # Use ThumbnailFiles batch processing method
-            results = await ThumbnailFiles.batch_create_async(no_thumbs, batchsize=100, max_workers=6)
-
-            if any(results.values()):
-                # Clear ALL layout cache entries for this directory (all pages, all sort orders)
-                # Thumbnails were created, so cached counts are now stale
-                cleared_count = clear_layout_cache_for_directories({directory.pk})
-                if cleared_count > 0:
-                    print(f"Cleared {cleared_count} layout cache entries for directory " "after thumbnail processing")
+        # Use ThumbnailFiles batch processing method
+        results = await ThumbnailFiles.batch_create_async(no_thumbs, batchsize=100, max_workers=6)
+        if any(results.values()):
+            print(f"Thumbnails created for directory {directory.fqpndirectory}")
         print("elapsed thumbnail time - ", time.time() - no_thumb_start)
 
     response = await async_render(

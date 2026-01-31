@@ -142,13 +142,12 @@ class FileIndex(models.Model):
     id = models.AutoField(primary_key=True)
 
     file_sha256 = models.CharField(
-        db_index=True,
         blank=True,
         unique=False,
         null=True,
         default=None,
         max_length=64,
-    )  # This is the sha256 of the file itself
+    )  # This is the sha256 of the file itself (indexed via Meta composite indexes)
     unique_sha256 = models.CharField(
         db_index=True,
         blank=True,
@@ -160,7 +159,7 @@ class FileIndex(models.Model):
 
     lastscan = models.FloatField(db_index=True)  # Stored as Unix timestamp (seconds)
     lastmod = models.FloatField(db_index=True)  # Stored as Unix timestamp (seconds)
-    name = models.CharField(db_index=True, max_length=384, default=None)
+    name = models.CharField(max_length=384, default=None)  # indexed via Meta composite indexes
     # FQFN of the file itself
     name_sort = NaturalSortField(for_field="name", max_length=384, default="")
     duration = models.BigIntegerField(null=True)
@@ -192,7 +191,7 @@ class FileIndex(models.Model):
         default=".none",
         related_name="file_filetype_data",
     )
-    is_generic_icon = models.BooleanField(default=False, db_index=True)  # icon is a generic icon
+    is_generic_icon = models.BooleanField(default=False)  # icon is a generic icon
 
     new_ftnail = models.ForeignKey(
         ThumbnailFiles,

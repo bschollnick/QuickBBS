@@ -7,14 +7,15 @@ Only processes files with non-generic filetypes (images, videos, PDFs).
 
 from __future__ import annotations
 
-import sys
 import time
+from itertools import batched
 
 from django.db import close_old_connections
 from django.db.models import Q
 
 from quickbbs.models import FileIndex
-from thumbnails.models import THUMBNAILFILES_PR_FILEINDEX_FILETYPE, ThumbnailFiles
+from quickbbs.tasks import generate_missing_thumbnails
+from thumbnails.models import ThumbnailFiles
 
 # Batch size for bulk_create and bulk_update operations
 BULK_UPDATE_BATCH_SIZE = 250
@@ -208,81 +209,24 @@ def add_thumbnails(max_count: int = 0) -> None:
         print("All thumbnails are already generated")
         return
 
-    # Generate thumbnails
-    print(f"\nGenerating {count} thumbnails...")
-    processed = 0
-    success = 0
-    errors = 0
-    orphaned = 0
-    start_time = time.time()
+    # Enqueue thumbnail generation tasks via steady-queue
+    print(f"\nEnqueuing {count} thumbnails to steady-queue...")
+    enqueued = 0
+    task_count = 0
 
-    # Iterate through SHA256 list (no queryset caching, no server-side cursor)
-    for sha256_hash in sha256_list:
-        try:
-            # Generate thumbnail (this will populate small/medium/large)
-            # get_or_create_thumbnail_record fetches FileIndex internally
-            ThumbnailFiles.get_or_create_thumbnail_record(
-                file_sha256=sha256_hash,
-                suppress_save=False,
-                prefetch_related_thumbnail=THUMBNAILFILES_PR_FILEINDEX_FILETYPE,
-                select_related_fileindex=("filetype",),
-            )
-            success += 1
-            processed += 1
+    for batch in batched(sha256_list, BULK_UPDATE_BATCH_SIZE):
+        generate_missing_thumbnails.enqueue(
+            files_needing_thumbnails=list(batch),
+            batchsize=len(batch),
+        )
+        enqueued += len(batch)
+        task_count += 1
 
-            # Progress output
-            if processed % 10 == 0:
-                elapsed = time.time() - start_time
-                rate = success / elapsed if elapsed > 0 else 0
-                print(f"  {processed}/{count} (Success: {success}, Errors: {errors}) ({rate:.1f}/sec)")
-
-            # Cleanup - close connections every 1000 entries
-            if processed % 1000 == 0:
-                close_old_connections()
-
-        except ValueError as e:
-            processed += 1
-            # Check if this is an orphaned ThumbnailFiles error - skip silently
-            error_msg = str(e)
-            if "Orphaned ThumbnailFiles" in error_msg and "No FileIndex records found" in error_msg:
-                orphaned += 1
-            else:
-                # Other ValueError - treat as regular error
-                errors += 1
-                if errors <= 3:
-                    import traceback
-
-                    print(f"ValueError for SHA256: {sha256_hash}")
-                    traceback.print_exc()
-
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            errors += 1
-            processed += 1
-            # Print first few errors with traceback for debugging
-            if errors <= 3:
-                import traceback
-
-                print(f"Error details for debugging:")
-                print(f"  SHA256: {sha256_hash}")
-                traceback.print_exc()
-            elif errors <= 10:
-                print(f"Error #{errors}: {e}")
-
-    close_old_connections()
-
-    # Statistics
-    total_time = time.time() - start_time
-    rate = success / total_time if total_time > 0 else 0
+        if enqueued % 1000 == 0 or enqueued == count:
+            print(f"  Enqueued {enqueued}/{count} thumbnails...")
 
     print("=" * 60)
-    print("Complete:")
-    print(f"  Total processed: {processed}")
-    print(f"  Success: {success}")
-    print(f"  Orphaned (skipped): {orphaned}")
-    print(f"  Errors: {errors}")
-    print(f"  Time: {total_time:.1f}s")
-    print(f"  Rate: {rate:.1f} thumbnails/sec")
-    if orphaned > 0:
-        print(f"\nNote: {orphaned} orphaned ThumbnailFiles records were skipped.")
-        print("Run 'python manage.py scan --verify_thumbnails' to clean them up.")
+    print(f"Enqueued {enqueued} thumbnails in {task_count} tasks")
+    print("Thumbnails will be generated asynchronously by steady-queue workers.")
+    print("Start a worker with: python manage.py steady_queue")
     print("=" * 60)

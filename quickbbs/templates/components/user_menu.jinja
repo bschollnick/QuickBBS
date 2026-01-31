@@ -21,12 +21,20 @@
         </a>
         <hr class="navbar-divider">
       {% endif %}
-      <a class="navbar-item" href="{{ url('admin:password_change') }}" hx-boost="false">
+      <a class="navbar-item" href="{{ url('account_change_password') }}" hx-boost="false">
         <span class="icon-text">
           <span class="icon">
             <i class="fas fa-key"></i>
           </span>
           <span>Change Password</span>
+        </span>
+      </a>
+      <a class="navbar-item" href="{{ url('mfa_index') }}" hx-boost="false">
+        <span class="icon-text">
+          <span class="icon">
+            <i class="fas fa-shield-alt"></i>
+          </span>
+          <span>Security &amp; Passkeys</span>
         </span>
       </a>
       <hr class="navbar-divider">
@@ -47,7 +55,7 @@
         </span>
       </button>
       <hr class="navbar-divider">
-      <form method="post" action="{{ url('admin:logout') }}" class="logout-form" hx-boost="false">
+      <form method="post" action="{{ url('account_logout') }}" class="logout-form" hx-boost="false">
         {% csrf_token %}
         <button type="submit" class="navbar-item logout-button">
           <span class="icon-text">
@@ -63,7 +71,7 @@
 {% else %}
   <div class="navbar-item">
     <div class="buttons">
-      <a class="button is-primary" href="{{ url('admin:login') }}" hx-boost="false">
+      <a class="button is-primary" href="{{ url('account_login') }}" hx-boost="false">
         <strong>Login</strong>
       </a>
     </div>

@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 # Cache size constants - adjust based on monitoring stats
 WEBPATHS_CACHE_SIZE = 500
-BREADCRUMBS_CACHE_SIZE = 250
+BREADCRUMBS_CACHE_SIZE = 400
 
 # Async-safe caches for utility functions
 webpaths_cache = create_cache(WEBPATHS_CACHE_SIZE, "webpaths", monitored=CACHE_MONITORING)

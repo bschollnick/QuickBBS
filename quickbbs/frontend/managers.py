@@ -60,7 +60,7 @@ from quickbbs.MonitoredCache import create_cache
 
 # Cache size constants - adjust based on monitoring stats
 LAYOUT_MANAGER_CACHE_SIZE = 500
-BUILD_CONTEXT_INFO_CACHE_SIZE = 250
+BUILD_CONTEXT_INFO_CACHE_SIZE = 500
 
 layout_manager_cache = create_cache(LAYOUT_MANAGER_CACHE_SIZE, "layout_manager", monitored=CACHE_MONITORING)
 
@@ -478,8 +478,10 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
     # Generate page_shas (SHA256s for current page only)
     output["page_shas"] = page_data["directory_shas"] + page_data["file_shas"]
 
-    # Get files needing thumbnails efficiently
-    output["files_needing_thumbnails"] = _get_files_needing_thumbnails(directory, sort_ordering)
+    # NOTE: files_needing_thumbnails is intentionally NOT included here.
+    # It is computed separately by the caller to avoid invalidating the
+    # cached layout data when thumbnails are generated. Thumbnail creation
+    # does not change pagination boundaries or file lists.
 
     # Calculate page_locale - which page this directory appears on in its parent
     if directory.parent_directory:
