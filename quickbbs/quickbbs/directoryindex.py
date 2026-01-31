@@ -93,13 +93,12 @@ class DirectoryIndex(models.Model):
     fqpndirectory = models.CharField(db_index=True, max_length=384, default="", unique=True, blank=True)  # True fqpn name
 
     dir_fqpn_sha256 = models.CharField(
-        db_index=True,
         blank=True,
         unique=True,
         null=True,
         default=None,
         max_length=64,
-    )  # sha of the directory fqpn
+    )  # sha of the directory fqpn (unique=True creates index; also in Meta composite index)
 
     parent_directory = models.ForeignKey(
         "self",
@@ -112,7 +111,7 @@ class DirectoryIndex(models.Model):
     lastscan = models.FloatField(db_index=True, default=None)  # Stored as Unix TimeStamp (ms)
     lastmod = models.FloatField(db_index=True, default=None)  # Stored as Unix TimeStamp (ms)
     name_sort = NaturalSortField(for_field="fqpndirectory", max_length=384, default="")
-    is_generic_icon = models.BooleanField(default=False, db_index=True)  # File is to be ignored
+    is_generic_icon = models.BooleanField(default=False)  # File is to be ignored
     delete_pending = models.BooleanField(default=False, db_index=True)  # File is to be deleted,
     filetype = models.ForeignKey(
         filetypes,

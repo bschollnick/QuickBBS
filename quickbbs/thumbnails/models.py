@@ -353,10 +353,10 @@ class ThumbnailFiles(models.Model):
                     # File type doesn't support custom thumbnails (text, archives, etc.)
                     # Mark ALL files with this SHA256 as generic (not just one)
                     # Use FileIndex classmethod to ensure layout cache is cleared
-                    print(
-                        f"File type {filetype.fileext} doesn't support custom thumbnails, "
-                        f"marking all instances as generic: {index_data_item.name}"
-                    )
+                    # print(
+                    #     f"File type {filetype.fileext} doesn't support custom thumbnails, "
+                    #     f"marking all instances as generic: {index_data_item.name}"
+                    # )
                     FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
 
                     # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
@@ -375,11 +375,30 @@ class ThumbnailFiles(models.Model):
                 # on success for ALL instances
                 # Use FileIndex classmethod to ensure layout cache is cleared
                 if index_data_item.is_generic_icon:
-                    print(f"Thumbnail creation succeeded on retry for {index_data_item.name}, " f"turning off generic flag for all instances")
+                    # print(f"Thumbnail creation succeeded on retry for {index_data_item.name}, " f"turning off generic flag for all instances")
                     FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=False, clear_cache=True)
 
                     # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
                     thumbnailfiles_cache.pop(file_sha256, None)
+
+            except FileNotFoundError as e:
+                # File was moved or deleted — mark this specific FileIndex as delete_pending
+                # rather than marking ALL files with this SHA256 as generic.
+                # Other FileIndex records with the same SHA256 may still exist at valid paths.
+                print(f"File not found for {index_data_item.name}: {e}")
+                index_data_item.delete_pending = True
+                index_data_item.save(update_fields=["delete_pending"])
+
+                # Clear layout cache so gallery view reflects the removed file
+                # Inline import required: circular import chain
+                # quickbbs.models → thumbnails.models → frontend.managers → quickbbs.models
+                from frontend.managers import clear_layout_cache_for_directories  # pylint: disable=import-outside-toplevel
+
+                if index_data_item.home_directory_id:
+                    clear_layout_cache_for_directories({index_data_item.home_directory_id})
+
+                # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
+                thumbnailfiles_cache.pop(file_sha256, None)
 
             except Exception as e:
                 # Any error during thumbnail creation - mark ALL files with this SHA256 as generic
@@ -627,31 +646,31 @@ class ThumbnailFiles(models.Model):
         if successful_count > 0:
             print(f"Successfully processed {successful_count}/{len(sha256_list)} thumbnails")
 
-        # MEMORY MANAGEMENT: Clear backend caches after batch completes
-        # This releases Core Image CIContext instances and their GPU resources
-        try:
-            from thumbnails.thumbnail_engine import (
-                clear_backend_caches,
-                get_cache_stats,
-            )
+        # # MEMORY MANAGEMENT: Clear backend caches after batch completes
+        # # This releases Core Image CIContext instances and their GPU resources
+        # try:
+        #     from thumbnails.thumbnail_engine import (
+        #         clear_backend_caches,
+        #         get_cache_stats,
+        #     )
 
-            # Log cache stats before clearing
-            cache_stats_before = get_cache_stats()
-            if cache_stats_before["total_cached_instances"] > 0:
-                print(f"Cache stats before clearing: {cache_stats_before['total_cached_instances']} instances")
+        #     # Log cache stats before clearing
+        #     cache_stats_before = get_cache_stats()
+        #     if cache_stats_before["total_cached_instances"] > 0:
+        #         print(f"Cache stats before clearing: {cache_stats_before['total_cached_instances']} instances")
 
-                # Clear caches and get statistics
-                clear_stats = clear_backend_caches(force_gc=True)
+        #         # Clear caches and get statistics
+        #         clear_stats = clear_backend_caches(force_gc=True)
 
-                print(
-                    f"Cleared {clear_stats['processors_cleared']} processors, "
-                    f"{clear_stats['backends_cleared']} backends. "
-                    f"GC collected {clear_stats['gc_objects_collected']} objects. "
-                    f"Memory change: {clear_stats['memory_freed_mb']:.1f} MB"
-                )
-        except Exception as e:
-            # Don't fail the batch if cache clearing fails
-            print(f"Warning: Cache clearing failed: {e}")
+        #         print(
+        #             f"Cleared {clear_stats['processors_cleared']} processors, "
+        #             f"{clear_stats['backends_cleared']} backends. "
+        #             f"GC collected {clear_stats['gc_objects_collected']} objects. "
+        #             f"Memory change: {clear_stats['memory_freed_mb']:.1f} MB"
+        #         )
+        # except Exception as e:
+        #     # Don't fail the batch if cache clearing fails
+        #     print(f"Warning: Cache clearing failed: {e}")
 
         return results
 

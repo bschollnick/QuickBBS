@@ -28,28 +28,30 @@ class filetypes(models.Model):
     fileext = models.CharField(
         primary_key=True, db_index=True, max_length=10, unique=True
     )  # File Extension (eg. .html, is lowercase, and includes the DOT)
-    generic = models.BooleanField(default=False, db_index=True)
+    generic = models.BooleanField(default=False)
 
-    icon_filename = models.CharField(db_index=True, max_length=384, default="", blank=True)  # FQFN of the file itself
+    icon_filename = models.CharField(max_length=384, default="", blank=True)  # FQFN of the file itself
     color = models.CharField(max_length=7, default="000000")
 
     # ftypes dictionary in constants / ftypes
-    filetype = models.IntegerField(db_index=True, default=0, blank=True, null=True)
+    filetype = models.IntegerField(default=0, blank=True, null=True)
     mimetype = models.CharField(max_length=128, default="application/octet-stream", null=True)
     # quick testers.
     # Originally going to be filetype only, but the SQL got too large
     # (eg retrieve all graphics, became is JPEG, GIF, TIF, BMP, etc)
     # so is_image is easier to fetch.
-    is_image = models.BooleanField(default=False, db_index=True)
-    is_archive = models.BooleanField(default=False, db_index=True)
-    is_pdf = models.BooleanField(default=False, db_index=True)
-    is_movie = models.BooleanField(default=False, db_index=True)
-    is_audio = models.BooleanField(default=False, db_index=True)
-    is_dir = models.BooleanField(default=False, db_index=True)
-    is_text = models.BooleanField(default=False, db_index=True)
-    is_html = models.BooleanField(default=False, db_index=True)
-    is_markdown = models.BooleanField(default=False, db_index=True)
-    is_link = models.BooleanField(default=False, db_index=True)
+    # Note: Individual db_index removed - table is small and cached in memory at startup.
+    # Query patterns are covered by composite Meta indexes (thumbnailable, dir_link, text).
+    is_image = models.BooleanField(default=False)
+    is_archive = models.BooleanField(default=False)
+    is_pdf = models.BooleanField(default=False)
+    is_movie = models.BooleanField(default=False)
+    is_audio = models.BooleanField(default=False)
+    is_dir = models.BooleanField(default=False)
+    is_text = models.BooleanField(default=False)
+    is_html = models.BooleanField(default=False)
+    is_markdown = models.BooleanField(default=False)
+    is_link = models.BooleanField(default=False)
 
     thumbnail = models.BinaryField(default=b"", null=True)
 

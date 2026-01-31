@@ -2,12 +2,21 @@
 
 {% load i18n %}
 {% load account socialaccount %}
+{% load mfa %}
 
 {% block head_title %}{% trans "Sign In" %}{% endblock %}
 
 {% block content %}
 
 <h1>{% trans "Sign In" %}</h1>
+
+{% passkey_login_enabled as pk_login_enabled %}
+{% if pk_login_enabled %}
+<div class="passkey-login">
+  <button id="passkey_login" class="primaryAction" type="button">{% trans "Sign in with a Passkey" %}</button>
+  <div class="login-or">{% trans 'or' %}</div>
+</div>
+{% endif %}
 
 {% get_providers as socialaccount_providers %}
 
@@ -42,5 +51,9 @@ for a {{ site_name }} account and sign in below:{% endblocktrans %}</p>
   <a class="button secondaryAction" href="{% url 'account_reset_password' %}">{% trans "Forgot Password?" %}</a>
   <button class="primaryAction" type="submit">{% trans "Sign In" %}</button>
 </form>
+
+{% if pk_login_enabled %}
+{% include "mfa/webauthn/snippets/login_script.html" %}
+{% endif %}
 
 {% endblock %}

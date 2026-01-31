@@ -639,8 +639,10 @@ class Command(BaseCommand):
         # )
 
     def handle(self, *args, **options):
-        # print(args)
-        # print(options)
+        # Clean up stale records before any scan operation
+        deleted_count, _ = FileIndex.objects.filter(delete_pending=True).delete()
+        if deleted_count:
+            print(f"Deleted {deleted_count} records marked as delete_pending")
 
         max_count = options.get("max_count", 0)
         start_path = options.get("start", None)

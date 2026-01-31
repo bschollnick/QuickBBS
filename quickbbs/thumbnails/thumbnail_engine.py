@@ -16,52 +16,14 @@ except ImportError:
     from pil_thumbnails import ImageBackend
     from video_thumbnails import VideoBackend
 
-# Try to import Core Image and AVFoundation backends (macOS only)
+# DISABLED 2025-12-02: macOS GPU backends (CoreImage, AVFoundation, PDFKit)
+# permanently disabled due to unfixable GPU memory leak.
+# Imports removed to prevent macOS framework initialization, which is
+# unsafe in forked processes (e.g., steady-queue workers).
+# See: thumbnails/MEMORY_LEAK_FIX.md for full analysis.
 CORE_IMAGE_AVAILABLE = False
 AVFOUNDATION_AVAILABLE = False
 PDFKIT_AVAILABLE = False
-
-try:
-    from .core_image_thumbnails import CORE_IMAGE_AVAILABLE as _CI_AVAIL
-    from .core_image_thumbnails import CoreImageBackend
-
-    CORE_IMAGE_AVAILABLE = _CI_AVAIL
-except ImportError:
-    try:
-        from core_image_thumbnails import CORE_IMAGE_AVAILABLE as _CI_AVAIL
-        from core_image_thumbnails import CoreImageBackend
-
-        CORE_IMAGE_AVAILABLE = _CI_AVAIL
-    except ImportError:
-        CoreImageBackend = None
-
-try:
-    from .avfoundation_video_thumbnails import AVFOUNDATION_AVAILABLE as _AV_AVAIL
-    from .avfoundation_video_thumbnails import AVFoundationVideoBackend
-
-    AVFOUNDATION_AVAILABLE = _AV_AVAIL
-except ImportError:
-    try:
-        from avfoundation_video_thumbnails import AVFOUNDATION_AVAILABLE as _AV_AVAIL
-        from avfoundation_video_thumbnails import AVFoundationVideoBackend
-
-        AVFOUNDATION_AVAILABLE = _AV_AVAIL
-    except ImportError:
-        AVFoundationVideoBackend = None
-
-try:
-    from .pdfkit_thumbnails import PDFKIT_AVAILABLE as _PDF_AVAIL
-    from .pdfkit_thumbnails import PDFKitBackend
-
-    PDFKIT_AVAILABLE = _PDF_AVAIL
-except ImportError:
-    try:
-        from pdfkit_thumbnails import PDFKIT_AVAILABLE as _PDF_AVAIL
-        from pdfkit_thumbnails import PDFKitBackend
-
-        PDFKIT_AVAILABLE = _PDF_AVAIL
-    except ImportError:
-        PDFKitBackend = None
 
 BackendType = Literal["image", "coreimage", "auto", "video", "corevideo", "pdf", "pymupdf", "pdfkit"]
 
