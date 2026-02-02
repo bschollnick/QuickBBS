@@ -60,9 +60,15 @@ from quickbbs.fileindex import (
     FILEINDEX_SR_FILETYPE_HOME,
     FILEINDEX_SR_FILETYPE_HOME_VIRTUAL,
 )
-
-from quickbbs.models import DirectoryIndex, FileIndex, directoryindex_cache, fileindex_cache, fileindex_download_cache, distinct_files_cache
-
+from quickbbs.models import (
+    DirectoryIndex,
+    FileIndex,
+    directoryindex_cache,
+    distinct_files_cache,
+    fileindex_cache,
+    fileindex_download_cache,
+)
+from quickbbs.tasks import generate_missing_thumbnails
 from thumbnails.models import ThumbnailFiles
 
 # download_cache = LRUCache(maxsize=1000)
@@ -864,13 +870,12 @@ async def new_viewgallery(request: WSGIRequest):
     no_thumbs = await sync_to_async(list)(files_needing_thumbnails[:100])
     missing_count = len(no_thumbs)
     if missing_count > 0:
-        no_thumb_start = time.time()
-        print(f"{missing_count} entries need thumbnails")
-        # Use ThumbnailFiles batch processing method
-        results = await ThumbnailFiles.batch_create_async(no_thumbs, batchsize=100, max_workers=6)
-        if any(results.values()):
-            print(f"Thumbnails created for directory {directory.fqpndirectory}")
-        print("elapsed thumbnail time - ", time.time() - no_thumb_start)
+        print(f"{missing_count} entries need thumbnails, enqueuing to steady_queue")
+        await sync_to_async(generate_missing_thumbnails.enqueue)(
+            files_needing_thumbnails=no_thumbs,
+            directory_pk=directory.pk,
+            batchsize=missing_count,
+        )
 
     response = await async_render(
         request,
