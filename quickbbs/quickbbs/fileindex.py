@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import logging
 import os
 import time
 from pathlib import Path
@@ -14,35 +15,33 @@ from typing import TYPE_CHECKING, Any
 import aiofiles
 import charset_normalizer
 import markdown2
+from asgiref.sync import sync_to_async
 from cachetools import LRUCache, cached
-from django.db import transaction
+from django.conf import settings
+from django.db import models, transaction
 from django.db.models import Count
 from django.db.models.query import QuerySet
 from django.http import FileResponse, Http404, HttpResponse
 from django.urls import reverse
 from django.utils.http import content_disposition_header
 from PIL import Image
+from ranged_fileresponse import RangedFileResponse
 
-from quickbbs.common import normalize_fqpn, normalize_string_title
+from filetypes.models import filetypes
+from quickbbs.common import (
+    SORT_MATRIX,
+    get_file_sha,
+    normalize_fqpn,
+    normalize_string_title,
+)
+from quickbbs.natsort_model import NaturalSortField
+from thumbnails.models import ThumbnailFiles
 from thumbnails.video_thumbnails import _get_video_info
 
-# Import shared foundation
-from .models import (
-    SORT_MATRIX,
-    NaturalSortField,
-    Owners,
-    RangedFileResponse,
-    ThumbnailFiles,
-    cached,
-    fileindex_cache,
-    fileindex_download_cache,
-    filetypes,
-    get_file_sha,
-    logger,
-    models,
-    settings,
-    sync_to_async,
-)
+# Items defined in models.py (must stay)
+from .models import Owners, fileindex_cache, fileindex_download_cache
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .directoryindex import DirectoryIndex
@@ -623,24 +622,23 @@ class FileIndex(models.Model):
                         # Dynamic update field selection - only update fields that have changed
                         update_fields = ["lastmod", "size", "home_directory"]
 
-                        # Check if any records have movies for duration field
-                        has_movies = any(
-                            getattr(getattr(record, "filetype", None), "is_movie", False) and getattr(record, "duration", None) is not None
-                            for record in chunk
-                        )
+                        # Single pass to detect which optional fields need updating
+                        has_movies = has_hashes = has_link_with_vdir = False
+                        for record in chunk:
+                            ft = getattr(record, "filetype", None)
+                            if not has_movies and getattr(ft, "is_movie", False) and getattr(record, "duration", None) is not None:
+                                has_movies = True
+                            if not has_hashes and getattr(record, "file_sha256", None):
+                                has_hashes = True
+                            if not has_link_with_vdir and getattr(ft, "is_link", False) and getattr(record, "virtual_directory", None) is not None:
+                                has_link_with_vdir = True
+                            if has_movies and has_hashes and has_link_with_vdir:
+                                break
+
                         if has_movies:
                             update_fields.append("duration")
-
-                        # Add hash fields only if they exist in the records
-                        has_hashes = any(getattr(record, "file_sha256", None) for record in chunk)
                         if has_hashes:
                             update_fields.extend(["file_sha256", "unique_sha256"])
-
-                        # Add virtual_directory for link files
-                        has_link_with_vdir = any(
-                            getattr(getattr(record, "filetype", None), "is_link", False) and getattr(record, "virtual_directory", None) is not None
-                            for record in chunk
-                        )
                         if has_link_with_vdir:
                             update_fields.append("virtual_directory")
 
@@ -1189,21 +1187,19 @@ class FileIndex(models.Model):
         """
         Cache text encoding detection based on filename.
 
-        Uses LRU cache to avoid repeated encoding detection for the same file.
-        Cache key is based on the full file pathname.
+        Uses direct LRU cache access to avoid repeated encoding detection
+        for the same file. Cache key is the full file pathname.
 
         Returns:
             Detected encoding string, defaults to 'utf-8' if detection fails
         """
-
-        @cached(FileIndex._encoding_cache)
-        def _get_cached_encoding(_filename: str) -> str:
-            # This is a workaround - we need to call the instance method
-            # but caching needs a hashable key (string), not an instance
-            # _filename is used by @cached decorator as cache key
-            return self.get_text_encoding()
-
-        return _get_cached_encoding(self.full_filepathname)
+        key = self.full_filepathname
+        try:
+            return FileIndex._encoding_cache[key]
+        except KeyError:
+            result = self.get_text_encoding()
+            FileIndex._encoding_cache[key] = result
+            return result
 
     def process_text_content(self, is_markdown: bool = False) -> str:
         """

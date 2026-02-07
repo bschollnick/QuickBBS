@@ -37,23 +37,18 @@ from frontend.managers import (
     _get_files_needing_thumbnails,
     async_build_context_info,
     async_layout_manager,
-    build_context_info_cache,
     clear_layout_cache_for_directories,
-    layout_manager_cache,
 )
 from frontend.utilities import (
     SORT_MATRIX,
-    breadcrumbs_cache,
     convert_to_webpath,
     ensures_endswith,
     return_breadcrumbs,
     update_database_from_disk,
-    webpaths_cache,
 )
 from quickbbs.common import get_dir_sha, normalize_fqpn
 from quickbbs.directoryindex import (
     DIRECTORYINDEX_SR_FILETYPE_THUMB,
-    DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE,
     DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT,
 )
 from quickbbs.fileindex import (
@@ -63,10 +58,6 @@ from quickbbs.fileindex import (
 from quickbbs.models import (
     DirectoryIndex,
     FileIndex,
-    directoryindex_cache,
-    distinct_files_cache,
-    fileindex_cache,
-    fileindex_download_cache,
 )
 from quickbbs.tasks import generate_missing_thumbnails
 from thumbnails.models import ThumbnailFiles
@@ -95,13 +86,9 @@ SEARCH_PR_FILETYPE_HOME = ("filetype", "home_directory")
 class DirectoryNotFoundError(Exception):
     """Raised when a directory doesn't exist physically on the filesystem."""
 
-    pass
-
 
 class DirectoryInvalidError(Exception):
     """Raised when a directory path is invalid or inaccessible."""
-
-    pass
 
 
 class HtmxHttpRequest(HttpRequest):
@@ -888,16 +875,16 @@ async def new_viewgallery(request: WSGIRequest):
     if request.user.is_authenticated:
         response["Cache-Control"] = "private, no-cache, must-revalidate"
 
-    from pprint import pprint
+    # from pprint import pprint
 
-    print(pprint(directoryindex_cache.stats()))
-    print(pprint(fileindex_cache.stats()))
-    print(pprint(fileindex_download_cache.stats()))
-    print(pprint(distinct_files_cache.stats()))
-    print(pprint(layout_manager_cache.stats()))
-    print(pprint(build_context_info_cache.stats()))
-    print(pprint(webpaths_cache.stats()))
-    print(pprint(breadcrumbs_cache.stats()))
+    # print(pprint(directoryindex_cache.stats()))
+    # print(pprint(fileindex_cache.stats()))
+    # print(pprint(fileindex_download_cache.stats()))
+    # print(pprint(distinct_files_cache.stats()))
+    # print(pprint(layout_manager_cache.stats()))
+    # print(pprint(build_context_info_cache.stats()))
+    # print(pprint(webpaths_cache.stats()))
+    # print(pprint(breadcrumbs_cache.stats()))
     print("Gallery View, processing time: ", time.perf_counter() - start_time)
 
     return response

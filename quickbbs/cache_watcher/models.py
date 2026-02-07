@@ -23,7 +23,6 @@ Known Behavior - macOS Duplicate Events:
 """
 
 import collections
-import gc
 import logging
 import os
 import pathlib

@@ -50,10 +50,6 @@ from frontend.utilities import (
     return_breadcrumbs,
 )
 from quickbbs.common import SORT_MATRIX
-from quickbbs.directoryindex import (
-    DIRECTORYINDEX_SR_FILETYPE_THUMB,
-    DIRECTORYINDEX_SR_FILETYPE_THUMB_PARENT,
-)
 from quickbbs.fileindex import FILEINDEX_SR_FILETYPE_HOME_VIRTUAL
 from quickbbs.models import CACHE_MONITORING, FileIndex, distinct_files_cache
 from quickbbs.MonitoredCache import create_cache

@@ -215,11 +215,12 @@ def add_thumbnails(max_count: int = 0) -> None:
     task_count = 0
 
     for batch in batched(sha256_list, BULK_UPDATE_BATCH_SIZE):
+        batch_size = len(batch)
         generate_missing_thumbnails.enqueue(
             files_needing_thumbnails=list(batch),
-            batchsize=len(batch),
+            batchsize=batch_size,
         )
-        enqueued += len(batch)
+        enqueued += batch_size
         task_count += 1
 
         if enqueued % 1000 == 0 or enqueued == count:

@@ -4,45 +4,13 @@ Django Models for quickbbs
 
 from __future__ import annotations
 
-# Standard library imports
-import asyncio
-import io
 import logging
-import os
-import pathlib
-import time
-from typing import TYPE_CHECKING, Any
 
-# Third-party imports
-from asgiref.sync import sync_to_async
-from cachetools import cached
-
-# Django imports
-from django.conf import settings
 from django.contrib.auth.models import User  # pylint: disable=imported-auth-user
 from django.db import models
-from django.db.models import Count, Prefetch, Q
-from django.db.models.query import QuerySet
-from django.http import FileResponse, Http404, HttpResponse
-from django.urls import reverse
 
-# TODO: Examine django-sage-streaming as a replacement for RangedFileResponse
-# https://github.com/sageteamorg/django-sage-streaming
-from ranged_fileresponse import RangedFileResponse
-
-# Local application imports
-from filetypes.models import filetypes, get_ftype_dict
-from quickbbs.common import SORT_MATRIX, get_dir_sha, get_file_sha, normalize_fqpn
-
-# Local cache imports
 from quickbbs.MonitoredCache import create_cache
-from quickbbs.natsort_model import NaturalSortField
-from thumbnails.models import ThumbnailFiles
 
-if TYPE_CHECKING:
-    from cache_watcher.models import fs_Cache_Tracking
-
-# Logger
 logger = logging.getLogger(__name__)
 
 # =============================================================================
@@ -117,5 +85,4 @@ __all__ = [
     "fileindex_cache",
     "fileindex_download_cache",
     "distinct_files_cache",
-    "logger",
 ]

@@ -14,7 +14,6 @@ import time
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 # Benchmark configuration
 BENCHMARK_ITERATIONS = 500  # Number of iterations per benchmark operation
