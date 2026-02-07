@@ -82,6 +82,9 @@ THUMBNAILFILES_PR_FILEINDEX_FILETYPE = ("FileIndex__filetype",)
 # Async-safe cache for thumbnail lookups
 thumbnailfiles_cache = LRUCache(maxsize=1000)
 
+# Empty-value sentinel for thumbnail existence checks (avoids per-call list creation)
+_EMPTY_THUMB_VALUES = ("", b"", None)
+
 
 class ThumbnailFiles(models.Model):
     """
@@ -470,11 +473,11 @@ class ThumbnailFiles(models.Model):
         """
         match size.lower():
             case "small":
-                return self.small_thumb not in ["", b"", None]
+                return self.small_thumb not in _EMPTY_THUMB_VALUES
             case "medium":
-                return self.medium_thumb not in ["", b"", None]
+                return self.medium_thumb not in _EMPTY_THUMB_VALUES
             case "large":
-                return self.large_thumb not in ["", b"", None]
+                return self.large_thumb not in _EMPTY_THUMB_VALUES
         return False
 
     def invalidate_thumb(self) -> None:

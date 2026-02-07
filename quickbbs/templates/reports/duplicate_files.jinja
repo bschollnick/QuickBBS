@@ -1,0 +1,62 @@
+{% extends 'base.jinja' %}
+
+{% block title %}Duplicate Files Report{% endblock %}
+
+{% block content %}
+<section class="section">
+  <div class="container">
+    <h1 class="title">Duplicate Files Report</h1>
+    <h2 class="subtitle">Files sharing the same SHA256 (count &gt; 5)</h2>
+
+    <div class="level">
+      <div class="level-item has-text-centered">
+        <div>
+          <p class="heading">Duplicate SHAs</p>
+          <p class="title">{{ total_shas }}</p>
+        </div>
+      </div>
+      <div class="level-item has-text-centered">
+        <div>
+          <p class="heading">Total Duplicate Files</p>
+          <p class="title">{{ total_files }}</p>
+        </div>
+      </div>
+    </div>
+
+    {% if groups %}
+    {% for group in groups %}
+    <details class="box mb-4">
+      <summary class="is-size-5" style="display: flex; align-items: center; gap: 0.5rem;">
+        <strong>{{ group.count }}</strong> files
+        <img src="/thumbnail2_file/{{ group.sha256 }}?size=small" alt="thumbnail" style="height: 48px; width: auto; vertical-align: middle;">
+        <code class="is-size-7">{{ group.sha256 }}</code>
+      </summary>
+      <table class="table is-fullwidth is-striped is-hoverable mt-3">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Directory</th>
+            <th>Filename</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for file in group.files %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td><code>{{ file.directory }}</code></td>
+            <td>{{ file.name }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </details>
+    {% endfor %}
+    {% else %}
+    <div class="notification is-info">
+      No duplicate files found with more than 5 copies.
+    </div>
+    {% endif %}
+
+  </div>
+</section>
+{% endblock %}

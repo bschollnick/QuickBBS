@@ -14,6 +14,7 @@ Including another URLconf
     2. Add a URL to urlpatterns:  url(r'^blog/', include('blog.urls'))
 """
 
+import frontend.report_views
 import frontend.serve_up
 import frontend.views
 import user_preferences.views
@@ -34,6 +35,8 @@ if settings.DEBUG_TOOLBAR:
     ]
 
 urlpatterns += [
+    # Reports
+    path("reports/duplicate_files.html", frontend.report_views.duplicate_files_report, name="duplicate_files_report"),
     path("search/", frontend.views.search_viewresults, name="search_viewresults"),
     path(
         "preferences/toggle-duplicates/",

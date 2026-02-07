@@ -51,8 +51,8 @@ echo "h2: $(python -c 'import h2; print("INSTALLED (HTTP/2)")' 2>/dev/null || ec
 echo ""
 
 # Start steady-queue worker in the background
-OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES python manage.py steady_queue 2>&1 &
-QUEUE_PID=$!
+#OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES python manage.py steady_queue 2>&1 &
+#QUEUE_PID=$!
 echo "steady-queue worker started (PID: $QUEUE_PID)"
 echo ""
 
@@ -84,8 +84,8 @@ echo ""
 echo "Hypercorn has exited."
 
 # Stop steady-queue worker
-echo "Stopping steady-queue worker (PID: $QUEUE_PID)..."
-kill -9 "$QUEUE_PID" 2>/dev/null
-pkill -9 -f "steady_queue" 2>/dev/null
-wait "$QUEUE_PID" 2>/dev/null
-echo "steady-queue worker stopped."
+#echo "Stopping steady-queue worker (PID: $QUEUE_PID)..."
+#kill -9 "$QUEUE_PID" 2>/dev/null
+#pkill -9 -f "steady_queue" 2>/dev/null
+#wait "$QUEUE_PID" 2>/dev/null
+#echo "steady-queue worker stopped."

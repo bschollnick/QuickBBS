@@ -4,36 +4,36 @@ DirectoryIndex Model - Master index for directories in the filesystem
 
 from __future__ import annotations
 
+# Direct imports (replacing re-exports from .models)
+import logging
+import os
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
+from asgiref.sync import sync_to_async
+from cachetools import cached
+from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
-from django.db import transaction
-from django.db.models import Count, Prefetch, Q
+from django.db import models, transaction
+from django.db.models import Count, Q
 from django.db.models.query import QuerySet
 from django.urls import reverse
 
-# Import shared foundation
-from filetypes.models import get_ftype_dict
-from quickbbs.common import normalize_string_title
-
-from .models import (
+from filetypes.models import filetypes, get_ftype_dict
+from quickbbs.common import (
     SORT_MATRIX,
-    NaturalSortField,
-    cached,
-    directoryindex_cache,
-    distinct_files_cache,
-    filetypes,
     get_dir_sha,
-    logger,
-    models,
     normalize_fqpn,
-    os,
-    settings,
-    sync_to_async,
+    normalize_string_title,
 )
+from quickbbs.natsort_model import NaturalSortField
+
+# Items defined in models.py (must stay)
+from .models import directoryindex_cache, distinct_files_cache
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from cache_watcher.models import fs_Cache_Tracking
@@ -212,7 +212,7 @@ class DirectoryIndex(models.Model):
             "fqpndirectory": fqpn_directory,  # Already normalized
             "lastmod": stat_info.st_mtime,
             "lastscan": time.time(),
-            "filetype": filetypes(fileext=".dir"),
+            "filetype": filetypes.return_filetype(fileext=".dir"),
             "dir_fqpn_sha256": dir_sha256,  # Already computed
             "parent_directory": parent_dir_link,
             "is_generic_icon": False,
@@ -438,7 +438,7 @@ class DirectoryIndex(models.Model):
         Returns: Boolean indicating if files exist in the directory using QuerySet.exists()
         """
         additional_filters = additional_filters or {}
-        return self.FileIndex_entries.filter(home_directory=self.pk, delete_pending=False, **additional_filters).exists()
+        return self.FileIndex_entries.filter(delete_pending=False, **additional_filters).exists()
 
     def get_file_counts(self) -> int:
         """
@@ -780,10 +780,6 @@ class DirectoryIndex(models.Model):
             raise ValueError("select_related parameter is required")
         if prefetch_related is None:
             raise ValueError("prefetch_related parameter is required")
-        # Import here to avoid circular import at module level
-        # pylint: disable-next=import-outside-toplevel
-        from .fileindex import FileIndex
-
         queryset = DirectoryIndex.objects.filter(parent_directory=self.pk, delete_pending=False)
 
         if fields_only:
@@ -1045,11 +1041,12 @@ class DirectoryIndex(models.Model):
             if updated_records:
                 print(f"processing existing directory changes: {len(updated_records)}")
                 with transaction.atomic():
+                    # Lock rows to prevent concurrent modifications, then bulk update
+                    update_ids = [r.id for r in updated_records]
+                    DirectoryIndex.objects.select_for_update(skip_locked=True).filter(id__in=update_ids).only("id")
+                    DirectoryIndex.objects.bulk_update(updated_records, ["lastmod"], batch_size=100)
                     for db_dir_entry in updated_records:
-                        locked_entry = DirectoryIndex.objects.select_for_update(skip_locked=True).get(id=db_dir_entry.id)
-                        locked_entry.lastmod = db_dir_entry.lastmod
-                        locked_entry.save()
-                        Cache_Storage.remove_from_cache_indexdirs(locked_entry)
+                        Cache_Storage.remove_from_cache_indexdirs(db_dir_entry)
                 logger.info(f"Processing {len(updated_records)} directory updates")
 
         # Create new directories BEFORE deleting old ones to prevent foreign key violations
