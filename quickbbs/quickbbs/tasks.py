@@ -13,11 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 @task()
-def generate_missing_thumbnails(
-    files_needing_thumbnails: list[str],
-    directory_pk: int | None = None,
-    batchsize: int = 5
-) -> dict[str, bool]:
+def generate_missing_thumbnails(files_needing_thumbnails: list[str], directory_pk: int | None = None, batchsize: int = 5) -> dict[str, bool]:
     """
     Batch-create thumbnails for files that are missing them.
 
@@ -108,8 +104,7 @@ def generate_missing_thumbnails(
     newly_processed = successful_count - len(existing_shas)
     if newly_processed > 0:
         logger.info(
-            "Successfully processed %d new thumbnails, bulk-updated %d records "
-            "(%d already existed)",
+            "Successfully processed %d new thumbnails, bulk-updated %d records " "(%d already existed)",
             newly_processed,
             len(thumbnails_to_update),
             len(existing_shas),

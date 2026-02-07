@@ -34,14 +34,18 @@ from quickbbs.common import (
     normalize_fqpn,
     normalize_string_title,
 )
+from quickbbs.MonitoredCache import create_cache
 from quickbbs.natsort_model import NaturalSortField
 from thumbnails.models import ThumbnailFiles
 from thumbnails.video_thumbnails import _get_video_info
 
-# Items defined in models.py (must stay)
-from .models import Owners, fileindex_cache, fileindex_download_cache
+from .models import Owners
 
 logger = logging.getLogger(__name__)
+
+# Async-safe caches for database object lookups
+fileindex_cache = create_cache(settings.FILEINDEX_CACHE_SIZE, "fileindex", monitored=settings.CACHE_MONITORING)
+fileindex_download_cache = create_cache(settings.FILEINDEX_DOWNLOAD_CACHE_SIZE, "fileindex_download", monitored=settings.CACHE_MONITORING)
 
 if TYPE_CHECKING:
     from .directoryindex import DirectoryIndex

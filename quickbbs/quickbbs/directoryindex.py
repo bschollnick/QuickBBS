@@ -28,12 +28,17 @@ from quickbbs.common import (
     normalize_fqpn,
     normalize_string_title,
 )
+from quickbbs.MonitoredCache import create_cache
 from quickbbs.natsort_model import NaturalSortField
 
-# Items defined in models.py (must stay)
-from .models import directoryindex_cache, distinct_files_cache
-
 logger = logging.getLogger(__name__)
+
+# Async-safe caches for database object lookups
+directoryindex_cache = create_cache(settings.DIRECTORYINDEX_CACHE_SIZE, "directoryindex", monitored=settings.CACHE_MONITORING)
+
+# Cache for distinct file lists per directory (for pagination efficiency)
+# Cache key: (directory_instance, sort_ordering)
+distinct_files_cache = create_cache(settings.DISTINCT_FILES_CACHE_SIZE, "distinct_files", monitored=settings.CACHE_MONITORING)
 
 if TYPE_CHECKING:
     from cache_watcher.models import fs_Cache_Tracking

@@ -26,7 +26,7 @@ from cache_watcher.models import Cache_Storage
 from frontend.file_listings import return_disk_listing
 from quickbbs.common import SORT_MATRIX, get_file_sha
 from quickbbs.directoryindex import DIRECTORYINDEX_SR_CACHE
-from quickbbs.models import CACHE_MONITORING, DirectoryIndex
+from quickbbs.models import DirectoryIndex
 from quickbbs.MonitoredCache import create_cache
 
 logger = logging.getLogger(__name__)
@@ -36,8 +36,8 @@ WEBPATHS_CACHE_SIZE = 500
 BREADCRUMBS_CACHE_SIZE = 400
 
 # Async-safe caches for utility functions
-webpaths_cache = create_cache(WEBPATHS_CACHE_SIZE, "webpaths", monitored=CACHE_MONITORING)
-breadcrumbs_cache = create_cache(BREADCRUMBS_CACHE_SIZE, "breadcrumbs", monitored=CACHE_MONITORING)
+webpaths_cache = create_cache(WEBPATHS_CACHE_SIZE, "webpaths", monitored=settings.CACHE_MONITORING)
+breadcrumbs_cache = create_cache(BREADCRUMBS_CACHE_SIZE, "breadcrumbs", monitored=settings.CACHE_MONITORING)
 
 # Batch sizes for database operations - kept simple for performance
 # These values are optimized for typical directory/file counts in gallery operations

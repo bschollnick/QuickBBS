@@ -71,7 +71,7 @@ django-allauth = "^65.2.0"
 watchdog = "^6.0.0"
 django-extensions = "^4.1"
 django-ranged-fileresponse = {git = "https://github.com/devmonkey22/django-ranged-fileresponse"}
-pillow = ">=11.0.0"
+pillow = {url = "https://github.com/python-pillow/Pillow/archive/refs/heads/main.zip"}
 markdown2 = "^2.5.1"
 numpy = "^2.1.3"
 django-thread = {git = "https://github.com/ross/django-thread"}
@@ -139,3 +139,4 @@ pylint = "^4.0.4"
 wheel = "^0.46.3"
 steady-queue = "^0.1.2"
 fido2 = "^2.1.1"
+tprof = "^1.1.0"
