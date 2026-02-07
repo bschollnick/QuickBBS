@@ -43,17 +43,19 @@ settings.DEBUG = True
 
 from django.test import RequestFactory
 
-from quickbbs.directoryindex import DIRECTORYINDEX_SR_FILETYPE_THUMB
+from quickbbs.directoryindex import (
+    DIRECTORYINDEX_SR_FILETYPE_THUMB,
+    directoryindex_cache,
+)
 from quickbbs.fileindex import (
     FILEINDEX_SR_FILETYPE_HOME,
     FILEINDEX_SR_FILETYPE_HOME_VIRTUAL,
+    fileindex_cache,
+    fileindex_download_cache,
 )
 from quickbbs.models import (
     DirectoryIndex,
     FileIndex,
-    directoryindex_cache,
-    fileindex_cache,
-    fileindex_download_cache,
 )
 
 

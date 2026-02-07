@@ -11,6 +11,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/stable/ref/settings/
 """
 
+from datetime import timedelta
 import logging
 import logging.handlers
 import os
@@ -25,6 +26,8 @@ from PIL import Image, ImageFile
 
 from quickbbs.quickbbs_settings import *
 from quickbbs import __version__ as QUICKBBS_VERSION
+
+from steady_queue.configuration import Configuration
 
 #
 #   Debug, enables the debugging mode
@@ -152,6 +155,15 @@ if not DEBUG:
         "default": {
             "BACKEND": "django.core.cache.backends.db.DatabaseCache",
             "LOCATION": "cache_data_db_table",
+            "TIMEOUT": 90,  # ~2.5 minutes
+            "OPTIONS": {
+                "MAX_ENTRIES": 30000,
+                "CULL_FREQUENCY": 3,
+            },
+        },
+        "queue": {
+            "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+            "LOCATION": "cache_data_queue_table",
             "TIMEOUT": 150,  # ~2.5 minutes
             "OPTIONS": {
                 "MAX_ENTRIES": 15000,
@@ -378,7 +390,7 @@ else:
             "min_size": 5,  # Keep minimum connections ready
             "max_size": 75,  # Limit to 75 connections (matches user concurrency)
             "max_lifetime": 150,  # Connection max lifetime (2.5 minutes)
-            "max_idle": 150,  # Max idle time before closing (2.5 minutes)
+            "max_idle": 90,  # Max idle time before closing (2.5 minutes)
             "timeout": 30,  # Connection timeout
         },
     }
@@ -486,6 +498,23 @@ TASKS = {
         "OPTIONS": {},
     }
 }
+
+STEADY_QUEUE = Configuration.Options(
+    dispatchers=[
+        Configuration.Dispatcher(
+            polling_interval=timedelta(seconds=1),
+            batch_size=500
+        )
+    ],
+    workers=[
+        Configuration.Worker(
+            queues=["*"],
+            threads=3,
+            processes=3,
+            polling_interval=timedelta(seconds=0.1)
+        )
+    ]
+)
 
 # Settings for django-icons
 DJANGO_ICONS = {

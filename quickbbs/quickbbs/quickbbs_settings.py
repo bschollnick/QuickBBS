@@ -105,6 +105,16 @@ IGNORE_DOT_FILES = True
 
 REGISTRATION_OPEN = True
 
+# Set to True to enable hit/miss tracking on LRU caches for performance analysis
+# Check stats in Django shell: print(directoryindex_cache.stats())
+CACHE_MONITORING = True
+
+# LRU cache size constants - adjust based on monitoring stats
+DIRECTORYINDEX_CACHE_SIZE = 750
+DISTINCT_FILES_CACHE_SIZE = 500
+FILEINDEX_CACHE_SIZE = 250
+FILEINDEX_DOWNLOAD_CACHE_SIZE = 250
+
 #
 #   ┌──────────────────────────────────────────────────────────────────────────────┐
 #   │ FILETYPE DEFINITIONS - FOR refresh-filetypes COMMAND ONLY                    │

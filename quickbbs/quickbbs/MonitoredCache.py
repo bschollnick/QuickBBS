@@ -2,7 +2,7 @@
 Monitored LRU Cache with hit/miss tracking.
 
 Provides cache statistics for performance analysis. Enable by setting
-CACHE_MONITORING = True in quickbbs/models.py.
+CACHE_MONITORING = True in quickbbs/quickbbs_settings.py.
 
 Usage:
     from quickbbs.models import directoryindex_cache, fileindex_cache

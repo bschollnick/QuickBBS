@@ -38,6 +38,7 @@ from pathlib import Path
 
 from asgiref.sync import sync_to_async
 from cachetools import cached
+from cachetools.keys import hashkey
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.db.models import Q
@@ -50,17 +51,21 @@ from frontend.utilities import (
     return_breadcrumbs,
 )
 from quickbbs.common import SORT_MATRIX
+from quickbbs.directoryindex import distinct_files_cache
 from quickbbs.fileindex import FILEINDEX_SR_FILETYPE_HOME_VIRTUAL
-from quickbbs.models import CACHE_MONITORING, FileIndex, distinct_files_cache
+from quickbbs.models import (
+    DirectoryIndex,
+    FileIndex,
+)
 from quickbbs.MonitoredCache import create_cache
 
 # Cache size constants - adjust based on monitoring stats
 LAYOUT_MANAGER_CACHE_SIZE = 500
 BUILD_CONTEXT_INFO_CACHE_SIZE = 500
 
-layout_manager_cache = create_cache(LAYOUT_MANAGER_CACHE_SIZE, "layout_manager", monitored=CACHE_MONITORING)
+layout_manager_cache = create_cache(LAYOUT_MANAGER_CACHE_SIZE, "layout_manager", monitored=settings.CACHE_MONITORING)
 
-build_context_info_cache = create_cache(BUILD_CONTEXT_INFO_CACHE_SIZE, "build_context_info", monitored=CACHE_MONITORING)
+build_context_info_cache = create_cache(BUILD_CONTEXT_INFO_CACHE_SIZE, "build_context_info", monitored=settings.CACHE_MONITORING)
 
 
 def clear_layout_cache_for_directories(directory_ids: set[int]) -> int:
@@ -72,13 +77,6 @@ def clear_layout_cache_for_directories(directory_ids: set[int]) -> int:
     - Cache watcher during filesystem invalidation
     - Management commands after is_generic_icon changes
 
-    Uses cachetools LRUCache with direct key deletion. Cache keys are hashkey tuples
-    containing (page_number, directory_obj, sort_ordering) for layout_manager_cache
-    and (directory_instance, sort_ordering) for distinct_files_cache.
-
-    Note: distinct_files_cache is imported from quickbbs.models where it's used by
-    the DirectoryIndex.get_distinct_file_shas() method.
-
     Args:
         directory_ids: Set of directory PKs to clear cache for
 
@@ -88,43 +86,30 @@ def clear_layout_cache_for_directories(directory_ids: set[int]) -> int:
     if not directory_ids:
         return 0
 
-    dir_pks = directory_ids
+    count = 0
 
-    # Clear layout_manager_cache entries
-    layout_keys_to_delete = []
+    # distinct_files_cache: direct pop via constructed hashkeys
+    # Keys are hashkey(directory_instance, sort) — sort is always 0, 1, or 2
+    # Django models with same PK hash equally, so a stub instance matches cached entries
+    for pk in directory_ids:
+        stub = DirectoryIndex(pk=pk)
+        for sort in range(3):
+            if distinct_files_cache.pop(hashkey(stub, sort), None) is not None:
+                count += 1
 
+    # layout_manager_cache: scan keys (page_number is unbounded, can't construct keys)
+    # Keys are hashkey(page_number, directory_obj, sort_ordering, show_duplicates)
     for key in list(layout_manager_cache.keys()):
-        # Cache keys are hashkey tuples: (page_number, directory_obj, sort_ordering)
-        # Check if the directory in the key matches any of our directories
         try:
             for item in key:
-                if hasattr(item, "pk") and item.pk in dir_pks:
-                    layout_keys_to_delete.append(key)
+                if hasattr(item, "pk") and item.pk in directory_ids:
+                    layout_manager_cache.pop(key, None)
+                    count += 1
                     break
         except (TypeError, AttributeError):
             continue
 
-    # Bulk delete all matched layout keys
-    for key in layout_keys_to_delete:
-        del layout_manager_cache[key]
-
-    # Clear distinct_files_cache entries
-    # Cache keys are hashkey tuples: (directory_instance, sort_ordering)
-    distinct_keys_to_delete = []
-
-    for key in list(distinct_files_cache.keys()):
-        try:
-            # First element of hashkey tuple is directory instance
-            if hasattr(key[0], "pk") and key[0].pk in dir_pks:
-                distinct_keys_to_delete.append(key)
-        except (TypeError, IndexError, AttributeError):
-            continue
-
-    # Bulk delete all matched distinct file keys
-    for key in distinct_keys_to_delete:
-        del distinct_files_cache[key]
-
-    return len(layout_keys_to_delete) + len(distinct_keys_to_delete)
+    return count
 
 
 @cached(build_context_info_cache)

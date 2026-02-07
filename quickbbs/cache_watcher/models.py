@@ -984,7 +984,7 @@ class fs_Cache_Tracking(models.Model):
 
         # Clear LRU cache to prevent stale DirectoryIndex data
         # This ensures next access will fetch fresh data with updated invalidation status
-        from quickbbs.models import (
+        from quickbbs.directoryindex import (
             directoryindex_cache,  # pylint: disable=import-outside-toplevel
         )
 
@@ -1031,7 +1031,7 @@ class fs_Cache_Tracking(models.Model):
         )
 
         # Clear LRU cache to prevent stale DirectoryIndex data
-        from quickbbs.models import (
+        from quickbbs.directoryindex import (
             directoryindex_cache,  # pylint: disable=import-outside-toplevel
         )
 
@@ -1245,7 +1245,7 @@ class fs_Cache_Tracking(models.Model):
         """
         try:
             # pylint: disable=import-outside-toplevel
-            from quickbbs.models import directoryindex_cache
+            from quickbbs.directoryindex import directoryindex_cache
 
             # Extract SHA256s and directly delete from cache
             cleared_count = 0
