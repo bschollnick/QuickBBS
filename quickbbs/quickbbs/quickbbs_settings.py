@@ -5,20 +5,6 @@ import re
 from django.db.models import Q
 
 SITE_NAME = "QuickBBS Site"
-IMAGE_SIZE = {
-    "small": (200, 200),
-    "medium": (740, 740),
-    "large": (1024, 1024),
-    "unknown": (200, 200),
-}
-
-# PIL/Pillow Configuration
-PIL_MAX_IMAGE_PIXELS = None  # Disable decompression bomb warning
-PIL_LOAD_TRUNCATED_IMAGES = True  # Allow loading truncated images
-
-# Thumbnail Quality Settings (1-100, where 100 is highest quality)
-PIL_IMAGE_QUALITY = 85  # Quality for PIL/Pillow thumbnail generation
-CORE_IMAGE_QUALITY = 55  # Quality for Core Image thumbnail generation (macOS)
 
 # Directory thumbnail priority filenames (without extensions)
 # Files matching these names will be prioritized when selecting thumbnails for directories
@@ -56,54 +42,52 @@ CSS_PATH = f"{RESOURCES_PATH}/css"
 FONTS_PATH = f"{RESOURCES_PATH}/fonts"
 ICONS_PATH = f"{RESOURCES_PATH}/images"
 
+
+REGISTRATION_OPEN = True
+
+"""
+Past this point be dragons - these are internal settings that should not be modified without understanding what the change will do.
+
+            ___====-_  _-====___
+       _--^^^#####//      \\#####^^^--_
+    _-^##########// (    ) \\##########^-_
+   -############//  |\^^/|  \\############-
+ _/############//   (@::@)   \\############\_
+/#############((     \\//     ))#############\
+-###############\\    (oo)    //###############-
+-#################\\  / VV \  //#################-
+-##################\\/      \//##################-
+_#/|##########/\######(   )######/\##########|\#_
+|/ |#/\#/\#/\/  \#/\##\  /##/\#/  \/\#/\#/\#| \|
+`  |/  V  V  `   V  \# \/ #/  V   '  V  V  \|  '
+    `   `  `      `   /  \   '      '  '   '
+                     (  )
+                    /    \
+                   /      \
+                  /        \
+              HERE BE DRAGONS
+"""
+
+IMAGE_SIZE = {
+    "small": (200, 200),
+    "medium": (740, 740),
+    "large": (1024, 1024),
+    "unknown": (200, 200),
+}
+
+# PIL/Pillow Configuration
+PIL_MAX_IMAGE_PIXELS = None  # Disable decompression bomb warning
+PIL_LOAD_TRUNCATED_IMAGES = True  # Allow loading truncated images
+
+# Thumbnail Quality Settings (1-100, where 100 is highest quality)
+PIL_IMAGE_QUALITY = 85  # Quality for PIL/Pillow thumbnail generation
+CORE_IMAGE_QUALITY = 55  # Quality for Core Image thumbnail generation (macOS)
+
 ALIAS_MAPPING = {
     r"/volumes/masters/masters/hyp-collective": r"/volumes/c-8tb/gallery/quickbbs/albums/hentai_idea/hyp-collective",
     r"/volumes/masters/masters": r"/volumes/c-8tb/gallery/quickbbs/albums/hentai_idea",
 }
 
-# Used in ftypes / Filetypes, used in the refresh-filetypes command
-FTYPES = {
-    "unknown": 0,
-    "dir": 1,
-    "pdf": 2,
-    "archive": 3,
-    "image": 4,
-    "movie": 5,
-    "text": 6,
-    "html": 7,
-    "epub": 8,
-    "flash": 9,
-    "audio": 10,
-    "markdown": 11,
-    "link": 12,
-}
-
-# used as list of files to ignore when scanning directories
-FILES_TO_IGNORE = [
-    ".",
-    "..",
-    "thumbs.db",
-    "downloaded_site.webloc",
-    "update_capture.command",
-    ".ds_store",
-    "icon?",
-]
-
-# list of file extensions to ignore when scanning directories
-EXTENSIONS_TO_IGNORE = [
-    ".pdf_png_preview",
-    ".log",
-    ".webloc",
-    ".command",
-    ".sh",
-    ".swf",
-]
-
-# Do not display files that start with a DOT (.)
-IGNORE_DOT_FILES = True
-
-
-REGISTRATION_OPEN = True
 
 # Set to True to enable hit/miss tracking on LRU caches for performance analysis
 # Check stats in Django shell: print(directoryindex_cache.stats())
@@ -180,3 +164,44 @@ ALL_SUPPORTED_FILETYPES = sorted(
         + LINK_FILE_TYPES
     )
 )
+
+# Used in ftypes / Filetypes, used in the refresh-filetypes command
+FTYPES = {
+    "unknown": 0,
+    "dir": 1,
+    "pdf": 2,
+    "archive": 3,
+    "image": 4,
+    "movie": 5,
+    "text": 6,
+    "html": 7,
+    "epub": 8,
+    "flash": 9,
+    "audio": 10,
+    "markdown": 11,
+    "link": 12,
+}
+
+# used as list of files to ignore when scanning directories
+FILES_TO_IGNORE = [
+    ".",
+    "..",
+    "thumbs.db",
+    "downloaded_site.webloc",
+    "update_capture.command",
+    ".ds_store",
+    "icon?",
+]
+
+# list of file extensions to ignore when scanning directories
+EXTENSIONS_TO_IGNORE = [
+    ".pdf_png_preview",
+    ".log",
+    ".webloc",
+    ".command",
+    ".sh",
+    ".swf",
+]
+
+# Do not display files that start with a DOT (.)
+IGNORE_DOT_FILES = True
