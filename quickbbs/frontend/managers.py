@@ -59,18 +59,14 @@ from quickbbs.models import (
 )
 from quickbbs.MonitoredCache import create_cache
 
-# Cache size constants - adjust based on monitoring stats
-LAYOUT_MANAGER_CACHE_SIZE = 500
-BUILD_CONTEXT_INFO_CACHE_SIZE = 500
+layout_manager_cache = create_cache(settings.LAYOUT_MANAGER_CACHE_SIZE, "layout_manager", monitored=settings.CACHE_MONITORING)
 
-layout_manager_cache = create_cache(LAYOUT_MANAGER_CACHE_SIZE, "layout_manager", monitored=settings.CACHE_MONITORING)
-
-build_context_info_cache = create_cache(BUILD_CONTEXT_INFO_CACHE_SIZE, "build_context_info", monitored=settings.CACHE_MONITORING)
+build_context_info_cache = create_cache(settings.BUILD_CONTEXT_INFO_CACHE_SIZE, "build_context_info", monitored=settings.CACHE_MONITORING)
 
 
 def clear_layout_cache_for_directories(directory_ids: set[int]) -> int:
     """
-    Clear layout_manager_cache and distinct_files_cache entries for one or more directories.
+    Clear layout_manager_cache, distinct_files_cache, and build_context_info_cache entries for one or more directories.
 
     Shared function to ensure consistent cache clearing across:
     - Web views after thumbnail generation
@@ -81,7 +77,7 @@ def clear_layout_cache_for_directories(directory_ids: set[int]) -> int:
         directory_ids: Set of directory PKs to clear cache for
 
     Returns:
-        Number of cache entries cleared (combined from both caches)
+        Number of cache entries cleared (combined from all three caches)
     """
     if not directory_ids:
         return 0
@@ -101,13 +97,19 @@ def clear_layout_cache_for_directories(directory_ids: set[int]) -> int:
     # Keys are hashkey(page_number, directory_obj, sort_ordering, show_duplicates)
     for key in list(layout_manager_cache.keys()):
         try:
-            for item in key:
-                if hasattr(item, "pk") and item.pk in directory_ids:
-                    layout_manager_cache.pop(key, None)
-                    count += 1
-                    break
+            if any(hasattr(item, "pk") and item.pk in directory_ids for item in key):
+                layout_manager_cache.pop(key, None)
+                count += 1
         except (TypeError, AttributeError):
             continue
+
+    # build_context_info_cache: scan values for matching home_directory_id
+    # Keys are hashkey(sha, sort, show_duplicates) — can't construct from directory PK
+    # Values are dicts with "home_directory_id" field
+    for key, value in list(build_context_info_cache.items()):
+        if isinstance(value, dict) and value.get("home_directory_id") in directory_ids:
+            build_context_info_cache.pop(key, None)
+            count += 1
 
     return count
 
@@ -235,6 +237,7 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
         # Core data
         "unique_file_sha256": unique_file_sha256,
         "file_sha256": entry.file_sha256,
+        "home_directory_id": directory_entry.pk,
         "sort": sort_order_value,
         "html": entry.get_content_html(webpath),
         # Navigation (inline breadcrumb processing)

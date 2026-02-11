@@ -11,7 +11,7 @@ _DIGITS_RE = re.compile(r"\d+")
 
 def _naturalize_int_match(match: re.Match) -> str:
     """Zero-pad integers to 8 digits for natural sorting."""
-    return "%08d" % (int(match.group(0)),)
+    return f"{int(match.group(0)):08d}"
 
 
 class NaturalSortField(models.CharField):

@@ -7,6 +7,7 @@ import pathlib
 from typing import TypeVar
 
 from cachetools import LRUCache, cached
+from django.conf import settings
 from django.db import models
 
 logger = logging.getLogger(__name__)
@@ -15,9 +16,9 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=models.Model)
 
 # Async-safe caches for common utility functions
-normalized_strings_cache = LRUCache(maxsize=500)
-directory_sha_cache = LRUCache(maxsize=1000)
-normalized_paths_cache = LRUCache(maxsize=1000)
+normalized_strings_cache = LRUCache(maxsize=settings.NORMALIZED_STRINGS_CACHE_SIZE)
+directory_sha_cache = LRUCache(maxsize=settings.DIRECTORY_SHA_CACHE_SIZE)
+normalized_paths_cache = LRUCache(maxsize=settings.NORMALIZED_PATHS_CACHE_SIZE)
 
 # Sort matrix for file/directory listings
 # Defines ordering for different sort modes:
