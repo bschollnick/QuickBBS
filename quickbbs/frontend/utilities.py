@@ -16,37 +16,25 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from urllib.parse import quote
 
 # Third-party imports
-from asgiref.sync import sync_to_async
 from cachetools import cached
 from django.conf import settings
 from django.db import close_old_connections
 
 # First-party imports
 from cache_watcher.models import Cache_Storage
-from frontend.file_listings import return_disk_listing
+from frontend.file_listings import return_disk_listing_sync
 from quickbbs.common import SORT_MATRIX, get_file_sha
-from quickbbs.directoryindex import DIRECTORYINDEX_SR_CACHE
 from quickbbs.models import DirectoryIndex
 from quickbbs.MonitoredCache import create_cache
 
 logger = logging.getLogger(__name__)
 
-# Cache size constants - adjust based on monitoring stats
-WEBPATHS_CACHE_SIZE = 500
-BREADCRUMBS_CACHE_SIZE = 400
-
 # Async-safe caches for utility functions
-webpaths_cache = create_cache(WEBPATHS_CACHE_SIZE, "webpaths", monitored=settings.CACHE_MONITORING)
-breadcrumbs_cache = create_cache(BREADCRUMBS_CACHE_SIZE, "breadcrumbs", monitored=settings.CACHE_MONITORING)
+webpaths_cache = create_cache(settings.WEBPATHS_CACHE_SIZE, "webpaths", monitored=settings.CACHE_MONITORING)
+breadcrumbs_cache = create_cache(settings.BREADCRUMBS_CACHE_SIZE, "breadcrumbs", monitored=settings.CACHE_MONITORING)
 
-# Batch sizes for database operations - kept simple for performance
-# These values are optimized for typical directory/file counts in gallery operations
-# Simplified from dynamic calculation to avoid repeated CPU detection overhead
-BATCH_SIZES = {
-    "db_read": 500,  # Reading file/directory records from database
-    "db_write": 250,  # Writing/updating records to database
-    "file_io": 100,  # File system operations (stat, hash calculation)
-}
+# Pre-computed constant for webpath conversion (settings don't change at runtime)
+_ALBUMS_PATH_LOWER = settings.ALBUMS_PATH.lower()
 
 # Module-level singleton ProcessPoolExecutor for SHA256 computation
 # Using a persistent pool avoids the overhead of spawning new processes on every call
@@ -73,7 +61,7 @@ def _get_sha_executor() -> ProcessPoolExecutor:
             # Double-check locking pattern
             if _sha_executor is None:
                 cpu_count = os.cpu_count() or 4
-                max_workers = min(cpu_count, 8)
+                max_workers = min(cpu_count, settings.SHA256_MAX_WORKERS)
                 _sha_executor = ProcessPoolExecutor(max_workers=max_workers)
                 logger.info("Initialized SHA256 ProcessPoolExecutor with %d workers", max_workers)
 
@@ -139,7 +127,7 @@ def _batch_compute_file_shas(file_paths: list[str], max_workers: int | None = No
     results = {}
 
     # For small batches, don't bother with multiprocessing overhead
-    if len(file_paths) < 5:
+    if len(file_paths) < settings.SHA256_PARALLEL_THRESHOLD:
         for path in file_paths:
             results[path] = get_file_sha(path)
         return results
@@ -188,35 +176,6 @@ def ensures_endswith(string_to_check: str, value: str) -> str:
     return string_to_check if string_to_check.endswith(value) else string_to_check + value
 
 
-async def _get_or_create_directory(directory_sha256: str, dirpath: str) -> tuple[object | None, bool]:
-    """
-    Get or create directory record and check cache status.
-
-    Args:
-        directory_sha256: SHA256 hash of the directory path
-        dirpath: Fully qualified directory path
-
-    Returns:
-        Tuple of (directory object, is_cached) where is_cached indicates
-        if the directory is already in cache
-    """
-    # Use select_related to prefetch the Cache_Watcher relationship
-    # Use model method for standardized prefetching and caching
-    found, directory_record = await sync_to_async(DirectoryIndex.search_for_directory_by_sha)(directory_sha256, DIRECTORYINDEX_SR_CACHE, ())
-
-    if not found:
-        found, directory_record = await sync_to_async(DirectoryIndex.add_directory)(dirpath)
-        if not found:
-            logger.error(f"Failed to create directory record for {dirpath}")
-            return None, False
-        await sync_to_async(Cache_Storage.remove_from_cache_indexdirs)(directory_record)
-        return directory_record, False
-
-    # Use the is_cached property which leverages the 1-to-1 relationship
-    is_cached = directory_record.is_cached
-    return directory_record, is_cached
-
-
 @cached(webpaths_cache)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
 def convert_to_webpath(full_path, directory=None):
     """
@@ -229,14 +188,10 @@ def convert_to_webpath(full_path, directory=None):
     Returns:
         str: The converted webpath
     """
-    # Cache the albums path to avoid repeated settings access
-    if not hasattr(convert_to_webpath, "_albums_path_lower"):
-        convert_to_webpath._albums_path_lower = settings.ALBUMS_PATH.lower()
-
     if directory is not None:
-        cutpath = convert_to_webpath._albums_path_lower + directory.lower() if directory else ""
+        cutpath = _ALBUMS_PATH_LOWER + directory.lower() if directory else ""
     else:
-        cutpath = convert_to_webpath._albums_path_lower
+        cutpath = _ALBUMS_PATH_LOWER
 
     return full_path.replace(cutpath, "")
 
@@ -262,21 +217,28 @@ def return_breadcrumbs(uri_path="") -> list[dict[str, str]]:
     return [{"name": part, "url": "/" + "/".join(quote(p, safe="") for p in parts[: i + 1])} for i, part in enumerate(parts)]
 
 
-async def update_database_from_disk(directory_record: DirectoryIndex) -> bool | None:
+def update_database_from_disk(directory_record: DirectoryIndex) -> DirectoryIndex | None:
     """
     Update database entries to match filesystem state for a given directory.
+
+    This is a sync function — all operations are direct Django ORM calls.
+    Wrap with sync_to_async() when calling from async contexts.
 
     Args:
         directory_record: DirectoryIndex record for the directory to synchronize
 
     Returns:
-        None on completion, bool on early exit conditions
+        The directory_record on success, None on early exit (cached or missing)
     """
     dirpath = directory_record.fqpndirectory
     print("Starting ...  Syncing database with disk for directory:", dirpath)
     start_time = time.perf_counter()
     # Use simplified batch sizing
-    bulk_size = BATCH_SIZES.get("db_write", 100)
+    bulk_size = settings.BATCH_SIZES.get("db_write", 100)
+
+    # Reload from DB in case Cache_Watcher was invalidated after this object was loaded
+    # (e.g., by watchdog). Clears all cached relations including reverse OneToOne.
+    directory_record.refresh_from_db()
 
     # Check if directory is cached using the record's property
     if directory_record.is_cached:
@@ -286,18 +248,18 @@ async def update_database_from_disk(directory_record: DirectoryIndex) -> bool | 
     print(f"Rescanning directory: {dirpath}")
 
     # Get filesystem entries using the directory path from the record
-    success, fs_entries = await return_disk_listing(dirpath)
+    success, fs_entries = return_disk_listing_sync(dirpath)
     if not success:
         print("File path doesn't exist, removing from cache and database.")
-        return await directory_record.handle_missing()
+        directory_record.handle_missing()
+        return None
 
-    # Batch process all operations
-    # Both methods are sync and wrapped here for clean async/sync boundary
-    await sync_to_async(directory_record.sync_subdirectories)(fs_entries)
-    await sync_to_async(directory_record.sync_files)(fs_entries, bulk_size)
+    # Direct sync calls — no boundary crossings needed
+    directory_record.sync_subdirectories(fs_entries)
+    directory_record.sync_files(fs_entries, bulk_size)
 
     # Cache the result using the directory record
-    await sync_to_async(Cache_Storage.add_from_indexdirs)(directory_record)
+    Cache_Storage.add_from_indexdirs(directory_record)
     logger.info(f"Cached directory: {dirpath}")
     print("Elapsed Time (Sync Database Disk): ", time.perf_counter() - start_time)
 

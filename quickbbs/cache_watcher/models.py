@@ -156,9 +156,9 @@ class LockFreeEventBuffer:
 # Global event buffer for batch processing (optimized lock-free version)
 optimized_event_buffer = LockFreeEventBuffer()
 
-# Event processing configuration
-EVENT_PROCESSING_DELAY = 5  # seconds - debounce delay for batching events
-WATCHDOG_RESTART_INTERVAL = 4 * 60 * 60  # 4 hours in seconds
+# Event processing configuration - sourced from quickbbs_settings
+EVENT_PROCESSING_DELAY = settings.EVENT_PROCESSING_DELAY
+WATCHDOG_RESTART_INTERVAL = settings.WATCHDOG_RESTART_INTERVAL
 
 # Global processing semaphore - ensures serialized cache invalidation
 # MUST use threading.Semaphore - accessed by watchdog threads (OS threads, not asyncio)
@@ -990,9 +990,8 @@ class fs_Cache_Tracking(models.Model):
 
         directoryindex_cache.pop(index_dir.dir_fqpn_sha256, None)
 
-        # Clear cached Cache_Watcher relationship to force fresh query
-        # When invalidated=True is set, subsequent is_cached checks should see updated value
-        self._clear_cached_relationship(index_dir)
+        # Refresh so any held reference sees the updated invalidated state
+        index_dir.refresh_from_db()
 
         return entry
 
@@ -1037,24 +1036,10 @@ class fs_Cache_Tracking(models.Model):
 
         directoryindex_cache.pop(sha256, None)
 
-        # Clear cached Cache_Watcher relationship to force fresh query
-        # When invalidated=True is set, subsequent is_cached checks should see updated value
-        self._clear_cached_relationship(index_dir)
+        # Refresh so any held reference sees the updated invalidated state
+        index_dir.refresh_from_db()
 
         return entry
-
-    def _clear_cached_relationship(self, index_dir: Any) -> None:
-        """Clear Django's cached Cache_Watcher relationship on a DirectoryIndex object.
-
-        Django caches OneToOne and ForeignKey relationships as _<name>_cache attributes.
-        When we update fs_Cache_Tracking.invalidated in the database, we need to clear
-        this cached attribute so the next access to is_cached gets fresh data.
-
-        Args:
-            index_dir: DirectoryIndex object to clear cached relationship from
-        """
-        if hasattr(index_dir, "_Cache_Watcher_cache"):
-            delattr(index_dir, "_Cache_Watcher_cache")
 
     def _bulk_invalidate_by_shas(self, sha_list: list[str]) -> int:
         """Perform bulk cache invalidation for a list of SHA256 hashes.
@@ -1255,9 +1240,8 @@ class fs_Cache_Tracking(models.Model):
                     # Get the cached object before removing it
                     cached_obj = directoryindex_cache.pop(sha, None)
                     if cached_obj is not None:
-                        # Clear Django ORM relationship cache on the object
-                        # This prevents stale is_cached checks if the object is held elsewhere
-                        self._clear_cached_relationship(cached_obj)
+                        # Refresh so any remaining reference sees updated invalidation state
+                        cached_obj.refresh_from_db()
                         cleared_count += 1
 
             logger.debug("Cleared %d DirectoryIndex cache entries for %d directories", cleared_count, len(directories))

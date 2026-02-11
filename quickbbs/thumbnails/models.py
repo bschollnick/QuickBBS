@@ -80,7 +80,7 @@ ThumbnailFiles_Bulk_Prefetch_List = [
 THUMBNAILFILES_PR_FILEINDEX_FILETYPE = ("FileIndex__filetype",)
 
 # Async-safe cache for thumbnail lookups
-thumbnailfiles_cache = LRUCache(maxsize=1000)
+thumbnailfiles_cache = LRUCache(maxsize=settings.THUMBNAILFILES_CACHE_SIZE)
 
 # Empty-value sentinel for thumbnail existence checks (avoids per-call list creation)
 _EMPTY_THUMB_VALUES = ("", b"", None)
@@ -218,11 +218,9 @@ class ThumbnailFiles(models.Model):
             if thumbnail.thumbnail_exists():
                 return thumbnail
 
-            # Get an FileIndex record for file path (prefer prefetched)
-            prefetched_indexdata = list(thumbnail.FileIndex.all())
-            if prefetched_indexdata:
-                index_data_item = prefetched_indexdata[0]
-            else:
+            # Get a FileIndex record for file path (prefer prefetched)
+            index_data_item = thumbnail.FileIndex.first()
+            if index_data_item is None:
                 index_data_item = FileIndex.objects.select_related(*select_related_fileindex).filter(file_sha256=file_sha256).first()
 
             # CRITICAL: Handle orphaned ThumbnailFiles by linking to matching FileIndex records
@@ -395,7 +393,9 @@ class ThumbnailFiles(models.Model):
                 # Clear layout cache so gallery view reflects the removed file
                 # Inline import required: circular import chain
                 # quickbbs.models → thumbnails.models → frontend.managers → quickbbs.models
-                from frontend.managers import clear_layout_cache_for_directories  # pylint: disable=import-outside-toplevel
+                from frontend.managers import (
+                    clear_layout_cache_for_directories,  # pylint: disable=import-outside-toplevel
+                )
 
                 if index_data_item.home_directory_id:
                     clear_layout_cache_for_directories({index_data_item.home_directory_id})
@@ -580,7 +580,7 @@ class ThumbnailFiles(models.Model):
         blob = self.retrieve_sized_tnail(size=size)
 
         # Validate that thumbnail blob is not empty
-        if not blob or len(blob) == 0:
+        if not blob:
             raise ValueError(f"Thumbnail blob is empty for {filename}")
 
         return send_file_response(

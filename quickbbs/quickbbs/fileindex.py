@@ -138,9 +138,9 @@ class FileIndex(models.Model):
     """
 
     # Class-level caches for improved performance
-    _encoding_cache = LRUCache(maxsize=1000)
+    _encoding_cache = LRUCache(maxsize=settings.ENCODING_CACHE_SIZE)
     _markdown_processor = markdown2.Markdown()
-    _alias_cache = LRUCache(maxsize=250)
+    _alias_cache = LRUCache(maxsize=settings.ALIAS_CACHE_SIZE)
 
     id = models.AutoField(primary_key=True)
 
@@ -594,17 +594,19 @@ class FileIndex(models.Model):
         from frontend.managers import clear_layout_cache_for_directories
 
         try:
-            # Collect affected directories for cache clearing
-            affected_directories = set()
+            # Collect affected directory PKs for cache clearing.
+            # Use _id suffix to get raw FK integers consistently — avoids
+            # mixing DirectoryIndex objects with ints from values_list().
+            affected_directory_ids: set[int] = set()
 
             # Batch delete using IDs with optimized chunking
             if records_to_delete_ids:
                 # Convert to list for efficient slicing
                 delete_ids_list = list(records_to_delete_ids)
 
-                # Get home directories BEFORE deleting for cache clearing
-                deleted_dirs = cls.objects.filter(id__in=delete_ids_list).values_list("home_directory", flat=True)
-                affected_directories.update(deleted_dirs)
+                # Get home directory PKs BEFORE deleting for cache clearing
+                deleted_dir_pks = cls.objects.filter(id__in=delete_ids_list).values_list("home_directory_id", flat=True)
+                affected_directory_ids.update(pk for pk in deleted_dir_pks if pk is not None)
 
                 with transaction.atomic():
                     # Process deletes in optimally-sized chunks
@@ -617,8 +619,8 @@ class FileIndex(models.Model):
 
             # Batch update in chunks for memory efficiency
             if records_to_update:
-                # Collect home directories from updated records
-                affected_directories.update(record.home_directory for record in records_to_update if record.home_directory)
+                # Collect home directory PKs from updated records
+                affected_directory_ids.update(record.home_directory_id for record in records_to_update if record.home_directory_id)
 
                 for i in range(0, len(records_to_update), bulk_size):
                     chunk = records_to_update[i : i + bulk_size]
@@ -655,8 +657,8 @@ class FileIndex(models.Model):
 
             # Batch create in chunks for memory efficiency
             if records_to_create:
-                # Collect home directories from created records
-                affected_directories.update(record.home_directory for record in records_to_create if record.home_directory)
+                # Collect home directory PKs from created records
+                affected_directory_ids.update(record.home_directory_id for record in records_to_create if record.home_directory_id)
 
                 for i in range(0, len(records_to_create), bulk_size):
                     chunk = records_to_create[i : i + bulk_size]
@@ -669,12 +671,9 @@ class FileIndex(models.Model):
                 logger.info(f"Created {len(records_to_create)} records")
 
             # Clear layout caches for all affected directories
-            if affected_directories:
-                # Remove None values and extract PKs
-                directory_ids = {d.pk for d in affected_directories if d is not None and hasattr(d, "pk")}
-                if directory_ids:
-                    cleared_count = clear_layout_cache_for_directories(directory_ids)
-                    logger.info(f"Cleared {cleared_count} layout cache entries for {len(directory_ids)} affected directories")
+            if affected_directory_ids:
+                cleared_count = clear_layout_cache_for_directories(affected_directory_ids)
+                logger.info(f"Cleared {cleared_count} layout cache entries for {len(affected_directory_ids)} affected directories")
 
         except Exception as e:
             logger.error(f"Database operation failed: {e}")
@@ -962,7 +961,7 @@ class FileIndex(models.Model):
                     # Sanitize filename to remove control chars and problematic characters
                     safe_filename = sanitize_filename_for_http(self.name)
                     response["Content-Disposition"] = content_disposition_header(as_attachment=False, filename=safe_filename)
-                    response["Cache-Control"] = "public, max-age=300"
+                    response["Cache-Control"] = f"public, max-age={settings.HTTP_CACHE_MAX_AGE}"
             except FileNotFoundError as exc:
                 raise Http404 from exc
         else:
@@ -976,7 +975,7 @@ class FileIndex(models.Model):
                     as_attachment=False,
                     filename=safe_filename,
                 )
-                response["Cache-Control"] = "public, max-age=300"
+                response["Cache-Control"] = f"public, max-age={settings.HTTP_CACHE_MAX_AGE}"
             except FileNotFoundError as exc:
                 raise Http404 from exc
         response["Content-Type"] = mtype
@@ -1044,7 +1043,7 @@ class FileIndex(models.Model):
                 )
                 response["Content-Type"] = mtype
 
-            response["Cache-Control"] = "public, max-age=300"
+            response["Cache-Control"] = f"public, max-age={settings.HTTP_CACHE_MAX_AGE}"
             return response
 
         except FileNotFoundError as exc:
@@ -1175,7 +1174,7 @@ class FileIndex(models.Model):
         filename = self.full_filepathname
         try:
             with open(filename, "rb") as f:
-                raw_data = f.read(4096)  # Read only first 4KB
+                raw_data = f.read(settings.ENCODING_DETECT_READ_SIZE)
 
                 # Detect encoding using charset_normalizer
                 result = charset_normalizer.from_bytes(raw_data)
@@ -1218,8 +1217,7 @@ class FileIndex(models.Model):
         Returns:
             Processed HTML content or error message
         """
-        # File size limit for text file processing (1MB)
-        max_text_file_size = 1024 * 1024
+        max_text_file_size = settings.MAX_TEXT_FILE_DISPLAY_SIZE
 
         filename = self.full_filepathname
         try:

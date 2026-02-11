@@ -16,12 +16,12 @@ from frontend.serve_up import send_file_response
 if TYPE_CHECKING:
     from django.db.models.manager import RelatedManager
 
-    from quickbbs.models import FileIndex, DirectoryIndex
+    from quickbbs.models import DirectoryIndex, FileIndex
 
 FILETYPE_DATA = {}
 
 # Async-safe cache for filetype lookups
-filetypes_cache = LRUCache(maxsize=500)
+filetypes_cache = LRUCache(maxsize=settings.FILETYPES_CACHE_SIZE)
 
 
 class filetypes(models.Model):

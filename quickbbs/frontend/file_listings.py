@@ -4,7 +4,6 @@ import asyncio
 from pathlib import Path
 
 import filetypes.models as filetype_models
-from asgiref.sync import sync_to_async
 from django.conf import settings
 
 from quickbbs.common import normalize_string_lower, normalize_string_title
@@ -81,8 +80,30 @@ def _process_items(items, ext_ignore, files_ignore, ignore_dots):
     return fs_data
 
 
-async def return_disk_listing(fqpn, use_async=True, batch_size=25, max_workers=4) -> tuple[bool, dict]:
+def return_disk_listing_sync(fqpn: str) -> tuple[bool, dict]:
     """
+    Synchronous version of return_disk_listing for use in sync contexts.
+
+    Scans a directory and returns filtered file/directory entries.
+    Obeys EXTENSIONS_TO_IGNORE, FILES_TO_IGNORE, and IGNORE_DOT_FILES settings.
+
+    Args:
+        fqpn: The fully qualified pathname of the directory to scan
+
+    Returns:
+        Tuple of (success_status, file_data_dict)
+    """
+    try:
+        items = list(Path(fqpn).iterdir())
+        return _single_threaded_listing(items)
+    except FileNotFoundError:
+        return False, {}
+
+
+async def return_disk_listing(fqpn, **kwargs) -> tuple[bool, dict]:
+    """
+    Async version of return_disk_listing. Delegates to sync version via thread.
+
     This code obeys the following quickbbs_settings, settings:
     * EXTENSIONS_TO_IGNORE
     * FILES_TO_IGNORE
@@ -90,54 +111,12 @@ async def return_disk_listing(fqpn, use_async=True, batch_size=25, max_workers=4
 
     Args:
         fqpn: The fully qualified pathname of the directory to scan
-        use_async: Whether to use async tasks for large directories
-        batch_size: Number of items to process per batch
-        max_workers: Maximum number of concurrent tasks to use
+        **kwargs: Accepted for backward compatibility (use_async, batch_size, max_workers)
 
-    Returns: tuple[bool, dict] - Success status and dict of file data
+    Returns:
+        Tuple of (success_status, file_data_dict)
     """
-    try:
-        # Use asyncio.to_thread for potentially blocking I/O
-        path = Path(fqpn)
-        items = await asyncio.to_thread(list, path.iterdir())
-
-        # For small directories or when async disabled, use single-threaded approach
-        if not use_async or len(items) < batch_size:
-            return await asyncio.to_thread(_single_threaded_listing, items)
-
-        # Pre-compute settings for async processing
-        ext_ignore = settings.EXTENSIONS_TO_IGNORE
-        files_ignore = settings.FILES_TO_IGNORE
-        ignore_dots = settings.IGNORE_DOT_FILES
-
-        # Split items into batches
-        batches = [items[i : i + batch_size] for i in range(0, len(items), batch_size)]
-
-        fs_data = {}
-
-        # Use asyncio tasks for concurrent processing
-        async_process_batch = sync_to_async(_process_items, thread_sensitive=True)
-
-        # Process batches with limited concurrency
-        for i in range(0, len(batches), max_workers):
-            batch_group = batches[i : i + max_workers]
-            tasks = [async_process_batch(batch, ext_ignore, files_ignore, ignore_dots) for batch in batch_group]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            for result in results:
-                if isinstance(result, dict):
-                    fs_data.update(result)
-
-        return True, fs_data
-
-    except FileNotFoundError:
-        return False, {}
-    except Exception:
-        # Fallback to single-threaded on any async issues
-        try:
-            return await asyncio.to_thread(_single_threaded_listing, list(Path(fqpn).iterdir()))
-        except FileNotFoundError:
-            return False, {}
+    return await asyncio.to_thread(return_disk_listing_sync, fqpn)
 
 
 def _single_threaded_listing(items) -> tuple[bool, dict]:

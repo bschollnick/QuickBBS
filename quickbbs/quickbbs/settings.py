@@ -24,10 +24,12 @@ from django_htmx.jinja import django_htmx_script, htmx_script
 # Apply PIL/Pillow configuration from quickbbs_settings
 from PIL import Image, ImageFile
 
+
 from quickbbs.quickbbs_settings import *
 from quickbbs import __version__ as QUICKBBS_VERSION
 
 from steady_queue.configuration import Configuration
+# from steady_queue.models import Job as SteadyQueueJob
 
 #
 #   Debug, enables the debugging mode
@@ -153,8 +155,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 if not DEBUG:
     CACHES = {
         "default": {
-            "BACKEND": "django.core.cache.backends.db.DatabaseCache",
-            "LOCATION": "cache_data_db_table",
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "quickbbs-default-cache",
             "TIMEOUT": 90,  # ~2.5 minutes
             "OPTIONS": {
                 "MAX_ENTRIES": 30000,
@@ -162,14 +164,14 @@ if not DEBUG:
             },
         },
         "queue": {
-            "BACKEND": "django.core.cache.backends.db.DatabaseCache",
-            "LOCATION": "cache_data_queue_table",
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "quickbbs-queue-cache",
             "TIMEOUT": 150,  # ~2.5 minutes
             "OPTIONS": {
                 "MAX_ENTRIES": 15000,
                 "CULL_FREQUENCY": 3,
             },
-        }
+        },
     }
 
 # Before using the database cache, you must create the cache table with this command:
@@ -388,10 +390,10 @@ else:
     _pool_options = {
         "pool": {
             "min_size": 5,  # Keep minimum connections ready
-            "max_size": 75,  # Limit to 75 connections (matches user concurrency)
-            "max_lifetime": 150,  # Connection max lifetime (2.5 minutes)
-            "max_idle": 90,  # Max idle time before closing (2.5 minutes)
-            "timeout": 30,  # Connection timeout
+            "max_size": 50,  # Limit to 50 connections (matches user concurrency)
+            "max_lifetime": 60,  # Connection max lifetime (60 seconds)
+            "max_idle": 5,  # Max idle time before closing (5 seconds)
+            "timeout": 15,  # Connection timeout (seconds)
         },
     }
 
@@ -416,7 +418,7 @@ DATABASES = {
         "PASSWORD": DATABASE_PASSWORD,
         "HOST": DATABASE_HOST,
         "PORT": DATABASE_PORT,
-        "CONN_MAX_AGE": 0,
+        "CONN_MAX_AGE": 5,
         "OPTIONS": {
             "gssencmode": "disable",
         },
@@ -500,20 +502,8 @@ TASKS = {
 }
 
 STEADY_QUEUE = Configuration.Options(
-    dispatchers=[
-        Configuration.Dispatcher(
-            polling_interval=timedelta(seconds=1),
-            batch_size=500
-        )
-    ],
-    workers=[
-        Configuration.Worker(
-            queues=["*"],
-            threads=3,
-            processes=3,
-            polling_interval=timedelta(seconds=0.1)
-        )
-    ]
+    dispatchers=[Configuration.Dispatcher(polling_interval=timedelta(seconds=1), batch_size=500)],
+    workers=[Configuration.Worker(queues=["*"], threads=3, processes=3, polling_interval=timedelta(seconds=0.1))],
 )
 
 # Settings for django-icons

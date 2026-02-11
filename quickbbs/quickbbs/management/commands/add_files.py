@@ -63,7 +63,7 @@ async def _process_directory_chunk(
             files_before = await sync_to_async(lambda d: d.FileIndex_entries.count(), thread_sensitive=True)(directory)
 
             # Use update_database_from_disk to scan the directory and add missing files
-            await update_database_from_disk(directory)
+            await sync_to_async(update_database_from_disk)(directory)
 
             # Count files after processing to track additions locally
             files_after = await sync_to_async(lambda d: d.FileIndex_entries.count(), thread_sensitive=True)(directory)

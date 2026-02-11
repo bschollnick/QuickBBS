@@ -15,7 +15,7 @@ import time
 import urllib.parse
 import warnings
 
-from asgiref.sync import async_to_sync, sync_to_async
+from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.db import transaction
@@ -129,14 +129,12 @@ def get_sort_param(request: WSGIRequest) -> int:
     :Returns:
         Sort parameter (validated against SORT_MATRIX), defaults to 0 if invalid
     """
-    DEFAULT_SORT = 0
-
     try:
-        sort_value = int(request.GET.get("sort", str(DEFAULT_SORT)))
+        sort_value = int(request.GET.get("sort", str(settings.DEFAULT_SORT_ORDER)))
         # Use existing SORT_MATRIX keys - no need to duplicate valid values
-        return sort_value if sort_value in SORT_MATRIX else DEFAULT_SORT
+        return sort_value if sort_value in SORT_MATRIX else settings.DEFAULT_SORT_ORDER
     except (ValueError, TypeError):
-        return DEFAULT_SORT
+        return settings.DEFAULT_SORT_ORDER
 
 
 def _create_base_context(request: WSGIRequest) -> dict:
@@ -168,13 +166,11 @@ def _create_base_context(request: WSGIRequest) -> dict:
     }
 
 
-async def _get_show_duplicates_preference(request: WSGIRequest) -> bool:
+def _get_show_duplicates_preference(request: WSGIRequest) -> bool:
     """
-    Get show_duplicates preference for the current user (async-safe).
+    Get show_duplicates preference for the current user.
 
-    This function safely accesses the user's preferences from the database
-    in an async context, preventing async-safety warnings and ensuring
-    fresh data is retrieved.
+    This is a sync function — wrap with sync_to_async() when calling from async contexts.
 
     Args:
         request: Django WSGIRequest object
@@ -182,22 +178,18 @@ async def _get_show_duplicates_preference(request: WSGIRequest) -> bool:
     Returns:
         bool: True if user wants to show duplicates, False otherwise
     """
+    if not request.user.is_authenticated:
+        return False
+    try:
+        # Import here to avoid circular imports
+        from user_preferences.models import UserPreferences
 
-    def get_preference():
-        if not request.user.is_authenticated:
-            return False
-        try:
-            # Import here to avoid circular imports
-            from user_preferences.models import UserPreferences
-
-            # Query database directly instead of using request.user.preferences
-            # This avoids Django's relationship caching which may return stale data
-            preferences = UserPreferences.objects.filter(user=request.user).first()
-            return preferences.show_duplicates if preferences else False
-        except Exception:
-            return False
-
-    return await sync_to_async(get_preference)()
+        # Query database directly instead of using request.user.preferences
+        # This avoids Django's relationship caching which may return stale data
+        preferences = UserPreferences.objects.filter(user=request.user).first()
+        return preferences.show_duplicates if preferences else False
+    except Exception:
+        return False
 
 
 def create_search_regex_pattern(text: str) -> str:
@@ -400,7 +392,7 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
 
     # If no cover image found, try syncing from disk and retry
     if not cover_image:
-        async_to_sync(update_database_from_disk)(directory)
+        update_database_from_disk(directory)
         cover_image = directory.get_cover_image()
 
     # If still no cover image found, return default directory icon
@@ -505,6 +497,35 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
         return index_data_item.filetype.send_thumbnail()
 
 
+def _get_materialized_search_results(
+    searchtext: str,
+    regex_pattern: str,
+    sort_order: int,
+    prefetch_dirs: tuple,
+    prefetch_files: tuple,
+    max_results: int,
+) -> tuple[list, list]:
+    """
+    Get search results and materialize querysets in a single sync call.
+
+    Consolidates get_search_results + list materialization to reduce
+    async/sync boundary crossings from 3 to 1.
+
+    Args:
+        searchtext: Original search text for fallback
+        regex_pattern: Compiled regex pattern
+        sort_order: Sort order index
+        prefetch_dirs: Prefetch fields for directory results
+        prefetch_files: Prefetch fields for file results
+        max_results: Maximum total results to return
+
+    Returns:
+        Tuple of (directory_results_list, file_results_list)
+    """
+    dirs, files = get_search_results(searchtext, regex_pattern, sort_order, prefetch_dirs, prefetch_files)
+    return list(dirs[: max_results // 2]), list(files[: max_results // 2])
+
+
 @vary_on_headers("HX-Request")
 async def search_viewresults(request: WSGIRequest):
     """
@@ -520,7 +541,7 @@ async def search_viewresults(request: WSGIRequest):
     start_time = time.perf_counter()
 
     # Get show_duplicates preference (async-safe)
-    show_duplicates = await _get_show_duplicates_preference(request)
+    show_duplicates = await sync_to_async(_get_show_duplicates_preference)(request)
 
     # Use standardized template selection
     template_name = _determine_template(request, "search")
@@ -554,14 +575,14 @@ async def search_viewresults(request: WSGIRequest):
     search_regex_pattern = create_search_regex_pattern(searchtext)
     print(f"Search text: '{searchtext}' -> Regex pattern: '{search_regex_pattern}'")
 
-    dirs, files = await sync_to_async(get_search_results)(
-        searchtext, search_regex_pattern, context["sort"], prefetch_dirs=SEARCH_PR_FILETYPE, prefetch_files=SEARCH_PR_FILETYPE_HOME
-    )
-
-    # Combine and limit results (async wrapped list conversion)
-    max_search_results = 10000
-    directory_results, file_results = await asyncio.gather(
-        sync_to_async(list)(dirs[: max_search_results // 2]), sync_to_async(list)(files[: max_search_results // 2])
+    max_search_results = settings.MAX_SEARCH_RESULTS
+    directory_results, file_results = await sync_to_async(_get_materialized_search_results)(
+        searchtext,
+        search_regex_pattern,
+        context["sort"],
+        SEARCH_PR_FILETYPE,
+        SEARCH_PR_FILETYPE_HOME,
+        max_search_results,
     )
     combined_results = directory_results + file_results
 
@@ -700,7 +721,7 @@ def _find_directory(paths: dict) -> DirectoryIndex:
             _, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha, DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT, ())
 
             # Sync newly created directory to populate file entries
-            directory = async_to_sync(update_database_from_disk)(directory)
+            directory = update_database_from_disk(directory)
 
             if not directory:
                 logger.info("Directory sync failed: %s", dirpath)
@@ -714,7 +735,7 @@ def _find_directory(paths: dict) -> DirectoryIndex:
             if directory.parent_directory:
                 Cache_Storage.remove_from_cache_indexdirs(index_dir=directory.parent_directory)
             Cache_Storage.remove_from_cache_indexdirs(index_dir=directory)
-            async_to_sync(update_database_from_disk)(directory)
+            update_database_from_disk(directory)
             raise DirectoryNotFoundError(f"Gallery not found on filesystem: {dirpath}")
 
         logger.info("Viewing: %s", dirpath)
@@ -726,6 +747,34 @@ def _find_directory(paths: dict) -> DirectoryIndex:
     except Exception as e:
         logger.error("Error finding directory '%s': %s", paths["album_viewing"], e)
         raise DirectoryInvalidError(f"Invalid path specified: {paths['album_viewing']}") from e
+
+
+def _check_and_enqueue_missing_thumbnails(directory: DirectoryIndex, sort_ordering: int, batch_limit: int) -> int:
+    """
+    Check for files needing thumbnails and enqueue generation if needed.
+
+    Consolidates three sequential ORM operations into a single sync function
+    to reduce async/sync boundary crossings.
+
+    Args:
+        directory: DirectoryIndex to check for missing thumbnails
+        sort_ordering: Sort order for file query
+        batch_limit: Maximum number of thumbnails to enqueue per batch
+
+    Returns:
+        Number of files enqueued for thumbnail generation
+    """
+    qs = _get_files_needing_thumbnails(directory, sort_ordering)
+    no_thumbs = list(qs[:batch_limit])
+    missing_count = len(no_thumbs)
+    if missing_count > 0:
+        print(f"{missing_count} entries need thumbnails, enqueuing to steady_queue")
+        generate_missing_thumbnails.enqueue(
+            files_needing_thumbnails=no_thumbs,
+            directory_pk=directory.pk,
+            batchsize=missing_count,
+        )
+    return missing_count
 
 
 @vary_on_headers("HX-Request")
@@ -741,7 +790,7 @@ async def new_viewgallery(request: WSGIRequest):
     start_time = time.perf_counter()
 
     # Get show_duplicates preference (async-safe)
-    show_duplicates = await _get_show_duplicates_preference(request)
+    show_duplicates = await sync_to_async(_get_show_duplicates_preference)(request)
 
     # Use standardized template selection
     template_name = _determine_template(request, "gallery")
@@ -768,7 +817,7 @@ async def new_viewgallery(request: WSGIRequest):
         return HttpResponseBadRequest("<h1>Invalid path specified</h1>")
 
     # Ensure directory data is up to date
-    await update_database_from_disk(directory)
+    await sync_to_async(update_database_from_disk)(directory)
 
     # Build initial context - start with shared base context
     context = _create_base_context(request)
@@ -805,8 +854,8 @@ async def new_viewgallery(request: WSGIRequest):
         }
     )
 
-    # Set navigation URIs (async function)
-    context["prev_uri"], context["next_uri"] = await directory.get_prev_next_siblings(sort_order=context["sort"])
+    # Set navigation URIs (sync function wrapped for async context)
+    context["prev_uri"], context["next_uri"] = await sync_to_async(directory.get_prev_next_siblings)(sort_order=context["sort"])
 
     # Only fetch directories if there are any on this page (async wrapped)
     if layout["page_items"]["directory_shas"]:
@@ -853,16 +902,7 @@ async def new_viewgallery(request: WSGIRequest):
 
     # Check if thumbnails are needed (computed separately from cached layout
     # to avoid invalidating layout cache when thumbnails are generated)
-    files_needing_thumbnails = await sync_to_async(_get_files_needing_thumbnails)(directory, context["sort"])
-    no_thumbs = await sync_to_async(list)(files_needing_thumbnails[:100])
-    missing_count = len(no_thumbs)
-    if missing_count > 0:
-        print(f"{missing_count} entries need thumbnails, enqueuing to steady_queue")
-        await sync_to_async(generate_missing_thumbnails.enqueue)(
-            files_needing_thumbnails=no_thumbs,
-            directory_pk=directory.pk,
-            batchsize=missing_count,
-        )
+    missing_count = await sync_to_async(_check_and_enqueue_missing_thumbnails)(directory, context["sort"], settings.THUMBNAIL_BATCH_LIMIT)
 
     response = await async_render(
         request,
@@ -901,7 +941,7 @@ async def htmx_view_item(request: HtmxHttpRequest, sha256: str):
     Returns: Django response
     """
     # Get show_duplicates preference (async-safe)
-    show_duplicates = await _get_show_duplicates_preference(request)
+    show_duplicates = await sync_to_async(_get_show_duplicates_preference)(request)
 
     # Use standardized template selection
     template_name = _determine_template(request, "item")

@@ -10,14 +10,6 @@ SITE_NAME = "QuickBBS Site"
 # Files matching these names will be prioritized when selecting thumbnails for directories
 DIRECTORY_COVER_NAMES = ["cover", "title"]
 
-# Prebuilt query for cover image matching (built once at startup for performance)
-# This Q object matches files where the name (without extension) matches any DIRECTORY_COVER_NAMES
-
-DIRECTORY_COVER_QUERIES = Q()
-for cover_name in DIRECTORY_COVER_NAMES:
-    # Case-insensitive regex match: filename starts with cover_name followed by dot
-    DIRECTORY_COVER_QUERIES |= Q(name__iregex=rf"^{re.escape(cover_name)}\.")
-
 QUICKBBS_REQUIRE_LOGIN = 0
 SITE_NAME = "The Gallery"
 GALLERY_ITEMS_PER_PAGE = 30
@@ -45,29 +37,30 @@ ICONS_PATH = f"{RESOURCES_PATH}/images"
 
 REGISTRATION_OPEN = True
 
-"""
-Past this point be dragons - these are internal settings that should not be modified without understanding what the change will do.
+# Past this point be dragons - these are internal settings that should not be modified without understanding what the change will do.
 
-            ___====-_  _-====___
-       _--^^^#####//      \\#####^^^--_
-    _-^##########// (    ) \\##########^-_
-   -############//  |\^^/|  \\############-
- _/############//   (@::@)   \\############\_
-/#############((     \\//     ))#############\
--###############\\    (oo)    //###############-
--#################\\  / VV \  //#################-
--##################\\/      \//##################-
-_#/|##########/\######(   )######/\##########|\#_
-|/ |#/\#/\#/\/  \#/\##\  /##/\#/  \/\#/\#/\#| \|
-`  |/  V  V  `   V  \# \/ #/  V   '  V  V  \|  '
-    `   `  `      `   /  \   '      '  '   '
-                     (  )
-                    /    \
-                   /      \
-                  /        \
-              HERE BE DRAGONS
-"""
+#             ___====-_  _-====___
+#        _--^^^#####//      \\#####^^^--_
+#     _-^##########// (    ) \\##########^-_
+#    -############//  |\^^/|  \\############-
+#  _/############//   (@::@)   \\############\_
+# /#############((     \\//     ))#############\
+# -###############\\    (oo)    //###############-
+# -#################\\  / VV \  //#################-
+# -##################\\/      \//##################-
+# _#/|##########/\######(   )######/\##########|\#_
+# |/ |#/\#/\#/\/  \#/\##\  /##/\#/  \/\#/\#/\#| \|
+# `  |/  V  V  `   V  \# \/ #/  V   '  V  V  \|  '
+#     `   `  `      `   /  \   '      '  '   '
+#                      (  )
+#                     /    \
+#                    /      \
+#                   /        \
+#               HERE BE DRAGONS
 
+# Thumbnail size presets (width, height) used by the thumbnail generation system
+# "small" is used for gallery grid thumbnails, "medium" for lightbox previews,
+# "large" for full-screen viewing, "unknown" is the fallback
 IMAGE_SIZE = {
     "small": (200, 200),
     "medium": (740, 740),
@@ -83,6 +76,9 @@ PIL_LOAD_TRUNCATED_IMAGES = True  # Allow loading truncated images
 PIL_IMAGE_QUALITY = 85  # Quality for PIL/Pillow thumbnail generation
 CORE_IMAGE_QUALITY = 55  # Quality for Core Image thumbnail generation (macOS)
 
+# Path alias mapping for resolving alternative volume mount points
+# Keys are lowercase source paths, values are the canonical paths they map to
+# Used by normalize_fqpn() to redirect legacy or alternate mount locations
 ALIAS_MAPPING = {
     r"/volumes/masters/masters/hyp-collective": r"/volumes/c-8tb/gallery/quickbbs/albums/hentai_idea/hyp-collective",
     r"/volumes/masters/masters": r"/volumes/c-8tb/gallery/quickbbs/albums/hentai_idea",
@@ -90,14 +86,71 @@ ALIAS_MAPPING = {
 
 
 # Set to True to enable hit/miss tracking on LRU caches for performance analysis
+# When enabled, caches use MonitoredLRUCache which tracks hits/misses/hit_rate
 # Check stats in Django shell: print(directoryindex_cache.stats())
 CACHE_MONITORING = True
 
-# LRU cache size constants - adjust based on monitoring stats
-DIRECTORYINDEX_CACHE_SIZE = 750
-DISTINCT_FILES_CACHE_SIZE = 500
-FILEINDEX_CACHE_SIZE = 250
-FILEINDEX_DOWNLOAD_CACHE_SIZE = 250
+# LRU cache size constants - maximum number of entries each cache will hold
+# When a cache is full, the least recently used entry is evicted
+# Increase sizes if monitoring shows hit rates below 80%
+DIRECTORYINDEX_CACHE_SIZE = 750  # DirectoryIndex lookups by SHA256 (directoryindex.py)
+DISTINCT_FILES_CACHE_SIZE = 500  # Distinct file SHA lists per directory+sort (directoryindex.py)
+FILEINDEX_CACHE_SIZE = 250  # FileIndex lookups by SHA256 (fileindex.py)
+FILEINDEX_DOWNLOAD_CACHE_SIZE = 250  # FileIndex download lookups by SHA256 (fileindex.py)
+LAYOUT_MANAGER_CACHE_SIZE = 500  # Gallery page layout results (managers.py)
+BUILD_CONTEXT_INFO_CACHE_SIZE = 500  # Item view context data (managers.py)
+WEBPATHS_CACHE_SIZE = 500  # Full path to web path conversions (utilities.py)
+BREADCRUMBS_CACHE_SIZE = 400  # Breadcrumb navigation lists (utilities.py)
+NORMALIZED_STRINGS_CACHE_SIZE = 500  # Normalized string lookups (common.py)
+DIRECTORY_SHA_CACHE_SIZE = 1000  # Directory SHA256 hash computations (common.py)
+NORMALIZED_PATHS_CACHE_SIZE = 1000  # Normalized path lookups (common.py)
+FILETYPES_CACHE_SIZE = 500  # Filetype lookups by extension (filetypes/models.py)
+THUMBNAILFILES_CACHE_SIZE = 1000  # ThumbnailFiles lookups by SHA256 (thumbnails/models.py)
+ENCODING_CACHE_SIZE = 1000  # Text file encoding detection results (fileindex.py)
+ALIAS_CACHE_SIZE = 250  # macOS alias resolution results (fileindex.py)
+
+# HTTP Cache-Control header settings
+HTTP_CACHE_MAX_AGE = 300  # seconds (5 minutes) for file response Cache-Control headers
+
+# Search and view limits
+DEFAULT_SORT_ORDER = 0  # Default sort order index (maps to SORT_MATRIX keys)
+MAX_SEARCH_RESULTS = 10000  # Maximum combined search results returned
+THUMBNAIL_BATCH_LIMIT = 100  # Maximum thumbnails to enqueue per gallery page load
+
+# Text file display limits
+ENCODING_DETECT_READ_SIZE = 4096  # Bytes to read for charset detection
+MAX_TEXT_FILE_DISPLAY_SIZE = 1024 * 1024  # Maximum text file size to display (1MB)
+
+# Watchdog / cache watcher timers
+EVENT_PROCESSING_DELAY = 5  # seconds - debounce delay for batching filesystem events
+WATCHDOG_RESTART_INTERVAL = 14400  # seconds (4 hours) between watchdog restarts
+
+# Directory traversal and bulk operation limits
+MAX_DIRECTORY_DEPTH = 15  # Maximum parent directory traversal depth
+DIRECTORY_SYNC_CHUNK_SIZE = 100  # Iterator chunk size for directory sync queries
+DIRECTORY_SYNC_BATCH_SIZE = 100  # Batch size for bulk_update during directory sync
+
+# SHA256 parallel processing configuration
+SHA256_MAX_WORKERS = 8  # Maximum worker processes for parallel SHA256 computation
+SHA256_PARALLEL_THRESHOLD = 5  # Minimum file count to use parallel processing
+
+# Batch sizes for database and I/O operations
+# These values are optimized for typical directory/file counts in gallery operations
+BATCH_SIZES = {
+    "db_read": 500,  # Reading file/directory records from database
+    "db_write": 250,  # Writing/updating records to database
+    "file_io": 100,  # File system operations (stat, hash calculation)
+}
+
+# Take the directory cover names and build a Q object that can be used to query for
+# files matching those names (case-insensitive).  This is used to efficiently find potential
+# cover images for directories.
+# Prebuilt query for cover image matching (built once at startup for performance)
+# This Q object matches files where the name (without extension) matches any DIRECTORY_COVER_NAMES
+DIRECTORY_COVER_QUERIES = Q()
+for cover_name in DIRECTORY_COVER_NAMES:
+    # Case-insensitive regex match: filename starts with cover_name followed by dot
+    DIRECTORY_COVER_QUERIES |= Q(name__iregex=rf"^{re.escape(cover_name)}\.")
 
 #
 #   ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -149,6 +202,7 @@ LINK_FILE_TYPES = [".link", ".alias"]
 ARCHIVE_FILE_TYPES = RAR_FILE_TYPES + ZIP_FILE_TYPES
 
 # Combined list of all supported file types (duplicates removed, sorted)
+# Used for validation and display purposes
 ALL_SUPPORTED_FILETYPES = sorted(
     set(
         GRAPHIC_FILE_TYPES
@@ -165,7 +219,8 @@ ALL_SUPPORTED_FILETYPES = sorted(
     )
 )
 
-# Used in ftypes / Filetypes, used in the refresh-filetypes command
+# Filetype category mapping - maps human-readable category names to numeric IDs
+# Used by the refresh-filetypes management command to seed the filetypes database table
 FTYPES = {
     "unknown": 0,
     "dir": 1,
@@ -182,7 +237,8 @@ FTYPES = {
     "link": 12,
 }
 
-# used as list of files to ignore when scanning directories
+# Filenames to skip during directory scanning (case-insensitive comparison)
+# These are OS metadata files or other non-gallery content
 FILES_TO_IGNORE = [
     ".",
     "..",
@@ -193,7 +249,8 @@ FILES_TO_IGNORE = [
     "icon?",
 ]
 
-# list of file extensions to ignore when scanning directories
+# File extensions to skip during directory scanning (case-insensitive comparison)
+# These are auxiliary files that should not appear in the gallery
 EXTENSIONS_TO_IGNORE = [
     ".pdf_png_preview",
     ".log",
@@ -203,5 +260,5 @@ EXTENSIONS_TO_IGNORE = [
     ".swf",
 ]
 
-# Do not display files that start with a DOT (.)
+# When True, files and directories starting with "." are hidden from gallery views
 IGNORE_DOT_FILES = True

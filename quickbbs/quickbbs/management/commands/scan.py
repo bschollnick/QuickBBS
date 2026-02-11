@@ -240,7 +240,7 @@ async def _process_verify_files_chunk(
         # Remove from cache
         await sync_to_async(Cache_Storage.remove_from_cache_sha, thread_sensitive=True)(sha256=directory.dir_fqpn_sha256)
         # Verify and sync files
-        await update_database_from_disk(directory)
+        await sync_to_async(update_database_from_disk)(directory)
         processed_count += 1
 
         # Progress indicator every 100 directories

@@ -10,9 +10,8 @@ import os
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
-from asgiref.sync import sync_to_async
 from cachetools import cached
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
@@ -174,15 +173,16 @@ class DirectoryIndex(models.Model):
         fqpn_directory = normalize_fqpn(fqpn_directory)
         dir_sha256 = get_dir_sha(fqpn_directory)
 
-        # Cache the albums path check
+        # Normalize case once for all comparisons
+        fqpn_lower = fqpn_directory.lower()
         albums_path_lower = os.path.join(settings.ALBUMS_PATH, "albums").lower()
-        albums_root = DirectoryIndex.get_albums_root()
-        is_in_albums = fqpn_directory.lower().startswith(albums_path_lower)
+        albums_root_lower = DirectoryIndex.get_albums_root().lower()
+        is_in_albums = fqpn_lower.startswith(albums_path_lower)
 
         # Determine parent directory link
         if is_in_albums:
             # Check if this IS the albums root directory - it has no parent
-            if fqpn_directory.lower() == albums_root.lower():
+            if fqpn_lower == albums_root_lower:
                 parent_dir_link = None
             else:
                 # Regular subdirectory - find or create parent
@@ -351,7 +351,7 @@ class DirectoryIndex(models.Model):
 
         all_shas = set(sha_list)
         current_level_shas = set(sha_list)
-        max_iterations = 15  # Prevent infinite loops (reasonable max directory depth, reduces memory amplification)
+        max_iterations = settings.MAX_DIRECTORY_DEPTH  # Prevent infinite loops (reasonable max directory depth)
 
         for iteration in range(max_iterations):
             if not current_level_shas:
@@ -840,12 +840,31 @@ class DirectoryIndex(models.Model):
         """
         return reverse(r"thumbnail2_dir", args=(self.dir_fqpn_sha256,))
 
-    async def get_prev_next_siblings(self, sort_order: int = 0) -> tuple[dict | None, dict | None]:
+    @staticmethod
+    def _make_sibling_link(fqpn: str) -> dict[str, str]:
+        """Build a URL/name dict for a sibling directory.
+
+        Args:
+            fqpn: Fully-qualified path of the sibling directory
+
+        Returns:
+            Dict with 'url' (percent-encoded) and 'name' (human-readable) keys
+        """
+        path = str(Path(fqpn)).replace(settings.ALBUMS_PATH, "")
+        parts = path.split("/")
+        url = "/".join(quote(part, safe="") for part in parts)
+        name = unquote(parts[-1]) if parts and parts[-1] else ""
+        return {"url": url, "name": name}
+
+    def get_prev_next_siblings(self, sort_order: int = 0) -> tuple[dict | None, dict | None]:
         """
         Get the previous and next sibling directories in parent directory.
 
         Used for breadcrumb navigation to allow moving between siblings.
         Returns dictionaries with 'url' and 'name' keys for prev/next navigation links.
+
+        This is a sync method — all operations are direct Django ORM calls.
+        Wrap with sync_to_async() when calling from async contexts.
 
         :Args:
             sort_order: Sort order to apply (0=name, 1=date, 2=name only)
@@ -858,15 +877,13 @@ class DirectoryIndex(models.Model):
             get-the-index-of-an-element-in-a-queryset
             Specifically Richard's answer.
         """
-        from urllib.parse import unquote
-
         # No parent directory means this is a root directory
         if self.parent_directory is None:
             return (None, None)
 
-        # Wrap queryset operations
-        directories = await sync_to_async(self.parent_directory.dirs_in_dir)(sort=sort_order, select_related=(), prefetch_related=())
-        parent_dir_data = await sync_to_async(list)(directories.values("fqpndirectory"))
+        # Direct sync ORM calls
+        directories = self.parent_directory.dirs_in_dir(sort=sort_order, select_related=(), prefetch_related=())
+        parent_dir_data = list(directories.values("fqpndirectory"))
 
         prevdir = None
         nextdir = None
@@ -874,33 +891,14 @@ class DirectoryIndex(models.Model):
         for count, entry in enumerate(parent_dir_data):
             if entry["fqpndirectory"] == self.fqpndirectory:
                 if count >= 1:
-                    # Use pathlib to normalize path (removes trailing slashes)
-                    prev_path = str(Path(parent_dir_data[count - 1]["fqpndirectory"]))
-                    prev_path = prev_path.replace(settings.ALBUMS_PATH, "")
-                    # URL-encode each path component while preserving / separators
-                    parts = prev_path.split("/")
-                    encoded_parts = [quote(part, safe="") for part in parts]
-                    prev_url = "/".join(encoded_parts)
-                    # Get human-readable name (last part of path, decoded)
-                    prev_name = unquote(parts[-1]) if parts and parts[-1] else ""
-                    prevdir = {"url": prev_url, "name": prev_name}
-
+                    prevdir = self._make_sibling_link(parent_dir_data[count - 1]["fqpndirectory"])
                 if count + 1 < len(parent_dir_data):
-                    # Use pathlib to normalize path (removes trailing slashes)
-                    next_path = str(Path(parent_dir_data[count + 1]["fqpndirectory"]))
-                    next_path = next_path.replace(settings.ALBUMS_PATH, "")
-                    # URL-encode each path component while preserving / separators
-                    parts = next_path.split("/")
-                    encoded_parts = [quote(part, safe="") for part in parts]
-                    next_url = "/".join(encoded_parts)
-                    # Get human-readable name (last part of path, decoded)
-                    next_name = unquote(parts[-1]) if parts and parts[-1] else ""
-                    nextdir = {"url": next_url, "name": next_name}
+                    nextdir = self._make_sibling_link(parent_dir_data[count + 1]["fqpndirectory"])
                 break
 
         return (prevdir, nextdir)
 
-    async def handle_missing(self) -> None:
+    def handle_missing(self) -> None:
         """
         Handle case where this directory doesn't exist on filesystem.
 
@@ -908,16 +906,15 @@ class DirectoryIndex(models.Model):
         - Deletes this directory record from database
         - Clears cache for parent directory
 
-        This is an async method as it may need to clear caches that involve
-        async operations.
+        This is a sync method — all operations are direct Django ORM calls.
         """
         # Access preloaded parent_directory (loaded via select_related)
         parent_dir = self.parent_directory
-        await sync_to_async(DirectoryIndex.delete_directory_record)(self)
+        DirectoryIndex.delete_directory_record(self)
 
         # Clean up parent directory cache if it exists
         if parent_dir:
-            await sync_to_async(DirectoryIndex.delete_directory_record)(parent_dir, cache_only=True)
+            DirectoryIndex.delete_directory_record(parent_dir, cache_only=True)
 
     def process_new_files(self, fs_file_names: dict, precomputed_shas: dict[str, tuple] | None = None) -> list[FileIndex]:
         """
@@ -1021,7 +1018,7 @@ class DirectoryIndex(models.Model):
         if existing_count > 0:
             # Check each directory for updates
             updated_records = []
-            for db_dir_entry in existing_dirs_qs.iterator(chunk_size=100):
+            for db_dir_entry in existing_dirs_qs.iterator(chunk_size=settings.DIRECTORY_SYNC_CHUNK_SIZE):
                 # Extract directory name from full path and title-case it to match fs_entries keys
                 # NOTE: fs_entries dict is keyed by title-cased filenames (e.g., "Photos"), not full paths
                 # (e.g., "/volumes/c-8tb/gallery/albums/photos/"). Using full path would always return None.
@@ -1049,7 +1046,7 @@ class DirectoryIndex(models.Model):
                     # Lock rows to prevent concurrent modifications, then bulk update
                     update_ids = [r.id for r in updated_records]
                     DirectoryIndex.objects.select_for_update(skip_locked=True).filter(id__in=update_ids).only("id")
-                    DirectoryIndex.objects.bulk_update(updated_records, ["lastmod"], batch_size=100)
+                    DirectoryIndex.objects.bulk_update(updated_records, ["lastmod"], batch_size=settings.DIRECTORY_SYNC_BATCH_SIZE)
                     for db_dir_entry in updated_records:
                         Cache_Storage.remove_from_cache_indexdirs(db_dir_entry)
                 logger.info(f"Processing {len(updated_records)} directory updates")
@@ -1109,7 +1106,7 @@ class DirectoryIndex(models.Model):
 
         # Build filesystem file dictionary (single pass)
         fs_file_names_dict = {name: entry for name, entry in fs_entries.items() if not entry.is_dir()}
-        fs_file_names = list(fs_file_names_dict.keys())
+        fs_file_names = list(fs_file_names_dict)
 
         # Build case-insensitive lookup dictionary for matching
         # Maps lowercase filename -> original cased filename from filesystem
@@ -1122,7 +1119,8 @@ class DirectoryIndex(models.Model):
         # Find files that exist in both DB and filesystem (case-insensitive match)
         # Build lowercase map from database names for matching
         db_names_lower_set = {name.lower() for name in all_db_filenames}
-        matching_lower_names = set(fs_names_lower_map.keys()) & db_names_lower_set
+        # dict.keys() is a set-like view (keys are inherently unique) — supports & directly
+        matching_lower_names = fs_names_lower_map.keys() & db_names_lower_set
 
         # Load full objects with prefetch only for files that need comparison
         # Convert matching lowercase names back to original database names
