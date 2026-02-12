@@ -38,6 +38,7 @@ from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import models, transaction
 from django.db.utils import IntegrityError
+from PIL import Image
 
 from frontend.serve_up import send_file_response
 
@@ -309,8 +310,7 @@ class ThumbnailFiles(models.Model):
             thumbnails = None  # Initialize to prevent UnboundLocalError
             try:
                 if filetype.is_image:
-                    # Note: CoreImage/AVFoundation disabled due to GPU memory leaks
-                    # "auto" backend now uses PIL (CPU-based, stable memory)
+                    # CoreImage re-enabled 2026-02-12 with GPU memory leak fixes
                     thumbnails = create_thumbnails_from_path(
                         filename,
                         settings.IMAGE_SIZE,
@@ -323,10 +323,14 @@ class ThumbnailFiles(models.Model):
                     if not thumbnails or not thumbnails.get("small"):
                         raise ValueError(f"Image thumbnail creation returned empty result for {index_data_item.name}")
 
-                    # NOTE: All-white detection removed (2025-12-02)
-                    # This was a CoreImage-specific workaround for GPU corruption bugs.
-                    # PIL is reliable - if it produces an all-white thumbnail, that's because
-                    # the source image is actually all-white, which is a legitimate result.
+                    # All-white corruption detection (re-enabled 2026-02-12)
+                    # CoreImage GPU rendering can produce all-white thumbnails under
+                    # concurrent multi-process conditions. Detect and reject them so
+                    # they get regenerated on next access.
+                    with Image.open(io.BytesIO(thumbnails["small"])) as check_img:
+                        extrema = check_img.getextrema()
+                        if check_img.mode == "RGB" and extrema == ((255, 255), (255, 255), (255, 255)):
+                            raise ValueError(f"All-white thumbnail detected (GPU corruption) for {index_data_item.name}")
                 elif filetype.is_movie:
                     thumbnails = create_thumbnails_from_path(
                         filename,

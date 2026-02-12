@@ -29,13 +29,14 @@ from quickbbs.quickbbs_settings import *
 from quickbbs import __version__ as QUICKBBS_VERSION
 
 from steady_queue.configuration import Configuration
+
 # from steady_queue.models import Job as SteadyQueueJob
 
 #
 #   Debug, enables the debugging mode
 #
 DEBUG = False
-# DEBUG = not DEBUG
+DEBUG = not DEBUG
 print(f"* Debug Mode is {DEBUG}")
 
 #   Django Debug Toolbar, is controlled separately from the debug mode,

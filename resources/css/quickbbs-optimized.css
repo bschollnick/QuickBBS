@@ -90,41 +90,7 @@
     background-color: var(--filetype-color);
 }
 
-/* Responsive Image Sizing - Scales to container */
-.responsive-image {
-    object-fit: contain;
-    width: 100%;
-    height: auto;
-    max-width: 99%;
-}
-
-.responsive-video {
-    width: 100%;
-    height: auto;
-    max-width: 100%;
-}
-
-/* Tablet and smaller - constrain to medium size */
-@media screen and (max-width: 1023px) {
-    .responsive-image {
-        max-width: 740px;
-    }
-
-    .responsive-video {
-        max-width: 740px;
-    }
-}
-
-/* Desktop - constrain to large size */
-@media screen and (min-width: 1024px) {
-    .responsive-image {
-        max-width: 1024px;
-    }
-
-    .responsive-video {
-        max-width: 1024px;
-    }
-}
+/* Responsive image/video sizing is defined in filetype-layout.css */
 
 /* Performance Optimizations */
 .gallery-item {

@@ -8,24 +8,48 @@ from PIL import Image, ImageOps
 
 # Try to import Core Image and related macOS frameworks
 try:
+    import ctypes
+
+    import objc
     from Foundation import NSURL, NSAutoreleasePool, NSData
     from Quartz import (
         CGColorSpaceCreateDeviceRGB,
-        CGImageDestinationAddImage,
-        CGImageDestinationCreateWithData,
-        CGImageDestinationFinalize,
         CIContext,
         CIFilter,
         CIImage,
-        UTType,
-        kCGImageDestinationLossyCompressionQuality,
+        kCIContextCacheIntermediates,
         kCIContextUseSoftwareRenderer,
         kCIContextWorkingColorSpace,
+        kCIFormatRGBA8,
     )
 
     CORE_IMAGE_AVAILABLE = True
+
+    def _create_metal_device():
+        """
+        Create a Metal device using ctypes to call MTLCreateSystemDefaultDevice.
+
+        pyobjc-framework-Metal is not installed, so we load the Metal framework
+        directly via ctypes and convert the returned pointer to a PyObjC object.
+
+        Returns:
+            PyObjC Metal device object, or None if Metal is unavailable
+        """
+        try:
+            metal_lib = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/Metal.framework/Metal")
+            func = metal_lib.MTLCreateSystemDefaultDevice
+            func.restype = ctypes.c_void_p
+            func.argtypes = []
+            device_ptr = func()
+            if device_ptr:
+                return objc.objc_object(c_void_p=ctypes.c_void_p(device_ptr))
+        except (OSError, AttributeError):
+            pass
+        return None
+
 except ImportError:
     CORE_IMAGE_AVAILABLE = False
+    _create_metal_device = None  # type: ignore[assignment]
 
 try:
     from .Abstractbase_thumbnails import AbstractBackend
@@ -69,58 +93,41 @@ class CoreImageBackend(AbstractBackend):
         if not CORE_IMAGE_AVAILABLE:
             raise ImportError("Core Image not available. This backend requires macOS with pyobjc.")
 
-        # CIContext recycling to prevent unbounded GPU cache growth
         self._context = None
-        self._operations_count = 0
-        self._max_operations_before_reset = 100  # Recreate context every 100 operations (reduced from 500 to manage GPU memory)
-
-        # Cache color space to avoid recreating it every time context is recycled
         self._color_space = CGColorSpaceCreateDeviceRGB()
 
+        # Metal command queue for explicit GPU resource lifecycle management
+        # Per WWDC 2020/10008: CIContext.contextWithMTLCommandQueue:options:
+        # gives better resource management than contextWithOptions:
+        self._metal_device = _create_metal_device()
+        if self._metal_device is None:
+            raise ImportError("Metal GPU device not available")
+        self._command_queue = self._metal_device.newCommandQueue()
+
     @property
-    def context(self):
+    def context(self) -> "CIContext":
         """
-        Get CIContext, recreating periodically to clear internal GPU caches.
+        Get long-lived CIContext backed by a Metal command queue.
 
-        CIContext maintains internal caches of GPU resources that grow over time.
-        Periodic recreation releases these resources and prevents memory leaks.
-
-        The context is recreated every _max_operations_before_reset operations
-        to balance performance (context creation overhead) with memory management.
+        Uses Metal command queue for explicit GPU resource lifecycle management
+        and disables intermediate caching to prevent GPU memory accumulation
+        during batch thumbnail processing (per WWDC 2020/10008).
 
         Returns:
-            CIContext instance, either existing or freshly created
+            CIContext instance
         """
-        if self._context is None or self._operations_count >= self._max_operations_before_reset:
-            # Release old context if it exists
-            if self._context is not None:
-                # CRITICAL: Clear GPU caches BEFORE deleting context
-                # Without this, GPU memory accumulates unbounded (13GB+ observed)
-                try:
-                    self._context.clearCaches()
-                except Exception as e:
-                    print(f"Warning: Failed to clear CIContext caches: {e}")
-
-                old_context = self._context
-                self._context = None
-                del old_context
-                # Force cleanup of Python references
-                # NOTE: Manual gc.collect() commented out - Python's automatic GC is sufficient
-                # See bug_hunt.md issue #7 for details
-                # import gc
-                # gc.collect()
-
-            # Create fresh GPU-accelerated Core Image context
-            self._context = CIContext.contextWithOptions_(
+        if self._context is None:
+            self._context = CIContext.contextWithMTLCommandQueue_options_(
+                self._command_queue,
                 {
-                    # Use GPU acceleration
                     kCIContextUseSoftwareRenderer: False,
-                    # Use wide color gamut (reuse cached color space)
                     kCIContextWorkingColorSpace: self._color_space,
-                }
+                    # CRITICAL: Disable intermediate caching for batch processing.
+                    # Every thumbnail is a different image, so cached intermediates
+                    # are never reused but accumulate in GPU memory.
+                    kCIContextCacheIntermediates: False,
+                },
             )
-            self._operations_count = 0
-
         return self._context
 
     def process_from_file(
@@ -148,22 +155,6 @@ class CoreImageBackend(AbstractBackend):
             ci_image = CIImage.imageWithContentsOfURL_(file_url)
 
             if ci_image is None:
-                # CRITICAL: Failed loads leak ImageIO memory
-                # Force cache clear on failure to prevent accumulation
-                try:
-                    self.context.clearCaches()
-                except (RuntimeError, OSError, Exception) as e:
-                    # Best-effort cache clearing; failure is non-critical
-                    # Log but continue to raise the original error
-                    import logging
-
-                    logger = logging.getLogger(__name__)
-                    logger.debug("Failed to clear Core Image caches: %s", e)
-                # NOTE: Manual gc.collect() commented out - Python's automatic GC is sufficient
-                # See bug_hunt.md issue #7 for details
-                # import gc
-                # gc.collect()
-
                 raise ValueError(f"Could not load image from {file_path}")
 
             return self._process_ci_image(ci_image, sizes, output_format, quality)
@@ -251,9 +242,6 @@ class CoreImageBackend(AbstractBackend):
 
         :return: Dictionary mapping size names to thumbnail bytes
         """
-        # Track operations for context recycling
-        self._operations_count += 1
-
         results = {}
 
         # Get original image dimensions
@@ -290,66 +278,59 @@ class CoreImageBackend(AbstractBackend):
 
     def _render_to_bytes(self, ci_image: "CIImage", output_format: str, quality: int) -> bytes:
         """
-        Render CIImage to bytes in specified format.
+        Render CIImage to bytes in specified format using direct bitmap rendering.
 
-        :Args:
+        Uses render:toBitmap:rowBytes:bounds:format:colorSpace: instead of
+        createCGImage:fromRect: to avoid IOSurface GPU memory leaks. The GPU
+        renders directly into a CPU-side bytearray — no IOSurface is allocated.
+
+        PIL handles the final encoding to JPEG/PNG/WEBP, which is fast since
+        the thumbnail pixels are already small after GPU-accelerated Lanczos scaling.
+
+        Args:
             ci_image: Core Image CIImage object to render
             output_format: Output format (JPEG, PNG, WEBP)
             quality: Image quality (1-100)
 
-        :return: Image data as bytes
+        Returns:
+            Image data as bytes
         """
-        # Wrap rendering in autorelease pool to manage CGImage and NSData objects
         with autorelease_pool():
-            # Get image extent
             extent = ci_image.extent()
+            width = int(extent.size.width)
+            height = int(extent.size.height)
 
-            # Render to CGImage
-            cg_image = self.context.createCGImage_fromRect_(ci_image, extent)
+            # Render directly to bitmap buffer — NO IOSurface allocation
+            bytes_per_row = width * 4  # RGBA8 = 4 bytes per pixel
+            buffer_size = bytes_per_row * height
+            bitmap_data = bytearray(buffer_size)
 
-            if cg_image is None:
-                raise RuntimeError("Failed to create CGImage from CIImage")
+            self.context.render_toBitmap_rowBytes_bounds_format_colorSpace_(
+                ci_image,
+                bitmap_data,
+                bytes_per_row,
+                extent,
+                kCIFormatRGBA8,
+                self._color_space,
+            )
 
-            try:
-                # Determine UTI type
-                if output_format.upper() == "JPEG":
-                    uti_type = UTType.typeWithIdentifier_("public.jpeg")
-                elif output_format.upper() == "PNG":
-                    uti_type = UTType.typeWithIdentifier_("public.png")
-                elif output_format.upper() == "WEBP":
-                    uti_type = UTType.typeWithIdentifier_("org.webmproject.webp")
-                else:
-                    raise ValueError(f"Unsupported output format: {output_format}")
+            # Convert raw RGBA bitmap to target format using PIL
+            pil_img = Image.frombytes("RGBA", (width, height), bytes(bitmap_data))
 
-                # Create mutable data for output
-                output_data = NSData.data().mutableCopy()
+            buffer = io.BytesIO()
+            fmt = output_format.upper()
+            if fmt == "JPEG":
+                pil_img = pil_img.convert("RGB")
+                pil_img.save(buffer, format="JPEG", quality=quality)
+            elif fmt == "PNG":
+                pil_img.save(buffer, format="PNG")
+            elif fmt == "WEBP":
+                pil_img.save(buffer, format="WEBP", quality=quality)
+            else:
+                raise ValueError(f"Unsupported output format: {output_format}")
 
-                # Create image destination
-                destination = CGImageDestinationCreateWithData(output_data, uti_type.identifier(), 1, None)
+            result = buffer.getvalue()
+            buffer.close()
+            pil_img.close()
 
-                if destination is None:
-                    raise RuntimeError(f"Failed to create image destination for {output_format}")
-
-                try:
-                    # Set properties
-                    properties = {}
-                    if output_format.upper() == "JPEG":
-                        properties[kCGImageDestinationLossyCompressionQuality] = quality / 100.0
-
-                    # Add image to destination
-                    CGImageDestinationAddImage(destination, cg_image, properties)
-
-                    # Finalize
-                    if not CGImageDestinationFinalize(destination):
-                        raise RuntimeError("Failed to finalize image destination")
-
-                    # Convert NSData to Python bytes
-                    return bytes(output_data)
-
-                finally:
-                    # Clean up destination (helps prevent memory leaks)
-                    del destination
-
-            finally:
-                # Clean up CGImage explicitly (critical for memory management)
-                del cg_image
+            return result

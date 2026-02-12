@@ -956,6 +956,11 @@ async def htmx_view_item(request: HtmxHttpRequest, sha256: str):
     context["user"] = request.user
     context["show_duplicates"] = show_duplicates
 
+    # Proactively warm thumbnails for the directory this item belongs to.
+    # Same pattern as new_viewgallery() but with a smaller batch limit.
+    directory = await sync_to_async(DirectoryIndex.objects.get)(pk=context["home_directory_id"])
+    await sync_to_async(_check_and_enqueue_missing_thumbnails)(directory, context["sort"], settings.ITEM_VIEW_THUMBNAIL_BATCH_LIMIT)
+
     response = await async_render(request, template_name, context, using="Jinja2")
 
     # Prevent browser caching when user preferences might change
