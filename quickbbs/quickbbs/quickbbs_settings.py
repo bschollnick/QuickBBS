@@ -116,6 +116,7 @@ HTTP_CACHE_MAX_AGE = 300  # seconds (5 minutes) for file response Cache-Control 
 DEFAULT_SORT_ORDER = 0  # Default sort order index (maps to SORT_MATRIX keys)
 MAX_SEARCH_RESULTS = 10000  # Maximum combined search results returned
 THUMBNAIL_BATCH_LIMIT = 100  # Maximum thumbnails to enqueue per gallery page load
+ITEM_VIEW_THUMBNAIL_BATCH_LIMIT = 50  # Maximum thumbnails to enqueue per item view
 
 # Text file display limits
 ENCODING_DETECT_READ_SIZE = 4096  # Bytes to read for charset detection

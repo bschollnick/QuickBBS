@@ -13,13 +13,12 @@
 /* Filetype Content Container - constrain to viewport */
 .filetype-content-container {
     max-width: 98%;
-    max-height: calc(100vh - 200px);
-    height: calc(100vh - 200px);
-    overflow: hidden;
+    max-height: calc(100vh - 270px);
+    overflow: visible;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
 }
 
 /* Ensure all container divs respect height constraints */
@@ -28,21 +27,20 @@
 #thumbnail_frame,
 #movie_frame {
     max-height: 100%;
-    height: 100%;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
 }
 
 /* Override Bulma's figure styles to allow proper sizing */
 .filetype-content-container figure.image {
     height: auto !important;
-    max-height: calc(100vh - 250px);
+    max-height: calc(100vh - 270px);
     width: auto !important;
     display: flex !important;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
 }
 
 .filetype-content-container figure.image a {
@@ -55,7 +53,7 @@
 /* Responsive Image Sizing */
 .responsive-image {
     max-width: 100%;
-    max-height: calc(100vh - 250px) !important;
+    max-height: calc(100vh - 270px) !important;
     width: auto !important;
     height: auto !important;
     object-fit: contain;
@@ -65,7 +63,7 @@
 /* Responsive Video Sizing */
 .responsive-video {
     max-width: 100%;
-    max-height: calc(100vh - 250px) !important;
+    max-height: calc(100vh - 270px) !important;
     width: auto !important;
     height: auto !important;
     object-fit: contain;

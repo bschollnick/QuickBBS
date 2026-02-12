@@ -5,11 +5,39 @@ from __future__ import annotations
 import logging
 
 from django.tasks import task
+from steady_queue.recurring_task import recurring
 
 from frontend.managers import clear_layout_cache_for_directories
 from thumbnails.models import THUMBNAILFILES_PR_FILEINDEX_FILETYPE, ThumbnailFiles
 
 logger = logging.getLogger(__name__)
+
+
+@recurring(schedule="0 0 * * *", key="daily_cleanup_finished_jobs")
+@task()
+def daily_cleanup_finished_jobs() -> dict[str, int]:
+    """
+    Clean up finished steady_queue jobs at midnight.
+
+    Delete all finished jobs in batches and log the number deleted
+    and the number of jobs remaining in the queue.
+
+    Returns:
+        Dictionary with 'deleted' and 'remaining' job counts.
+    """
+    from steady_queue.models import Job  # noqa: PLC0415
+
+    total_before = Job.objects.count()
+    Job.objects.clear_finished_in_batches()
+    total_after = Job.objects.count()
+
+    deleted = total_before - total_after
+    logger.info(
+        "Daily job cleanup: deleted %d finished jobs, %d jobs remaining",
+        deleted,
+        total_after,
+    )
+    return {"deleted": deleted, "remaining": total_after}
 
 
 @task()

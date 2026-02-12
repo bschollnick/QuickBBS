@@ -16,12 +16,19 @@ except ImportError:
     from pil_thumbnails import ImageBackend
     from video_thumbnails import VideoBackend
 
-# DISABLED 2025-12-02: macOS GPU backends (CoreImage, AVFoundation, PDFKit)
-# permanently disabled due to unfixable GPU memory leak.
-# Imports removed to prevent macOS framework initialization, which is
-# unsafe in forked processes (e.g., steady-queue workers).
-# See: thumbnails/MEMORY_LEAK_FIX.md for full analysis.
-CORE_IMAGE_AVAILABLE = False
+# CoreImage re-enabled 2026-02-12: GPU memory leak fixed by replacing
+# createCGImage:fromRect: (IOSurface leak) with render:toBitmap: (direct
+# CPU buffer), disabling intermediate caching, and using Metal command queue.
+# See: claude_docs/macintosh_optimizations_memory.md for full analysis.
+try:
+    from .core_image_thumbnails import CoreImageBackend
+
+    CORE_IMAGE_AVAILABLE = True
+except ImportError:
+    CORE_IMAGE_AVAILABLE = False
+
+# AVFoundation and PDFKit remain disabled — they use CoreImage internally
+# and would need similar fixes before re-enabling.
 AVFOUNDATION_AVAILABLE = False
 PDFKIT_AVAILABLE = False
 
@@ -58,16 +65,9 @@ class FastImageProcessor:
             case "image":
                 return ImageBackend()
             case "coreimage":
-                # DISABLED 2025-12-02: CoreImage has unfixable GPU memory leak
-                # GPU memory grows unbounded (13+ GB observed) and is NOT released by:
-                # - clearCaches(), backend destruction, gc.collect(), autorelease pools
-                # This is a macOS framework limitation, not fixable in Python.
-                # See: thumbnails/MEMORY_LEAK_FIX.md for full analysis
-                #
-                # if not CORE_IMAGE_AVAILABLE:
-                #     raise ImportError("Core Image backend not available on this system")
-                # return CoreImageBackend()
-                return ImageBackend()  # Fall back to PIL (CPU-based, no GPU leak)
+                if not CORE_IMAGE_AVAILABLE:
+                    raise ImportError("Core Image backend not available on this system")
+                return CoreImageBackend()
             case "video":
                 return VideoBackend()
             case "corevideo":
@@ -97,17 +97,14 @@ class FastImageProcessor:
                 # return PDFKitBackend()
                 return PDFBackend()  # Fall back to PyMuPDF
             case "auto":
-                # DISABLED 2025-12-02: Core Image auto-selection disabled (GPU memory leak)
-                # Auto-select: Prefer Core Image on Apple Silicon if available, fallback to PIL
-                # if CORE_IMAGE_AVAILABLE and self._is_apple_silicon():
-                #     try:
-                #         return CoreImageBackend()
-                #     except Exception:
-                #         # Fall back to PIL if Core Image initialization fails
-                #         return ImageBackend()
-                # else:
-                #     return ImageBackend()
-                return ImageBackend()  # Always use PIL
+                # Prefer Core Image on Apple Silicon for GPU-accelerated Lanczos
+                if CORE_IMAGE_AVAILABLE and self._is_apple_silicon():
+                    try:
+                        return CoreImageBackend()
+                    except Exception:
+                        return ImageBackend()
+                else:
+                    return ImageBackend()
             case _:
                 raise ValueError(f"Unknown backend type: {self.backend_type}")
 
