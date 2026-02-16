@@ -8,6 +8,7 @@ import asyncio
 import io
 import logging
 import os
+import platform
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -37,7 +38,24 @@ from quickbbs.common import (
 from quickbbs.MonitoredCache import create_cache
 from quickbbs.natsort_model import NaturalSortField
 from thumbnails.models import ThumbnailFiles
-from thumbnails.video_thumbnails import _get_video_info
+
+# Prefer AVFoundation on macOS for video metadata (no subprocess spawn, ~10x faster).
+# Fall back to ffmpeg-based probe on other platforms.
+_get_video_info = None
+if platform.system() == "Darwin":
+    try:
+        from thumbnails.avfoundation_video_thumbnails import (
+            _get_video_info as _avf_get_video_info,
+        )
+
+        _get_video_info = _avf_get_video_info
+    except ImportError:
+        pass
+
+if _get_video_info is None:
+    from thumbnails.video_thumbnails import _get_video_info as _ffmpeg_get_video_info
+
+    _get_video_info = _ffmpeg_get_video_info
 
 from .models import Owners
 
@@ -425,7 +443,7 @@ class FileIndex(models.Model):
         if directory_ids and updated_count > 0:
             cleared_count = clear_layout_cache_for_directories(directory_ids)
             if cleared_count > 0:
-                print(f"Cleared {cleared_count} layout cache entries for {len(directory_ids)} directories")
+                logger.info("Cleared %d layout cache entries for %d directories", cleared_count, len(directory_ids))
 
         return updated_count
 
@@ -515,7 +533,7 @@ class FileIndex(models.Model):
 
             # Check if filetype exists
             if not filetypes.filetype_exists_by_ext(fileext):
-                print(f"Can't match fileext '{fileext}' with filetypes")
+                logger.warning("Can't match fileext '%s' with filetypes", fileext)
                 return None
 
             # Use DirEntry's built-in stat cache (already cached from iterdir)
@@ -530,7 +548,7 @@ class FileIndex(models.Model):
                     }
                 )
             except (OSError, IOError) as e:
-                print(f"Error getting file stats for {fs_entry}: {e}")
+                logger.error("Error getting file stats for %s: %s", fs_entry, e)
                 return None
 
             # Handle link files
@@ -539,7 +557,7 @@ class FileIndex(models.Model):
                 # Calculate SHA256 for link files (required for virtual_directory resolution)
                 record["file_sha256"], record["unique_sha256"] = get_file_sha(str(fs_entry))
                 if record["file_sha256"] is None:
-                    print(f"Error calculating SHA for link file {fs_entry}")
+                    logger.error("Error calculating SHA for link file %s", fs_entry)
                     return None
 
                 # Process link file and get virtual_directory
@@ -563,7 +581,7 @@ class FileIndex(models.Model):
             return record
 
         except Exception as e:
-            print(f"Unexpected error processing {fs_entry}: {e}")
+            logger.error("Unexpected error processing %s: %s", fs_entry, e)
             return None
 
     @classmethod
@@ -614,8 +632,7 @@ class FileIndex(models.Model):
                         chunk_ids = delete_ids_list[i : i + bulk_size]
                         # Use bulk delete with specific field for index usage
                         cls.objects.filter(id__in=chunk_ids).delete()
-                    print(f"Deleted {len(records_to_delete_ids)} records")
-                    logger.info(f"Deleted {len(records_to_delete_ids)} records")
+                    logger.info("Deleted %d records", len(records_to_delete_ids))
 
             # Batch update in chunks for memory efficiency
             if records_to_update:
@@ -653,7 +670,7 @@ class FileIndex(models.Model):
                             fields=update_fields,
                             batch_size=bulk_size,
                         )
-                logger.info(f"Updated {len(records_to_update)} records")
+                logger.info("Updated %d records", len(records_to_update))
 
             # Batch create in chunks for memory efficiency
             if records_to_create:
@@ -668,15 +685,15 @@ class FileIndex(models.Model):
                             batch_size=bulk_size,
                             ignore_conflicts=True,  # Handle duplicates gracefully
                         )
-                logger.info(f"Created {len(records_to_create)} records")
+                logger.info("Created %d records", len(records_to_create))
 
             # Clear layout caches for all affected directories
             if affected_directory_ids:
                 cleared_count = clear_layout_cache_for_directories(affected_directory_ids)
-                logger.info(f"Cleared {cleared_count} layout cache entries for {len(affected_directory_ids)} affected directories")
+                logger.info("Cleared %d layout cache entries for %d affected directories", cleared_count, len(affected_directory_ids))
 
         except Exception as e:
-            logger.error(f"Database operation failed: {e}")
+            logger.error("Database operation failed: %s", e)
             raise
 
     @classmethod
@@ -744,7 +761,7 @@ class FileIndex(models.Model):
                 name_lower = filename.lower()
                 star_index = name_lower.find("*")
                 if star_index == -1:
-                    logger.warning(f"Invalid link format - no '*' found in: {filename}")
+                    logger.warning("Invalid link format - no '*' found in: %s", filename)
                     return None
 
                 redirect = name_lower[star_index + 1 :].replace("'", "").replace("__", "/")
@@ -771,12 +788,12 @@ class FileIndex(models.Model):
                 if found and virtual_dir is not None:
                     return virtual_dir
 
-                logger.warning(f"Skipping link with broken target: {filename} → {redirect_path}")
+                logger.warning("Skipping link with broken target: %s → %s", filename, redirect_path)
 
             return None
 
         except ValueError as e:
-            logger.error(f"Error processing link file {filename}: {e}")
+            logger.error("Error processing link file %s: %s", filename, e)
             return None
 
     @staticmethod
@@ -797,7 +814,7 @@ class FileIndex(models.Model):
             with Image.open(fs_entry) as img:
                 return getattr(img, "is_animated", False)
         except (AttributeError, IOError, OSError) as e:
-            logger.error(f"Error checking animation for {fs_entry}: {e}")
+            logger.error("Error checking animation for %s: %s", fs_entry, e)
             return False
 
     def get_file_sha(self, fqfn: str) -> tuple[str | None, str | None]:
@@ -878,24 +895,21 @@ class FileIndex(models.Model):
         return None
 
     def get_view_url(self) -> str:
-        """
-        Generate the URL for the viewing of the current database item
+        """Generate the URL for viewing the current database item.
 
-        Returns
-        -------
-            Django URL object
-
+        Returns:
+            URL string for this item's view page
         """
         return reverse("view_item", args=(self.unique_sha256,))
 
     def get_thumbnail_url(self, size: str | None = None) -> str:
-        """
-        Generate the URL for the thumbnail of the current item
+        """Generate the URL for the thumbnail of the current item.
 
-        Returns
-        -------
-            Django URL object
+        :Args:
+            size: Thumbnail size name (e.g., 'small', 'medium', 'large'). Defaults to 'small'.
 
+        Returns:
+            URL string for this item's thumbnail
         """
         if size not in settings.IMAGE_SIZE and size is not None:
             size = None
@@ -908,13 +922,10 @@ class FileIndex(models.Model):
         return url
 
     def get_download_url(self) -> str:
-        """
-        Generate the URL for the downloading of the current database item
+        """Generate the URL for downloading the current database item.
 
-        Returns
-        -------
-            Django URL object
-
+        Returns:
+            URL string for this item's download endpoint
         """
         return reverse("download_file") + self.name + f"?usha={self.unique_sha256}"
 
@@ -936,10 +947,8 @@ class FileIndex(models.Model):
 
         if self.filetype.is_text or self.filetype.is_markdown:
             return self.process_text_content(is_markdown=True)
-        if self.filetype.is_html:
-            return self.process_text_content(is_markdown=False)
-
-        return ""
+        # Must be is_html (guard at top already returned "" for non-text/md/html)
+        return self.process_text_content(is_markdown=False)
 
     def inline_sendfile(self, request: Any, ranged: bool = False) -> Any:
         """
@@ -1093,15 +1102,11 @@ class FileIndex(models.Model):
                 fs_stat = fs_entry.stat()
             update_needed = False
 
-            # Get filetype (should be prefetched via select_related)
-            if "filetype" in self.__dict__:
+            # Get filetype (prefetched via select_related by caller)
+            try:
                 filetype = self.filetype
-            else:
-                # Fall back to lazy load (safe in sync context)
-                try:
-                    filetype = self.filetype
-                except Exception:
-                    filetype = None
+            except Exception:
+                filetype = None
 
             # Use filetype.fileext instead of parsing Path object (avoids object creation overhead)
             fext = filetype.fileext if filetype else ""
@@ -1145,17 +1150,17 @@ class FileIndex(models.Model):
                         self.duration = video_details.get("duration", None)
                         update_needed = True
                     except Exception as e:
-                        logger.error(f"Error getting duration for {fs_entry}: {e}")
+                        logger.error("Error getting duration for %s: %s", fs_entry, e)
 
                 # Animated GIF detection - only check if not previously checked
-                if filetype.is_image and fext == ".gif" and self.is_animated is None:
+                if filetype.is_image and fext == ".gif" and not self.is_animated:
                     self.is_animated = FileIndex.is_animated_gif(fs_entry)
                     update_needed = True
 
             return self if update_needed else None
 
         except (OSError, IOError) as e:
-            logger.error(f"Error checking file {fs_entry}: {e}")
+            logger.error("Error checking file %s: %s", fs_entry, e)
             return None
 
     def get_text_encoding(self) -> str:

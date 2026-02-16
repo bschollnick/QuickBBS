@@ -2,7 +2,6 @@
 
 # pylint: disable=no-name-in-module  # pyobjc uses dynamic imports
 
-import io
 import traceback
 from pathlib import Path
 
@@ -16,15 +15,8 @@ try:
         AVAssetImageGeneratorApertureModeCleanAperture,
     )
     from CoreMedia import CMTimeMake
-    from Foundation import NSURL, NSData
-    from Quartz import (
-        CGImageDestinationAddImage,
-        CGImageDestinationCreateWithData,
-        CGImageDestinationFinalize,
-        CIContext,
-        CIImage,
-        UTType,
-    )
+    from Foundation import NSURL
+    from Quartz import CIImage
 
     AVFOUNDATION_AVAILABLE = True
 except ImportError:
@@ -169,57 +161,58 @@ def _extract_frame_as_ciimage(video_path: str, time_offset: float) -> "CIImage":
     :return: CIImage object of the video frame
     :raises RuntimeError: If frame extraction fails
     """
-    # Wrap in autorelease pool to drain AVFoundation and Core Image objects
-    with autorelease_pool():
-        # Create URL for video file
-        file_url = NSURL.fileURLWithPath_(video_path)
+    # No inner autorelease pool — caller (process_from_file) has an outer pool
+    # that correctly scopes the returned CIImage's lifetime.
 
-        # Load video asset
-        asset = AVAsset.assetWithURL_(file_url)
+    # Create URL for video file
+    file_url = NSURL.fileURLWithPath_(video_path)
 
-        if asset is None:
-            raise RuntimeError(f"Could not load video asset from {video_path}")
+    # Load video asset
+    asset = AVAsset.assetWithURL_(file_url)
 
-        # Create image generator
-        generator = AVAssetImageGenerator.assetImageGeneratorWithAsset_(asset)
+    if asset is None:
+        raise RuntimeError(f"Could not load video asset from {video_path}")
 
-        # Configure generator for best quality
-        generator.setAppliesPreferredTrackTransform_(True)  # Handle rotation
-        generator.setApertureMode_(AVAssetImageGeneratorApertureModeCleanAperture)  # Clean aperture mode
+    # Create image generator
+    generator = AVAssetImageGenerator.assetImageGeneratorWithAsset_(asset)
 
-        # Create CMTime for requested timestamp
-        time_scale = 600  # Standard timescale for video
-        time_value = int(time_offset * time_scale)
-        requested_time = CMTimeMake(time_value, time_scale)
+    # Configure generator for best quality
+    generator.setAppliesPreferredTrackTransform_(True)  # Handle rotation
+    generator.setApertureMode_(AVAssetImageGeneratorApertureModeCleanAperture)  # Clean aperture mode
 
-        # Extract frame
-        try:
-            # copyCGImageAtTime_actualTime_error_ returns (CGImage, actualTime) and raises on error
-            extraction_result = generator.copyCGImageAtTime_actualTime_error_(requested_time, None, None)
+    # Create CMTime for requested timestamp
+    time_scale = 600  # Standard timescale for video
+    time_value = int(time_offset * time_scale)
+    requested_time = CMTimeMake(time_value, time_scale)
 
-            if extraction_result is None or len(extraction_result) < 1:
-                raise RuntimeError("Failed to extract frame from video")
+    # Extract frame
+    try:
+        # copyCGImageAtTime_actualTime_error_ returns (CGImage, actualTime) and raises on error
+        extraction_result = generator.copyCGImageAtTime_actualTime_error_(requested_time, None, None)
 
-            # Result is (CGImage, actualTime)
-            cg_image = extraction_result[0]
+        if extraction_result is None or len(extraction_result) < 1:
+            raise RuntimeError("Failed to extract frame from video")
 
-            if cg_image is None:
-                raise RuntimeError("Failed to extract frame from video")
+        # Result is (CGImage, actualTime)
+        cg_image = extraction_result[0]
 
-            # Convert CGImage to CIImage
-            ci_image = CIImage.imageWithCGImage_(cg_image)
+        if cg_image is None:
+            raise RuntimeError("Failed to extract frame from video")
 
-            # Clean up CGImage (important for memory management)
-            del cg_image
+        # Convert CGImage to CIImage
+        ci_image = CIImage.imageWithCGImage_(cg_image)
 
-            return ci_image
+        # Clean up CGImage (important for memory management)
+        del cg_image
 
-        except Exception as e:
-            raise RuntimeError(f"Error extracting frame: {e}") from e
-        finally:
-            # Clean up generator
-            generator = None
-            asset = None
+        return ci_image
+
+    except Exception as e:
+        raise RuntimeError(f"Error extracting frame: {e}") from e
+    finally:
+        # Clean up generator
+        generator = None
+        asset = None
 
 
 def _get_video_info(video_path: str) -> dict[str, any]:
@@ -286,62 +279,6 @@ def _get_video_info(video_path: str) -> dict[str, any]:
         finally:
             # Clean up
             asset = None
-
-
-def _extract_frame_as_pil(video_path: str, time_offset: float, width: int = 320, height: int = 240) -> Image.Image:  # pylint: disable=unused-argument
-    """Extract a frame from video as PIL Image (for compatibility).
-
-    This function provides compatibility with the FFmpeg-based implementation
-    but is less efficient than using _extract_frame_as_ciimage directly.
-
-    :Args:
-        video_path: Path to the input video file
-        time_offset: Time position in seconds to capture thumbnail
-        width: Target width (for reference, actual scaling done by Core Image)
-        height: Target height (for reference, actual scaling done by Core Image)
-
-    :return: PIL Image object of the video frame
-    :raises RuntimeError: If frame extraction fails
-    """
-    # Wrap in autorelease pool to drain Core Image objects
-    with autorelease_pool():
-        # Extract as CIImage
-        ci_image = _extract_frame_as_ciimage(video_path, time_offset)
-
-        # Render to PNG bytes using Core Image context
-        context = CIContext.context()
-        extent = ci_image.extent()
-        cg_image = context.createCGImage_fromRect_(ci_image, extent)
-
-        if cg_image is None:
-            raise RuntimeError("Failed to render CIImage to CGImage")
-
-        try:
-            # Convert to PNG data
-            output_data = NSData.data().mutableCopy()
-            uti_type = UTType.typeWithIdentifier_("public.png")
-            destination = CGImageDestinationCreateWithData(output_data, uti_type.identifier(), 1, None)
-
-            if destination is None:
-                raise RuntimeError("Failed to create image destination")
-
-            try:
-                CGImageDestinationAddImage(destination, cg_image, None)
-
-                if not CGImageDestinationFinalize(destination):
-                    raise RuntimeError("Failed to finalize image destination")
-
-                # Convert to PIL Image
-                image_bytes = bytes(output_data)
-                image = Image.open(io.BytesIO(image_bytes))
-
-                return image
-
-            finally:
-                del destination
-
-        finally:
-            del cg_image
 
 
 # Example usage and testing

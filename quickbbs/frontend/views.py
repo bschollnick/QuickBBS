@@ -40,13 +40,12 @@ from frontend.managers import (
     clear_layout_cache_for_directories,
 )
 from frontend.utilities import (
-    SORT_MATRIX,
     convert_to_webpath,
     ensures_endswith,
     return_breadcrumbs,
     update_database_from_disk,
 )
-from quickbbs.common import get_dir_sha, normalize_fqpn
+from quickbbs.common import SORT_MATRIX, get_dir_sha, normalize_fqpn
 from quickbbs.directoryindex import (
     DIRECTORYINDEX_SR_FILETYPE_THUMB,
     DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT,
@@ -768,7 +767,7 @@ def _check_and_enqueue_missing_thumbnails(directory: DirectoryIndex, sort_orderi
     no_thumbs = list(qs[:batch_limit])
     missing_count = len(no_thumbs)
     if missing_count > 0:
-        print(f"{missing_count} entries need thumbnails, enqueuing to steady_queue")
+        print(f"{missing_count} entries need thumbnails, enqueuing to task runner")
         generate_missing_thumbnails.enqueue(
             files_needing_thumbnails=no_thumbs,
             directory_pk=directory.pk,

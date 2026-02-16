@@ -1,31 +1,11 @@
 """
-QuickBBS Frontend Managers Module.
+QuickBBS Frontend Managers.
 
-This module provides optimized management functions for the QuickBBS gallery application,
-including context building, layout management, and file processing utilities.
+Context building for item views, layout management with database-level
+pagination, and cached query functions for gallery rendering.
 
-Key Components:
-- Context building for item views with optimized single-pass dictionary creation
-- Layout management with database-level pagination for efficient gallery rendering
-- Text file processing with encoding detection and size limits
-- Path normalization utilities for consistent file system operations
-- Cached query functions for improved performance
-
-Performance Features:
-- LRU caching for expensive operations (directory queries, context building)
-- Streamlined data flow with minimal memory allocations
-- Database query optimization with queryset reuse
-- Cached Markdown processor for text file rendering
-
-Architecture:
-- Follows Django ORM best practices with efficient query patterns
-- Uses in-place dictionary population to minimize memory overhead
-- Implements proper separation between database operations and file I/O
-- Provides reusable pagination utilities for list-based navigation
-
-ASGI Support:
-- All functions with database queries can be wrapped with sync_to_async
-- Async wrapper functions provided for core operations
+All database functions are sync; async wrappers are provided for ASGI
+views via sync_to_async.
 """
 
 from __future__ import annotations
@@ -42,9 +22,7 @@ from cachetools.keys import hashkey
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.db.models import Q
-from django.http import (  # HttpResponse,; Http404,; HttpRequest,; HttpResponseNotFound,; JsonResponse,
-    HttpResponseBadRequest,
-)
+from django.http import HttpResponseBadRequest
 
 from frontend.utilities import (
     convert_to_webpath,
@@ -145,10 +123,6 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
     webpath = entry.fqpndirectory.lower().replace("//", "/")
     directory_entry = entry.home_directory
 
-    # Build entire context in single operation for optimal performance
-    pathmaster = Path(entry.full_filepathname)
-    lastmod_timestamp = entry.lastmod
-
     # Get navigation data - optimized to avoid materializing all SHAs when possible
     if show_duplicates:
         # Include duplicates - use optimized queryset operations instead of materializing all SHAs
@@ -214,9 +188,8 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
             previous_sha = ""
 
     else:
-        # Deduplicate - files_in_dir handles complex DISTINCT ON + re-sorting
-        # Must use full objects for re-sorting (PostgreSQL limitation with DISTINCT ON)
-        # This case already materializes due to Python re-sorting requirement
+        # Deduplicate - files_in_dir(distinct=True) uses DISTINCT ON then a second
+        # DB query to re-sort with correct PostgreSQL collation
         files_list = directory_entry.files_in_dir(sort=sort_order_value, distinct=True, select_related=FILEINDEX_SR_FILETYPE_HOME_VIRTUAL)
         all_shas = [f.unique_sha256 for f in files_list]
 
@@ -242,19 +215,20 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
         "html": entry.get_content_html(webpath),
         # Navigation (inline breadcrumb processing)
         "breadcrumbs": return_breadcrumbs(webpath),
-        "up_uri": convert_to_webpath(str(pathmaster.parent)).rstrip("/"),
+        "up_uri": convert_to_webpath(str(Path(entry.full_filepathname).parent)).rstrip("/"),
         "webpath": webpath,
         # File context (inline)
-        "filetype": entry.filetype.__dict__,
+        "filetype": entry.filetype,
         "sha": entry.unique_sha256,
         "filename": entry.name,
         "gallery_name": "",  # Don't show filename in breadcrumb (already shown in title)
         "filesize": entry.size,
         "duration": entry.duration,
         "is_animated": entry.is_animated,
-        "lastmod": lastmod_timestamp,
-        "lastmod_ds": datetime.datetime.fromtimestamp(lastmod_timestamp).strftime("%m/%d/%y %H:%M:%S"),
-        "filetype_icon_filename": entry.filetype.icon_filename,
+        "lastmod": entry.lastmod,
+        "lastmod_ds": datetime.datetime.fromtimestamp(entry.lastmod).strftime("%m/%d/%y %H:%M:%S"),
+        # DEPRECATED: filetype_icon_filename is unused by templates. Remove after 2026-06-01.
+        # "filetype_icon_filename": entry.filetype.icon_filename,
         "download_uri": entry.get_download_url(),
         "thumbnail_uri": entry.get_thumbnail_url(size="large"),
         # Pagination (computed inline)
@@ -264,8 +238,9 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
         "last_sha": last_sha,
         "next_sha": next_sha,
         "previous_sha": previous_sha,
-        "page_locale": int(current_page / settings.GALLERY_ITEMS_PER_PAGE) + 1,
-        "dir_link": f"{webpath}{entry.name}?sort={sort_order_value}",
+        "page_locale": (current_page - 1) // settings.GALLERY_ITEMS_PER_PAGE + 1,
+        # DEPRECATED: dir_link is unused by templates. Remove after 2026-06-01.
+        # "dir_link": f"{webpath}{entry.name}?sort={sort_order_value}",
     }
 
     build_time = time.perf_counter() - start_time
@@ -287,8 +262,13 @@ async def async_build_context_info(request: WSGIRequest, unique_file_sha256: str
         show_duplicates: Whether to show duplicate files (affects navigation list)
     Returns: Dictionary containing context data or HttpResponseBadRequest on error
     """
-    # Extract request-specific data before calling cached function
-    sort_order_value = int(request.GET.get("sort", default=0)) if request else 0
+    # Extract and validate sort order before calling cached function
+    try:
+        sort_order_value = int(request.GET.get("sort", 0)) if request else 0
+    except (ValueError, TypeError):
+        sort_order_value = 0
+    if sort_order_value not in SORT_MATRIX:
+        sort_order_value = 0
 
     return await sync_to_async(build_context_info)(
         unique_file_sha256=unique_file_sha256,
@@ -373,20 +353,21 @@ def calculate_page_bounds(page_number: int, chunk_size: int, dirs_count: int) ->
 
 
 @cached(layout_manager_cache)
-def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | None = None, show_duplicates: bool = False) -> dict:
+def layout_manager(page_number: int = 1, directory=None, sort_ordering: int = 0, show_duplicates: bool = False) -> dict:
     """
     Manage gallery layout with optimized database-level pagination.
 
     Uses database LIMIT/OFFSET for efficient pagination instead of loading
     all items into memory. Only fetches data for the requested page.
-    Optimized to reuse querysets for both counting and data fetching.
 
     Args:
         page_number: Current page number (1-indexed)
         directory: DirectoryIndex object representing the directory to layout
-        sort_ordering: Sort order to apply (0-2)
+        sort_ordering: Sort order to apply (0-2), defaults to 0 (name)
+        show_duplicates: Whether to show duplicate files
     Returns: Dictionary containing pagination data and current page items
-    :raises: ValueError if directory parameter is None
+    Raises:
+        ValueError: If directory parameter is None
     """
     start_time = time.perf_counter()
     if directory is None:
@@ -403,14 +384,12 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
         # Include duplicates - use simple queryset (no materialization needed)
         files_qs = directory.files_in_dir(sort=sort_ordering, distinct=False, fields_only=("unique_sha256",), select_related=())
         files_count = files_qs.count()
-        all_distinct_shas = None  # Not needed for duplicates mode
     else:
         # Deduplicate - use cached distinct file list
         # This prevents materializing ALL files when we only need current page
         # DirectoryIndex.get_distinct_file_shas() caches results for efficient page navigation
         all_distinct_shas = directory.get_distinct_file_shas(sort=sort_ordering)
         files_count = len(all_distinct_shas)
-        files_qs = None  # Not used in distinct mode
 
     total_items = dirs_count + files_count
 
@@ -452,15 +431,17 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
         "page_items": page_data,  # Current page items (directories and files)
         "page_number": page_number,
         "dirs_count": dirs_count,
-        "chunk_size": items_per_page,
+        # DEPRECATED: chunk_size is unused by views/templates. Remove after 2026-06-01.
+        # "chunk_size": items_per_page,
         "files_count": files_count,
         "total_pages": total_pages,
-        "dirs_on_last_page": dirs_count % items_per_page,
-        "files_on_last_page": items_per_page - (dirs_count % items_per_page),
+        # DEPRECATED: dirs_on_last_page, files_on_last_page are unused by views/templates. Remove after 2026-06-01.
+        # "dirs_on_last_page": dirs_count % items_per_page,
+        # "files_on_last_page": items_per_page - (dirs_count % items_per_page),
     }
 
-    # Generate page_shas (SHA256s for current page only)
-    output["page_shas"] = page_data["directory_shas"] + page_data["file_shas"]
+    # DEPRECATED: page_shas is unused by views/templates. Remove after 2026-06-01.
+    # output["page_shas"] = page_data["directory_shas"] + page_data["file_shas"]
 
     # NOTE: files_needing_thumbnails is intentionally NOT included here.
     # It is computed separately by the caller to avoid invalidating the
@@ -475,7 +456,7 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
         sibling_dir_shas = list(sibling_directories.values_list("dir_fqpn_sha256", flat=True))
         try:
             position = sibling_dir_shas.index(directory.dir_fqpn_sha256)
-            page_locale = int(position / items_per_page) + 1
+            page_locale = position // items_per_page + 1
         except ValueError:
             page_locale = 1
     else:
@@ -489,16 +470,15 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int | No
 
 
 # ASGI: Async wrapper for layout_manager
-async def async_layout_manager(page_number: int = 1, directory=None, sort_ordering: int | None = None, show_duplicates: bool = False) -> dict:
+async def async_layout_manager(page_number: int = 1, directory=None, sort_ordering: int = 0, show_duplicates: bool = False) -> dict:
     """
     Async wrapper for layout_manager to support ASGI views.
-
-    All database operations are wrapped to run in thread pool.
 
     Args:
         page_number: Current page number (1-indexed)
         directory: DirectoryIndex object representing the directory to layout
-        sort_ordering: Sort order to apply (0-2)
+        sort_ordering: Sort order to apply (0-2), defaults to 0 (name)
+        show_duplicates: Whether to show duplicate files
     Returns: Dictionary containing pagination data and current page items
     """
     return await sync_to_async(layout_manager)(

@@ -26,12 +26,12 @@ exclude = ["**/gallery/**", "**/albums/**"]
 
 [tool.pylint]
 max-line-length = 150
-    
+
 [tool.pylance]
 exclude = ["**/gallery/**", "**/albums/**"]
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.14"
 explicit_package_bases = true
 pretty = true
 color_output = true
@@ -59,7 +59,7 @@ known_first_party = ["quickbbs", "frontend", "cache_watcher", "filetypes", "thum
 python = "^3.12,<3.15"
 aiopath = "^0.7.7"
 pymupdf = "^1.24.14"
-django-icons = "^25.1"
+django-icons = "^26"
 django-htmx = "^1.21.0"
 humanize = "^4.11.0"
 django-jinja = "^2.11.0"
@@ -79,12 +79,12 @@ imagehash = "^4.3.1"
 xattr = "^1.1.0"
 dhash = "^1.4"
 pathvalidate = "^3.2.1"
-black = "^25.1.0"
+black = "^26"
 isort = ">=6.0.0"
 mypy = "^1.13.0"
 natsort = ">=8.4.0"
 psycopg = {extras = ["c"], version = "^3.2.3"}
-certifi = "^2025.4.26"
+certifi = "^2026"
 gunicorn = ">=23.0.0"
 django-stubs = {extras = ["compatible-mypy"], version = "^5.1.1"}
 types-pyyaml = "^6.0.12.20240917"
@@ -95,10 +95,10 @@ pdfrw = "^0.4"
 django-compression-middleware = "^0.5.0"
 werkzeug = "^3.1.3"
 pyopenssl = "^25.0.0"
-msgspec = "^0.19.0"
+msgspec = "^0.20"
 more-itertools = "^10.6.0"
 memoization = "^0.4.0"
-cachetools = "^6.0.0"
+cachetools = "^7"
 django-db-connection-pool = "^1.2.6"
 urllib3 = "^2.4.0"
 cachecontrol = "^0.14.3"
@@ -134,9 +134,9 @@ uvloop = "^0.22.1"
 zensical = "^0.0.8"
 djcheckup = "^0.6.0"
 poetry = "^2.2.1"
-django-ai-boost = "^0.5.0"
+django-ai-boost = "^0.7.0"
 pylint = "^4.0.4"
 wheel = "^0.46.3"
-steady-queue = "^0.1.2"
 fido2 = "^2.1.1"
 tprof = "^1.1.0"
+django-dbtasks = "^0.4.0"

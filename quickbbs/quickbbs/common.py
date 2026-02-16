@@ -31,6 +31,16 @@ SORT_MATRIX = {
     2: ["-filetype__is_dir", "-filetype__is_link", "name_sort"],
 }
 
+# Sort matrix for directory-only queries (used by dirs_in_dir).
+# Omits -filetype__is_dir and -filetype__is_link since all directories have
+# filetype=".dir", making those sort fields constant. This avoids an
+# unnecessary JOIN to the filetypes table.
+DIR_SORT_MATRIX = {
+    0: ["name_sort", "lastmod"],
+    1: ["lastmod", "name_sort"],
+    2: ["name_sort"],
+}
+
 
 @cached(normalized_strings_cache)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
 def normalize_string_lower(s: str) -> str:

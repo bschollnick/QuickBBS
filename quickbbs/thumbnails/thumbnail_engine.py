@@ -1,6 +1,7 @@
 """Multi-backend thumbnail generation engine with automatic backend selection."""
 
 import platform
+import threading
 from typing import Literal
 
 from PIL import Image
@@ -40,8 +41,10 @@ class FastImageProcessor:
 
     __slots__ = ("image_sizes", "backend_type", "_backend")
 
-    # Class-level backend cache to reuse backend instances
+    # Class-level backend cache to reuse backend instances.
+    # Protected by _backend_lock for thread safety in multi-threaded workers.
     _backend_cache: dict = {}
+    _backend_lock = threading.Lock()
 
     def __init__(self, image_sizes: dict[str, tuple[int, int]], backend: BackendType = "auto"):
         """
@@ -54,10 +57,11 @@ class FastImageProcessor:
         self._backend = self._get_cached_backend()
 
     def _get_cached_backend(self) -> AbstractBackend:
-        """Get or create cached backend instance for reuse."""
-        if self.backend_type not in self._backend_cache:
-            self._backend_cache[self.backend_type] = self._create_backend()
-        return self._backend_cache[self.backend_type]
+        """Get or create cached backend instance for reuse (thread-safe)."""
+        with self._backend_lock:
+            if self.backend_type not in self._backend_cache:
+                self._backend_cache[self.backend_type] = self._create_backend()
+            return self._backend_cache[self.backend_type]
 
     def _create_backend(self) -> AbstractBackend:
         """Create appropriate backend based on system and preference."""
@@ -133,16 +137,19 @@ class FastImageProcessor:
         return self._backend.process_data(pil_image, self.image_sizes, output_format, quality)
 
 
-# Global processor cache for common size configurations
-_processor_cache = {}
+# Global processor cache for common size configurations.
+# Protected by _processor_lock for thread safety in multi-threaded workers.
+_processor_cache: dict = {}
+_processor_lock = threading.Lock()
 
 
 def _get_cached_processor(sizes: dict[str, tuple[int, int]], backend: BackendType) -> FastImageProcessor:
-    """Get or create cached processor for common configurations."""
+    """Get or create cached processor for common configurations (thread-safe)."""
     cache_key = (tuple(sorted(sizes.items())), backend)
-    if cache_key not in _processor_cache:
-        _processor_cache[cache_key] = FastImageProcessor(sizes, backend)
-    return _processor_cache[cache_key]
+    with _processor_lock:
+        if cache_key not in _processor_cache:
+            _processor_cache[cache_key] = FastImageProcessor(sizes, backend)
+        return _processor_cache[cache_key]
 
 
 def clear_backend_caches(force_gc: bool = True) -> dict[str, int]:
@@ -173,15 +180,14 @@ def clear_backend_caches(force_gc: bool = True) -> dict[str, int]:
     """
     global _processor_cache
 
-    # Capture statistics before clearing
-    processors_cleared = len(_processor_cache)
-    backends_cleared = len(FastImageProcessor._backend_cache)
+    # Clear caches under their respective locks
+    with _processor_lock:
+        processors_cleared = len(_processor_cache)
+        _processor_cache.clear()
 
-    # Clear processor cache (contains FastImageProcessor instances)
-    _processor_cache.clear()
-
-    # Clear backend cache (contains CoreImageBackend, ImageBackend, etc.)
-    FastImageProcessor._backend_cache.clear()
+    with FastImageProcessor._backend_lock:
+        backends_cleared = len(FastImageProcessor._backend_cache)
+        FastImageProcessor._backend_cache.clear()
 
     # Optional garbage collection to force cleanup
     if force_gc:

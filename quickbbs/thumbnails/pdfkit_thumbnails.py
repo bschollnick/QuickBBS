@@ -87,45 +87,47 @@ class PDFKitBackend(AbstractBackend):
         :return: CIImage of the rendered page
         :raises RuntimeError: If page rendering fails
         """
-        # Wrap in autorelease pool to drain PDFKit and Core Image objects
-        with autorelease_pool():
-            # Get the page
-            page = pdf_doc.pageAtIndex_(page_num)
-            if page is None:
-                raise RuntimeError(f"Could not get page {page_num} from PDF")
+        # No inner autorelease pool — callers (process_from_file, process_from_memory)
+        # have outer pools. An inner pool here would drain tiff_data that the
+        # returned CIImage may still reference.
 
-            # Get page bounds
-            page_rect = page.boundsForBox_(1)  # 1 = kPDFDisplayBoxMediaBox
-            page_width = page_rect.size.width
-            page_height = page_rect.size.height
+        # Get the page
+        page = pdf_doc.pageAtIndex_(page_num)
+        if page is None:
+            raise RuntimeError(f"Could not get page {page_num} from PDF")
 
-            # Calculate optimal scale
-            scale = self._calculate_optimal_scale(page_width, page_height, target_size[0], target_size[1])
+        # Get page bounds
+        page_rect = page.boundsForBox_(1)  # 1 = kPDFDisplayBoxMediaBox
+        page_width = page_rect.size.width
+        page_height = page_rect.size.height
 
-            # Calculate scaled dimensions
-            scaled_width = int(page_width * scale)
-            scaled_height = int(page_height * scale)
+        # Calculate optimal scale
+        scale = self._calculate_optimal_scale(page_width, page_height, target_size[0], target_size[1])
 
-            # Render page to CIImage using PDFKit's thumbnail method
-            # This is GPU-accelerated and very fast
-            ns_image = page.thumbnailOfSize_forBox_((scaled_width, scaled_height), 1)
+        # Calculate scaled dimensions
+        scaled_width = int(page_width * scale)
+        scaled_height = int(page_height * scale)
 
-            if ns_image is None:
-                raise RuntimeError("Failed to render PDF page thumbnail")
+        # Render page to CIImage using PDFKit's thumbnail method
+        # This is GPU-accelerated and very fast
+        ns_image = page.thumbnailOfSize_forBox_((scaled_width, scaled_height), 1)
 
-            # Convert NSImage to CGImage then to CIImage
-            # Get the bitmap representation
-            tiff_data = ns_image.TIFFRepresentation()
-            if tiff_data is None:
-                raise RuntimeError("Failed to get TIFF representation from NSImage")
+        if ns_image is None:
+            raise RuntimeError("Failed to render PDF page thumbnail")
 
-            # Create CIImage from TIFF data
-            ci_image = CIImage.imageWithData_(tiff_data)
+        # Convert NSImage to CGImage then to CIImage
+        # Get the bitmap representation
+        tiff_data = ns_image.TIFFRepresentation()
+        if tiff_data is None:
+            raise RuntimeError("Failed to get TIFF representation from NSImage")
 
-            if ci_image is None:
-                raise RuntimeError("Failed to create CIImage from TIFF data")
+        # Create CIImage from TIFF data
+        ci_image = CIImage.imageWithData_(tiff_data)
 
-            return ci_image
+        if ci_image is None:
+            raise RuntimeError("Failed to create CIImage from TIFF data")
+
+        return ci_image
 
     def process_from_file(
         self,

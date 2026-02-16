@@ -20,3 +20,6 @@ FONTAWESOME_SCRIPT_URI = None  # f'https://kit.fontawesome.com/ad5033c5d1.js'
 
 PDF_JS_VIEWER_VERSION = "2.6.347"
 PDF_JS_VIEWER_URI = f"https://cdnjs.cloudflare.com/ajax/libs/pdf.js/{PDF_JS_VIEWER_VERSION}/pdf.min.js"
+
+HTMX_VERSION = "2.0.7"
+HTMX_URI = f"https://cdnjs.cloudflare.com/ajax/libs/htmx/{HTMX_VERSION}/htmx.min.js"

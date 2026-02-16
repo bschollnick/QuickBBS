@@ -76,6 +76,12 @@ PIL_LOAD_TRUNCATED_IMAGES = True  # Allow loading truncated images
 PIL_IMAGE_QUALITY = 85  # Quality for PIL/Pillow thumbnail generation
 CORE_IMAGE_QUALITY = 55  # Quality for Core Image thumbnail generation (macOS)
 
+# All-white corruption detection threshold (bytes)
+# Thumbnails with small_thumb blob size below this value are suspected GPU corruption
+# and will be validated with PIL. All-white JPEGs at 200x200 q=55 are ~1303 bytes;
+# real photo thumbnails are typically 3-15KB+.
+SMALL_THUMBNAIL_SAFEGUARD_SIZE = 2500
+
 # Path alias mapping for resolving alternative volume mount points
 # Keys are lowercase source paths, values are the canonical paths they map to
 # Used by normalize_fqpn() to redirect legacy or alternate mount locations
