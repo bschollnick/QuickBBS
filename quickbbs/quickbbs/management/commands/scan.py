@@ -371,23 +371,24 @@ def verify_files(start_path: str | None = None, max_count: int = 0):
 
 def verify_thumbnails(max_count: int = 0):
     """
-    Scan all thumbnails for all-white corrupted images and fix them in-place.
+    Scan thumbnails for all-white corrupted images and fix them in-place.
 
-    This function:
-    1. Iterates through ThumbnailFiles records checking for all-white pixel data
-    2. Immediately invalidates corrupted thumbnails (sets to b"") as they're found
-    3. Collects directory IDs (not objects) to minimize memory usage
-    4. Marks parent directories as invalidated in fs_Cache_Tracking
-    5. Ensures thumbnails will be regenerated on next access
+    Uses a two-phase approach for efficiency:
+    1. Database filter: Uses octet_length() to find thumbnails with suspiciously
+       small blob sizes (below SMALL_THUMBNAIL_SAFEGUARD_SIZE). All-white JPEGs
+       compress to ~700-1300 bytes while real photos are typically 3-15KB+.
+    2. PIL validation: Opens only the suspect thumbnails to confirm all-white pixels.
 
-    Memory efficient: Processes thumbnails in batches, fixes in-place, stores only directory IDs.
+    This avoids loading every thumbnail blob from the database (283 GB TOAST data).
+
+    Also deletes orphaned ThumbnailFiles records (no linked FileIndex).
 
     Note: --start is not supported for thumbnail operations because thumbnails are
     content-addressed by SHA256. A corrupted thumbnail affects all files with the
     same hash, regardless of directory location.
 
     Args:
-        max_count: Maximum number of thumbnails to process (0 = unlimited)
+        max_count: Maximum number of suspect thumbnails to process (0 = unlimited)
 
     Returns:
         None
@@ -395,23 +396,33 @@ def verify_thumbnails(max_count: int = 0):
     import sys
     from itertools import batched
 
+    from django.db.models.functions import Length
+
     print("=" * 80)
     print("THUMBNAIL VERIFICATION - Scanning for all-white corrupted thumbnails")
     print("=" * 80)
     sys.stdout.flush()
 
-    # Fetch only PKs first - instant query on 261 MB main table, avoids 283 GB TOAST
-    print("Fetching thumbnail PKs (fast - main table only)...")
+    safeguard_size = settings.SMALL_THUMBNAIL_SAFEGUARD_SIZE
+    total_thumbnails = ThumbnailFiles.objects.count()
+
+    # Phase 1: Use octet_length to find suspect thumbnails (small blobs = likely corruption)
+    print(f"Total thumbnails in database: {total_thumbnails}")
+    print(f"Filtering for suspect thumbnails (small_thumb < {safeguard_size} bytes)...")
     sys.stdout.flush()
     pk_start = time.time()
-    all_pks = list(ThumbnailFiles.objects.all().only("pk").values_list("pk", flat=True))
-    total_thumbnails = len(all_pks)
+    suspect_pks = list(
+        ThumbnailFiles.objects.annotate(blob_size=Length("small_thumb"))
+        .filter(blob_size__gt=0, blob_size__lt=safeguard_size)
+        .values_list("pk", flat=True)
+    )
+    suspect_count = len(suspect_pks)
     pk_time = time.time() - pk_start
-    print(f"Found {total_thumbnails} thumbnails ({pk_time:.1f}s)")
+    print(f"Found {suspect_count} suspect thumbnails out of {total_thumbnails} ({pk_time:.1f}s)")
     sys.stdout.flush()
 
     if max_count > 0:
-        all_pks = all_pks[:max_count]
+        suspect_pks = suspect_pks[:max_count]
         print(f"Limiting to {max_count} thumbnails...")
 
     # Track directories that need invalidation (only store IDs, not objects)
@@ -420,25 +431,19 @@ def verify_thumbnails(max_count: int = 0):
     corrupted_count = 0
     orphaned_count = 0
     chunk_size = 100  # Load blob data in small chunks
-    progress_interval = 1000  # Report progress every 1000 thumbnails
     start_time = time.time()
 
-    print(f"\nScanning thumbnails in chunks of {chunk_size}...")
+    print(f"\nPhase 2: Validating {len(suspect_pks)} suspect thumbnails with PIL...")
     print("-" * 80)
     sys.stdout.flush()
 
-    # Process PKs in chunks to avoid loading all TOAST data at once
-    for pk_chunk in batched(all_pks, chunk_size):
+    # Process suspect PKs in chunks
+    for pk_chunk in batched(suspect_pks, chunk_size):
         # Load only needed fields for this chunk
         thumbnails = ThumbnailFiles.objects.filter(pk__in=pk_chunk).only("id", "sha256_hash", "small_thumb")
 
         for thumbnail in thumbnails:
             batch_counter += 1
-
-            # Show first item to confirm processing started
-            if batch_counter == 1:
-                print(f"  First thumbnail received, processing...")
-                sys.stdout.flush()
 
             try:
                 # Check for orphaned thumbnail (no linked FileIndex records)
@@ -452,19 +457,21 @@ def verify_thumbnails(max_count: int = 0):
                     continue
 
                 # Check if thumbnail is all-white
-                img = Image.open(io.BytesIO(thumbnail.small_thumb))
-                extrema = img.getextrema()
+                with Image.open(io.BytesIO(thumbnail.small_thumb)) as img:
+                    extrema = img.getextrema()
 
-                # Check if all pixels are white
-                is_all_white = False
-                if img.mode == "RGB":
-                    is_all_white = extrema == ((255, 255), (255, 255), (255, 255))
-                elif img.mode == "L":
-                    is_all_white = extrema == (255, 255)
+                    # Check if all pixels are white
+                    is_all_white = False
+                    if img.mode == "RGB":
+                        is_all_white = extrema == ((255, 255), (255, 255), (255, 255))
+                    elif img.mode == "L":
+                        is_all_white = extrema == (255, 255)
 
                 if is_all_white:
                     corrupted_count += 1
-                    print(f"  ⚠️  Found white thumbnail: SHA256={thumbnail.sha256_hash[:16]}...")
+                    fi = FileIndex.objects.filter(file_sha256=thumbnail.sha256_hash).first()
+                    fi_name = fi.name if fi else "unknown"
+                    print(f"  Found potential issue: SHA256={thumbnail.sha256_hash[:16]}... file={fi_name}")
 
                     # Invalidate immediately
                     with transaction.atomic():
@@ -479,20 +486,12 @@ def verify_thumbnails(max_count: int = 0):
                         )
                         directories_to_invalidate.update(file_dir_ids)
 
-                    print("      ✓ Invalidated thumbnail immediately")
+                    print("      Invalidated thumbnail")
 
             except Exception as e:
-                print(f"  ❌ Error checking thumbnail {thumbnail.sha256_hash}: {e}")
+                print(f"  Error checking thumbnail {thumbnail.sha256_hash}: {e}")
                 sys.stdout.flush()
                 continue
-
-            # Progress reporting - every 1000 thumbnails
-            if batch_counter % progress_interval == 0:
-                elapsed = time.time() - start_time
-                rate = batch_counter / elapsed if elapsed > 0 else 0
-                effective_total = min(max_count, total_thumbnails) if max_count > 0 else total_thumbnails
-                print(f"Processed {batch_counter}/{effective_total} ({corrupted_count} corrupted, {orphaned_count} orphaned, {rate:.1f}/sec)")
-                sys.stdout.flush()
 
         # Close connections after each chunk to prevent exhaustion
         close_old_connections()
@@ -501,17 +500,18 @@ def verify_thumbnails(max_count: int = 0):
     rate = batch_counter / elapsed if elapsed > 0 else 0
 
     print("-" * 80)
-    print(f"Scan complete: Processed {batch_counter} thumbnails in {elapsed:.1f}s ({rate:.1f}/sec)")
+    print(f"Scan complete: {batch_counter} suspect thumbnails validated in {elapsed:.1f}s ({rate:.1f}/sec)")
+    print(f"  (filtered from {total_thumbnails} total using blob size < {safeguard_size} bytes)")
     print(f"Found and fixed {corrupted_count} corrupted white thumbnails")
     print(f"Deleted {orphaned_count} orphaned thumbnail records")
 
     if corrupted_count == 0 and orphaned_count == 0:
-        print("✅ No issues found. Database is clean!")
+        print("No issues found. Database is clean!")
         return
 
     if corrupted_count == 0:
-        print("✅ No corrupted thumbnails found.")
-        print(f"✅ Cleaned up {orphaned_count} orphaned records.")
+        print("No corrupted thumbnails found.")
+        print(f"Cleaned up {orphaned_count} orphaned records.")
         return
 
     print("-" * 80)
@@ -551,7 +551,7 @@ def verify_thumbnails(max_count: int = 0):
 
                     # Show progress for first few and then periodically
                     if directory_counter <= 5 or directory_counter % 100 == 0:
-                        print(f"  ✓ Invalidated directory {directory_counter}/{total_dirs}: {directory.fqpndirectory}")
+                        print(f"  Invalidated directory {directory_counter}/{total_dirs}: {directory.fqpndirectory}")
 
             close_old_connections()
 
@@ -560,12 +560,13 @@ def verify_thumbnails(max_count: int = 0):
 
     print("\n" + "=" * 80)
     print("SUMMARY:")
-    print(f"  - Total thumbnails scanned: {batch_counter}")
+    print(f"  - Total thumbnails in database: {total_thumbnails}")
+    print(f"  - Suspect thumbnails (blob < {safeguard_size} bytes): {suspect_count}")
     print(f"  - Corrupted thumbnails found and fixed: {corrupted_count}")
     print(f"  - Orphaned thumbnails deleted: {orphaned_count}")
     print(f"  - Directories marked for regeneration: {len(directories_to_invalidate)}")
     print("=" * 80)
-    print("\n✅ Thumbnail verification complete!")
+    print("\nThumbnail verification complete!")
     print("Corrupted thumbnails will be regenerated on next access.")
 
 

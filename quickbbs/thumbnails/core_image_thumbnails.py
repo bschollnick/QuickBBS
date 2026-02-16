@@ -2,6 +2,7 @@
 """Core Image backend for thumbnail generation using macOS GPU acceleration."""
 
 import io
+import os
 from contextlib import contextmanager
 
 from PIL import Image, ImageOps
@@ -25,16 +26,29 @@ try:
 
     CORE_IMAGE_AVAILABLE = True
 
+    # Fork-safe Metal device cache: tracks the PID to detect post-fork scenarios.
+    # After os.fork(), the child inherits the parent's Metal device pointer, but
+    # the underlying Mach ports are dead. Re-creating the device in the child
+    # process is the only safe option.
+    _metal_device_cache: dict[str, object] = {"device": None, "pid": None}
+
     def _create_metal_device():
         """
-        Create a Metal device using ctypes to call MTLCreateSystemDefaultDevice.
+        Create or reuse a fork-safe Metal device.
 
-        pyobjc-framework-Metal is not installed, so we load the Metal framework
-        directly via ctypes and convert the returned pointer to a PyObjC object.
+        Uses ctypes to call MTLCreateSystemDefaultDevice since pyobjc-framework-Metal
+        is not installed. Caches the device per-PID so that forked child processes
+        get a fresh device instead of inheriting a stale one with dead Mach ports.
 
         Returns:
             PyObjC Metal device object, or None if Metal is unavailable
         """
+        current_pid = os.getpid()
+        cached = _metal_device_cache["device"]
+        if cached is not None and _metal_device_cache["pid"] == current_pid:
+            return cached
+
+        # Either first call or post-fork — (re)create
         try:
             metal_lib = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/Metal.framework/Metal")
             func = metal_lib.MTLCreateSystemDefaultDevice
@@ -42,7 +56,10 @@ try:
             func.argtypes = []
             device_ptr = func()
             if device_ptr:
-                return objc.objc_object(c_void_p=ctypes.c_void_p(device_ptr))
+                device = objc.objc_object(c_void_p=ctypes.c_void_p(device_ptr))
+                _metal_device_cache["device"] = device
+                _metal_device_cache["pid"] = current_pid
+                return device
         except (OSError, AttributeError):
             pass
         return None
@@ -93,16 +110,20 @@ class CoreImageBackend(AbstractBackend):
         if not CORE_IMAGE_AVAILABLE:
             raise ImportError("Core Image not available. This backend requires macOS with pyobjc.")
 
-        self._context = None
-        self._color_space = CGColorSpaceCreateDeviceRGB()
+        with autorelease_pool():
+            self._context = None
+            self._color_space = CGColorSpaceCreateDeviceRGB()
 
-        # Metal command queue for explicit GPU resource lifecycle management
-        # Per WWDC 2020/10008: CIContext.contextWithMTLCommandQueue:options:
-        # gives better resource management than contextWithOptions:
-        self._metal_device = _create_metal_device()
-        if self._metal_device is None:
-            raise ImportError("Metal GPU device not available")
-        self._command_queue = self._metal_device.newCommandQueue()
+            # Metal command queue for explicit GPU resource lifecycle management
+            # Per WWDC 2020/10008: CIContext.contextWithMTLCommandQueue:options:
+            # gives better resource management than contextWithOptions:
+            self._metal_device = _create_metal_device()
+            if self._metal_device is None:
+                raise ImportError("Metal GPU device not available")
+            try:
+                self._command_queue = self._metal_device.newCommandQueue()
+            except Exception as e:
+                raise ImportError(f"Metal command queue creation failed (post-fork?): {e}") from e
 
     @property
     def context(self) -> "CIContext":

@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
+from django.db.models import Model
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 from user_preferences.models import UserPreferences
 
+User = get_user_model()
+
 
 @receiver(post_save, sender=User)
-def create_user_preferences(sender: type[User], instance: User, created: bool, **kwargs) -> None:
+def create_user_preferences(sender: type[Model], instance: Model, created: bool, **kwargs) -> None:
     """
     Create UserPreferences when a new User is created.
 
@@ -25,7 +28,7 @@ def create_user_preferences(sender: type[User], instance: User, created: bool, *
 
 
 @receiver(post_save, sender=User)
-def save_user_preferences(sender: type[User], instance: User, **kwargs) -> None:
+def save_user_preferences(sender: type[Model], instance: Model, **kwargs) -> None:
     """
     Save UserPreferences when User is saved.
 

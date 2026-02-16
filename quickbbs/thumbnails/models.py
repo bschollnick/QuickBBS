@@ -330,7 +330,9 @@ class ThumbnailFiles(models.Model):
                     with Image.open(io.BytesIO(thumbnails["small"])) as check_img:
                         extrema = check_img.getextrema()
                         if check_img.mode == "RGB" and extrema == ((255, 255), (255, 255), (255, 255)):
-                            raise ValueError(f"All-white thumbnail detected (GPU corruption) for {index_data_item.name}")
+                            raise ValueError(
+                                f"All-white thumbnail detected (GPU corruption) for {index_data_item.name}"
+                            )
                 elif filetype.is_movie:
                     thumbnails = create_thumbnails_from_path(
                         filename,

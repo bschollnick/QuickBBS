@@ -1,9 +1,10 @@
 """
-Utilities for QuickBBS, the python edition.
+Utility functions for QuickBBS.
 
-ASGI Support:
-- Async wrapper functions provided for database operations
-- All functions with ORM queries can be wrapped with sync_to_async
+Provides path conversion, breadcrumb generation, parallel SHA256 hashing,
+and the core database-from-disk synchronization function.
+
+All functions are synchronous. Async callers should wrap with sync_to_async().
 """
 
 import atexit
@@ -23,11 +24,18 @@ from django.db import close_old_connections
 # First-party imports
 from cache_watcher.models import Cache_Storage
 from frontend.file_listings import return_disk_listing_sync
-from quickbbs.common import SORT_MATRIX, get_file_sha
+from quickbbs.common import get_file_sha
 from quickbbs.models import DirectoryIndex
 from quickbbs.MonitoredCache import create_cache
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "convert_to_webpath",
+    "ensures_endswith",
+    "return_breadcrumbs",
+    "update_database_from_disk",
+]
 
 # Async-safe caches for utility functions
 webpaths_cache = create_cache(settings.WEBPATHS_CACHE_SIZE, "webpaths", monitored=settings.CACHE_MONITORING)
@@ -238,7 +246,14 @@ def update_database_from_disk(directory_record: DirectoryIndex) -> DirectoryInde
 
     # Reload from DB in case Cache_Watcher was invalidated after this object was loaded
     # (e.g., by watchdog). Clears all cached relations including reverse OneToOne.
-    directory_record.refresh_from_db()
+    try:
+        directory_record.refresh_from_db()
+    except DirectoryIndex.DoesNotExist:
+        logger.info(
+            "Directory record deleted before sync (cascade from parent): %s",
+            dirpath,
+        )
+        return None
 
     # Check if directory is cached using the record's property
     if directory_record.is_cached:
@@ -263,6 +278,6 @@ def update_database_from_disk(directory_record: DirectoryIndex) -> DirectoryInde
     logger.info(f"Cached directory: {dirpath}")
     print("Elapsed Time (Sync Database Disk): ", time.perf_counter() - start_time)
 
-    # Close stale connections after expensive operation
+    # Close connections that have exceeded CONN_MAX_AGE (may have gone stale during sync)
     close_old_connections()
     return directory_record

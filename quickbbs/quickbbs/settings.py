@@ -28,15 +28,11 @@ from PIL import Image, ImageFile
 from quickbbs.quickbbs_settings import *
 from quickbbs import __version__ as QUICKBBS_VERSION
 
-from steady_queue.configuration import Configuration
-
-# from steady_queue.models import Job as SteadyQueueJob
-
 #
 #   Debug, enables the debugging mode
 #
 DEBUG = False
-DEBUG = not DEBUG
+# DEBUG = not DEBUG
 print(f"* Debug Mode is {DEBUG}")
 
 #   Django Debug Toolbar, is controlled separately from the debug mode,
@@ -236,7 +232,7 @@ INSTALLED_APPS += [
     "thumbnails",
     "user_preferences",
     "django_htmx",
-    "steady_queue",
+    "dbtasks",
 ]
 
 SITE_ID = 1
@@ -373,31 +369,6 @@ WSGI_APPLICATION = "quickbbs.wsgi.application"
 # Database configuration - credentials imported from secrets.py
 # https://docs.djangoproject.com/en/1.9/ref/settings/#databases
 #
-# psycopg's connection pool spawns threads that cause SIGSEGV in forked
-# processes (steady-queue workers). Disable the pool when running as a
-# queue worker. Also requires OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES.
-import sys
-
-_is_queue_worker = "steady_queue" in sys.argv
-
-_pool_options: dict = {}
-if _is_queue_worker:
-    # Disable pool and GSS/Kerberos for forked worker processes.
-    # libpq's GSS credential check calls into XPC which segfaults post-fork on macOS.
-    _pool_options = {
-        "gssencmode": "disable",
-    }
-else:
-    _pool_options = {
-        "pool": {
-            "min_size": 5,  # Keep minimum connections ready
-            "max_size": 50,  # Limit to 50 connections (matches user concurrency)
-            "max_lifetime": 60,  # Connection max lifetime (60 seconds)
-            "max_idle": 5,  # Max idle time before closing (5 seconds)
-            "timeout": 15,  # Connection timeout (seconds)
-        },
-    }
-
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
@@ -407,21 +378,14 @@ DATABASES = {
         "HOST": DATABASE_HOST,  # Imported from secrets.py
         "PORT": DATABASE_PORT,  # Imported from secrets.py
         "CONN_MAX_AGE": 0,  # Let psycopg pool manage connection lifetime
-        "OPTIONS": _pool_options,
-    },
-    # Alias for steady-queue database router (same DB, unpooled, no GSS)
-    # gssencmode=disable prevents libpq from calling into Kerberos/XPC
-    # which segfaults in forked child processes on macOS.
-    "queue": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": DATABASE_NAME,
-        "USER": DATABASE_USER,
-        "PASSWORD": DATABASE_PASSWORD,
-        "HOST": DATABASE_HOST,
-        "PORT": DATABASE_PORT,
-        "CONN_MAX_AGE": 5,
         "OPTIONS": {
-            "gssencmode": "disable",
+            "pool": {
+                "min_size": 5,  # Keep minimum connections ready
+                "max_size": 50,  # Limit to 50 connections (matches user concurrency)
+                "max_lifetime": 60,  # Connection max lifetime (60 seconds)
+                "max_idle": 5,  # Max idle time before closing (5 seconds)
+                "timeout": 15,  # Connection timeout (seconds)
+            },
         },
     },
 }
@@ -486,26 +450,16 @@ MFA_RECOVERY_CODE_DIGITS = 8
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Steady Queue - database-backed task backend (Django 6.0+)
-# Start worker with: python manage.py steady_queue
-# Uses "queue" database alias (unpooled) to avoid fork() + psycopg pool crash.
-import steady_queue
-
-steady_queue.database = "queue"
-DATABASE_ROUTERS = ["steady_queue.db_router.SteadyQueueRouter"]
-
+# django-dbtasks — database-backed task backend (thread-based workers, no fork)
+# Start worker with: python manage.py taskrunner
 TASKS = {
     "default": {
-        "BACKEND": "steady_queue.backend.SteadyQueueBackend",
-        "QUEUES": ["default"],
-        "OPTIONS": {},
-    }
+        "BACKEND": "dbtasks.backend.DatabaseBackend",
+        "OPTIONS": {
+            "retain": timedelta(days=7),
+        },
+    },
 }
-
-STEADY_QUEUE = Configuration.Options(
-    dispatchers=[Configuration.Dispatcher(polling_interval=timedelta(seconds=1), batch_size=500)],
-    workers=[Configuration.Worker(queues=["*"], threads=3, processes=3, polling_interval=timedelta(seconds=0.1))],
-)
 
 # Settings for django-icons
 DJANGO_ICONS = {

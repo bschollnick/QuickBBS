@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from django.contrib.auth.models import User
+from django.conf import settings
 from django.db import models
 
 
@@ -11,11 +11,11 @@ class UserPreferences(models.Model):
     Store user preferences for QuickBBS Gallery.
 
     Args:
-        user: OneToOne relationship to Django User model
+        user: OneToOne relationship to AUTH_USER_MODEL
         show_duplicates: Whether to show duplicate files in gallery listings
     """
 
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="preferences")
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="preferences")
     show_duplicates = models.BooleanField(default=False, help_text="Show duplicate files in gallery listings")
 
     class Meta:

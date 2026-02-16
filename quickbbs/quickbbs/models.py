@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 
-from django.contrib.auth.models import User  # pylint: disable=imported-auth-user
+from django.conf import settings
 from django.db import models
 
 logger = logging.getLogger(__name__)
@@ -19,7 +19,7 @@ class Owners(models.Model):
 
     id = models.AutoField(primary_key=True)
     uuid = models.UUIDField(default=None, null=True, editable=False, blank=True, db_index=True)
-    ownerdetails = models.OneToOneField(User, on_delete=models.CASCADE, db_index=True, default=None)
+    ownerdetails = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, db_index=True, default=None)
 
     # Reverse one-to-one relationship
     fileindex: "models.OneToOneRel[FileIndex]"  # type: ignore[valid-type]  # From FileIndex.ownership

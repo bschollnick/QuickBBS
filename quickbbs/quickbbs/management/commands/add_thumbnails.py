@@ -228,6 +228,6 @@ def add_thumbnails(max_count: int = 0) -> None:
 
     print("=" * 60)
     print(f"Enqueued {enqueued} thumbnails in {task_count} tasks")
-    print("Thumbnails will be generated asynchronously by steady-queue workers.")
-    print("Start a worker with: python manage.py steady_queue")
+    print("Thumbnails will be generated asynchronously by dbtasks workers.")
+    print("Start a worker with: python manage.py taskrunner")
     print("=" * 60)

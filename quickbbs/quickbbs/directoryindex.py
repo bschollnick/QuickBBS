@@ -22,6 +22,7 @@ from django.urls import reverse
 
 from filetypes.models import filetypes, get_ftype_dict
 from quickbbs.common import (
+    DIR_SORT_MATRIX,
     SORT_MATRIX,
     get_dir_sha,
     normalize_fqpn,
@@ -195,7 +196,7 @@ class DirectoryIndex(models.Model):
                     found, _ = DirectoryIndex.search_for_directory_by_sha(parent_sha, DIRECTORYINDEX_SR_CACHE, ())
 
                     if not found:
-                        print(f"Creating parent directory: {parent_dir}")
+                        logger.info("Creating parent directory: %s", parent_dir)
 
                     # Always call add_directory to ensure parent has correct parent_directory link
                     # update_or_create will handle both new and existing records
@@ -255,13 +256,12 @@ class DirectoryIndex(models.Model):
     @property
     def virtual_directory(self) -> str:
         """
-        Return the virtual directory name of the directory.
-        This is used to return the directory name without the full path.
+        Return the virtual directory name. Alias for ``name`` property.
 
         Returns:
             String
         """
-        return str(Path(self.fqpndirectory).name)
+        return self.name
 
     @property
     def numdirs(self) -> None:
@@ -422,6 +422,7 @@ class DirectoryIndex(models.Model):
             cache_only: Do not perform a delete on the Directory_Index data
 
         Returns:
+            None
         """
         # Inline import to avoid circular dependency:
         # cache_watcher.models imports DirectoryIndex in multiple places
@@ -591,18 +592,21 @@ class DirectoryIndex(models.Model):
 
         Note:
             When distinct=True, PostgreSQL DISTINCT ON requires file_sha256 to be the first
-            ORDER BY field, which disrupts the user's intended sort order. This method
-            re-sorts the results in Python to maintain the correct order while still
-            benefiting from PostgreSQL's fast DISTINCT ON operation.
+            ORDER BY field, which disrupts the user's intended sort order. A second database
+            query re-sorts the deduplicated results using the user's sort order. This ensures
+            consistent collation with the non-distinct path (both use PostgreSQL's collation).
+
+            Previously, re-sorting was done in Python, but Python's default string comparison
+            uses Unicode code points (ASCII: '-' 0x2D < '_' 0x5F) while PostgreSQL's
+            en_US.UTF-8 collation sorts these differently ('_' < '-'). This caused the
+            gallery view (non-distinct, DB sort) and item view navigation (distinct, Python
+            sort) to show files in different orders.
 
             Using fields_only significantly reduces memory usage (~60-70%) when full
             objects with related data aren't needed. Common use cases:
             - Getting file names for filesystem comparison
             - Building file lists with only specific attributes
             - Batch operations needing only IDs or hashes
-
-            With distinct=True and fields_only, sort fields are automatically included
-            to enable Python re-sorting, then objects contain only requested + sort fields.
         """
         if select_related is None:
             raise ValueError("select_related parameter is required")
@@ -642,35 +646,29 @@ class DirectoryIndex(models.Model):
             files = files.select_related(*select_related)
 
         if distinct:
-            # Step 1: Get deduplicated records (PostgreSQL orders by file_sha256 first)
-            files = files.order_by("file_sha256", *SORT_MATRIX[sort]).distinct("file_sha256")
+            # Step 1: Get deduplicated records (PostgreSQL DISTINCT ON requires
+            # file_sha256 as first ORDER BY field, disrupting user's sort order)
+            distinct_qs = files.order_by("file_sha256", *SORT_MATRIX[sort]).distinct("file_sha256")
 
-            # Step 2: Convert to list (need full objects for re-sorting)
-            files_list = list(files)
+            # Step 2: Re-query the deduplicated PKs with the user's sort order.
+            # This avoids Python re-sorting which uses different collation than
+            # PostgreSQL (Python ASCII: '-' < '_', PostgreSQL en_US.UTF-8: '_' < '-').
+            # Using a second DB query ensures sort order matches the non-distinct
+            # path used by the gallery view, preventing navigation mismatches.
+            distinct_pks = [f.pk for f in distinct_qs]
 
-            # Step 3: Re-sort in Python using user's preference
-            # Apply sort fields in reverse order for stable multi-field sorting
-            sort_fields = SORT_MATRIX[sort]
+            # Import FileIndex here to avoid circular import at module level
+            # pylint: disable-next=import-outside-toplevel
+            from .fileindex import FileIndex as FileIndexModel
 
-            # Helper function to extract sort key from related field paths
-            def make_sort_key(field_path):
-                """Create a sort key function for the given field path."""
-                parts = field_path.split("__")
+            resorted_qs = FileIndexModel.objects.filter(pk__in=distinct_pks)
+            if select_related:
+                resorted_qs = resorted_qs.select_related(*select_related)
+            if fields_only and not any("__" in f.lstrip("-") for f in SORT_MATRIX[sort]):
+                resorted_qs = resorted_qs.only(*fields_only)
+            resorted_qs = resorted_qs.order_by(*SORT_MATRIX[sort])
 
-                def get_value(obj):
-                    value = obj
-                    for part in parts:
-                        value = getattr(value, part)
-                    return value
-
-                return get_value
-
-            for field in reversed(sort_fields):
-                is_reverse = field.startswith("-")
-                field_name = field.lstrip("-")
-                files_list.sort(key=make_sort_key(field_name), reverse=is_reverse)
-
-            return files_list
+            return list(resorted_qs)
 
         files = files.order_by(*SORT_MATRIX[sort])
         return files
@@ -722,31 +720,19 @@ class DirectoryIndex(models.Model):
         """
         Return the cover image for the directory based on priority filename matching.
 
-        Args:
-            None
-
         Returns:
             FileIndex record if a suitable cover image is found, None otherwise
 
         Logic:
             1. Get files in directory that can be thumbnailed (images, movies, PDFs)
-            2. If no files exist, return None
-            3. Check for files matching DIRECTORY_COVER_NAMES (case-insensitive)
-            4. If match found, return that file's FileIndex record
-            5. If no match, return the first file in the query
+            2. Check for files matching DIRECTORY_COVER_NAMES (case-insensitive)
+            3. If match found, return that file's FileIndex record
+            4. If no match, return the first thumbnailable file (or None if empty)
         """
-        # Import here to avoid circular import at module level
-        # pylint: disable-next=import-outside-toplevel
-        from .fileindex import FILEINDEX_SR_FILETYPE
-
         # Get thumbnailable files (images, movies, PDFs), excluding link files
         thumbnailable_filters = (Q(filetype__is_image=True) & ~Q(filetype__is_link=True)) | Q(filetype__is_movie=True) | Q(filetype__is_pdf=True)
 
         files = self.files_in_dir(sort=0, select_related=FILEINDEX_SR_FILETYPE).filter(thumbnailable_filters)
-
-        # If no files exist, return None
-        if not files.exists():
-            return None
 
         # Try to find a file matching the cover names using prebuilt query from settings
         # This replaces nested loops with a single database query for ~99% speedup
@@ -755,7 +741,7 @@ class DirectoryIndex(models.Model):
         if cover_file:
             return cover_file
 
-        # No match found, return first file
+        # No cover match — return first thumbnailable file (None if queryset is empty)
         return files.first()
 
     def dirs_in_dir(
@@ -789,7 +775,7 @@ class DirectoryIndex(models.Model):
 
         if fields_only:
             # Lightweight query - only load specified fields, skip related objects
-            return queryset.only(*fields_only).order_by(*SORT_MATRIX[sort])
+            return queryset.only(*fields_only).order_by(*DIR_SORT_MATRIX[sort])
 
         # Full query with all related objects prefetched
         # REMOVED: Hardcoded Prefetch("FileIndex_entries"...) - Phase 5 Fix 3
@@ -805,7 +791,7 @@ class DirectoryIndex(models.Model):
         if prefetch_related:
             queryset = queryset.prefetch_related(*prefetch_related)
 
-        return queryset.order_by(*SORT_MATRIX[sort])
+        return queryset.order_by(*DIR_SORT_MATRIX[sort])
 
     @cached(directoryindex_cache)
     def get_view_url(self) -> str:
@@ -959,7 +945,7 @@ class DirectoryIndex(models.Model):
                 records_to_create.append(record)
 
             except (OSError, IOError, ValueError, TypeError) as e:
-                logger.error(f"Error processing new file {fs_entry}: {e}")
+                logger.error("Error processing new file %s: %s", fs_entry, e)
                 continue
 
         return records_to_create
@@ -996,7 +982,6 @@ class DirectoryIndex(models.Model):
         # pylint: disable-next=import-outside-toplevel
         from cache_watcher.models import Cache_Storage
 
-        print("Synchronizing directories...")
         logger.info("Synchronizing directories...")
         current_path = normalize_fqpn(self.fqpndirectory)
 
@@ -1014,7 +999,7 @@ class DirectoryIndex(models.Model):
         )
         existing_count = existing_dirs_qs.count()
 
-        print(f"Existing directories in database: {existing_count}")
+        logger.info("Existing directories in database: %d", existing_count)
         if existing_count > 0:
             # Check each directory for updates
             updated_records = []
@@ -1036,26 +1021,26 @@ class DirectoryIndex(models.Model):
                             db_dir_entry.lastmod = fs_stat.st_mtime
                             updated_records.append(db_dir_entry)
                     except (OSError, IOError) as e:
-                        logger.error(f"Error checking directory {db_dir_entry.fqpndirectory}: {e}")
+                        logger.error("Error checking directory %s: %s", db_dir_entry.fqpndirectory, e)
 
-            print(f"Directories to Update: {len(updated_records)}")
+            logger.info("Directories to update: %d", len(updated_records))
 
             if updated_records:
-                print(f"processing existing directory changes: {len(updated_records)}")
                 with transaction.atomic():
-                    # Lock rows to prevent concurrent modifications, then bulk update
+                    # Acquire row-level locks before bulk_update to prevent concurrent modifications.
+                    # The queryset is evaluated (list()) to execute the SELECT FOR UPDATE, but the
+                    # result is intentionally discarded — only the DB-level locks matter.
                     update_ids = [r.id for r in updated_records]
-                    DirectoryIndex.objects.select_for_update(skip_locked=True).filter(id__in=update_ids).only("id")
+                    list(DirectoryIndex.objects.select_for_update(skip_locked=True).filter(id__in=update_ids).only("id"))
                     DirectoryIndex.objects.bulk_update(updated_records, ["lastmod"], batch_size=settings.DIRECTORY_SYNC_BATCH_SIZE)
                     for db_dir_entry in updated_records:
                         Cache_Storage.remove_from_cache_indexdirs(db_dir_entry)
-                logger.info(f"Processing {len(updated_records)} directory updates")
+                logger.info("Processing %d directory updates", len(updated_records))
 
         # Create new directories BEFORE deleting old ones to prevent foreign key violations
         new_dirs = fs_dirs - db_dirs
         if new_dirs:
-            print(f"Directories to Add: {len(new_dirs)}")
-            logger.info(f"Directories to Add: {len(new_dirs)}")
+            logger.info("Directories to add: %d", len(new_dirs))
             with transaction.atomic():
                 for dir_to_create in new_dirs:
                     DirectoryIndex.add_directory(fqpn_directory=dir_to_create)
@@ -1065,8 +1050,7 @@ class DirectoryIndex(models.Model):
         # Delete directories that no longer exist in filesystem
         deleted_dirs = db_dirs - fs_dirs
         if deleted_dirs:
-            print(f"Directories to Delete: {len(deleted_dirs)}")
-            logger.info(f"Directories to Delete: {len(deleted_dirs)}")
+            logger.info("Directories to delete: %d", len(deleted_dirs))
             with transaction.atomic():
                 all_dirs_queryset.filter(fqpndirectory__in=deleted_dirs).delete()
                 Cache_Storage.remove_from_cache_indexdirs(self)
