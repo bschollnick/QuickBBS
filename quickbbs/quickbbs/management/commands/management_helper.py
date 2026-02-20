@@ -12,7 +12,7 @@ import time
 from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import Count
 
-from cache_watcher.models import Cache_Storage
+from cache_watcher.models import Cache_Storage, fs_Cache_Tracking
 from quickbbs.common import normalize_fqpn
 from quickbbs.models import FileIndex, DirectoryIndex
 
@@ -53,19 +53,23 @@ def invalidate_empty_directories(start_path: str | None = None, verbose: bool = 
     if verbose:
         print(f"Found {empty_count} empty directories to invalidate")
 
-    invalidated_count = 0
-    # Invalidate each empty directory in fs_Cache_Tracking
+    now = time.time()
+    entries_to_update = []
     for directory in empty_directories:
-        # Check if directory has a Cache_Watcher entry (1-to-1 relationship)
         try:
-            # Update existing cache entry to invalidated
-            directory.Cache_Watcher.invalidated = True
-            directory.Cache_Watcher.lastscan = time.time()
-            directory.Cache_Watcher.save()
-            invalidated_count += 1
+            watcher = directory.Cache_Watcher
+            watcher.invalidated = True
+            watcher.lastscan = now
+            entries_to_update.append(watcher)
         except ObjectDoesNotExist:
-            # No cache entry for this directory - skip it
             pass
+
+    if entries_to_update:
+        fs_Cache_Tracking.objects.bulk_update(
+            entries_to_update, fields=["invalidated", "lastscan"], batch_size=250
+        )
+
+    invalidated_count = len(entries_to_update)
 
     if verbose:
         print(f"Invalidated {invalidated_count} empty directories in cache")
@@ -112,20 +116,13 @@ def invalidate_directories_with_null_sha256(start_path: str | None = None, verbo
     # Use values_list to get just the directory IDs efficiently
     directory_ids = files_without_sha.values_list("home_directory_id", flat=True).distinct()
 
-    # Use .count() to avoid materializing queryset twice
-    directory_count = directory_ids.count()
+    directories_to_invalidate = list(DirectoryIndex.objects.filter(id__in=directory_ids))
+    invalidated_count = len(directories_to_invalidate)
     if verbose:
-        print(f"Found {directory_count} directories containing files without SHA256")
+        print(f"Found {invalidated_count} directories containing files without SHA256")
 
-    # Invalidate each directory in fs_Cache_Tracking
-    directories_to_invalidate = DirectoryIndex.objects.filter(id__in=directory_ids)
-
-    invalidated_count = 0
-    for directory in directories_to_invalidate:
-        Cache_Storage.remove_from_cache_indexdirs(directory)
-        invalidated_count += 1
-        if verbose:
-            print(f"  Invalidated: {directory.fqpndirectory}")
+    if directories_to_invalidate:
+        Cache_Storage.remove_multiple_from_cache_indexdirs(directories_to_invalidate)
 
     if verbose:
         print(f"Invalidated {invalidated_count} directories in fs_Cache_Tracking")
@@ -173,20 +170,13 @@ def invalidate_directories_with_null_virtual_directory(start_path: str | None = 
     # Use values_list to get just the directory IDs efficiently
     directory_ids = link_files_without_vdir.values_list("home_directory_id", flat=True).distinct()
 
-    # Use .count() to avoid materializing queryset twice
-    directory_count = directory_ids.count()
+    directories_to_invalidate = list(DirectoryIndex.objects.filter(id__in=directory_ids))
+    invalidated_count = len(directories_to_invalidate)
     if verbose:
-        print(f"Found {directory_count} directories containing link files without virtual_directory")
+        print(f"Found {invalidated_count} directories containing link files without virtual_directory")
 
-    # Invalidate each directory in fs_Cache_Tracking
-    directories_to_invalidate = DirectoryIndex.objects.filter(id__in=directory_ids)
-
-    invalidated_count = 0
-    for directory in directories_to_invalidate:
-        Cache_Storage.remove_from_cache_indexdirs(directory)
-        invalidated_count += 1
-        if verbose:
-            print(f"  Invalidated: {directory.fqpndirectory}")
+    if directories_to_invalidate:
+        Cache_Storage.remove_multiple_from_cache_indexdirs(directories_to_invalidate)
 
     if verbose:
         print(f"Invalidated {invalidated_count} directories in fs_Cache_Tracking")

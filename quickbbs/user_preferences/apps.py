@@ -18,4 +18,4 @@ class UserPreferencesConfig(AppConfig):
         Returns:
             None
         """
-        import user_preferences.signals  # noqa: F401
+        import user_preferences.signals  # noqa: F401  # imported for signal registration side-effects only

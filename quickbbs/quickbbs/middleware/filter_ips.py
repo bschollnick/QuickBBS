@@ -1,5 +1,5 @@
 from django.conf import settings
-from django.http import HttpResponseForbidden
+from django.core.exceptions import PermissionDenied
 
 
 class FilterHostMiddleware:
@@ -16,6 +16,6 @@ class FilterHostMiddleware:
                 settings.ALLOWED_HOSTS.append(host)
         else:
             if host not in settings.ALLOWED_HOSTS:
-                raise HttpResponseForbidden
+                raise PermissionDenied
         # print "hosts: %s\n" % settings.ALLOWED_HOSTS
         return None

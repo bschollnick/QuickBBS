@@ -13,12 +13,11 @@ import pathlib
 import re
 import time
 import urllib.parse
-import warnings
 
 from asgiref.sync import sync_to_async
+from cachetools import TTLCache
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
-from django.db import transaction
 from django.db.models import Count, Q
 from django.db.utils import DatabaseError, OperationalError
 from django.http import (
@@ -30,36 +29,43 @@ from django.http import (
 from django.shortcuts import render
 from django.views.decorators.vary import vary_on_headers
 from django_htmx.middleware import HtmxDetails
-from PIL import Image
 
 from cache_watcher.models import Cache_Storage
 from frontend.managers import (
     _get_files_needing_thumbnails,
     async_build_context_info,
     async_layout_manager,
-    clear_layout_cache_for_directories,
 )
 from frontend.utilities import (
+    breadcrumbs_cache,
     convert_to_webpath,
     ensures_endswith,
     return_breadcrumbs,
-    update_database_from_disk,
+    webpaths_cache,
 )
 from quickbbs.common import SORT_MATRIX, get_dir_sha, normalize_fqpn
 from quickbbs.directoryindex import (
     DIRECTORYINDEX_SR_FILETYPE_THUMB,
     DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT,
+    directoryindex_cache,
+    update_database_from_disk,
 )
 from quickbbs.fileindex import (
     FILEINDEX_SR_FILETYPE_HOME,
     FILEINDEX_SR_FILETYPE_HOME_VIRTUAL,
+    fileindex_cache,
+    fileindex_download_cache,
+)
+from quickbbs.cache_registry import (
+    build_context_info_cache,
+    distinct_files_cache,
+    layout_manager_cache,
 )
 from quickbbs.models import (
     DirectoryIndex,
     FileIndex,
 )
-from quickbbs.tasks import generate_missing_thumbnails
-from thumbnails.models import ThumbnailFiles
+from quickbbs.tasks import generate_missing_thumbnails, snapshot_cache_statistics
 
 # download_cache = LRUCache(maxsize=1000)
 
@@ -97,8 +103,6 @@ class HtmxHttpRequest(HttpRequest):
 
 
 logger = logging.getLogger()
-
-warnings.simplefilter("ignore", Image.DecompressionBombWarning)
 
 
 # ASGI: Async wrapper for render function
@@ -165,9 +169,21 @@ def _create_base_context(request: WSGIRequest) -> dict:
     }
 
 
+# TTL cache for user show_duplicates preference — avoids a DB query on every page load.
+# Keyed on user.pk, expires after USER_PREF_CACHE_TTL seconds.
+# Explicitly cleared by toggle_show_duplicates() in user_preferences/views.py.
+_user_pref_cache: TTLCache = TTLCache(
+    maxsize=settings.USER_PREF_CACHE_SIZE,
+    ttl=settings.USER_PREF_CACHE_TTL,
+)
+
+
 def _get_show_duplicates_preference(request: WSGIRequest) -> bool:
     """
     Get show_duplicates preference for the current user.
+
+    Results are cached in a TTL cache keyed on user.pk to avoid a DB query
+    per page load. The cache is explicitly invalidated by toggle_show_duplicates().
 
     This is a sync function — wrap with sync_to_async() when calling from async contexts.
 
@@ -179,16 +195,22 @@ def _get_show_duplicates_preference(request: WSGIRequest) -> bool:
     """
     if not request.user.is_authenticated:
         return False
+
+    user_pk = request.user.pk
+    cached = _user_pref_cache.get(user_pk)
+    if cached is not None:
+        return cached
+
     try:
-        # Import here to avoid circular imports
         from user_preferences.models import UserPreferences
 
-        # Query database directly instead of using request.user.preferences
-        # This avoids Django's relationship caching which may return stale data
         preferences = UserPreferences.objects.filter(user=request.user).first()
-        return preferences.show_duplicates if preferences else False
-    except Exception:
-        return False
+        result = preferences.show_duplicates if preferences else False
+    except (DatabaseError, OperationalError, AttributeError):
+        result = False
+
+    _user_pref_cache[user_pk] = result
+    return result
 
 
 def create_search_regex_pattern(text: str) -> str:
@@ -342,158 +364,6 @@ def get_search_results(
 #         ),
 #         content_type="image/svg+xml",
 #     )
-
-
-def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pylint: disable=unused-argument
-    """
-    Serve directory thumbnail using prioritized cover image selection.
-
-    Uses DirectoryIndex.get_cover_image() to select thumbnails based on priority filenames
-    (e.g., "cover", "title") before falling back to the first available file.
-
-    Args:
-        request: Django Request object
-        dir_sha256: the sha256 of the directory
-
-    Returns:
-        The image of the thumbnail to send
-
-    Raises:
-        HttpResponseBadRequest: If the directory cannot be found
-    """
-    # Use optimized model method with prefetched relationships
-    success, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha256, DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT, ())
-    if not success:
-        print(f"Directory not found: {dir_sha256}")
-        return Http404
-
-    # If directory already has a thumbnail set AND cache is valid, try to return it
-    try:
-        if directory.thumbnail and directory.thumbnail.new_ftnail and directory.is_cached:
-            try:
-                return directory.thumbnail.new_ftnail.send_thumbnail(fext_override=".jpg", size="small", index_data_item=directory.thumbnail)
-            except Exception as e:
-                # If thumbnail serving fails, fall through to cover image logic
-                print(f"Directory thumbnail serving failed for {directory.fqpndirectory}: {e}")
-                # Continue to cover image selection below
-    except FileIndex.DoesNotExist:
-        # Thumbnail FK points to deleted/non-existent record - clear it and regenerate
-        print(f"Thumbnail reference broken for {directory.fqpndirectory} - regenerating")
-        directory.invalidate_thumb()
-
-    # Cache is invalidated or no thumbnail set - regenerate using get_cover_image
-    # Clear any existing thumbnail reference
-    if not directory.is_cached:
-        directory.invalidate_thumb()
-
-    # Use get_cover_image to find the best cover image for this directory
-    cover_image = directory.get_cover_image()
-
-    # If no cover image found, try syncing from disk and retry
-    if not cover_image:
-        update_database_from_disk(directory)
-        cover_image = directory.get_cover_image()
-
-    # If still no cover image found, return default directory icon
-    if not cover_image:
-        return directory.filetype.send_thumbnail()
-
-    # Set directory thumbnail to the selected cover image
-    # Clear layout cache to ensure users see updated thumbnail
-    # Wrap in transaction to prevent race conditions with concurrent requests
-    with transaction.atomic():
-        directory.thumbnail = cover_image
-        directory.is_generic_icon = False
-        directory.save()
-
-    # Clear cache for this directory
-    clear_layout_cache_for_directories({directory.pk})
-
-    # Ensure thumbnail record exists
-    if not directory.thumbnail.new_ftnail:
-        from thumbnails.models import THUMBNAILFILES_PR_FILEINDEX_FILETYPE
-
-        thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(
-            directory.thumbnail.file_sha256,
-            suppress_save=False,
-            prefetch_related_thumbnail=THUMBNAILFILES_PR_FILEINDEX_FILETYPE,
-            select_related_fileindex=("filetype",),
-        )
-        # Wrap in transaction to prevent race conditions
-        with transaction.atomic():
-            directory.thumbnail.new_ftnail = thumbnail
-            directory.save()
-
-    # Try to return the thumbnail, fall back to generic icon on error
-    try:
-        return directory.thumbnail.new_ftnail.send_thumbnail(fext_override=".jpg", size="small", index_data_item=directory.thumbnail)
-    except Exception as e:
-        # If thumbnail generation/serving fails, mark directory as generic and return filetype icon
-        # Clear layout cache to ensure users see updated generic icon state
-        print(f"Directory thumbnail generation failed for {directory.fqpndirectory}: {e}")
-        # Wrap in transaction to prevent race conditions
-        with transaction.atomic():
-            directory.is_generic_icon = True
-            directory.save(update_fields=["is_generic_icon"])
-
-        # Clear cache for this directory
-        clear_layout_cache_for_directories({directory.pk})
-
-        return directory.filetype.send_thumbnail()
-
-
-def thumbnail2_file(request: WSGIRequest, sha256: str):
-    """
-    Create and serve a thumbnail for a specific file.
-
-    Args:
-        request: Django Request object
-        sha256: The sha256 of the file - FileIndex object
-
-    Returns:
-        The sent thumbnail
-    """
-    from thumbnails.models import THUMBNAILFILES_PR_FILEINDEX_FILETYPE
-
-    thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(
-        sha256, suppress_save=False, prefetch_related_thumbnail=THUMBNAILFILES_PR_FILEINDEX_FILETYPE, select_related_fileindex=("filetype",)
-    )
-
-    # Get associated FileIndex - try reverse FK first, fall back to model method
-    try:
-        index_data_item = thumbnail.FileIndex.first()
-        if not index_data_item:
-            # Fallback: prefetch cache might be stale, use cached model method
-            index_data_item = FileIndex.get_by_sha256(sha256, unique=False, select_related=FILEINDEX_SR_FILETYPE_HOME_VIRTUAL)
-            if not index_data_item:
-                return HttpResponseBadRequest(content="No associated file data found.")
-    except (AttributeError, IndexError):
-        return HttpResponseBadRequest(content="Error accessing file data.")
-
-    # Return generic icon if filetype is generic OR if file is marked as generic icon
-    if index_data_item.filetype.generic or index_data_item.is_generic_icon:
-        return index_data_item.filetype.send_thumbnail()
-
-    # Handle link files: if this is a link type with a virtual_directory,
-    # delegate to the virtual directory's thumbnail
-    if index_data_item.filetype.is_link and index_data_item.virtual_directory:
-        return thumbnail2_dir(request, index_data_item.virtual_directory.dir_fqpn_sha256)
-
-    # Try to return custom thumbnail, fall back to generic icon on error
-    thumbsize = request.GET.get("size", "small").lower()
-    try:
-        return thumbnail.send_thumbnail(
-            filename_override=index_data_item.name,
-            fext_override=".jpg",
-            size=thumbsize,
-            index_data_item=index_data_item,
-        )
-    except Exception as e:
-        # If thumbnail generation/serving fails, mark ALL files with this SHA256 as generic
-        # Use FileIndex classmethod to ensure layout cache is cleared
-        print(f"Thumbnail generation failed for {index_data_item.name}: {e}")
-        FileIndex.set_generic_icon_for_sha(sha256, is_generic=True, clear_cache=True)
-        return index_data_item.filetype.send_thumbnail()
 
 
 def _get_materialized_search_results(
@@ -914,16 +784,9 @@ async def new_viewgallery(request: WSGIRequest):
     if request.user.is_authenticated:
         response["Cache-Control"] = "private, no-cache, must-revalidate"
 
-    # from pprint import pprint
+    if settings.CACHE_MONITORING:
+        await sync_to_async(snapshot_cache_statistics)()
 
-    # print(pprint(directoryindex_cache.stats()))
-    # print(pprint(fileindex_cache.stats()))
-    # print(pprint(fileindex_download_cache.stats()))
-    # print(pprint(distinct_files_cache.stats()))
-    # print(pprint(layout_manager_cache.stats()))
-    # print(pprint(build_context_info_cache.stats()))
-    # print(pprint(webpaths_cache.stats()))
-    # print(pprint(breadcrumbs_cache.stats()))
     print("Gallery View, processing time: ", time.perf_counter() - start_time)
 
     return response
@@ -957,7 +820,8 @@ async def htmx_view_item(request: HtmxHttpRequest, sha256: str):
 
     # Proactively warm thumbnails for the directory this item belongs to.
     # Same pattern as new_viewgallery() but with a smaller batch limit.
-    directory = await sync_to_async(DirectoryIndex.objects.get)(pk=context["home_directory_id"])
+    # Uses cached DirectoryIndex from build_context_info (avoids redundant DB fetch).
+    directory = context["home_directory"]
     await sync_to_async(_check_and_enqueue_missing_thumbnails)(directory, context["sort"], settings.ITEM_VIEW_THUMBNAIL_BATCH_LIMIT)
 
     response = await async_render(request, template_name, context, using="Jinja2")

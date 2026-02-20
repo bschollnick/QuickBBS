@@ -233,13 +233,13 @@ def _get_video_info(video_path: str) -> dict[str, any]:
         raise Exception(f"Error getting video info: {e}")
 
 
-def _pil_to_binary(image: Image.Image, format: str = "JPEG", quality: int = 85) -> bytes:
+def _pil_to_binary(image: Image.Image, img_format: str = "JPEG", quality: int = 85) -> bytes:
     """
     Convert PIL Image to binary data.
 
     Args:
         image: PIL Image object to convert
-        format: Output format (JPEG, PNG, or WEBP)
+        img_format: Output format (JPEG, PNG, or WEBP)
         quality: Quality for JPEG/WEBP (1-100)
 
     Returns: Binary image data as bytes
@@ -248,16 +248,16 @@ def _pil_to_binary(image: Image.Image, format: str = "JPEG", quality: int = 85) 
     output_buffer = io.BytesIO()
 
     # Convert image to appropriate color mode for target format
-    image = convert_image_for_format(image, format)
+    image = convert_image_for_format(image, img_format)
 
-    if format.upper() == "JPEG":
+    if img_format.upper() == "JPEG":
         image.save(output_buffer, format="JPEG", quality=quality, optimize=True)
-    elif format.upper() == "PNG":
+    elif img_format.upper() == "PNG":
         image.save(output_buffer, format="PNG", optimize=True)
-    elif format.upper() == "WEBP":
+    elif img_format.upper() == "WEBP":
         image.save(output_buffer, format="WEBP", quality=quality, optimize=True)
     else:
-        raise ValueError(f"Unsupported format: {format}")
+        raise ValueError(f"Unsupported format: {img_format}")
 
     binary_data = output_buffer.getvalue()
     output_buffer.close()
@@ -285,16 +285,16 @@ if __name__ == "__main__":
     #     print(f"Error: {e}")
     video_file = "test.mp4"
     processor = VideoBackend()
-    output = processor.process_from_file(
+    result = processor.process_from_file(
         video_file,
         sizes={"small": (320, 240), "medium": (640, 480), "large": (1280, 720)},
         output_format="PNG",
         quality=85,
     )
-    print(output.keys())
-    print(f"Duration: {output['duration']} seconds")
-    print(f"Format: {output['format']}")
-    print(f"size of small thumbnail: {len(output['small'])} bytes")
+    print(result.keys())
+    print(f"Duration: {result['duration']} seconds")
+    print(f"Format: {result['format']}")
+    print(f"size of small thumbnail: {len(result['small'])} bytes")
     print(f"size of medium thumbnail: {len(output['medium'])} bytes")
     print(f"size of large thumbnail: {len(output['large'])} bytes")
     # print(output)

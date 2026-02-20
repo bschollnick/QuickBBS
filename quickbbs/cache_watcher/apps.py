@@ -64,9 +64,9 @@ class cache_startup(AppConfig):
             # Determine server type for logging
             run_main = os.environ.get("WERKZEUG_RUN_MAIN") or os.environ.get("RUN_MAIN")
             if run_main == "true":
-                logger.info(f"Acquired watchdog lock (PID {os.getpid()}) - starting in Django/Werkzeug dev server")
+                logger.info("Acquired watchdog lock (PID %s) - starting in Django/Werkzeug dev server", os.getpid())
             else:
-                logger.info(f"Acquired watchdog lock (PID {os.getpid()}) - starting in production server worker")
+                logger.info("Acquired watchdog lock (PID %s) - starting in production server worker", os.getpid())
 
         except (IOError, OSError, BlockingIOError) as e:
             # Lock already held by another process - don't start
@@ -86,8 +86,8 @@ class cache_startup(AppConfig):
             try:
                 cache_watcher.models.watchdog_manager.start()
                 logger.info("Watchdog filesystem monitor started successfully")
-            except Exception as e:
-                logger.error(f"Failed to start watchdog manager: {e}", exc_info=True)
+            except (RuntimeError, OSError) as e:
+                logger.error("Failed to start watchdog manager: %s", e, exc_info=True)
 
     @staticmethod
     def _cleanup_lock(lock_fd, lock_file_path: str) -> None:
@@ -103,5 +103,5 @@ class cache_startup(AppConfig):
             if os.path.exists(lock_file_path):
                 os.remove(lock_file_path)
             logger.info("Watchdog lock cleaned up")
-        except Exception as e:
-            logger.error(f"Error cleaning up watchdog lock: {e}")
+        except (OSError, AttributeError) as e:
+            logger.error("Error cleaning up watchdog lock: %s", e)

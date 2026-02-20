@@ -15,37 +15,44 @@ from urllib.parse import quote, unquote
 from cachetools import cached
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
-from django.db import models, transaction
+from django.db import close_old_connections, models, transaction
 from django.db.models import Count, Q
 from django.db.models.query import QuerySet
 from django.urls import reverse
 
 from filetypes.models import filetypes, get_ftype_dict
+from frontend.file_listings import return_disk_listing_sync
+from frontend.utilities import convert_to_webpath
 from quickbbs.common import (
     DIR_SORT_MATRIX,
     SORT_MATRIX,
+    _batch_compute_file_shas,
     get_dir_sha,
     normalize_fqpn,
     normalize_string_title,
 )
 from quickbbs.MonitoredCache import create_cache
 from quickbbs.natsort_model import NaturalSortField
+from quickbbs.quickbbs_settings import get_directory_cover_queries
 
 logger = logging.getLogger(__name__)
 
 # Async-safe caches for database object lookups
 directoryindex_cache = create_cache(settings.DIRECTORYINDEX_CACHE_SIZE, "directoryindex", monitored=settings.CACHE_MONITORING)
 
-# Cache for distinct file lists per directory (for pagination efficiency)
-# Cache key: (directory_instance, sort_ordering)
-distinct_files_cache = create_cache(settings.DISTINCT_FILES_CACHE_SIZE, "distinct_files", monitored=settings.CACHE_MONITORING)
+# distinct_files_cache lives in quickbbs.cache_registry (shared across apps).
+# Import here for use by @cached decorator on get_distinct_file_shas().
+# Must come after module-level cache creation above to avoid a cyclic import.
+from quickbbs.cache_registry import distinct_files_cache  # noqa: E402  # pylint: disable=wrong-import-position
 
 if TYPE_CHECKING:
     from cache_watcher.models import fs_Cache_Tracking
 
     from .fileindex import FileIndex
 
-from .fileindex import FILEINDEX_SR_FILETYPE
+# Cyclic import: .fileindex imports from .directoryindex, so this must come
+# after the module-level cache initialisation above.
+from .fileindex import FILEINDEX_SR_FILETYPE  # noqa: E402  # pylint: disable=wrong-import-position
 
 # =============================================================================
 # DIRECTORYINDEX SELECT_RELATED CONSTANTS
@@ -396,10 +403,8 @@ class DirectoryIndex(models.Model):
         Returns:
             None
         """
-        # Inline import to avoid circular dependency:
-        # cache_watcher.models imports DirectoryIndex in multiple places
-        # pylint: disable-next=import-outside-toplevel
-        from cache_watcher.models import Cache_Storage
+        # Deferred: cache_watcher.models imports back into directoryindex (genuine cycle)
+        from cache_watcher.models import Cache_Storage  # pylint: disable=import-outside-toplevel
 
         if not index_dir:
             return
@@ -424,10 +429,8 @@ class DirectoryIndex(models.Model):
         Returns:
             None
         """
-        # Inline import to avoid circular dependency:
-        # cache_watcher.models imports DirectoryIndex in multiple places
-        # pylint: disable-next=import-outside-toplevel
-        from cache_watcher.models import Cache_Storage
+        # Deferred: cache_watcher.models imports back into directoryindex (genuine cycle)
+        from cache_watcher.models import Cache_Storage  # pylint: disable=import-outside-toplevel
 
         dir_sha256 = get_dir_sha(normalize_fqpn(fqpn_directory))
         Cache_Storage.remove_from_cache_sha(dir_sha256)
@@ -734,9 +737,9 @@ class DirectoryIndex(models.Model):
 
         files = self.files_in_dir(sort=0, select_related=FILEINDEX_SR_FILETYPE).filter(thumbnailable_filters)
 
-        # Try to find a file matching the cover names using prebuilt query from settings
+        # Try to find a file matching the cover names using lazy-built query from settings
         # This replaces nested loops with a single database query for ~99% speedup
-        cover_queries = getattr(settings, "DIRECTORY_COVER_QUERIES", Q())
+        cover_queries = get_directory_cover_queries()
         cover_file = files.filter(cover_queries).first()
         if cover_file:
             return cover_file
@@ -803,9 +806,6 @@ class DirectoryIndex(models.Model):
             Django URL object
 
         """
-        # pylint: disable-next=import-outside-toplevel
-        from frontend.utilities import convert_to_webpath
-
         webpath = convert_to_webpath(self.fqpndirectory.removeprefix(self.get_albums_prefix()))
         # URL-encode each path component while preserving / separators
         parts = webpath.split("/")
@@ -977,10 +977,8 @@ class DirectoryIndex(models.Model):
         :Args:
             fs_entries: Dictionary mapping entry names to DirEntry objects
         """
-        # Inline import to avoid circular dependency:
-        # cache_watcher.models imports DirectoryIndex in multiple places
-        # pylint: disable-next=import-outside-toplevel
-        from cache_watcher.models import Cache_Storage
+        # Deferred: cache_watcher.models imports back into directoryindex (genuine cycle)
+        from cache_watcher.models import Cache_Storage  # pylint: disable=import-outside-toplevel
 
         logger.info("Synchronizing directories...")
         current_path = normalize_fqpn(self.fqpndirectory)
@@ -1083,9 +1081,8 @@ class DirectoryIndex(models.Model):
             fs_entries: Dictionary mapping entry names to DirEntry objects
             bulk_size: Size of batches for bulk operations (updates/creates)
         """
-        # Inline imports to avoid circular dependencies
-        from frontend.utilities import _batch_compute_file_shas
-
+        # Inline import to avoid circular dependency: .fileindex → .models → .directoryindex
+        # pylint: disable-next=import-outside-toplevel
         from .fileindex import FileIndex
 
         # Build filesystem file dictionary (single pass)
@@ -1177,3 +1174,64 @@ class DirectoryIndex(models.Model):
 
         # Execute batch operations with transactions
         FileIndex.bulk_sync(records_to_update, records_to_create, files_to_delete_ids, bulk_size)
+
+
+def update_database_from_disk(directory_record: "DirectoryIndex") -> "DirectoryIndex | None":
+    """
+    Update database entries to match filesystem state for a given directory.
+
+    This is a sync function — all operations are direct Django ORM calls.
+    Wrap with sync_to_async() when calling from async contexts.
+
+    :Args:
+        directory_record: DirectoryIndex record for the directory to synchronize
+
+    Returns:
+        The directory_record on success, None on early exit (cached or missing)
+    """
+    # Deferred: cache_watcher.models imports back into directoryindex (genuine cycle)
+    from cache_watcher.models import Cache_Storage  # pylint: disable=import-outside-toplevel
+
+    dirpath = directory_record.fqpndirectory
+    print("Starting ...  Syncing database with disk for directory:", dirpath)
+    start_time = time.perf_counter()
+    # Use simplified batch sizing
+    bulk_size = settings.BATCH_SIZES.get("db_write", 100)
+
+    # Reload from DB in case Cache_Watcher was invalidated after this object was loaded
+    # (e.g., by watchdog). Clears all cached relations including reverse OneToOne.
+    try:
+        directory_record.refresh_from_db()
+    except DirectoryIndex.DoesNotExist:
+        logger.info(
+            "Directory record deleted before sync (cascade from parent): %s",
+            dirpath,
+        )
+        return None
+
+    # Check if directory is cached using the record's property
+    if directory_record.is_cached:
+        print(f"Directory {dirpath} is already cached, skipping sync.")
+        return None
+
+    print(f"Rescanning directory: {dirpath}")
+
+    # Get filesystem entries using the directory path from the record
+    success, fs_entries = return_disk_listing_sync(dirpath)
+    if not success:
+        print("File path doesn't exist, removing from cache and database.")
+        directory_record.handle_missing()
+        return None
+
+    # Direct sync calls — no boundary crossings needed
+    directory_record.sync_subdirectories(fs_entries)
+    directory_record.sync_files(fs_entries, bulk_size)
+
+    # Cache the result using the directory record
+    Cache_Storage.add_from_indexdirs(directory_record)
+    logger.info("Cached directory: %s", dirpath)
+    print("Elapsed Time (Sync Database Disk): ", time.perf_counter() - start_time)
+
+    # Close connections that have exceeded CONN_MAX_AGE (may have gone stale during sync)
+    close_old_connections()
+    return directory_record

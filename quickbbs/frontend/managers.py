@@ -18,7 +18,6 @@ from pathlib import Path
 
 from asgiref.sync import sync_to_async
 from cachetools import cached
-from cachetools.keys import hashkey
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.db.models import Q
@@ -28,68 +27,17 @@ from frontend.utilities import (
     convert_to_webpath,
     return_breadcrumbs,
 )
+from quickbbs.cache_registry import (
+    build_context_info_cache,
+    layout_manager_cache,
+)
 from quickbbs.common import SORT_MATRIX
-from quickbbs.directoryindex import distinct_files_cache
 from quickbbs.fileindex import FILEINDEX_SR_FILETYPE_HOME_VIRTUAL
 from quickbbs.models import (
-    DirectoryIndex,
+    DirectoryIndex,  # used in docstring type annotations
     FileIndex,
 )
-from quickbbs.MonitoredCache import create_cache
-
-layout_manager_cache = create_cache(settings.LAYOUT_MANAGER_CACHE_SIZE, "layout_manager", monitored=settings.CACHE_MONITORING)
-
-build_context_info_cache = create_cache(settings.BUILD_CONTEXT_INFO_CACHE_SIZE, "build_context_info", monitored=settings.CACHE_MONITORING)
-
-
-def clear_layout_cache_for_directories(directory_ids: set[int]) -> int:
-    """
-    Clear layout_manager_cache, distinct_files_cache, and build_context_info_cache entries for one or more directories.
-
-    Shared function to ensure consistent cache clearing across:
-    - Web views after thumbnail generation
-    - Cache watcher during filesystem invalidation
-    - Management commands after is_generic_icon changes
-
-    Args:
-        directory_ids: Set of directory PKs to clear cache for
-
-    Returns:
-        Number of cache entries cleared (combined from all three caches)
-    """
-    if not directory_ids:
-        return 0
-
-    count = 0
-
-    # distinct_files_cache: direct pop via constructed hashkeys
-    # Keys are hashkey(directory_instance, sort) — sort is always 0, 1, or 2
-    # Django models with same PK hash equally, so a stub instance matches cached entries
-    for pk in directory_ids:
-        stub = DirectoryIndex(pk=pk)
-        for sort in range(3):
-            if distinct_files_cache.pop(hashkey(stub, sort), None) is not None:
-                count += 1
-
-    # layout_manager_cache: scan keys (page_number is unbounded, can't construct keys)
-    # Keys are hashkey(page_number, directory_obj, sort_ordering, show_duplicates)
-    for key in list(layout_manager_cache.keys()):
-        try:
-            if any(hasattr(item, "pk") and item.pk in directory_ids for item in key):
-                layout_manager_cache.pop(key, None)
-                count += 1
-        except (TypeError, AttributeError):
-            continue
-
-    # build_context_info_cache: scan values for matching home_directory_id
-    # Keys are hashkey(sha, sort, show_duplicates) — can't construct from directory PK
-    # Values are dicts with "home_directory_id" field
-    for key, value in list(build_context_info_cache.items()):
-        if isinstance(value, dict) and value.get("home_directory_id") in directory_ids:
-            build_context_info_cache.pop(key, None)
-            count += 1
-
-    return count
+from thumbnails.models import ThumbnailFiles
 
 
 @cached(build_context_info_cache)
@@ -188,10 +136,11 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
             previous_sha = ""
 
     else:
-        # Deduplicate - files_in_dir(distinct=True) uses DISTINCT ON then a second
-        # DB query to re-sort with correct PostgreSQL collation
-        files_list = directory_entry.files_in_dir(sort=sort_order_value, distinct=True, select_related=FILEINDEX_SR_FILETYPE_HOME_VIRTUAL)
-        all_shas = [f.unique_sha256 for f in files_list]
+        # Deduplicate using cached distinct SHA list.
+        # get_distinct_file_shas() is backed by distinct_files_cache, keyed on
+        # (directory, sort). This means all per-file build_context_info calls for the
+        # same directory share one cached list instead of each running 2 DB queries.
+        all_shas = directory_entry.get_distinct_file_shas(sort=sort_order_value)
 
         # Get pagination data inline
         try:
@@ -211,6 +160,10 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
         "unique_file_sha256": unique_file_sha256,
         "file_sha256": entry.file_sha256,
         "home_directory_id": directory_entry.pk,
+        # Cached DirectoryIndex instance — used as a query anchor by htmx_view_item
+        # for thumbnail enqueuing. Staleness is acceptable since files_in_dir()
+        # issues a fresh query via the FK relationship.
+        "home_directory": directory_entry,
         "sort": sort_order_value,
         "html": entry.get_content_html(webpath),
         # Navigation (inline breadcrumb processing)
@@ -279,21 +232,10 @@ async def async_build_context_info(request: WSGIRequest, unique_file_sha256: str
 
 def _get_files_needing_thumbnails(directory, sort_ordering: int):
     """
-    Get queryset of file SHA256s that don't have thumbnails.
+    Return queryset of file SHA256 hashes that don't have valid thumbnails.
 
-    Checks for BOTH:
-    1. Files with no ThumbnailFiles link (new_ftnail__isnull=True)
-    2. Files linked to empty ThumbnailFiles records (small_thumb is empty)
-
-    This handles the case where FileIndex is linked to a ThumbnailFiles record
-    BEFORE the thumbnail is generated (see get_or_create_thumbnail_record).
-
-    Returns queryset instead of list to allow caller flexibility for:
-    - Checking existence with .exists() (no materialization)
-    - Getting count with .count() (single aggregate query)
-    - Iterating efficiently with .iterator()
-    - Slicing for batch processing
-    - Adding additional filters before execution
+    Delegates to ThumbnailFiles.get_files_needing_thumbnail_shas() which owns
+    this logic as thumbnail domain knowledge.
 
     Args:
         directory: DirectoryIndex object
@@ -301,17 +243,8 @@ def _get_files_needing_thumbnails(directory, sort_ordering: int):
 
     Returns:
         QuerySet of file SHA256 hashes without thumbnails.
-        Use .iterator() for memory-efficient iteration, list() if full list needed,
-        or .count() for efficient counting.
     """
-    # Files need thumbnails if:
-    # - No ThumbnailFiles link exists (new_ftnail is NULL)
-    # - OR ThumbnailFiles exists but small_thumb is empty
-    return (
-        directory.files_in_dir(sort=sort_ordering, fields_only=("file_sha256",), select_related=())
-        .filter(Q(new_ftnail__isnull=True) | Q(new_ftnail__small_thumb__in=[b"", None]))
-        .values_list("file_sha256", flat=True)
-    )
+    return ThumbnailFiles.get_files_needing_thumbnail_shas(directory, sort_ordering)
 
 
 def calculate_page_bounds(page_number: int, chunk_size: int, dirs_count: int) -> dict:

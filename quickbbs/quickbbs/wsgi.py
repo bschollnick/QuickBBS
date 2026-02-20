@@ -9,9 +9,10 @@ https://docs.djangoproject.com/en/1.9/howto/deployment/wsgi/
 
 import os
 
-from django.core.wsgi import get_wsgi_application
-
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "quickbbs.settings")
+
+from django.core.wsgi import get_wsgi_application  # noqa: E402  # pylint: disable=wrong-import-position
+
 application = get_wsgi_application()
 
 # gunicorn -b 0.0.0.0:8888 --reload --pythonpath /Volumes/4TB_Drive/gallery/quickbbs,. quickbbs.wsgi

@@ -255,13 +255,13 @@ if __name__ == "__main__":
     backend = PDFBackend()
 
     # Define thumbnail sizes
-    sizes = {"small": (150, 150), "medium": (300, 300), "large": (600, 600)}
+    test_sizes = {"small": (150, 150), "medium": (300, 300), "large": (600, 600)}
 
     # Generate thumbnails from PDF file
     try:
         thumbnails = backend.process_pdf_file(
             file_path="test.pdf",
-            sizes=sizes,
+            sizes=test_sizes,
             output_format="JPEG",
             quality=85,
         )
@@ -280,5 +280,5 @@ if __name__ == "__main__":
 
         print("PDF thumbnails created successfully!")
 
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError) as e:  # TODO: add backend-specific exceptions (fitz.FitzError, PIL.UnidentifiedImageError) once known
         print(f"Error: {e}")

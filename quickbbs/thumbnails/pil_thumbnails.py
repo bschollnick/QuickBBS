@@ -128,7 +128,7 @@ class ImageBackend(AbstractBackend):
             # the original copy we created
             try:
                 img_copy.close()
-            except Exception:
+            except (OSError, AttributeError):
                 pass  # Ignore errors during cleanup
 
     def _process_pil_image(
@@ -226,11 +226,13 @@ class ImageBackend(AbstractBackend):
 
             return results
 
-        except Exception:
+        except (
+            Exception
+        ):  # TODO: narrow to PIL-specific exception types (PIL.UnidentifiedImageError, PIL.Image.DecompressionBombError, OSError) once PIL error hierarchy is audited
             # MEMORY: Clean up working image on error (if not the original)
             if working_img is not original_img:
                 try:
                     working_img.close()
-                except Exception:
+                except (OSError, AttributeError):
                     pass
             raise

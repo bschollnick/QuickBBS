@@ -333,7 +333,7 @@ if __name__ == "__main__":
                     f.write(data)
                 print(f"Saved {size_name} thumbnail to {output_path}")
 
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError) as e:  # TODO: add AVFoundation-specific exceptions once macOS framework exception hierarchy is known
         print(f"Error: {e}")
         traceback.print_exc()
         sys.exit(1)

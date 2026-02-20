@@ -13,22 +13,19 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import aiofiles
-import charset_normalizer
-import markdown2
 from asgiref.sync import sync_to_async
-from cachetools import LRUCache, cached
+from cachetools import cached
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import models, transaction
 from django.db.models import Count
 from django.db.models.query import QuerySet
 from django.http import FileResponse, Http404, HttpResponse
 from django.urls import reverse
 from django.utils.http import content_disposition_header
-from PIL import Image
-from ranged_fileresponse import RangedFileResponse
 
 from filetypes.models import filetypes
+from thumbnails.models import ThumbnailFiles
 from quickbbs.common import (
     SORT_MATRIX,
     get_file_sha,
@@ -37,27 +34,38 @@ from quickbbs.common import (
 )
 from quickbbs.MonitoredCache import create_cache
 from quickbbs.natsort_model import NaturalSortField
-from thumbnails.models import ThumbnailFiles
 
+# Lazy-loaded video info function — AVFoundation/ffmpeg imports are deferred to first call.
 # Prefer AVFoundation on macOS for video metadata (no subprocess spawn, ~10x faster).
 # Fall back to ffmpeg-based probe on other platforms.
-_get_video_info = None
-if platform.system() == "Darwin":
-    try:
-        from thumbnails.avfoundation_video_thumbnails import (
-            _get_video_info as _avf_get_video_info,
-        )
+_get_video_info_impl = None
 
-        _get_video_info = _avf_get_video_info
-    except ImportError:
-        pass
 
-if _get_video_info is None:
-    from thumbnails.video_thumbnails import _get_video_info as _ffmpeg_get_video_info
+def _get_video_info(path: str) -> dict:
+    """Get video metadata. Lazily imports the appropriate backend on first call."""
+    global _get_video_info_impl
+    if _get_video_info_impl is None:
+        if platform.system() == "Darwin":
+            try:
+                from thumbnails.avfoundation_video_thumbnails import (
+                    _get_video_info as _avf_get_video_info,
+                )
 
-    _get_video_info = _ffmpeg_get_video_info
+                _get_video_info_impl = _avf_get_video_info
+            except ImportError:
+                pass
+        if _get_video_info_impl is None:
+            from thumbnails.video_thumbnails import (
+                _get_video_info as _ffmpeg_get_video_info,
+            )
 
-from .models import Owners
+            _get_video_info_impl = _ffmpeg_get_video_info
+    return _get_video_info_impl(path)
+
+
+# Cyclic import: .models imports from .fileindex, so this must come after the
+# module-level code above to avoid an ImportError at load time.
+from .models import Owners  # noqa: E402  # pylint: disable=wrong-import-position
 
 logger = logging.getLogger(__name__)
 
@@ -156,9 +164,9 @@ class FileIndex(models.Model):
     """
 
     # Class-level caches for improved performance
-    _encoding_cache = LRUCache(maxsize=settings.ENCODING_CACHE_SIZE)
-    _markdown_processor = markdown2.Markdown()
-    _alias_cache = LRUCache(maxsize=settings.ALIAS_CACHE_SIZE)
+    _encoding_cache = create_cache(settings.ENCODING_CACHE_SIZE, "encoding", monitored=settings.CACHE_MONITORING)
+    _markdown_processor = None  # Lazy-initialized on first use
+    _alias_cache = create_cache(settings.ALIAS_CACHE_SIZE, "alias", monitored=settings.CACHE_MONITORING)
 
     id = models.AutoField(primary_key=True)
 
@@ -427,7 +435,7 @@ class FileIndex(models.Model):
             Number of files updated
         """
         # Inline import to avoid circular dependency (frontend.utilities imports DirectoryIndex)
-        from frontend.managers import clear_layout_cache_for_directories
+        from quickbbs.cache_registry import clear_layout_cache_for_directories
 
         # Get directory IDs BEFORE update (same pattern as link_to_thumbnail)
         directory_ids = set()
@@ -467,7 +475,7 @@ class FileIndex(models.Model):
         """
         # Import here to avoid circular dependency
         # pylint: disable-next=import-outside-toplevel
-        from frontend.managers import clear_layout_cache_for_directories
+        from quickbbs.cache_registry import clear_layout_cache_for_directories
 
         # Get affected directories BEFORE updating for cache clearing
         # This also determines if there are any unlinked records (replaces separate .exists() query)
@@ -580,7 +588,7 @@ class FileIndex(models.Model):
 
             return record
 
-        except Exception as e:
+        except (OSError, ValueError, AttributeError) as e:
             logger.error("Unexpected error processing %s: %s", fs_entry, e)
             return None
 
@@ -609,7 +617,7 @@ class FileIndex(models.Model):
         """
         # Import here to avoid circular dependency
         # pylint: disable-next=import-outside-toplevel
-        from frontend.managers import clear_layout_cache_for_directories
+        from quickbbs.cache_registry import clear_layout_cache_for_directories
 
         try:
             # Collect affected directory PKs for cache clearing.
@@ -811,6 +819,8 @@ class FileIndex(models.Model):
             True if animated, False if static or on error
         """
         try:
+            from PIL import Image
+
             with Image.open(fs_entry) as img:
                 return getattr(img, "is_animated", False)
         except (AttributeError, IOError, OSError) as e:
@@ -977,6 +987,8 @@ class FileIndex(models.Model):
             # Ranged request for video streaming
             try:
                 # SECURITY: Sanitize filename to prevent header injection
+                from ranged_fileresponse import RangedFileResponse
+
                 safe_filename = sanitize_filename_for_http(self.name)
                 response = RangedFileResponse(
                     request,
@@ -1019,6 +1031,8 @@ class FileIndex(models.Model):
         try:
             if not ranged:
                 # Non-ranged: Load file async and serve from memory (eliminates sync iterator warning)
+                import aiofiles
+
                 async with aiofiles.open(self.full_filepathname, "rb") as f:
                     content = await f.read()
 
@@ -1042,6 +1056,8 @@ class FileIndex(models.Model):
                 # - Concurrent streams: 50+ simultaneous open handles is safe (system limit ~1024)
                 def _open_file():
                     return open(self.full_filepathname, "rb")
+
+                from ranged_fileresponse import RangedFileResponse
 
                 file_handle = await sync_to_async(_open_file)()
                 response = RangedFileResponse(
@@ -1105,7 +1121,7 @@ class FileIndex(models.Model):
             # Get filetype (prefetched via select_related by caller)
             try:
                 filetype = self.filetype
-            except Exception:
+            except ObjectDoesNotExist:
                 filetype = None
 
             # Use filetype.fileext instead of parsing Path object (avoids object creation overhead)
@@ -1149,7 +1165,7 @@ class FileIndex(models.Model):
                         video_details = _get_video_info(str(fs_entry))
                         self.duration = video_details.get("duration", None)
                         update_needed = True
-                    except Exception as e:
+                    except (OSError, ValueError, RuntimeError) as e:
                         logger.error("Error getting duration for %s: %s", fs_entry, e)
 
                 # Animated GIF detection - only check if not previously checked
@@ -1181,7 +1197,9 @@ class FileIndex(models.Model):
             with open(filename, "rb") as f:
                 raw_data = f.read(settings.ENCODING_DETECT_READ_SIZE)
 
-                # Detect encoding using charset_normalizer
+                # Detect encoding using charset_normalizer (lazy import - only needed for text display)
+                import charset_normalizer
+
                 result = charset_normalizer.from_bytes(raw_data)
                 best_match = result.best()
                 if best_match is None:
@@ -1240,6 +1258,10 @@ class FileIndex(models.Model):
 
                 # Process content based on type
                 if is_markdown:
+                    if FileIndex._markdown_processor is None:
+                        import markdown2
+
+                        FileIndex._markdown_processor = markdown2.Markdown()
                     return FileIndex._markdown_processor.convert(content)
                 return content.replace("\n", "<br>")
 

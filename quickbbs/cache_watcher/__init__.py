@@ -3,8 +3,9 @@
 import logging
 import signal
 
-logger = logging.getLogger()
 from cache_watcher.watchdogmon import watchdog
+
+logger = logging.getLogger()
 
 #
 #   Bootstrap by loading the configuration path data

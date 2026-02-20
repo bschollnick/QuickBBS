@@ -12,8 +12,8 @@ import sys
 
 quickbbs_path = r"/Volumes/C-8TB/gallery/quickbbs"
 sys.path.append(quickbbs_path)
-from django.core.wsgi import get_wsgi_application
-
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "quickbbs.settings")
+
+from django.core.wsgi import get_wsgi_application  # noqa: E402  # pylint: disable=wrong-import-position
 
 application = get_wsgi_application()

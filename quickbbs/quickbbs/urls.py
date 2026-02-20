@@ -17,6 +17,7 @@ Including another URLconf
 import frontend.report_views
 import frontend.serve_up
 import frontend.views
+import thumbnails.views
 import user_preferences.views
 from django.conf import settings
 from django.conf.urls.static import static
@@ -54,12 +55,12 @@ urlpatterns += [
     re_path("^albums/", frontend.views.new_viewgallery, name="directories"),
     path(
         "thumbnail2_file/<str:sha256>",
-        frontend.views.thumbnail2_file,
+        thumbnails.views.thumbnail2_file,
         name="thumbnail2_file",
     ),
     path(
         "thumbnail2_directory/<str:dir_sha256>",
-        frontend.views.thumbnail2_dir,
+        thumbnails.views.thumbnail2_dir,
         name="thumbnail2_dir",
     ),
     path(

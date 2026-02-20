@@ -28,12 +28,12 @@ from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.management.base import BaseCommand, CommandError
-from django.db import close_old_connections, connections, transaction
+from django.db import close_old_connections, transaction
 from PIL import Image
 
 from cache_watcher.models import Cache_Storage, fs_Cache_Tracking
-from frontend.utilities import update_database_from_disk
 from quickbbs.common import normalize_fqpn
+from quickbbs.directoryindex import update_database_from_disk
 from quickbbs.management.commands.add_directories import add_directories
 from quickbbs.management.commands.add_files import add_files
 from quickbbs.management.commands.add_thumbnails import add_thumbnails
@@ -42,6 +42,7 @@ from quickbbs.management.commands.management_helper import (
     invalidate_directories_with_null_virtual_directory,
     invalidate_empty_directories,
 )
+from quickbbs.directoryindex import directoryindex_cache
 from quickbbs.models import DirectoryIndex, FileIndex
 from thumbnails.models import ThumbnailFiles
 
@@ -82,7 +83,7 @@ def _process_directory_verification_chunk(
             except ObjectDoesNotExist:
                 cache_instance.add_from_indexdirs(directory)
                 cache_added_count += 1
-                if cache_added_count <= 10 or cache_added_count % 100 == 0:
+                if cache_added_count % 100 == 0:
                     print(f"Added directory to fs_Cache_Tracking: {directory.fqpndirectory}")
 
     return deleted_count, cache_added_count
@@ -108,7 +109,7 @@ def verify_directories(start_path: str | None = None, max_count: int = 0):
     start_time = time.time()
     start_count = DirectoryIndex.objects.count()
     print(f"Starting Directory Count: {start_count}")
-    albums_root = os.path.join(settings.ALBUMS_PATH, "albums") + os.sep
+    albums_root = normalize_fqpn(os.path.join(settings.ALBUMS_PATH, "albums"))
 
     # Invalidate directories with link files missing virtual_directory
     print("-" * 30)
@@ -330,7 +331,7 @@ async def _verify_files_async(start_path: str | None = None, max_count: int = 0)
         processed_count = await _process_verify_files_chunk(chunk_pks, processed_count, start_time)
 
         # Close connections after each chunk to prevent exhaustion
-        await sync_to_async(connections.close_all, thread_sensitive=True)()
+        await sync_to_async(close_old_connections, thread_sensitive=True)()
 
     # Final statistics
     end_count = await sync_to_async(FileIndex.objects.count, thread_sensitive=True)()
@@ -527,31 +528,53 @@ def verify_thumbnails(max_count: int = 0):
         # Convert directory IDs to list for chunked processing
         dir_ids_list = list(directories_to_invalidate)
 
-        # Process in chunks to avoid memory issues with large sets
+        # Process in chunks using bulk operations instead of per-directory queries.
+        # Each chunk does 2 SQL statements (1 bulk UPDATE for thumbnails, 1 bulk
+        # upsert for cache tracking) instead of 2N individual queries.
         for i in range(0, len(dir_ids_list), BULK_UPDATE_BATCH_SIZE):
             chunk_ids = dir_ids_list[i : i + BULK_UPDATE_BATCH_SIZE]
 
-            # Fetch actual DirectoryIndex objects for this chunk
-            directories = DirectoryIndex.objects.filter(pk__in=chunk_ids)
+            # Fetch directory objects — need dir_fqpn_sha256 for cache eviction
+            directories = list(DirectoryIndex.objects.filter(pk__in=chunk_ids).only("pk", "dir_fqpn_sha256", "fqpndirectory"))
+
+            now = time.time()
 
             with transaction.atomic():
-                for directory in directories:
-                    directory_counter += 1
+                # Batch 1: Invalidate all directory thumbnails in one UPDATE
+                # Equivalent to calling directory.invalidate_thumb() on each,
+                # but without N individual UPDATE statements.
+                DirectoryIndex.objects.filter(pk__in=chunk_ids).update(
+                    thumbnail=None,
+                    is_generic_icon=False,
+                )
 
-                    # Mark directory as invalidated in cache
-                    fs_Cache_Tracking.objects.update_or_create(
+                # Batch 2: Upsert cache tracking records — mark all as invalidated.
+                # Uses bulk_create with update_conflicts to handle both INSERT (new
+                # directories) and UPDATE (existing entries) in one statement.
+                cache_records = [
+                    fs_Cache_Tracking(
                         directory=directory,
-                        defaults={
-                            "invalidated": True,
-                            "lastscan": time.time(),
-                        },
+                        invalidated=True,
+                        lastscan=now,
                     )
-                    # Invalidate directory thumbnail as well
-                    directory.invalidate_thumb()
+                    for directory in directories
+                ]
+                fs_Cache_Tracking.objects.bulk_create(
+                    cache_records,
+                    update_conflicts=True,
+                    update_fields=["invalidated", "lastscan"],
+                    unique_fields=["directory"],
+                )
 
-                    # Show progress for first few and then periodically
-                    if directory_counter <= 5 or directory_counter % 100 == 0:
-                        print(f"  Invalidated directory {directory_counter}/{total_dirs}: {directory.fqpndirectory}")
+            # Evict stale entries from the in-process LRU cache.
+            # This mirrors invalidate_thumb()'s cache pop but in a loop — there's
+            # no bulk API for cachetools LRU caches.
+            for directory in directories:
+                directoryindex_cache.pop(directory.dir_fqpn_sha256, None)
+
+            directory_counter += len(directories)
+            if directory_counter <= 5 or directory_counter % BULK_UPDATE_BATCH_SIZE == 0 or directory_counter == total_dirs:
+                print(f"  Invalidated {directory_counter}/{total_dirs} directories")
 
             close_old_connections()
 
@@ -686,43 +709,3 @@ class Command(BaseCommand):
             verify_thumbnails(max_count=max_count)
 
 
-# # Use
-# from quickbbs.models import Directory_Index, Thumbnails_Dirs, convert_text_to_md5_hdigest
-#
-# new_dir_index = Directory_Index
-#
-# # class Directory_Index(models.Model):
-# #     uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True, blank=True)
-# #     DirName = models.CharField(db_index=False, max_length=384, default='', blank=True)  # FQFN of the file itself
-# #     WebPath_md5 = models.CharField(db_index=True, max_length=32, unique=False)
-# #     DirName_md5 = models.CharField(db_index=True, max_length=32, unique=False)
-# #     Combined_md5 = models.CharField(db_index=True, max_length=32, unique=True)
-# #     is_generic_icon = models.BooleanField(default=False, db_index=True)  # File is to be ignored
-# #     ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
-# #     delete_pending = models.BooleanField(default=False, db_index=True)  # File is to be deleted,
-# #     SmallThumb = models.BinaryField(default=b"")
-#
-# # class Thumbnails_Dirs(models.Model):
-# #     id = models.AutoField(primary_key=True, db_index=True)
-# #     uuid = models.UUIDField(default=None, null=True, editable=False, db_index=True, blank=True)
-# #     DirName = models.CharField(db_index=True, max_length=384, default='', blank=True)  # FQFN of the file itself
-# #     FileSize = models.BigIntegerField(default=-1)
-# #     FilePath = models.CharField(db_index=True, max_length=384, default=None)  # FQFN of the file itself
-# #     SmallThumb = models.BinaryField(default=b"")
-# #
-# for entry in Thumbnails_Dirs.objects.all()[0:1]:
-#     print(entry.FilePath)
-#     #Combined_md5 = convert_text_to_md5_hdigest(entry.DirName)
-#     found, record = Directory_Index.search_for_directory(entry.DirName)
-#     # if found:
-#     #     if record.DirName != entry.FilePath:
-#     #         record.DirName = entry.FilePath
-#     #         record.save()
-#     #     if record.SmallThumb == b"":
-#     #         record.SmallThumb = entry.SmallThumb
-#     #         record.save()
-#     # else:
-#     Directory_Index.add_directory(fqpn_directory=entry.FilePath,
-#                              thumbnail = entry.SmallThumb)
-#     sys.exit()
-#

@@ -14,7 +14,7 @@ cd "$(dirname "$0")"
 
 # Server configuration
 BIND_ADDRESS="0.0.0.0:8888"
-# open "server && OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES python manage.py steady_queue 2>&1 &"
+# open "server && python manage.py taskrunner 2>&1 &"
 # SSL certificate paths (adjust to your certificate locations)
 SSL_CERT="../certs/quickbbs_cert.pem"
 SSL_KEY="../certs/quickbbs_key.pem"

@@ -4,6 +4,7 @@ from mimetypes import guess_type
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
+from django.db import DatabaseError, OperationalError
 from filetypes.models import filetypes
 
 
@@ -229,6 +230,6 @@ class Command(BaseCommand):
             print("Starting to refresh all filetypes")
             self.refresh_filetypes()
             print("filetypes have been refreshed.")
-        except Exception as e:
+        except (DatabaseError, OperationalError) as e:
             self.stderr.write(self.style.ERROR(f"Unable to update FileType database table: {e}"))
             sys.exit(1)

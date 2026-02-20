@@ -7,8 +7,8 @@ from django.db import transaction
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect
 
-from frontend.managers import build_context_info_cache, layout_manager_cache
 from user_preferences.models import UserPreferences
+from quickbbs.cache_registry import build_context_info_cache, layout_manager_cache
 
 
 @login_required
@@ -33,6 +33,11 @@ def toggle_show_duplicates(request: HttpRequest) -> HttpResponse:
         # Toggle the setting
         preferences.show_duplicates = not preferences.show_duplicates
         preferences.save()
+
+    # Clear the user's cached preference so the next page load sees the new value
+    from frontend.views import _user_pref_cache
+
+    _user_pref_cache.pop(request.user.pk, None)
 
     # Selectively clear only cache entries with the old show_duplicates value
     # This is more efficient than clearing the entire cache (preserves ~50% of entries)

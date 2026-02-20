@@ -33,22 +33,24 @@ import io
 from typing import TYPE_CHECKING
 
 from asgiref.sync import sync_to_async
-from cachetools import LRUCache, cached
+from cachetools import cached
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import models, transaction
-from django.db.utils import IntegrityError
-from PIL import Image
+from django.db.models import Q
+from django.db.utils import DatabaseError, IntegrityError, OperationalError
 
-from frontend.serve_up import send_file_response
+from quickbbs.MonitoredCache import create_cache
 
 if TYPE_CHECKING:
+    from PIL import Image
+    from django.db.models import QuerySet
     from django.db.models.manager import RelatedManager
 
-    from quickbbs.models import FileIndex
+    from quickbbs.models import DirectoryIndex, FileIndex
 
 # from .image_utils import resize_pil_image, return_image_obj
-from .thumbnail_engine import create_thumbnails_from_path
+# thumbnail_engine import deferred to first use — pulls in heavy backends (PyMuPDF, ffmpeg, etc.)
 
 __version__ = "4.0"
 
@@ -81,7 +83,7 @@ ThumbnailFiles_Bulk_Prefetch_List = [
 THUMBNAILFILES_PR_FILEINDEX_FILETYPE = ("FileIndex__filetype",)
 
 # Async-safe cache for thumbnail lookups
-thumbnailfiles_cache = LRUCache(maxsize=settings.THUMBNAILFILES_CACHE_SIZE)
+thumbnailfiles_cache = create_cache(settings.THUMBNAILFILES_CACHE_SIZE, "thumbnailfiles", monitored=settings.CACHE_MONITORING)
 
 # Empty-value sentinel for thumbnail existence checks (avoids per-call list creation)
 _EMPTY_THUMB_VALUES = ("", b"", None)
@@ -309,6 +311,8 @@ class ThumbnailFiles(models.Model):
             # Try to create thumbnails, but mark as generic on any failure
             thumbnails = None  # Initialize to prevent UnboundLocalError
             try:
+                from .thumbnail_engine import create_thumbnails_from_path
+
                 if filetype.is_image:
                     # CoreImage re-enabled 2026-02-12 with GPU memory leak fixes
                     thumbnails = create_thumbnails_from_path(
@@ -327,12 +331,12 @@ class ThumbnailFiles(models.Model):
                     # CoreImage GPU rendering can produce all-white thumbnails under
                     # concurrent multi-process conditions. Detect and reject them so
                     # they get regenerated on next access.
+                    from PIL import Image
+
                     with Image.open(io.BytesIO(thumbnails["small"])) as check_img:
                         extrema = check_img.getextrema()
                         if check_img.mode == "RGB" and extrema == ((255, 255), (255, 255), (255, 255)):
-                            raise ValueError(
-                                f"All-white thumbnail detected (GPU corruption) for {index_data_item.name}"
-                            )
+                            raise ValueError(f"All-white thumbnail detected (GPU corruption) for {index_data_item.name}")
                 elif filetype.is_movie:
                     thumbnails = create_thumbnails_from_path(
                         filename,
@@ -399,7 +403,7 @@ class ThumbnailFiles(models.Model):
                 # Clear layout cache so gallery view reflects the removed file
                 # Inline import required: circular import chain
                 # quickbbs.models → thumbnails.models → frontend.managers → quickbbs.models
-                from frontend.managers import (
+                from quickbbs.cache_registry import (
                     clear_layout_cache_for_directories,  # pylint: disable=import-outside-toplevel
                 )
 
@@ -409,7 +413,9 @@ class ThumbnailFiles(models.Model):
                 # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
                 thumbnailfiles_cache.pop(file_sha256, None)
 
-            except Exception as e:
+            except (
+                Exception
+            ) as e:  # TODO: narrow to (OSError, RuntimeError, ValueError) once thumbnail backend exception types are fully catalogued across PIL/PyMuPDF/ffmpeg
                 # Any error during thumbnail creation - mark ALL files with this SHA256 as generic
                 # Use FileIndex classmethod to ensure layout cache is cleared
                 print(f"Thumbnail creation failed for {index_data_item.name}: {e}")
@@ -434,13 +440,14 @@ class ThumbnailFiles(models.Model):
 
     @classmethod
     @cached(thumbnailfiles_cache)
-    def get_thumbnail_by_sha(cls, sha256: str, prefetch_related: list[str]) -> "ThumbnailFiles":
+    def get_thumbnail_by_sha(cls, sha256: str, prefetch_related: tuple[str, ...]) -> "ThumbnailFiles":
         """
         Get thumbnail object by SHA256 hash with optimized caching.
 
         Args:
             sha256: SHA256 hash of the file
-            prefetch_related: List of related fields to prefetch (required)
+            prefetch_related: Tuple of related fields to prefetch (must be a tuple,
+                not a list, so it is hashable and usable as a cache key)
 
         Returns:
             ThumbnailFiles object for the specified hash
@@ -589,6 +596,8 @@ class ThumbnailFiles(models.Model):
         if not blob:
             raise ValueError(f"Thumbnail blob is empty for {filename}")
 
+        from frontend.serve_up import send_file_response
+
         return send_file_response(
             filename=filename,
             content_to_send=io.BytesIO(blob),
@@ -708,6 +717,36 @@ class ThumbnailFiles(models.Model):
         except IntegrityError as e:
             print(f"Error creating thumbnail for {sha256}: {e}")
             return False, sha256, None
-        except Exception as e:
+        except (DatabaseError, OperationalError) as e:
             print(f"Unexpected error creating thumbnail for {sha256}: {e}")
             return False, sha256, None
+
+    @classmethod
+    def get_files_needing_thumbnail_shas(cls, directory: "DirectoryIndex", sort_ordering: int) -> "QuerySet":
+        """
+        Return a queryset of file SHA256 hashes that don't have valid thumbnails.
+
+        Checks for both missing ThumbnailFiles links and empty thumbnail records:
+        1. Files with no ThumbnailFiles link (new_ftnail__isnull=True)
+        2. Files linked to ThumbnailFiles records with empty small_thumb blobs
+
+        This handles the case where a FileIndex is linked to a ThumbnailFiles record
+        before thumbnail generation completes (see get_or_create_thumbnail_record).
+
+        Returns a queryset (not a list) to allow caller flexibility:
+        - Slice for batch processing: ``qs[:limit]``
+        - Count without materialising: ``qs.count()``
+        - Existence check: ``qs.exists()``
+
+        :Args:
+            directory: DirectoryIndex object whose files to check
+            sort_ordering: Sort order to apply to the file query
+
+        Returns:
+            QuerySet of file_sha256 values for files needing thumbnail generation.
+        """
+        return (
+            directory.files_in_dir(sort=sort_ordering, fields_only=("file_sha256",), select_related=())
+            .filter(Q(new_ftnail__isnull=True) | Q(new_ftnail__small_thumb__in=[b"", None]))
+            .values_list("file_sha256", flat=True)
+        )
