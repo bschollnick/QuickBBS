@@ -156,6 +156,8 @@ def add_directories(max_count: int = 0, start_path: str | None = None) -> None:
 
     added_count = 0
     scanned_count = 0
+    # fs_Cache_Tracking() is intentionally unsaved — add_from_indexdirs() uses only the
+    # passed dir_record, not self state, so no DB identity is needed on the caller.
     cache_instance = fs_Cache_Tracking()
     start_time = time.time()
     reached_max = False

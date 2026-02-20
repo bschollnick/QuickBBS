@@ -143,7 +143,7 @@ class WatchdogMonitor:
                 self.my_event_handler = None
                 logger.debug("Observer stopped and cleaned up")
 
-            except Exception as e:
+            except Exception as e:  # TODO: narrow to (RuntimeError, OSError) — watchdog observer stop can raise undocumented internal errors
                 logger.error("Error stopping observer: %s", e, exc_info=True)
                 # Still clear references even if stop failed
                 self.my_observer = None

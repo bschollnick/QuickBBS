@@ -2,8 +2,6 @@
 
 import re
 
-from django.db.models import Q
-
 SITE_NAME = "QuickBBS Site"
 
 # Directory thumbnail priority filenames (without extensions)
@@ -96,6 +94,11 @@ ALIAS_MAPPING = {
 # Check stats in Django shell: print(directoryindex_cache.stats())
 CACHE_MONITORING = True
 
+# Maximum number of rows to retain in the cache_statistics_tracking table.
+# The snapshot task trims oldest rows (by last_snapshot_at) when this limit is exceeded.
+# Set to 0 to disable trimming (keep all rows).
+CACHE_STATISTICS_MAX_RECORDS = 1000
+
 # LRU cache size constants - maximum number of entries each cache will hold
 # When a cache is full, the least recently used entry is evicted
 # Increase sizes if monitoring shows hit rates below 80%
@@ -110,10 +113,13 @@ BREADCRUMBS_CACHE_SIZE = 400  # Breadcrumb navigation lists (utilities.py)
 NORMALIZED_STRINGS_CACHE_SIZE = 500  # Normalized string lookups (common.py)
 DIRECTORY_SHA_CACHE_SIZE = 1000  # Directory SHA256 hash computations (common.py)
 NORMALIZED_PATHS_CACHE_SIZE = 1000  # Normalized path lookups (common.py)
-FILETYPES_CACHE_SIZE = 500  # Filetype lookups by extension (filetypes/models.py)
 THUMBNAILFILES_CACHE_SIZE = 1000  # ThumbnailFiles lookups by SHA256 (thumbnails/models.py)
 ENCODING_CACHE_SIZE = 1000  # Text file encoding detection results (fileindex.py)
 ALIAS_CACHE_SIZE = 250  # macOS alias resolution results (fileindex.py)
+
+# TTL cache settings
+USER_PREF_CACHE_SIZE = 64  # Max cached user preference lookups (views.py)
+USER_PREF_CACHE_TTL = 10  # Seconds before user preference cache entries expire
 
 # HTTP Cache-Control header settings
 HTTP_CACHE_MAX_AGE = 300  # seconds (5 minutes) for file response Cache-Control headers
@@ -131,6 +137,7 @@ MAX_TEXT_FILE_DISPLAY_SIZE = 1024 * 1024  # Maximum text file size to display (1
 # Watchdog / cache watcher timers
 EVENT_PROCESSING_DELAY = 5  # seconds - debounce delay for batching filesystem events
 WATCHDOG_RESTART_INTERVAL = 14400  # seconds (4 hours) between watchdog restarts
+TASK_RETAIN_DAYS = 3  # Days to retain completed/failed task records in ScheduledTask table
 
 # Directory traversal and bulk operation limits
 MAX_DIRECTORY_DEPTH = 15  # Maximum parent directory traversal depth
@@ -149,15 +156,28 @@ BATCH_SIZES = {
     "file_io": 100,  # File system operations (stat, hash calculation)
 }
 
-# Take the directory cover names and build a Q object that can be used to query for
-# files matching those names (case-insensitive).  This is used to efficiently find potential
-# cover images for directories.
-# Prebuilt query for cover image matching (built once at startup for performance)
-# This Q object matches files where the name (without extension) matches any DIRECTORY_COVER_NAMES
-DIRECTORY_COVER_QUERIES = Q()
-for cover_name in DIRECTORY_COVER_NAMES:
-    # Case-insensitive regex match: filename starts with cover_name followed by dot
-    DIRECTORY_COVER_QUERIES |= Q(name__iregex=rf"^{re.escape(cover_name)}\.")
+# Lazy builder for cover image Q object — avoids importing django.db.models.Q at settings time.
+# Built once on first access and cached.
+_DIRECTORY_COVER_QUERIES = None
+
+
+def get_directory_cover_queries():
+    """Return Q object for matching directory cover images (lazy-built, cached).
+
+    Returns:
+        Q object matching files where the name (without extension) matches any DIRECTORY_COVER_NAMES
+    """
+    global _DIRECTORY_COVER_QUERIES
+    if _DIRECTORY_COVER_QUERIES is None:
+        from django.db.models import Q
+
+        q = Q()
+        for cover_name in DIRECTORY_COVER_NAMES:
+            # Case-insensitive regex match: filename starts with cover_name followed by dot
+            q |= Q(name__iregex=rf"^{re.escape(cover_name)}\.")
+        _DIRECTORY_COVER_QUERIES = q
+    return _DIRECTORY_COVER_QUERIES
+
 
 #
 #   ┌──────────────────────────────────────────────────────────────────────────────┐

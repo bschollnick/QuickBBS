@@ -2,6 +2,8 @@
 
 import logging
 
+from django.db import DatabaseError, OperationalError
+
 from cache_watcher.models import fs_Cache_Tracking
 from quickbbs.models import DirectoryIndex
 
@@ -21,8 +23,8 @@ def repair_orphaned_cache_entries() -> int:
         # Use model method for standardized deletion logic
         return fs_Cache_Tracking.delete_orphaned_entries()
 
-    except Exception as e:
-        logger.error(f"Error repairing orphaned cache entries: {e}")
+    except (DatabaseError, OperationalError) as e:
+        logger.error("Error repairing orphaned cache entries: %s", e)
         return 0
 
 
@@ -50,11 +52,11 @@ def rebuild_cache_entries() -> int:
             )
             if created:
                 created_count += 1
-                logger.debug(f"Created cache entry for: {index_dir.fqpndirectory}")
+                logger.debug("Created cache entry for: %s", index_dir.fqpndirectory)
 
-        logger.info(f"Created {created_count} missing cache entries")
+        logger.info("Created %s missing cache entries", created_count)
         return created_count
 
-    except Exception as e:
-        logger.error(f"Error rebuilding cache entries: {e}")
+    except (DatabaseError, OperationalError) as e:
+        logger.error("Error rebuilding cache entries: %s", e)
         return 0

@@ -285,14 +285,14 @@ if __name__ == "__main__":
         backend = PDFKitBackend()
 
         # Define thumbnail sizes
-        sizes = {"small": (200, 200), "medium": (740, 740), "large": (1024, 1024)}
+        test_sizes = {"small": (200, 200), "medium": (740, 740), "large": (1024, 1024)}
 
         # Generate thumbnails from PDF file
         print("=" * 60)
         print("Generating PDF Thumbnails with PDFKit")
         print("=" * 60)
 
-        thumbnails = backend.process_from_file(file_path=pdf_file, sizes=sizes, output_format="JPEG", quality=85)
+        thumbnails = backend.process_from_file(file_path=pdf_file, sizes=test_sizes, output_format="JPEG", quality=85)
 
         print(f"Format: {thumbnails['format']}")
         print(f"Small thumbnail: {len(thumbnails['small']):,} bytes")
@@ -305,7 +305,7 @@ if __name__ == "__main__":
 
         print("\nPDF thumbnails created successfully!")
 
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError) as e:  # TODO: add PDFKit/PyMuPDF-specific exceptions once exception hierarchy is documented
         print(f"Error: {e}")
         traceback.print_exc()
         sys.exit(1)

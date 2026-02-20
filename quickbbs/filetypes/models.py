@@ -7,11 +7,8 @@ import io
 import os
 from typing import TYPE_CHECKING
 
-from cachetools import LRUCache, cached
 from django.conf import settings
 from django.db import DatabaseError, models
-
-from frontend.serve_up import send_file_response
 
 if TYPE_CHECKING:
     from django.db.models.manager import RelatedManager
@@ -20,8 +17,8 @@ if TYPE_CHECKING:
 
 FILETYPE_DATA = {}
 
-# Async-safe cache for filetype lookups
-filetypes_cache = LRUCache(maxsize=settings.FILETYPES_CACHE_SIZE)
+# Single in-memory cache for the full filetypes table dict (loaded once at startup)
+_filetypes_dict: dict | None = None
 
 
 class filetypes(models.Model):
@@ -73,6 +70,8 @@ class filetypes(models.Model):
         """
         # Create a fresh BytesIO object each time - FileResponse will close it after sending
         # Cannot use cached_property because Django closes the file handle after response
+        from frontend.serve_up import send_file_response
+
         thumbnail_stream = io.BytesIO(self.thumbnail)
         return send_file_response(
             filename=self.icon_filename,
@@ -97,11 +96,12 @@ class filetypes(models.Model):
             fileext = "." + fileext
         return fileext
 
-    @cached(filetypes_cache)
     @staticmethod
     def filetype_exists_by_ext(fileext: str) -> bool:
         """
         Check if a filetype exists by its file extension.
+
+        Looks up from the in-memory dict loaded by get_ftype_dict() — no DB query.
 
         :param fileext: The file extension to check, lower case, and includes the DOT (e.g. .html, not html)
         :return: True if the filetype exists, False otherwise.
@@ -109,39 +109,36 @@ class filetypes(models.Model):
         fileext = filetypes._normalize_extension(fileext)
         if fileext == ".none":
             return False
-        return filetypes.objects.filter(fileext=fileext).exists()
+        return fileext in get_ftype_dict()
 
-    @cached(filetypes_cache)
     @staticmethod
     def return_any_icon_filename(fileext: str) -> str | None:
         """
-        The return_icon_filename function takes a file extension as an argument and returns the filename of the
-        icon that corresponds to that file extension.
+        Return the icon filename for the given file extension, or None if not found.
 
-        If no icon is found for a given file type, then it will return None.
+        Looks up from the in-memory dict loaded by get_ftype_dict() — no DB query.
 
-        :param self: Allow the function to refer to the calling object
-        :param fileext: Find the file extension of the file, lower case, and includes the DOT (e.g. .html, not html)
-        :return: The icon filename for the given file extension (IMAGES_PATH + filename), or NONE if not found or
-            the filename for the fileext is blank (e.g. JPEG, since JPEG will always be created based off the file)
+        :param fileext: File extension (e.g. .html). Will be normalized to lowercase with dot prefix.
+        :return: Full path to the icon file, or None if not found or no icon is set.
         """
         fileext = filetypes._normalize_extension(fileext)
-        data = filetypes.return_filetype(fileext)
+        data = get_ftype_dict().get(fileext)
         if data and data.icon_filename != "":
             return os.path.join(settings.IMAGES_PATH, data.icon_filename)
         return None
 
-    @cached(filetypes_cache)
     @staticmethod
     def return_filetype(fileext: str) -> "filetypes":
         """
         Return filetype object for the given file extension.
 
+        Looks up from the in-memory dict loaded by get_ftype_dict() — no DB query.
+
         :param fileext: File extension (e.g., 'gif', 'jpg', '.mp4'). Will be normalized to lowercase with dot prefix
         :return: filetypes object for the specified extension
         """
         fileext = filetypes._normalize_extension(fileext)
-        return filetypes.objects.get(fileext=fileext)
+        return get_ftype_dict()[fileext]
 
     class Meta:
         verbose_name = "File Type"
@@ -156,16 +153,20 @@ class filetypes(models.Model):
         ]
 
 
-@cached(filetypes_cache)
 def get_ftype_dict() -> dict:
     """
     Return filetypes information from database as a dictionary.
 
-    Returns: Dictionary of all filetype objects keyed by their primary key
+    Loads the full filetypes table once into a module-level dict and returns
+    it on every subsequent call — no repeated DB queries. Call load_filetypes()
+    to force a reload after the table changes.
+
+    Returns: Dictionary of all filetype objects keyed by their primary key (fileext string)
     """
-    # https://stackoverflow.com/questions/21925671/
-    # from django.forms.models import model_to_dict
-    return filetypes.objects.all().in_bulk()
+    global _filetypes_dict  # pylint: disable=global-statement
+    if _filetypes_dict is None:
+        _filetypes_dict = filetypes.objects.all().in_bulk()
+    return _filetypes_dict
 
 
 def return_identifier(ext: str) -> str:
@@ -186,8 +187,10 @@ def load_filetypes(force: bool = False) -> dict:
         force: If True, force reload from database even if already cached
     Returns: Dictionary of filetype data
     """
-    global FILETYPE_DATA
+    global FILETYPE_DATA, _filetypes_dict  # pylint: disable=global-statement
     if not FILETYPE_DATA or force:
+        if force:
+            _filetypes_dict = None  # invalidate get_ftype_dict() cache
         try:
             print("Loading FileType data from database...")
             FILETYPE_DATA = get_ftype_dict()
@@ -197,7 +200,7 @@ def load_filetypes(force: bool = False) -> dict:
             print("This will rebuild and/or update the FileType table.")
             # ASGI: connections.close_all() commented out for ASGI compatibility
             # connections.close_all()
-        except Exception as e:
+        except Exception as e:  # TODO: narrow once startup failure modes are known (e.g. ImportError, AttributeError from model mismatches)
             print(f"Unexpected error while loading FileType data: {e}")
             print("\nPlease use manage.py --refresh-filetypes\n")
             print("This will rebuild and/or update the FileType table.")

@@ -23,7 +23,7 @@ class NaturalSortField(models.CharField):
         super().__init__(**kwargs)
 
     def deconstruct(self):
-        name, path, args, kwargs = super().deconstruct()
+        name, path, args, kwargs = super().deconstruct()  # pylint: disable=no-member
         args.append(self.for_field)
         return name, path, args, kwargs
 

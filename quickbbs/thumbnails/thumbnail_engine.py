@@ -1,37 +1,62 @@
-"""Multi-backend thumbnail generation engine with automatic backend selection."""
+"""Multi-backend thumbnail generation engine with automatic backend selection.
+
+Backend imports are deferred to first use to avoid loading heavy libraries
+(PyMuPDF/fitz, ffmpeg, macOS frameworks) at Django startup time.
+"""
 
 import platform
 import threading
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from PIL import Image
+# Availability is checked lazily on first use
+_core_image_available: bool | None = None
+_avfoundation_available: bool | None = None
+_pdfkit_available: bool | None = None
 
-try:
+
+def _check_core_image_available() -> bool:
+    """Check if Core Image backend is available (cached after first call)."""
+    global _core_image_available
+    if _core_image_available is None:
+        try:
+            from .core_image_thumbnails import CoreImageBackend  # noqa: F401  # imported to verify availability via try/except; not used directly
+
+            _core_image_available = True
+        except ImportError:
+            _core_image_available = False
+    return _core_image_available
+
+
+def _check_avfoundation_available() -> bool:
+    """Check if AVFoundation backend is available (cached after first call)."""
+    global _avfoundation_available
+    if _avfoundation_available is None:
+        try:
+            from . import avfoundation_video_thumbnails as _av_mod
+
+            _avfoundation_available = _av_mod.AVFOUNDATION_AVAILABLE
+        except ImportError:
+            _avfoundation_available = False
+    return _avfoundation_available
+
+
+def _check_pdfkit_available() -> bool:
+    """Check if PDFKit backend is available (cached after first call)."""
+    global _pdfkit_available
+    if _pdfkit_available is None:
+        try:
+            from . import pdfkit_thumbnails as _pdf_mod
+
+            _pdfkit_available = _pdf_mod.PDFKIT_AVAILABLE
+        except ImportError:
+            _pdfkit_available = False
+    return _pdfkit_available
+
+
+if TYPE_CHECKING:
+    from PIL import Image
+
     from .Abstractbase_thumbnails import AbstractBackend
-    from .pdf_thumbnails import PDFBackend
-    from .pil_thumbnails import ImageBackend
-    from .video_thumbnails import VideoBackend
-except ImportError:
-    from Abstractbase_thumbnails import AbstractBackend
-    from pdf_thumbnails import PDFBackend
-    from pil_thumbnails import ImageBackend
-    from video_thumbnails import VideoBackend
-
-# CoreImage re-enabled 2026-02-12: GPU memory leak fixed by replacing
-# createCGImage:fromRect: (IOSurface leak) with render:toBitmap: (direct
-# CPU buffer), disabling intermediate caching, and using Metal command queue.
-# See: claude_docs/macintosh_optimizations_memory.md for full analysis.
-try:
-    from .core_image_thumbnails import CoreImageBackend
-
-    CORE_IMAGE_AVAILABLE = True
-except ImportError:
-    CORE_IMAGE_AVAILABLE = False
-
-# AVFoundation and PDFKit remain disabled — they use CoreImage internally
-# and would need similar fixes before re-enabling.
-AVFOUNDATION_AVAILABLE = False
-PDFKIT_AVAILABLE = False
 
 BackendType = Literal["image", "coreimage", "auto", "video", "corevideo", "pdf", "pymupdf", "pdfkit"]
 
@@ -56,59 +81,77 @@ class FastImageProcessor:
         self.backend_type = backend.lower()
         self._backend = self._get_cached_backend()
 
-    def _get_cached_backend(self) -> AbstractBackend:
+    def _get_cached_backend(self):
         """Get or create cached backend instance for reuse (thread-safe)."""
         with self._backend_lock:
             if self.backend_type not in self._backend_cache:
                 self._backend_cache[self.backend_type] = self._create_backend()
             return self._backend_cache[self.backend_type]
 
-    def _create_backend(self) -> AbstractBackend:
-        """Create appropriate backend based on system and preference."""
+    def _create_backend(self):
+        """Create appropriate backend based on system and preference.
+
+        Returns:
+            Backend instance for the configured backend type
+        """
+        # Lazy imports — each backend pulls in heavy dependencies (PIL, fitz, ffmpeg, macOS frameworks)
+        # Only the backend actually used gets imported.
         match self.backend_type:
             case "image":
+                from .pil_thumbnails import ImageBackend
+
                 return ImageBackend()
             case "coreimage":
-                if not CORE_IMAGE_AVAILABLE:
+                if not _check_core_image_available():
                     raise ImportError("Core Image backend not available on this system")
+                from .core_image_thumbnails import CoreImageBackend
+
                 return CoreImageBackend()
             case "video":
+                from .video_thumbnails import VideoBackend
+
                 return VideoBackend()
             case "corevideo":
-                # DISABLED 2025-12-02: AVFoundation uses CoreImage internally (GPU memory leak)
-                # if not AVFOUNDATION_AVAILABLE:
-                #     raise ImportError("AVFoundation backend not available on this system")
-                # return AVFoundationVideoBackend()
-                return VideoBackend()  # Fall back to ffmpeg-based backend
+                if _check_avfoundation_available():
+                    from .avfoundation_video_thumbnails import AVFoundationVideoBackend
+
+                    return AVFoundationVideoBackend()
+                from .video_thumbnails import VideoBackend
+
+                return VideoBackend()
             case "pdf":
-                # DISABLED 2025-12-02: PDFKit disabled due to GPU memory concerns
-                # Auto-select: Prefer PDFKit on Apple Silicon if available, fallback to PyMuPDF
-                # if PDFKIT_AVAILABLE and self._is_apple_silicon():
-                #     try:
-                #         return PDFKitBackend()
-                #     except Exception:
-                #         # Fall back to PyMuPDF if PDFKit initialization fails
-                #         return PDFBackend()
-                # else:
-                #     return PDFBackend()
-                return PDFBackend()  # Always use PyMuPDF (CPU-based)
+                # Prefer PDFKit on Apple Silicon, fall back to PyMuPDF elsewhere
+                if _check_pdfkit_available() and self._is_apple_silicon():
+                    from .pdfkit_thumbnails import PDFKitBackend
+
+                    return PDFKitBackend()
+                from .pdf_thumbnails import PDFBackend
+
+                return PDFBackend()
             case "pymupdf":
+                from .pdf_thumbnails import PDFBackend
+
                 return PDFBackend()
             case "pdfkit":
-                # DISABLED 2025-12-02: PDFKit has GPU memory concerns
-                # if not PDFKIT_AVAILABLE:
-                #     raise ImportError("PDFKit backend not available on this system")
-                # return PDFKitBackend()
-                return PDFBackend()  # Fall back to PyMuPDF
+                if _check_pdfkit_available():
+                    from .pdfkit_thumbnails import PDFKitBackend
+
+                    return PDFKitBackend()
+                from .pdf_thumbnails import PDFBackend
+
+                return PDFBackend()
             case "auto":
                 # Prefer Core Image on Apple Silicon for GPU-accelerated Lanczos
-                if CORE_IMAGE_AVAILABLE and self._is_apple_silicon():
+                if _check_core_image_available() and self._is_apple_silicon():
                     try:
+                        from .core_image_thumbnails import CoreImageBackend
+
                         return CoreImageBackend()
-                    except Exception:
-                        return ImageBackend()
-                else:
-                    return ImageBackend()
+                    except (ImportError, RuntimeError, OSError):
+                        pass
+                from .pil_thumbnails import ImageBackend
+
+                return ImageBackend()
             case _:
                 raise ValueError(f"Unknown backend type: {self.backend_type}")
 
@@ -116,7 +159,7 @@ class FastImageProcessor:
         """Check if running on Apple Silicon."""
         try:
             return platform.system() == "Darwin" and platform.processor() == "arm" and "arm64" in platform.machine().lower()
-        except Exception:
+        except OSError:
             return False
 
     @property
@@ -132,7 +175,9 @@ class FastImageProcessor:
         """Process image from bytes and generate multiple thumbnails."""
         return self._backend.process_from_memory(image_bytes, self.image_sizes, output_format, quality)
 
-    def process_pil_image(self, pil_image: Image.Image, output_format: str = "JPEG", quality: int = 85) -> dict[str, bytes]:
+    def process_pil_image(
+        self, pil_image: "Image.Image", output_format: str = "JPEG", quality: int = 85
+    ) -> dict[str, bytes]:  # pylint: disable=used-before-assignment
         """Process PIL Image object and generate multiple thumbnails."""
         return self._backend.process_data(pil_image, self.image_sizes, output_format, quality)
 
@@ -258,7 +303,7 @@ def create_thumbnails_from_path(
 
 
 def create_thumbnails_from_pil(
-    pil_image: Image.Image,
+    pil_image: "Image.Image",  # pylint: disable=used-before-assignment
     sizes: dict[str, tuple[int, int]],
     output: str = "JPEG",
     quality: int = 85,
@@ -292,9 +337,9 @@ if __name__ == "__main__":
     print("=" * 60)
     print("Backend Availability")
     print("=" * 60)
-    print(f"Core Image Available: {CORE_IMAGE_AVAILABLE}")
-    print(f"AVFoundation Available: {AVFOUNDATION_AVAILABLE}")
-    print(f"PDFKit Available: {PDFKIT_AVAILABLE}")
+    print(f"Core Image Available: {_check_core_image_available()}")
+    print(f"AVFoundation Available: {_check_avfoundation_available()}")
+    print(f"PDFKit Available: {_check_pdfkit_available()}")
     print()
 
     # Test image processing
@@ -313,7 +358,7 @@ if __name__ == "__main__":
     output_disk("test_thumb_pil_large.jpg", thumbnails_pil["large"])
 
     # Test Core Image backend if available
-    if CORE_IMAGE_AVAILABLE:
+    if _check_core_image_available():
         thumbnails_ci = create_thumbnails_from_path(image_filename, IMAGE_SIZES, output="JPEG", backend="coreimage")
         print(f"Core Image Backend: {len(thumbnails_ci['small']):,} / {len(thumbnails_ci['medium']):,} / {len(thumbnails_ci['large']):,} bytes")
         output_disk("test_thumb_ci_small.jpg", thumbnails_ci["small"])
@@ -347,7 +392,7 @@ if __name__ == "__main__":
     output_disk("test_thumb_ffmpeg_large.jpg", thumbnails_ffmpeg["large"])
 
     # Test AVFoundation backend if available
-    if AVFOUNDATION_AVAILABLE:
+    if _check_avfoundation_available():
         processor_av = FastImageProcessor(VIDEO_SIZES, backend="corevideo")
         thumbnails_av = processor_av.process_image_file(video_filename, output_format="JPEG", quality=85)
         print(

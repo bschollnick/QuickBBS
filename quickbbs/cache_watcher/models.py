@@ -233,8 +233,9 @@ class WatchdogManager:
                     self.event_handler = None
                     self.is_running = False
                     logger.info("Watchdog stopped")
-                except Exception as e:
-                    # Broad exception catch is intentional - ensure cleanup continues even if errors occur
+                except (
+                    Exception
+                ) as e:  # TODO: narrow to watchdog library's specific exception types once they are documented (RuntimeError, OSError, threading errors)
                     logger.error("Error stopping watchdog: %s", e)
 
     def shutdown(self) -> None:
@@ -254,8 +255,9 @@ class WatchdogManager:
                     self.event_handler = None
                     self.is_running = False
                     logger.info("Watchdog completely shut down")
-                except Exception as e:
-                    # Broad exception catch is intentional - ensure shutdown completes even if errors occur
+                except (
+                    Exception
+                ) as e:  # TODO: narrow to watchdog library's specific exception types once they are documented (RuntimeError, OSError, threading errors)
                     logger.error("Error stopping watchdog: %s", e)
 
     def _process_pending_events(self) -> None:
@@ -338,8 +340,7 @@ class WatchdogManager:
             self.start(force_recreate=True)
             restart_successful = True
             logger.info("Watchdog restart completed successfully")
-        except Exception as e:
-            # Broad exception catch is intentional - capture all restart failures for logging/recovery
+        except Exception as e:  # TODO: narrow once watchdog restart failure modes are catalogued (watchdog.observers errors, OSError, RuntimeError)
             logger.error("Error during watchdog restart: %s", e, exc_info=True)
 
         # Always try to schedule next restart, even if this restart failed
@@ -370,8 +371,7 @@ class WatchdogManager:
             else:
                 logger.error("⚠ Timer failed to start!")
 
-        except Exception as e:
-            # Broad exception catch is intentional - threading.Timer rarely fails, but catch all errors
+        except Exception as e:  # TODO: narrow to (RuntimeError, threading.Error) — threading.Timer failure modes are not well-documented
             logger.error("Error scheduling restart: %s", e, exc_info=True)
 
 
@@ -472,8 +472,7 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
                     self.event_timer.start()
                 # else: Timer exists - events will be picked up when it fires or after processing completes
 
-        except Exception as e:
-            # Broad exception catch is intentional - ensure event processing failures don't crash watchdog
+        except Exception as e:  # TODO: narrow once watchdog event types are enumerated — filesystem events can raise many OS-level errors
             logger.error("Error buffering event %s: %s", event.src_path, e)
 
     def _process_buffered_events(self, expected_generation: int) -> None:
@@ -1205,7 +1204,7 @@ class fs_Cache_Tracking(models.Model):
 
         try:
             # Import inside function to avoid circular dependency
-            from frontend.managers import (  # pylint: disable=import-outside-toplevel
+            from quickbbs.cache_registry import (  # pylint: disable=import-outside-toplevel
                 clear_layout_cache_for_directories,
             )
 
@@ -1248,3 +1247,43 @@ class fs_Cache_Tracking(models.Model):
 
         except (KeyError, ImportError, AttributeError) as e:
             logger.error("Error clearing DirectoryIndex cache for directories: %s", e)
+
+
+class CacheStatisticsTracking(models.Model):
+    """
+    Periodic snapshot of MonitoredLRUCache hit/miss statistics.
+
+    One row per cache name. Updated by the snapshot_cache_statistics periodic
+    task. Provides persistent, history-queryable cache performance data that
+    is immune to HTTP caching issues.
+
+    Table name: cache_statistics_tracking
+    """
+
+    cache_name = models.CharField(max_length=100, unique=True, db_index=True)
+    hits = models.BigIntegerField(default=0)
+    misses = models.BigIntegerField(default=0)
+    current_size = models.IntegerField(default=0)
+    max_size = models.IntegerField(default=0)
+    last_snapshot_at = models.DateTimeField(auto_now=True)
+    last_reset_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "cache_statistics_tracking"
+
+    def __str__(self) -> str:
+        """Return string representation showing cache name and hit rate."""
+        total = self.hits + self.misses
+        rate = f"{self.hits / total * 100:.1f}%" if total > 0 else "n/a"
+        return f"{self.cache_name}: {rate} hit rate ({self.hits}h/{self.misses}m)"
+
+    @property
+    def hit_rate(self) -> float:
+        """
+        Return hit rate as a percentage (0.0–100.0).
+
+        Returns:
+            Float percentage, or 0.0 if no requests recorded.
+        """
+        total = self.hits + self.misses
+        return (self.hits / total * 100) if total > 0 else 0.0

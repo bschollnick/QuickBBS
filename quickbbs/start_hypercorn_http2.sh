@@ -50,10 +50,10 @@ echo ""
 echo "h2: $(python -c 'import h2; print("INSTALLED (HTTP/2)")' 2>/dev/null || echo 'NOT INSTALLED')"
 echo ""
 
-# Start steady-queue worker in the background
-#OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES python manage.py steady_queue 2>&1 &
+# Start dbtasks worker in the background (thread-based, no fork)
+#python manage.py taskrunner 2>&1 &
 #QUEUE_PID=$!
-echo "steady-queue worker started (PID: $QUEUE_PID)"
+#echo "dbtasks worker started (PID: $QUEUE_PID)"
 echo ""
 
 # Trap SIGINT so Ctrl+C stops hypercorn (via its graceful shutdown)
@@ -83,9 +83,9 @@ hypercorn quickbbs.asgi:application \
 echo ""
 echo "Hypercorn has exited."
 
-# Stop steady-queue worker
-#echo "Stopping steady-queue worker (PID: $QUEUE_PID)..."
-#kill -9 "$QUEUE_PID" 2>/dev/null
-#pkill -9 -f "steady_queue" 2>/dev/null
+# Stop dbtasks worker
+#echo "Stopping dbtasks worker (PID: $QUEUE_PID)..."
+#kill "$QUEUE_PID" 2>/dev/null
+#pkill -f "taskrunner" 2>/dev/null
 #wait "$QUEUE_PID" 2>/dev/null
-#echo "steady-queue worker stopped."
+#echo "dbtasks worker stopped."
