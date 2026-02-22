@@ -51,6 +51,7 @@ class Favorites(models.Model):
 from .directoryindex import (  # noqa: E402  # pylint: disable=wrong-import-position
     DirectoryIndex,
     directoryindex_cache,
+    get_view_url_cache,
 )
 from .cache_registry import distinct_files_cache  # noqa: E402  # pylint: disable=wrong-import-position
 
@@ -67,6 +68,7 @@ __all__ = [
     "DirectoryIndex",
     "FileIndex",
     "directoryindex_cache",
+    "get_view_url_cache",
     "fileindex_cache",
     "fileindex_download_cache",
     "distinct_files_cache",

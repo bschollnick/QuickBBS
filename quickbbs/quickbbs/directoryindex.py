@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, unquote
 
 from cachetools import cached
+from cachetools.keys import hashkey
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import close_old_connections, models, transaction
@@ -40,10 +41,17 @@ logger = logging.getLogger(__name__)
 # Async-safe caches for database object lookups
 directoryindex_cache = create_cache(settings.DIRECTORYINDEX_CACHE_SIZE, "directoryindex", monitored=settings.CACHE_MONITORING)
 
+# Separate cache for get_view_url() — keyed by DirectoryIndex instance (hashes to PK).
+# fqpndirectory never changes for a given directory so this cache never needs invalidation.
+# Kept separate from directoryindex_cache to avoid key-type confusion with SHA-based keys.
+get_view_url_cache = create_cache(settings.GET_VIEW_URL_CACHE_SIZE, "get_view_url", monitored=settings.CACHE_MONITORING)
+
 # distinct_files_cache lives in quickbbs.cache_registry (shared across apps).
 # Import here for use by @cached decorator on get_distinct_file_shas().
 # Must come after module-level cache creation above to avoid a cyclic import.
-from quickbbs.cache_registry import distinct_files_cache  # noqa: E402  # pylint: disable=wrong-import-position
+from quickbbs.cache_registry import (  # noqa: E402  # pylint: disable=wrong-import-position
+    distinct_files_cache,
+)
 
 if TYPE_CHECKING:
     from cache_watcher.models import fs_Cache_Tracking
@@ -52,7 +60,9 @@ if TYPE_CHECKING:
 
 # Cyclic import: .fileindex imports from .directoryindex, so this must come
 # after the module-level cache initialisation above.
-from .fileindex import FILEINDEX_SR_FILETYPE  # noqa: E402  # pylint: disable=wrong-import-position
+from .fileindex import (  # noqa: E402  # pylint: disable=wrong-import-position
+    FILEINDEX_SR_FILETYPE,
+)
 
 # =============================================================================
 # DIRECTORYINDEX SELECT_RELATED CONSTANTS
@@ -200,7 +210,7 @@ class DirectoryIndex(models.Model):
                     # Recursively add/update parent to ensure proper parent_directory chain
                     # This fixes both missing parents AND parents with NULL parent_directory
                     parent_sha = get_dir_sha(parent_dir)
-                    found, _ = DirectoryIndex.search_for_directory_by_sha(parent_sha, DIRECTORYINDEX_SR_CACHE, ())
+                    found, _ = DirectoryIndex.search_for_directory_by_sha(parent_sha)
 
                     if not found:
                         logger.info("Creating parent directory: %s", parent_dir)
@@ -258,7 +268,7 @@ class DirectoryIndex(models.Model):
         self.is_generic_icon = False
 
         # Clear LRUCache entry for this directory to avoid serving stale cached data
-        directoryindex_cache.pop(self.dir_fqpn_sha256, None)
+        directoryindex_cache.pop(hashkey(self.dir_fqpn_sha256), None)
 
     @property
     def virtual_directory(self) -> str:
@@ -404,7 +414,9 @@ class DirectoryIndex(models.Model):
             None
         """
         # Deferred: cache_watcher.models imports back into directoryindex (genuine cycle)
-        from cache_watcher.models import Cache_Storage  # pylint: disable=import-outside-toplevel
+        from cache_watcher.models import (
+            Cache_Storage,  # pylint: disable=import-outside-toplevel
+        )
 
         if not index_dir:
             return
@@ -430,7 +442,9 @@ class DirectoryIndex(models.Model):
             None
         """
         # Deferred: cache_watcher.models imports back into directoryindex (genuine cycle)
-        from cache_watcher.models import Cache_Storage  # pylint: disable=import-outside-toplevel
+        from cache_watcher.models import (
+            Cache_Storage,  # pylint: disable=import-outside-toplevel
+        )
 
         dir_sha256 = get_dir_sha(normalize_fqpn(fqpn_directory))
         Cache_Storage.remove_from_cache_sha(dir_sha256)
@@ -489,59 +503,56 @@ class DirectoryIndex(models.Model):
 
         return totals
 
-    @cached(directoryindex_cache)
+    @cached(directoryindex_cache, key=lambda sha_256: hashkey(sha_256))
     @staticmethod
-    def search_for_directory_by_sha(sha_256: str, select_related: list[str], prefetch_related: list[str]) -> tuple[bool, "DirectoryIndex"]:
+    def search_for_directory_by_sha(sha_256: str) -> tuple[bool, "DirectoryIndex"]:
         """
-        Return the database object matching the dir_fqpn_sha256
+        Return the database object matching the dir_fqpn_sha256.
+
+        Always loads the full set of relations needed by gallery views
+        (DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT). Cache_watcher and
+        management command callers receive a richer object than strictly needed,
+        but over-fetching on a cache miss is cheaper than fragmenting the cache
+        across multiple select_related variants — which would require iterating
+        over all variants to invalidate a single directory.
+
+        Cache key is sha_256 only, so invalidation is a single O(1) pop:
+            directoryindex_cache.pop(hashkey(sha_256), None)
 
         Args:
             sha_256: The SHA-256 hash of the directory's fully qualified pathname
-            select_related: List of related fields to select (required)
-            prefetch_related: List of related fields to prefetch (required)
 
         Returns: A boolean representing the success of the search, and the resultant record
         """
-        if select_related is None:
-            raise ValueError("select_related parameter is required")
-        if prefetch_related is None:
-            raise ValueError("prefetch_related parameter is required")
-
         try:
-            record = (
-                DirectoryIndex.objects.select_related(*select_related)
-                .prefetch_related(*prefetch_related)
-                .get(
-                    dir_fqpn_sha256=sha_256,
-                    delete_pending=False,
-                )
+            record = DirectoryIndex.objects.select_related(*DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT).get(
+                dir_fqpn_sha256=sha_256,
+                delete_pending=False,
             )
             return (True, record)
         except DirectoryIndex.DoesNotExist:
             return (False, None)  # Return None when not found
 
     @staticmethod
-    def search_for_directory(fqpn_directory: str, select_related: list[str], prefetch_related: list[str]) -> tuple[bool, "DirectoryIndex"]:
+    def search_for_directory(fqpn_directory: str) -> tuple[bool, "DirectoryIndex"]:
         """
-        Return the database object matching the fqpn_directory
+        Return the database object matching the fqpn_directory.
 
         NOTE: This method is NOT cached. It delegates to search_for_directory_by_sha()
         which IS cached. Do NOT add @cached decorator here as it creates duplicate cache
         entries (one by path, one by SHA) that become inconsistent during invalidation.
 
+        Always loads DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT relations via the
+        delegate. Callers that previously passed select_related/prefetch_related should
+        drop those arguments — the full relation set is always fetched.
+
         Args:
             fqpn_directory: The fully qualified pathname of the directory
-            select_related: List of related fields to select (required)
-            prefetch_related: List of related fields to prefetch (required)
 
         Returns: A boolean representing the success of the search, and the resultant record
         """
-        if select_related is None:
-            raise ValueError("select_related parameter is required")
-        if prefetch_related is None:
-            raise ValueError("prefetch_related parameter is required")
         sha_256 = get_dir_sha(fqpn_directory)
-        return DirectoryIndex.search_for_directory_by_sha(sha_256, select_related, prefetch_related)
+        return DirectoryIndex.search_for_directory_by_sha(sha_256)
 
     @staticmethod
     def return_by_sha256_list(
@@ -796,7 +807,7 @@ class DirectoryIndex(models.Model):
 
         return queryset.order_by(*DIR_SORT_MATRIX[sort])
 
-    @cached(directoryindex_cache)
+    @cached(get_view_url_cache)
     def get_view_url(self) -> str:
         """
         Generate the URL for the viewing of the current database item
@@ -978,7 +989,9 @@ class DirectoryIndex(models.Model):
             fs_entries: Dictionary mapping entry names to DirEntry objects
         """
         # Deferred: cache_watcher.models imports back into directoryindex (genuine cycle)
-        from cache_watcher.models import Cache_Storage  # pylint: disable=import-outside-toplevel
+        from cache_watcher.models import (
+            Cache_Storage,  # pylint: disable=import-outside-toplevel
+        )
 
         logger.info("Synchronizing directories...")
         current_path = normalize_fqpn(self.fqpndirectory)
@@ -987,7 +1000,10 @@ class DirectoryIndex(models.Model):
         # Avoid loading full objects with select_related/prefetch_related when only paths needed
         all_dirs_queryset = DirectoryIndex.objects.filter(parent_directory=self.pk, delete_pending=False)
         db_dirs = set(all_dirs_queryset.values_list("fqpndirectory", flat=True))
-        fs_dirs = {normalize_fqpn(current_path + entry.name) for entry in fs_entries.values() if entry.is_dir()}
+        # current_path is already normalized (lowercase, resolved, trailing sep).
+        # Appending entry.name + os.sep produces a valid normalized path without
+        # needing a normalize_fqpn() call — avoiding N syscalls for N subdirectories.
+        fs_dirs = {current_path + entry.name + os.sep for entry in fs_entries.values() if entry.is_dir()}
 
         # Load full objects only for directories that exist in both DB and filesystem
         # This requires select_related for lastmod/size comparisons
@@ -1190,7 +1206,9 @@ def update_database_from_disk(directory_record: "DirectoryIndex") -> "DirectoryI
         The directory_record on success, None on early exit (cached or missing)
     """
     # Deferred: cache_watcher.models imports back into directoryindex (genuine cycle)
-    from cache_watcher.models import Cache_Storage  # pylint: disable=import-outside-toplevel
+    from cache_watcher.models import (
+        Cache_Storage,  # pylint: disable=import-outside-toplevel
+    )
 
     dirpath = directory_record.fqpndirectory
     print("Starting ...  Syncing database with disk for directory:", dirpath)
@@ -1198,8 +1216,15 @@ def update_database_from_disk(directory_record: "DirectoryIndex") -> "DirectoryI
     # Use simplified batch sizing
     bulk_size = settings.BATCH_SIZES.get("db_write", 100)
 
-    # Reload from DB in case Cache_Watcher was invalidated after this object was loaded
-    # (e.g., by watchdog). Clears all cached relations including reverse OneToOne.
+    # Fast path: if the directory was already valid when loaded by _find_directory,
+    # skip the extra DB round-trip. The object is fresh enough for this request.
+    if directory_record.is_cached:
+        print(f"Directory {dirpath} is already cached, skipping sync.")
+        return None
+
+    # Reload from DB before doing work: the watchdog may have invalidated the
+    # Cache_Watcher relation between when this object was loaded and now.
+    # This also clears all cached reverse OneToOne relations.
     try:
         directory_record.refresh_from_db()
     except DirectoryIndex.DoesNotExist:
@@ -1209,9 +1234,9 @@ def update_database_from_disk(directory_record: "DirectoryIndex") -> "DirectoryI
         )
         return None
 
-    # Check if directory is cached using the record's property
+    # Re-check after reload in case the watchdog re-validated it concurrently.
     if directory_record.is_cached:
-        print(f"Directory {dirpath} is already cached, skipping sync.")
+        print(f"Directory {dirpath} was re-cached during reload, skipping sync.")
         return None
 
     print(f"Rescanning directory: {dirpath}")

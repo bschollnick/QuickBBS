@@ -29,18 +29,10 @@ distinct_files_cache = create_cache(
 )
 
 # Gallery page layout results (pagination boundaries, page items)
-# Cache key: hashkey(page_number, directory_obj, sort_ordering, show_duplicates)
+# Cache key: hashkey(page_number, directory.pk, sort_ordering, show_duplicates)
 layout_manager_cache = create_cache(
     settings.LAYOUT_MANAGER_CACHE_SIZE,
     "layout_manager",
-    monitored=settings.CACHE_MONITORING,
-)
-
-# Item view context data (file metadata, navigation, breadcrumbs)
-# Cache key: hashkey(unique_file_sha256, sort_order_value, show_duplicates)
-build_context_info_cache = create_cache(
-    settings.BUILD_CONTEXT_INFO_CACHE_SIZE,
-    "build_context_info",
     monitored=settings.CACHE_MONITORING,
 )
 
@@ -52,19 +44,18 @@ build_context_info_cache = create_cache(
 
 def clear_layout_cache_for_directories(directory_ids: set[int]) -> int:
     """
-    Clear layout_manager_cache, distinct_files_cache, and build_context_info_cache
-    entries for one or more directories.
+    Clear layout_manager_cache and distinct_files_cache entries for one or more
+    directories.
 
     Shared function to ensure consistent cache clearing across:
-    - Web views after thumbnail generation
     - Cache watcher during filesystem invalidation
-    - Management commands after is_generic_icon changes
+    - Management commands after file membership changes (add/delete/move)
 
     Args:
         directory_ids: Set of directory PKs to clear cache for
 
     Returns:
-        Number of cache entries cleared (combined from all three caches)
+        Number of cache entries cleared (combined from both caches)
     """
     if not directory_ids:
         return 0
@@ -72,7 +63,9 @@ def clear_layout_cache_for_directories(directory_ids: set[int]) -> int:
     # Deferred import to avoid circular dependency at module load time.
     # DirectoryIndex is only needed to construct stub instances for hashkey
     # lookups; the import resolves fine at call time.
-    from quickbbs.models import DirectoryIndex  # pylint: disable=import-outside-toplevel
+    from quickbbs.models import (
+        DirectoryIndex,  # pylint: disable=import-outside-toplevel
+    )
 
     count = 0
 
@@ -86,21 +79,14 @@ def clear_layout_cache_for_directories(directory_ids: set[int]) -> int:
                 count += 1
 
     # layout_manager_cache: scan keys (page_number is unbounded, can't construct keys)
-    # Keys are hashkey(page_number, directory_obj, sort_ordering, show_duplicates)
+    # Keys are hashkey(page_number, directory_pk, sort_ordering, show_duplicates)
+    # key[1] is directory pk (int); page_number is unbounded so we scan rather than construct.
     for key in list(layout_manager_cache.keys()):
         try:
-            if any(hasattr(item, "pk") and item.pk in directory_ids for item in key):
+            if key[1] in directory_ids:
                 layout_manager_cache.pop(key, None)
                 count += 1
-        except (TypeError, AttributeError):
+        except (IndexError, TypeError):
             continue
-
-    # build_context_info_cache: scan values for matching home_directory_id
-    # Keys are hashkey(sha, sort, show_duplicates) — can't construct from directory PK
-    # Values are dicts with "home_directory_id" field
-    for key, value in list(build_context_info_cache.items()):
-        if isinstance(value, dict) and value.get("home_directory_id") in directory_ids:
-            build_context_info_cache.pop(key, None)
-            count += 1
 
     return count

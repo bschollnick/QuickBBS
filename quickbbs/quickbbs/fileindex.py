@@ -25,7 +25,6 @@ from django.urls import reverse
 from django.utils.http import content_disposition_header
 
 from filetypes.models import filetypes
-from thumbnails.models import ThumbnailFiles
 from quickbbs.common import (
     SORT_MATRIX,
     get_file_sha,
@@ -34,6 +33,7 @@ from quickbbs.common import (
 )
 from quickbbs.MonitoredCache import create_cache
 from quickbbs.natsort_model import NaturalSortField
+from thumbnails.models import ThumbnailFiles
 
 # Lazy-loaded video info function — AVFoundation/ffmpeg imports are deferred to first call.
 # Prefer AVFoundation on macOS for video metadata (no subprocess spawn, ~10x faster).
@@ -422,9 +422,10 @@ class FileIndex(models.Model):
         - Web view error handlers
         - Management commands
 
-        When is_generic_icon changes, the layout cache must be cleared because
-        the cached layout includes thumbnail counts and display states that are
-        now stale.
+        Note: layout_manager_cache is not cleared here because it stores only
+        SHA lists and pagination boundaries, which are unaffected by is_generic_icon.
+        distinct_files_cache is also unaffected. Only callers that modify actual
+        file membership (add/delete/move) need to clear the layout cache.
 
         Args:
             file_sha256: SHA256 hash of the file(s) to update
@@ -759,7 +760,7 @@ class FileIndex(models.Model):
             DirectoryIndex object for the target directory, or None if target cannot be resolved
         """
         # Inline import to avoid circular dependency (DirectoryIndex imports FileIndex)
-        from .directoryindex import DIRECTORYINDEX_SR_FILETYPE_THUMB, DirectoryIndex
+        from .directoryindex import DirectoryIndex
 
         try:
             redirect_path = None
@@ -789,7 +790,7 @@ class FileIndex(models.Model):
 
             # Common resolution logic (once)
             if redirect_path:
-                found, virtual_dir = DirectoryIndex.search_for_directory(redirect_path, DIRECTORYINDEX_SR_FILETYPE_THUMB, ())
+                found, virtual_dir = DirectoryIndex.search_for_directory(redirect_path)
                 if not found:
                     found, virtual_dir = DirectoryIndex.add_directory(redirect_path)
 

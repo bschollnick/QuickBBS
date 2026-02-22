@@ -778,7 +778,6 @@ class fs_Cache_Tracking(models.Model):
 
         try:
             # Import inside function to avoid circular dependency
-            from quickbbs.directoryindex import DIRECTORYINDEX_SR_CACHE
             from quickbbs.models import (
                 DirectoryIndex,  # pylint: disable=import-outside-toplevel
             )
@@ -787,7 +786,7 @@ class fs_Cache_Tracking(models.Model):
             scan_time = time.time()
 
             # Fetch the DirectoryIndex instance by dir_sha using optimized cached lookup
-            found, index_dir = DirectoryIndex.search_for_directory_by_sha(dir_sha, DIRECTORYINDEX_SR_CACHE, ())
+            found, index_dir = DirectoryIndex.search_for_directory_by_sha(dir_sha)
             if not found:
                 logger.warning("Cannot add cache entry for %s - DirectoryIndex entry not found", dir_path)
                 return None
@@ -868,13 +867,12 @@ class fs_Cache_Tracking(models.Model):
         """
         try:
             # Import inside function to avoid circular dependency
-            from quickbbs.directoryindex import DIRECTORYINDEX_SR_CACHE
             from quickbbs.models import (
                 DirectoryIndex,  # pylint: disable=import-outside-toplevel
             )
 
             # Single optimized lookup with prefetched relationships
-            found, directory = DirectoryIndex.search_for_directory_by_sha(sha256, DIRECTORYINDEX_SR_CACHE, ())
+            found, directory = DirectoryIndex.search_for_directory_by_sha(sha256)
 
             if not found:
                 logger.warning("Cannot remove cache for SHA %s - DirectoryIndex not found", sha256)
@@ -983,11 +981,13 @@ class fs_Cache_Tracking(models.Model):
 
         # Clear LRU cache to prevent stale DirectoryIndex data
         # This ensures next access will fetch fresh data with updated invalidation status
+        from cachetools.keys import hashkey  # pylint: disable=import-outside-toplevel
+
         from quickbbs.directoryindex import (
             directoryindex_cache,  # pylint: disable=import-outside-toplevel
         )
 
-        directoryindex_cache.pop(index_dir.dir_fqpn_sha256, None)
+        directoryindex_cache.pop(hashkey(index_dir.dir_fqpn_sha256), None)
 
         # Refresh so any held reference sees the updated invalidated state
         index_dir.refresh_from_db()
@@ -1009,13 +1009,12 @@ class fs_Cache_Tracking(models.Model):
             return None
 
         # Import inside function to avoid circular dependency
-        from quickbbs.directoryindex import DIRECTORYINDEX_SR_CACHE
         from quickbbs.models import (
             DirectoryIndex,  # pylint: disable=import-outside-toplevel
         )
 
         # Fetch the DirectoryIndex instance by dir_sha using optimized cached lookup
-        found, index_dir = DirectoryIndex.search_for_directory_by_sha(sha256, DIRECTORYINDEX_SR_CACHE, ())
+        found, index_dir = DirectoryIndex.search_for_directory_by_sha(sha256)
         if not found:
             logger.warning("Cannot invalidate cache for SHA %s - DirectoryIndex entry not found", sha256)
             return None
@@ -1029,11 +1028,13 @@ class fs_Cache_Tracking(models.Model):
         )
 
         # Clear LRU cache to prevent stale DirectoryIndex data
+        from cachetools.keys import hashkey  # pylint: disable=import-outside-toplevel
+
         from quickbbs.directoryindex import (
             directoryindex_cache,  # pylint: disable=import-outside-toplevel
         )
 
-        directoryindex_cache.pop(sha256, None)
+        directoryindex_cache.pop(hashkey(sha256), None)
 
         # Refresh so any held reference sees the updated invalidated state
         index_dir.refresh_from_db()
@@ -1229,6 +1230,8 @@ class fs_Cache_Tracking(models.Model):
         """
         try:
             # pylint: disable=import-outside-toplevel
+            from cachetools.keys import hashkey
+
             from quickbbs.directoryindex import directoryindex_cache
 
             # Extract SHA256s and directly delete from cache
@@ -1237,7 +1240,7 @@ class fs_Cache_Tracking(models.Model):
                 if directory and hasattr(directory, "dir_fqpn_sha256"):
                     sha = directory.dir_fqpn_sha256
                     # Get the cached object before removing it
-                    cached_obj = directoryindex_cache.pop(sha, None)
+                    cached_obj = directoryindex_cache.pop(hashkey(sha), None)
                     if cached_obj is not None:
                         # Refresh so any remaining reference sees updated invalidation state
                         cached_obj.refresh_from_db()

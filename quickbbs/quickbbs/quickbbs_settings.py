@@ -103,11 +103,11 @@ CACHE_STATISTICS_MAX_RECORDS = 1000
 # When a cache is full, the least recently used entry is evicted
 # Increase sizes if monitoring shows hit rates below 80%
 DIRECTORYINDEX_CACHE_SIZE = 750  # DirectoryIndex lookups by SHA256 (directoryindex.py)
+GET_VIEW_URL_CACHE_SIZE = 500  # DirectoryIndex.get_view_url() results (directoryindex.py)
 DISTINCT_FILES_CACHE_SIZE = 500  # Distinct file SHA lists per directory+sort (directoryindex.py)
 FILEINDEX_CACHE_SIZE = 250  # FileIndex lookups by SHA256 (fileindex.py)
 FILEINDEX_DOWNLOAD_CACHE_SIZE = 250  # FileIndex download lookups by SHA256 (fileindex.py)
 LAYOUT_MANAGER_CACHE_SIZE = 500  # Gallery page layout results (managers.py)
-BUILD_CONTEXT_INFO_CACHE_SIZE = 500  # Item view context data (managers.py)
 WEBPATHS_CACHE_SIZE = 500  # Full path to web path conversions (utilities.py)
 BREADCRUMBS_CACHE_SIZE = 400  # Breadcrumb navigation lists (utilities.py)
 NORMALIZED_STRINGS_CACHE_SIZE = 500  # Normalized string lookups (common.py)

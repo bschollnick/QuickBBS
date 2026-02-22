@@ -13,10 +13,9 @@ from django.db import transaction
 from django.http import Http404, HttpResponseBadRequest
 from PIL import Image
 
-from thumbnails.models import THUMBNAILFILES_PR_FILEINDEX_FILETYPE, ThumbnailFiles
-from quickbbs.directoryindex import DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT
 from quickbbs.fileindex import FILEINDEX_SR_FILETYPE_HOME_VIRTUAL
 from quickbbs.models import DirectoryIndex, FileIndex
+from thumbnails.models import THUMBNAILFILES_PR_FILEINDEX_FILETYPE, ThumbnailFiles
 
 logger = logging.getLogger()
 
@@ -41,7 +40,7 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
         HttpResponseBadRequest: If the directory cannot be found
     """
     # Use optimized model method with prefetched relationships
-    success, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha256, DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT, ())
+    success, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha256)
     if not success:
         print(f"Directory not found: {dir_sha256}")
         return Http404
@@ -70,7 +69,9 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
 
     # If no cover image found, try syncing from disk and retry
     if not cover_image:
-        from quickbbs.directoryindex import update_database_from_disk  # pylint: disable=import-outside-toplevel
+        from quickbbs.directoryindex import (
+            update_database_from_disk,  # pylint: disable=import-outside-toplevel
+        )
 
         update_database_from_disk(directory)
         cover_image = directory.get_cover_image()
@@ -80,17 +81,11 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
         return directory.filetype.send_thumbnail()
 
     # Set directory thumbnail to the selected cover image
-    # Clear layout cache to ensure users see updated thumbnail
     # Wrap in transaction to prevent race conditions with concurrent requests
     with transaction.atomic():
         directory.thumbnail = cover_image
         directory.is_generic_icon = False
         directory.save(update_fields=["thumbnail", "is_generic_icon"])
-
-    # Clear cache for this directory
-    from quickbbs.cache_registry import clear_layout_cache_for_directories
-
-    clear_layout_cache_for_directories({directory.pk})
 
     # Ensure thumbnail record exists
     if not directory.thumbnail.new_ftnail:
@@ -110,15 +105,11 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
         return directory.thumbnail.new_ftnail.send_thumbnail(fext_override=".jpg", size="small", index_data_item=directory.thumbnail)
     except (OSError, ValueError, AttributeError) as e:
         # If thumbnail generation/serving fails, mark directory as generic and return filetype icon
-        # Clear layout cache to ensure users see updated generic icon state
         print(f"Directory thumbnail generation failed for {directory.fqpndirectory}: {e}")
         # Wrap in transaction to prevent race conditions
         with transaction.atomic():
             directory.is_generic_icon = True
             directory.save(update_fields=["is_generic_icon"])
-
-        # Clear cache for this directory
-        clear_layout_cache_for_directories({directory.pk})
 
         return directory.filetype.send_thumbnail()
 

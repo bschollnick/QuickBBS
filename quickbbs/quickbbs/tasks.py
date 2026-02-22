@@ -5,14 +5,14 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
+from dbtasks.models import ScheduledTask
 from django.conf import settings
 from django.tasks import TaskResultStatus, task
 from django.utils import timezone
 
-from dbtasks.models import ScheduledTask
-from thumbnails.models import THUMBNAILFILES_PR_FILEINDEX_FILETYPE, ThumbnailFiles
 from quickbbs.cache_registry import clear_layout_cache_for_directories
 from quickbbs.MonitoredCache import MonitoredLRUCache
+from thumbnails.models import THUMBNAILFILES_PR_FILEINDEX_FILETYPE, ThumbnailFiles
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 _MONITORED_CACHE_LOCATIONS: list[tuple[str, str, str | None]] = [
     ("quickbbs.cache_registry", "distinct_files_cache", None),
     ("quickbbs.cache_registry", "layout_manager_cache", None),
-    ("quickbbs.cache_registry", "build_context_info_cache", None),
     ("quickbbs.directoryindex", "directoryindex_cache", None),
+    ("quickbbs.directoryindex", "get_view_url_cache", None),
     ("quickbbs.fileindex", "fileindex_cache", None),
     ("quickbbs.fileindex", "fileindex_download_cache", None),
     ("frontend.utilities", "webpaths_cache", None),
@@ -233,7 +233,9 @@ def snapshot_cache_statistics() -> dict[str, dict[str, int | float | str]]:
     """
     # Deferred import to avoid circular dependency:
     # cache_watcher.models → quickbbs.cache_registry → (indirectly) tasks
-    from cache_watcher.models import CacheStatisticsTracking  # pylint: disable=import-outside-toplevel
+    from cache_watcher.models import (
+        CacheStatisticsTracking,  # pylint: disable=import-outside-toplevel
+    )
 
     caches = _collect_monitored_caches()
     if not caches:
@@ -243,8 +245,7 @@ def snapshot_cache_statistics() -> dict[str, dict[str, int | float | str]]:
     # Fetch all existing rows in one query, keyed by cache name
     cache_names = [c.name for c in caches]
     existing_rows: dict[str, CacheStatisticsTracking] = {
-        row.cache_name: row
-        for row in CacheStatisticsTracking.objects.filter(cache_name__in=cache_names)
+        row.cache_name: row for row in CacheStatisticsTracking.objects.filter(cache_name__in=cache_names)
     }
 
     results: dict[str, dict[str, int | float | str]] = {}
@@ -254,12 +255,7 @@ def snapshot_cache_statistics() -> dict[str, dict[str, int | float | str]]:
         name = stats["name"]
         existing = existing_rows.get(name)
 
-        if (
-            existing is not None
-            and existing.hits == stats["hits"]
-            and existing.misses == stats["misses"]
-            and existing.current_size == stats["size"]
-        ):
+        if existing is not None and existing.hits == stats["hits"] and existing.misses == stats["misses"] and existing.current_size == stats["size"]:
             logger.debug("Cache snapshot [%s]: no change since last snapshot — skipping write", name)
             continue
 
