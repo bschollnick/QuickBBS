@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/stable/ref/settings/
 """
 
 from datetime import timedelta
+from dbtasks import Periodic
 import logging
 import logging.handlers
 import os
@@ -21,11 +22,8 @@ from pathlib import Path
 import humanize
 from django_htmx.jinja import django_htmx_script, htmx_script
 
-# Apply PIL/Pillow configuration from quickbbs_settings
-from PIL import Image, ImageFile
 
-
-from quickbbs.quickbbs_settings import *
+from quickbbs.quickbbs_settings import *  # intentional: re-exports all settings constants to this module
 from quickbbs import __version__ as QUICKBBS_VERSION
 
 #
@@ -100,12 +98,23 @@ class SuppressCancelledErrorFilter(logging.Filter):
         return True
 
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-Image.MAX_IMAGE_PIXELS = PIL_MAX_IMAGE_PIXELS  # pylint: disable=undefined-variable
-ImageFile.LOAD_TRUNCATED_IMAGES = PIL_LOAD_TRUNCATED_IMAGES  # pylint: disable=undefined-variable
+# PIL/Pillow configuration — deferred to avoid loading PIL at settings time.
+# Applied on first import of PIL anywhere in the application.
+_pil_configured = False
+
+
+def configure_pil() -> None:
+    """Apply PIL/Pillow configuration settings (called once on first PIL usage)."""
+    global _pil_configured
+    if not _pil_configured:
+        from PIL import Image, ImageFile
+
+        Image.MAX_IMAGE_PIXELS = PIL_MAX_IMAGE_PIXELS  # pylint: disable=undefined-variable
+        ImageFile.LOAD_TRUNCATED_IMAGES = PIL_LOAD_TRUNCATED_IMAGES  # pylint: disable=undefined-variable
+        _pil_configured = True
 
 
 SECURE_SSL_REDIRECT = True
@@ -121,6 +130,8 @@ AUTORELOAD_IGNORE_PATHS = [
 # Add other paths as needed
 
 # Import secrets from secrets.py (NEVER commit secrets.py to version control)
+# Note: ALLOWED_HOSTS, INTERNAL_IPS, SECRET_KEY become module-level names that
+# Django reads directly as settings attributes — the import IS the assignment.
 try:
     from quickbbs.secrets import (
         ALLOWED_HOSTS,
@@ -456,7 +467,10 @@ TASKS = {
     "default": {
         "BACKEND": "dbtasks.backend.DatabaseBackend",
         "OPTIONS": {
-            "retain": timedelta(days=7),
+            "retain": timedelta(days=TASK_RETAIN_DAYS),
+            "periodic": {
+                "quickbbs.tasks.daily_cleanup_finished_jobs": Periodic("0 0 * * *"),
+            },
         },
     },
 }
@@ -512,6 +526,10 @@ DBBACKUP_MEDIA_FILENAME_TEMPLATE = "quickbbs-media-{datetime}.{extension}"
 # Optional: Encrypt backups (requires cryptography package)
 # DBBACKUP_GPG_RECIPIENT = 'your-gpg-key-id'
 
+_cache_monitor_handlers = ["rotating_file", "console"]
+if CACHE_MONITORING:
+    _cache_monitor_handlers = ["rotating_file", "console", "cache_file"]
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -548,6 +566,13 @@ LOGGING = {
             "formatter": "simple",
             "filters": ["suppress_cancelled"],
         },
+        "cache_file": {
+            "level": "DEBUG",
+            "class": "logging.FileHandler",
+            "filename": os.path.join(BASE_DIR, "logs", "cache_logging.log"),
+            "formatter": "verbose",
+            "encoding": "utf-8",
+        },
     },
     "root": {
         "handlers": ["rotating_file", "console"],
@@ -567,6 +592,11 @@ LOGGING = {
         "myapp": {
             "handlers": ["rotating_file", "console"],  # Both handlers
             "level": "INFO",
+            "propagate": False,
+        },
+        "cache_watcher": {
+            "handlers": _cache_monitor_handlers,
+            "level": "DEBUG",
             "propagate": False,
         },
     },

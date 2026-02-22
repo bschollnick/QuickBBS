@@ -18,6 +18,7 @@ from pathlib import Path
 
 from asgiref.sync import sync_to_async
 from cachetools import cached
+from cachetools.keys import hashkey
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.db.models import Q
@@ -27,20 +28,13 @@ from frontend.utilities import (
     convert_to_webpath,
     return_breadcrumbs,
 )
-from quickbbs.cache_registry import (
-    build_context_info_cache,
-    layout_manager_cache,
-)
+from quickbbs.cache_registry import layout_manager_cache
 from quickbbs.common import SORT_MATRIX
 from quickbbs.fileindex import FILEINDEX_SR_FILETYPE_HOME_VIRTUAL
-from quickbbs.models import (
-    DirectoryIndex,  # used in docstring type annotations
-    FileIndex,
-)
+from quickbbs.models import FileIndex
 from thumbnails.models import ThumbnailFiles
 
 
-@cached(build_context_info_cache)
 def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_duplicates: bool = False) -> dict | HttpResponseBadRequest:
     """
     Build context information for item view using optimized single-pass dictionary creation.
@@ -285,13 +279,37 @@ def calculate_page_bounds(page_number: int, chunk_size: int, dirs_count: int) ->
     }
 
 
-@cached(layout_manager_cache)
+def _layout_manager_key(page_number: int, directory, sort_ordering: int, show_duplicates: bool):
+    """
+    Build the cache key for layout_manager using directory.pk instead of the full model instance.
+
+    Using directory.pk (an int) rather than the DirectoryIndex object means:
+    - clear_layout_cache_for_directories() can invalidate entries with a direct int
+      comparison (key[1] in directory_ids) instead of scanning for model instances.
+    - The key is stable across different query paths that load the same directory —
+      no risk of identity vs. equality mismatches if Django's __hash__ behaviour changes.
+
+    Args:
+        page_number: Current page number (1-indexed)
+        directory: DirectoryIndex object (only .pk is used in the key)
+        sort_ordering: Sort order to apply (0-2)
+        show_duplicates: Whether duplicate files are included
+    Returns: cachetools hashkey tuple
+    """
+    return hashkey(page_number, directory.pk if directory is not None else None, sort_ordering, show_duplicates)
+
+
+@cached(layout_manager_cache, key=_layout_manager_key)
 def layout_manager(page_number: int = 1, directory=None, sort_ordering: int = 0, show_duplicates: bool = False) -> dict:
     """
     Manage gallery layout with optimized database-level pagination.
 
     Uses database LIMIT/OFFSET for efficient pagination instead of loading
     all items into memory. Only fetches data for the requested page.
+
+    Cache key is built by _layout_manager_key, which uses directory.pk rather than
+    the full DirectoryIndex object so that cache invalidation can use a direct int
+    comparison instead of scanning for model instances.
 
     Args:
         page_number: Current page number (1-indexed)

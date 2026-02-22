@@ -37,29 +37,18 @@ from frontend.managers import (
     async_layout_manager,
 )
 from frontend.utilities import (
-    breadcrumbs_cache,
     convert_to_webpath,
     ensures_endswith,
     return_breadcrumbs,
-    webpaths_cache,
 )
 from quickbbs.common import SORT_MATRIX, get_dir_sha, normalize_fqpn
 from quickbbs.directoryindex import (
     DIRECTORYINDEX_SR_FILETYPE_THUMB,
-    DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT,
-    directoryindex_cache,
     update_database_from_disk,
 )
 from quickbbs.fileindex import (
     FILEINDEX_SR_FILETYPE_HOME,
     FILEINDEX_SR_FILETYPE_HOME_VIRTUAL,
-    fileindex_cache,
-    fileindex_download_cache,
-)
-from quickbbs.cache_registry import (
-    build_context_info_cache,
-    distinct_files_cache,
-    layout_manager_cache,
 )
 from quickbbs.models import (
     DirectoryIndex,
@@ -565,7 +554,7 @@ def _find_directory(paths: dict) -> DirectoryIndex:
         # Search for directory in database (uses optimized prefetches)
         # REMOVED: ("FileIndex_entries",) prefetch - Phase 5 Fix 4
         # Files loaded separately via files_in_dir() when needed - no need to prefetch all
-        found, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha, DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT, ())
+        found, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha)
 
         if not found:
             # Create directory record - add_directory handles:
@@ -587,7 +576,7 @@ def _find_directory(paths: dict) -> DirectoryIndex:
             # Reload with optimized prefetches for view rendering
             # add_directory uses update_or_create without prefetch_related
             # REMOVED: ("FileIndex_entries",) prefetch - Phase 5 Fix 4
-            _, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha, DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT, ())
+            _, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha)
 
             # Sync newly created directory to populate file entries
             directory = update_database_from_disk(directory)
