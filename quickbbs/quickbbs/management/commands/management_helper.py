@@ -65,9 +65,7 @@ def invalidate_empty_directories(start_path: str | None = None, verbose: bool = 
             pass
 
     if entries_to_update:
-        fs_Cache_Tracking.objects.bulk_update(
-            entries_to_update, fields=["invalidated", "lastscan"], batch_size=250
-        )
+        fs_Cache_Tracking.objects.bulk_update(entries_to_update, fields=["invalidated", "lastscan"], batch_size=250)
 
     invalidated_count = len(entries_to_update)
 

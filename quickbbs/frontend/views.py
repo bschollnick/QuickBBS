@@ -614,6 +614,9 @@ def _check_and_enqueue_missing_thumbnails(directory: DirectoryIndex, sort_orderi
     Consolidates three sequential ORM operations into a single sync function
     to reduce async/sync boundary crossings.
 
+    Tasks are enqueued at priority 50 (web request).  Bulk maintenance tasks
+    via --add_thumbnails use priority 0 so user-facing requests are processed first.
+
     Args:
         directory: DirectoryIndex to check for missing thumbnails
         sort_ordering: Sort order for file query
@@ -627,10 +630,10 @@ def _check_and_enqueue_missing_thumbnails(directory: DirectoryIndex, sort_orderi
     missing_count = len(no_thumbs)
     if missing_count > 0:
         print(f"{missing_count} entries need thumbnails, enqueuing to task runner")
-        generate_missing_thumbnails.enqueue(
+        generate_missing_thumbnails.using(priority=50).enqueue(
             files_needing_thumbnails=no_thumbs,
             directory_pk=directory.pk,
-            batchsize=missing_count,
+            batch_size=missing_count,
         )
     return missing_count
 

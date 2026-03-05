@@ -18,7 +18,7 @@ SERVER_PORT = 8888
 
 PRELOAD = ["/albums", "/albums/hentai_idea"]
 
-SERVER_PATH = "/Volumes/c-8tb/gallery/quickbbs"
+SERVER_PATH = "/Volumes/Support-8TB/gallery/quickbbs"
 SERVERLOG = f"{SERVER_PATH}/logs/server.log"
 ALBUMS_PATH = f"{SERVER_PATH}"
 THUMBNAILS_PATH = f"{SERVER_PATH}/thumbnails"
@@ -84,8 +84,8 @@ SMALL_THUMBNAIL_SAFEGUARD_SIZE = 2500
 # Keys are lowercase source paths, values are the canonical paths they map to
 # Used by normalize_fqpn() to redirect legacy or alternate mount locations
 ALIAS_MAPPING = {
-    r"/volumes/masters/masters/hyp-collective": r"/volumes/c-8tb/gallery/quickbbs/albums/hentai_idea/hyp-collective",
-    r"/volumes/masters/masters": r"/volumes/c-8tb/gallery/quickbbs/albums/hentai_idea",
+    r"/volumes/masters/masters/hyp-collective": r"/volumes/Support-8tb/gallery/quickbbs/albums/hentai_idea/hyp-collective",
+    r"/volumes/masters/masters": r"/volumes/Support-8tb/gallery/quickbbs/albums/hentai_idea",
 }
 
 

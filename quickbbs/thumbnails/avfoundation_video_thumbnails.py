@@ -25,9 +25,11 @@ except ImportError:
 try:
     from .Abstractbase_thumbnails import AbstractBackend
     from .core_image_thumbnails import CoreImageBackend, autorelease_pool
+    from .exceptions import VideoProcessingError
 except ImportError:
     from Abstractbase_thumbnails import AbstractBackend
     from core_image_thumbnails import CoreImageBackend, autorelease_pool
+    from exceptions import VideoProcessingError
 
 
 class AVFoundationVideoBackend(AbstractBackend):
@@ -77,7 +79,7 @@ class AVFoundationVideoBackend(AbstractBackend):
 
         :return: Dictionary with 'duration', 'format', and size-keyed thumbnail bytes
         :raises FileNotFoundError: If video file doesn't exist
-        :raises RuntimeError: If video processing fails
+        :raises VideoProcessingError: If video processing fails
         """
         # Wrap entire operation in autorelease pool to drain AVFoundation objects
         with autorelease_pool():
@@ -159,7 +161,7 @@ def _extract_frame_as_ciimage(video_path: str, time_offset: float) -> "CIImage":
         time_offset: Time position in seconds to capture thumbnail
 
     :return: CIImage object of the video frame
-    :raises RuntimeError: If frame extraction fails
+    :raises VideoProcessingError: If frame extraction fails
     """
     # No inner autorelease pool — caller (process_from_file) has an outer pool
     # that correctly scopes the returned CIImage's lifetime.
@@ -171,7 +173,7 @@ def _extract_frame_as_ciimage(video_path: str, time_offset: float) -> "CIImage":
     asset = AVAsset.assetWithURL_(file_url)
 
     if asset is None:
-        raise RuntimeError(f"Could not load video asset from {video_path}")
+        raise VideoProcessingError(f"Could not load video asset from {video_path}", file_path=video_path)
 
     # Create image generator
     generator = AVAssetImageGenerator.assetImageGeneratorWithAsset_(asset)
@@ -191,13 +193,13 @@ def _extract_frame_as_ciimage(video_path: str, time_offset: float) -> "CIImage":
         extraction_result = generator.copyCGImageAtTime_actualTime_error_(requested_time, None, None)
 
         if extraction_result is None or len(extraction_result) < 1:
-            raise RuntimeError("Failed to extract frame from video")
+            raise VideoProcessingError("Failed to extract frame from video", file_path=video_path)
 
         # Result is (CGImage, actualTime)
         cg_image = extraction_result[0]
 
         if cg_image is None:
-            raise RuntimeError("Failed to extract frame from video")
+            raise VideoProcessingError("Failed to extract frame from video", file_path=video_path)
 
         # Convert CGImage to CIImage
         ci_image = CIImage.imageWithCGImage_(cg_image)
@@ -207,8 +209,10 @@ def _extract_frame_as_ciimage(video_path: str, time_offset: float) -> "CIImage":
 
         return ci_image
 
+    except VideoProcessingError:
+        raise
     except Exception as e:
-        raise RuntimeError(f"Error extracting frame: {e}") from e
+        raise VideoProcessingError(f"Error extracting frame: {e}", file_path=video_path) from e
     finally:
         # Clean up generator
         generator = None
@@ -222,7 +226,7 @@ def _get_video_info(video_path: str) -> dict[str, any]:
         video_path: Path to the video file
 
     :return: Dictionary containing video metadata (duration, width, height, fps, codec, format)
-    :raises RuntimeError: If video info extraction fails
+    :raises VideoProcessingError: If video info extraction fails
     """
     # Wrap in autorelease pool to drain AVFoundation objects
     with autorelease_pool():
@@ -233,7 +237,7 @@ def _get_video_info(video_path: str) -> dict[str, any]:
         asset = AVAsset.assetWithURL_(file_url)
 
         if asset is None:
-            raise RuntimeError(f"Could not load video asset from {video_path}")
+            raise VideoProcessingError(f"Could not load video asset from {video_path}", file_path=video_path)
 
         try:
             # Get duration
@@ -244,7 +248,7 @@ def _get_video_info(video_path: str) -> dict[str, any]:
             video_tracks = asset.tracksWithMediaType_("vide")  # 'vide' is the media type for video
 
             if not video_tracks or len(video_tracks) == 0:
-                raise RuntimeError("No video tracks found in file")
+                raise VideoProcessingError("No video tracks found in file", file_path=video_path)
 
             video_track = video_tracks[0]
 
@@ -274,8 +278,10 @@ def _get_video_info(video_path: str) -> dict[str, any]:
 
             return info
 
+        except VideoProcessingError:
+            raise
         except Exception as e:
-            raise RuntimeError(f"Error getting video info: {e}") from e
+            raise VideoProcessingError(f"Error getting video info: {e}", file_path=video_path) from e
         finally:
             # Clean up
             asset = None

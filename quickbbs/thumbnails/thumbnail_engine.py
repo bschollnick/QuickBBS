@@ -8,6 +8,8 @@ import platform
 import threading
 from typing import TYPE_CHECKING, Literal
 
+from .exceptions import UnsupportedFormatError
+
 # Availability is checked lazily on first use
 _core_image_available: bool | None = None
 _avfoundation_available: bool | None = None
@@ -93,6 +95,9 @@ class FastImageProcessor:
 
         Returns:
             Backend instance for the configured backend type
+
+        Raises:
+            UnsupportedFormatError: If the configured backend type is not recognised.
         """
         # Lazy imports — each backend pulls in heavy dependencies (PIL, fitz, ffmpeg, macOS frameworks)
         # Only the backend actually used gets imported.
@@ -153,7 +158,7 @@ class FastImageProcessor:
 
                 return ImageBackend()
             case _:
-                raise ValueError(f"Unknown backend type: {self.backend_type}")
+                raise UnsupportedFormatError(self.backend_type)
 
     def _is_apple_silicon(self) -> bool:
         """Check if running on Apple Silicon."""

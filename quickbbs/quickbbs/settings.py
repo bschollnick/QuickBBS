@@ -112,8 +112,8 @@ def configure_pil() -> None:
     if not _pil_configured:
         from PIL import Image, ImageFile
 
-        Image.MAX_IMAGE_PIXELS = PIL_MAX_IMAGE_PIXELS  # pylint: disable=undefined-variable
-        ImageFile.LOAD_TRUNCATED_IMAGES = PIL_LOAD_TRUNCATED_IMAGES  # pylint: disable=undefined-variable
+        Image.MAX_IMAGE_PIXELS = PIL_MAX_IMAGE_PIXELS
+        ImageFile.LOAD_TRUNCATED_IMAGES = PIL_LOAD_TRUNCATED_IMAGES
         _pil_configured = True
 
 
@@ -122,7 +122,7 @@ SECURE_SSL_REDIRECT = True
 # Demo mode, redirects the database to a different database container, and album path.
 # Useful for demonstrating the software without using your master database.
 #
-ALBUMS_PATH = "/Volumes/C-8TB/Gallery/quickbbs".lower()
+ALBUMS_PATH = "/Volumes/Support-8TB/Gallery/quickbbs".lower()
 
 AUTORELOAD_IGNORE_PATHS = [
     os.path.join(ALBUMS_PATH, "albums"),
@@ -160,8 +160,15 @@ print(f"* Running on {machine_name}")
 BASE_DIR = Path(__file__).resolve().parent.parent
 # print(BASE_DIR)
 
+CACHES = {
+    "sessions": {
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "LOCATION": "django_session_cache",
+    },
+}
+
 if not DEBUG:
-    CACHES = {
+    CACHES.update({
         "default": {
             "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
             "LOCATION": "quickbbs-default-cache",
@@ -180,10 +187,10 @@ if not DEBUG:
                 "CULL_FREQUENCY": 3,
             },
         },
-    }
+    })
 
 # Before using the database cache, you must create the cache table with this command:
-# python manage.py createcachetable
+# python manage.py createcachetable django_session_cache
 
 
 TEMPLATE_PATH = BASE_DIR / "templates"
@@ -249,6 +256,7 @@ INSTALLED_APPS += [
 SITE_ID = 1
 
 SESSION_ENGINE = "django.contrib.sessions.backends.cached_db"
+SESSION_CACHE_ALIAS = "sessions"
 
 MIDDLEWARE = [
     "allauth.account.middleware.AccountMiddleware",

@@ -18,9 +18,11 @@ except ImportError:
 try:
     from .Abstractbase_thumbnails import AbstractBackend
     from .core_image_thumbnails import CoreImageBackend, autorelease_pool
+    from .exceptions import PDFProcessingError
 except ImportError:
     from Abstractbase_thumbnails import AbstractBackend
     from core_image_thumbnails import CoreImageBackend, autorelease_pool
+    from exceptions import PDFProcessingError
 
 
 class PDFKitBackend(AbstractBackend):
@@ -85,7 +87,7 @@ class PDFKitBackend(AbstractBackend):
             target_size: Target size (width, height) for rendering
 
         :return: CIImage of the rendered page
-        :raises RuntimeError: If page rendering fails
+        :raises PDFProcessingError: If page rendering fails
         """
         # No inner autorelease pool — callers (process_from_file, process_from_memory)
         # have outer pools. An inner pool here would drain tiff_data that the
@@ -94,7 +96,7 @@ class PDFKitBackend(AbstractBackend):
         # Get the page
         page = pdf_doc.pageAtIndex_(page_num)
         if page is None:
-            raise RuntimeError(f"Could not get page {page_num} from PDF")
+            raise PDFProcessingError(f"Could not get page {page_num} from PDF")
 
         # Get page bounds
         page_rect = page.boundsForBox_(1)  # 1 = kPDFDisplayBoxMediaBox
@@ -113,19 +115,19 @@ class PDFKitBackend(AbstractBackend):
         ns_image = page.thumbnailOfSize_forBox_((scaled_width, scaled_height), 1)
 
         if ns_image is None:
-            raise RuntimeError("Failed to render PDF page thumbnail")
+            raise PDFProcessingError("Failed to render PDF page thumbnail")
 
         # Convert NSImage to CGImage then to CIImage
         # Get the bitmap representation
         tiff_data = ns_image.TIFFRepresentation()
         if tiff_data is None:
-            raise RuntimeError("Failed to get TIFF representation from NSImage")
+            raise PDFProcessingError("Failed to get TIFF representation from NSImage")
 
         # Create CIImage from TIFF data
         ci_image = CIImage.imageWithData_(tiff_data)
 
         if ci_image is None:
-            raise RuntimeError("Failed to create CIImage from TIFF data")
+            raise PDFProcessingError("Failed to create CIImage from TIFF data")
 
         return ci_image
 
@@ -146,7 +148,7 @@ class PDFKitBackend(AbstractBackend):
 
         :return: Dictionary with 'format' key and size-keyed thumbnail bytes
         :raises FileNotFoundError: If PDF file doesn't exist
-        :raises RuntimeError: If PDF processing fails
+        :raises PDFProcessingError: If PDF processing fails
         """
         # Wrap entire operation in autorelease pool to drain PDFKit objects
         with autorelease_pool():
@@ -160,13 +162,13 @@ class PDFKitBackend(AbstractBackend):
             pdf_doc = PDFDocument.alloc().initWithURL_(file_url)
 
             if pdf_doc is None:
-                raise RuntimeError(f"Could not load PDF from {file_path}")
+                raise PDFProcessingError(f"Could not load PDF from {file_path}", file_path=str(file_path))
 
             try:
                 # Use first page (page 0)
                 page_num = 0
                 if pdf_doc.pageCount() == 0:
-                    raise RuntimeError("PDF has no pages")
+                    raise PDFProcessingError("PDF has no pages", file_path=str(file_path))
 
                 if page_num >= pdf_doc.pageCount():
                     page_num = 0
@@ -208,7 +210,7 @@ class PDFKitBackend(AbstractBackend):
             page_num: Page number to use for thumbnail (0-indexed, default: 0)
 
         :return: Dictionary with 'format' key and size-keyed thumbnail bytes
-        :raises RuntimeError: If PDF processing fails
+        :raises PDFProcessingError: If PDF processing fails
         """
         # Wrap entire operation in autorelease pool to drain PDFKit objects
         with autorelease_pool():
@@ -219,11 +221,11 @@ class PDFKitBackend(AbstractBackend):
             pdf_doc = PDFDocument.alloc().initWithData_(ns_data)
 
             if pdf_doc is None:
-                raise RuntimeError("Could not load PDF from bytes")
+                raise PDFProcessingError("Could not load PDF from bytes")
 
             try:
                 if pdf_doc.pageCount() == 0:
-                    raise RuntimeError("PDF has no pages")
+                    raise PDFProcessingError("PDF has no pages")
 
                 if page_num >= pdf_doc.pageCount():
                     page_num = 0
