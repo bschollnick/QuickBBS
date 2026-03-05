@@ -414,3 +414,62 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 **Current Recommendation:** Use `./start_hypercorn_http2.sh` for best performance with HTTP/2 support.
 
+---
+
+## Background Task Worker
+
+QuickBBS requires a separate task worker process running alongside the web server. The web server alone is not sufficient for a fully functional installation.
+
+### Why a Task Worker Is Required
+
+The task worker handles work that happens outside the web request cycle:
+
+- **`generate_missing_thumbnails`** — Generates thumbnails for newly discovered files. When a gallery page loads and finds files without thumbnails, it enqueues this task. Without a running worker, no thumbnails will ever be generated.
+- **`daily_cleanup_finished_jobs`** — Periodic task that runs at midnight to purge completed task records from the database, preventing unbounded table growth.
+
+### Task Backend
+
+QuickBBS uses **Django's built-in task framework** (introduced in Django 6), with **[django-dbtasks](https://github.com/davidpoblador/django-dbtasks)** as the default backend. The dbtasks backend stores tasks in the existing PostgreSQL database — no separate message broker (Redis, RabbitMQ, etc.) is required.
+
+Any Django-tasks-compatible backend can be substituted by changing the `TASKS` setting in `settings.py`.
+
+### Starting the Task Worker
+
+**Quick Start:**
+```bash
+cd quickbbs
+./start_task_worker.sh
+```
+
+This runs 3 concurrent worker threads (configurable via `NUMBER_OF_WORKERS` in the script).
+
+**Manual Command:**
+```bash
+cd quickbbs
+python manage.py taskrunner -w 3
+```
+
+**Options:**
+- `-w WORKERS` — Number of concurrent worker threads (default: 11, script uses 3)
+- `--no-periodic` — Disable periodic tasks (e.g., run workers dedicated to on-demand tasks only)
+- `--backend BACKEND` — Use a specific task backend (default: `default`)
+
+### Running in the Background
+
+For production, run the task worker as a persistent background process:
+
+```bash
+# Run in background, logging to file
+nohup ./start_task_worker.sh &> logs/task_worker.log &
+
+# Or with a process manager (recommended for production)
+# Add to your systemd service, supervisor config, etc.
+```
+
+### Deployment Checklist
+
+A complete QuickBBS deployment requires **two** processes running simultaneously:
+
+- [ ] Web server (`./start_hypercorn_http2.sh` or equivalent)
+- [ ] Task worker (`./start_task_worker.sh`)
+

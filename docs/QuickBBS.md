@@ -32,6 +32,9 @@ python manage.py createcachetable
 python manage.py refresh-filetypes
 # Run development server
 python manage.py runserver 0.0.0.0:8888
+
+# Run the task worker (required — in a separate terminal)
+python manage.py taskrunner -w 3
 ```
 
 ### Management Commands
@@ -84,6 +87,8 @@ All of the **add_XXXXX**  commands have an option of "**--max_count**".  This al
 ## Running & Configuring Web Servers
 
 See [[Web Servers]]
+
+> **Important:** A complete deployment requires **two** processes — the web server and the background task worker. See the [Background Task Worker](Web%20Servers.md#background-task-worker) section for setup details. Without a running task worker, thumbnails will not be generated.
 
 ---
 ## Architecture
@@ -247,7 +252,22 @@ The database is broken into individual applications to aid in the upgrade and mo
 - **`settings.py`**: Main Django configuration with database caching and security settings
 - **`quickbbs_settings.py`**: Application-specific configuration (paths, image sizes, file mappings)
 - **`models.py`**: Shared database models for FileIndex and DirectoryIndex
+- **`tasks.py`**: Background tasks (thumbnail generation, daily cleanup)
 - **URL Configuration**: Centralized routing for all application endpoints
+
+**Background Task System**:
+
+QuickBBS uses **Django's built-in task framework** (introduced in Django 6) for background work, with [django-dbtasks](https://github.com/davidpoblador/django-dbtasks) as the default backend. Tasks are stored in the existing PostgreSQL database — no separate message broker is required. Any Django-tasks-compatible backend can be substituted via the `TASKS` setting in `settings.py`.
+
+- **`generate_missing_thumbnails`**: Enqueued automatically when a gallery page detects files without thumbnails. Requires a running task worker to execute.
+- **`daily_cleanup_finished_jobs`**: Periodic task scheduled at midnight to purge completed task records.
+
+Start the worker with:
+```bash
+./start_task_worker.sh       # 3 workers (recommended)
+# or
+python manage.py taskrunner -w 3
+```
 
 #### 5. **thumbnails** - Thumbnail Generation & Binary Storage
 **Purpose**: High-performance thumbnail generation and PostgreSQL binary blob storage.
