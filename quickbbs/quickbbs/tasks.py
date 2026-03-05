@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from quickbbs.cache_registry import clear_layout_cache_for_directories
 from quickbbs.MonitoredCache import MonitoredLRUCache
+from thumbnails.exceptions import OrphanedFileIndex, OrphanedThumbnail
 from thumbnails.models import THUMBNAILFILES_PR_FILEINDEX_FILETYPE, ThumbnailFiles
 
 logger = logging.getLogger(__name__)
@@ -97,6 +98,10 @@ def generate_missing_thumbnails(
     database in a single bulk_update call. Clears the layout cache for the
     directory afterward so cached counts reflect the new thumbnails.
 
+    Priority conventions for callers:
+        - Web requests (user-facing): enqueue at priority 50
+        - Bulk maintenance (--add_thumbnails): enqueue at priority 0
+
     Args:
         files_needing_thumbnails: SHA256 hashes needing thumbnail generation.
         directory_pk: Primary key of the directory containing these files.
@@ -153,6 +158,22 @@ def generate_missing_thumbnails(
             if thumbnail.small_thumb:
                 thumbnails_to_update.append(thumbnail)
             results[sha256] = True
+        except OrphanedThumbnail as exc:
+            logger.warning(
+                "Deleting orphaned ThumbnailFiles %s (SHA256 %s): no FileIndex records exist",
+                exc.thumbnail.id,
+                exc.sha256,
+            )
+            exc.thumbnail.delete()
+            results[sha256] = False
+        except OrphanedFileIndex as exc:
+            logger.warning(
+                "Deleting ThumbnailFiles for FileIndex %s (SHA256 %s): home_directory is gone",
+                exc.file_index_id,
+                exc.sha256,
+            )
+            exc.thumbnail.delete()
+            results[sha256] = False
         except Exception:  # pylint: disable=broad-exception-caught
             logger.exception("Error creating thumbnail for %s", sha256)
             results[sha256] = False

@@ -70,8 +70,10 @@ except ImportError:
 
 try:
     from .Abstractbase_thumbnails import AbstractBackend
+    from .exceptions import MediaProcessingError, UnsupportedFormatError
 except ImportError:
     from Abstractbase_thumbnails import AbstractBackend
+    from exceptions import MediaProcessingError, UnsupportedFormatError
 
 
 @contextmanager
@@ -176,7 +178,7 @@ class CoreImageBackend(AbstractBackend):
             ci_image = CIImage.imageWithContentsOfURL_(file_url)
 
             if ci_image is None:
-                raise ValueError(f"Could not load image from {file_path}")
+                raise MediaProcessingError(f"Could not load image from {file_path}", file_path=file_path)
 
             return self._process_ci_image(ci_image, sizes, output_format, quality)
 
@@ -205,7 +207,7 @@ class CoreImageBackend(AbstractBackend):
             ci_image = CIImage.imageWithData_(ns_data)
 
             if ci_image is None:
-                raise ValueError("Could not create CIImage from bytes")
+                raise MediaProcessingError("Could not create CIImage from bytes")
 
             return self._process_ci_image(ci_image, sizes, output_format, quality)
 
@@ -348,7 +350,7 @@ class CoreImageBackend(AbstractBackend):
             elif fmt == "WEBP":
                 pil_img.save(buffer, format="WEBP", quality=quality)
             else:
-                raise ValueError(f"Unsupported output format: {output_format}")
+                raise UnsupportedFormatError(output_format)
 
             result = buffer.getvalue()
             buffer.close()

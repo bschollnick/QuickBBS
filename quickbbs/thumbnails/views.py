@@ -15,6 +15,7 @@ from PIL import Image
 
 from quickbbs.fileindex import FILEINDEX_SR_FILETYPE_HOME_VIRTUAL
 from quickbbs.models import DirectoryIndex, FileIndex
+from thumbnails.exceptions import OrphanedFileIndex, OrphanedThumbnail
 from thumbnails.models import THUMBNAILFILES_PR_FILEINDEX_FILETYPE, ThumbnailFiles
 
 logger = logging.getLogger()
@@ -89,12 +90,21 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
 
     # Ensure thumbnail record exists
     if not directory.thumbnail.new_ftnail:
-        thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(
-            directory.thumbnail.file_sha256,
-            suppress_save=False,
-            prefetch_related_thumbnail=THUMBNAILFILES_PR_FILEINDEX_FILETYPE,
-            select_related_fileindex=("filetype",),
-        )
+        try:
+            thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(
+                directory.thumbnail.file_sha256,
+                suppress_save=False,
+                prefetch_related_thumbnail=THUMBNAILFILES_PR_FILEINDEX_FILETYPE,
+                select_related_fileindex=("filetype",),
+            )
+        except (OrphanedThumbnail, OrphanedFileIndex) as exc:
+            logger.warning(
+                "Deleting thumbnail for directory cover %s: %s",
+                directory.fqpndirectory,
+                exc,
+            )
+            exc.thumbnail.delete()
+            return directory.filetype.send_thumbnail()
         # Wrap in transaction to prevent race conditions
         with transaction.atomic():
             directory.thumbnail.new_ftnail = thumbnail
@@ -125,9 +135,18 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
     Returns:
         The sent thumbnail
     """
-    thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(
-        sha256, suppress_save=False, prefetch_related_thumbnail=THUMBNAILFILES_PR_FILEINDEX_FILETYPE, select_related_fileindex=("filetype",)
-    )
+    try:
+        thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(
+            sha256, suppress_save=False, prefetch_related_thumbnail=THUMBNAILFILES_PR_FILEINDEX_FILETYPE, select_related_fileindex=("filetype",)
+        )
+    except (OrphanedThumbnail, OrphanedFileIndex) as exc:
+        logger.warning(
+            "Deleting thumbnail for file SHA256 %s: %s",
+            sha256,
+            exc,
+        )
+        exc.thumbnail.delete()
+        return HttpResponseBadRequest(content="File no longer exists in gallery.")
 
     # Get associated FileIndex - try reverse FK first, fall back to model method
     try:

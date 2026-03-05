@@ -9,9 +9,11 @@ from PIL import Image
 
 try:
     from .Abstractbase_thumbnails import AbstractBackend
+    from .exceptions import UnsupportedFormatError
     from .pil_thumbnails import ImageBackend, convert_image_for_format
 except ImportError:
     from Abstractbase_thumbnails import AbstractBackend
+    from exceptions import UnsupportedFormatError
     from pil_thumbnails import ImageBackend, convert_image_for_format
 
 
@@ -243,7 +245,7 @@ def _pil_to_binary(image: Image.Image, img_format: str = "JPEG", quality: int = 
         quality: Quality for JPEG/WEBP (1-100)
 
     Returns: Binary image data as bytes
-    :raises ValueError: If unsupported format is specified
+    :raises UnsupportedFormatError: If unsupported format is specified
     """
     output_buffer = io.BytesIO()
 
@@ -257,7 +259,7 @@ def _pil_to_binary(image: Image.Image, img_format: str = "JPEG", quality: int = 
     elif img_format.upper() == "WEBP":
         image.save(output_buffer, format="WEBP", quality=quality, optimize=True)
     else:
-        raise ValueError(f"Unsupported format: {img_format}")
+        raise UnsupportedFormatError(img_format)
 
     binary_data = output_buffer.getvalue()
     output_buffer.close()

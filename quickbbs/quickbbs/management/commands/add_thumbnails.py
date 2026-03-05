@@ -117,6 +117,9 @@ def add_thumbnails(max_count: int = 0) -> None:
     content-addressed by SHA256. A thumbnail benefits all files with the same hash,
     regardless of directory location.
 
+    Tasks are enqueued at priority 0 (background maintenance).  Web-originated
+    thumbnail requests use priority 50 so user-facing requests are processed first.
+
     Args:
         max_count: Maximum number of thumbnails to generate (0 = unlimited)
 
@@ -191,40 +194,61 @@ def add_thumbnails(max_count: int = 0) -> None:
     # ========================================================================
     print("\nPASS 2: Generating missing thumbnails...")
 
-    # Simple query - no reverse FK joins needed since we're not filtering by path
+    # Base query: empty ThumbnailFiles whose linked FileIndex is thumbnailable and
+    # not a link/alias file. Mirrors Pass 1 exclusions so ineligible records are
+    # never reported as needing generation.
     empty_thumbnails_qs = ThumbnailFiles.objects.filter(
         small_thumb__in=[b"", None],
+        FileIndex__delete_pending=False,
+        FileIndex__filetype__is_link=False,
+    ).filter(
+        Q(FileIndex__filetype__is_image=True)
+        | Q(FileIndex__filetype__is_pdf=True)
+        | Q(FileIndex__filetype__is_movie=True)
     )
 
-    if max_count > 0:
-        empty_thumbnails_qs = empty_thumbnails_qs[:max_count]
-        print(f"Limiting to {max_count} thumbnails...")
+    # Collect all candidate SHA256s, then use set logic to split into two groups:
+    # - non_generic_shas: at least one linked FileIndex is not marked generic → attempt generation
+    # - generic_shas: every linked FileIndex is marked generic → still enqueue (worker will handle gracefully)
+    all_shas = set(empty_thumbnails_qs.values_list("sha256_hash", flat=True))
 
-    # Get list of SHA256 values only (lightweight - no ThumbnailFiles objects cached)
-    sha256_list = list(empty_thumbnails_qs.values_list("sha256_hash", flat=True))
-    count = len(sha256_list)
-    print(f"Found {count} thumbnails to generate")
-
-    if count == 0:
+    if not all_shas:
         print("All thumbnails are already generated")
         return
 
-    # Enqueue thumbnail generation tasks via steady-queue
-    print(f"\nEnqueuing {count} thumbnails to steady-queue...")
+    non_generic_shas = set(
+        FileIndex.objects.filter(file_sha256__in=all_shas, is_generic_icon=False)
+        .values_list("file_sha256", flat=True)
+    )
+    generic_shas = all_shas - non_generic_shas
+
+    if max_count > 0:
+        non_generic_shas = set(list(non_generic_shas)[:max_count])
+        generic_shas = set(list(generic_shas)[:max(0, max_count - len(non_generic_shas))])
+        print(f"Limiting to {max_count} thumbnails...")
+
+    print(f"  {len(non_generic_shas)} thumbnails to generate (non-generic)")
+    print(f"  {len(generic_shas)} thumbnails marked generic (will be skipped by worker)")
+
+    total_shas = list(non_generic_shas) + list(generic_shas)
+    total_count = len(total_shas)
+
+    # Enqueue thumbnail generation tasks via dbtasks
+    print(f"\nEnqueuing {total_count} thumbnails to dbtasks...")
     enqueued = 0
     task_count = 0
 
-    for batch in batched(sha256_list, BULK_UPDATE_BATCH_SIZE):
+    for batch in batched(total_shas, BULK_UPDATE_BATCH_SIZE):
         batch_size = len(batch)
-        generate_missing_thumbnails.enqueue(
+        generate_missing_thumbnails.using(priority=0).enqueue(
             files_needing_thumbnails=list(batch),
-            batchsize=batch_size,
+            batch_size=batch_size,
         )
         enqueued += batch_size
         task_count += 1
 
-        if enqueued % 1000 == 0 or enqueued == count:
-            print(f"  Enqueued {enqueued}/{count} thumbnails...")
+        if enqueued % 1000 == 0 or enqueued == total_count:
+            print(f"  Enqueued {enqueued}/{total_count} thumbnails...")
 
     print("=" * 60)
     print(f"Enqueued {enqueued} thumbnails in {task_count} tasks")

@@ -41,6 +41,7 @@ from django.db.models import Q
 from django.db.utils import DatabaseError, IntegrityError, OperationalError
 
 from quickbbs.MonitoredCache import create_cache
+from thumbnails.exceptions import OrphanedFileIndex, OrphanedThumbnail, ThumbnailGenerationError, UnsupportedFormatError
 
 if TYPE_CHECKING:
     from PIL import Image
@@ -161,6 +162,17 @@ class ThumbnailFiles(models.Model):
 
         Returns:
             ThumbnailFiles object, either retrieved from database or newly created
+
+        Raises:
+            OrphanedThumbnail: When the ThumbnailFiles record exists but no FileIndex
+                records are found for the given SHA256.  The caller should delete
+                ``exc.thumbnail`` and skip further processing for this hash.
+            OrphanedFileIndex: When a FileIndex record exists but its home_directory
+                is None (parent directory deleted).  The caller should delete
+                ``exc.thumbnail`` so it can be regenerated if the file returns.
+            ThumbnailGenerationError: When the thumbnail pipeline ran but produced an
+                invalid result (empty output, all-white GPU corruption, empty blob).
+            ValueError: When required parameters are missing or empty.
         """
         if not file_sha256:
             raise ValueError(f"file_sha256 parameter is required and cannot be None or empty, got: {file_sha256!r}")
@@ -247,9 +259,9 @@ class ThumbnailFiles(models.Model):
                         print(f"  ERROR: Failed to link FileIndex records (already linked elsewhere?)")
                         raise ValueError(f"Cannot link orphaned ThumbnailFiles {thumbnail.id} to FileIndex records")
                 else:
-                    # No FileIndex exists for this SHA256 - orphaned record
-                    # Raise ValueError so caller can handle (skip or delete)
-                    raise ValueError(f"Orphaned ThumbnailFiles {thumbnail.id}: No FileIndex records found for SHA256 {file_sha256}")
+                    # No FileIndex exists for this SHA256 - truly orphaned record.
+                    # Raise OrphanedThumbnail so the caller can delete it and skip.
+                    raise OrphanedThumbnail(thumbnail, file_sha256)
 
                 # If still no FileIndex after linking attempt, raise error
                 if index_data_item is None:
@@ -270,16 +282,10 @@ class ThumbnailFiles(models.Model):
             # CRITICAL: Check for orphaned FileIndex records (home_directory is None)
             # This can happen when a directory is deleted but FileIndex records remain
             if index_data_item.home_directory is None:
-                # Orphaned record - mark as generic icon and skip thumbnail generation
-                print(f"WARNING: Orphaned FileIndex record (id={index_data_item.id}, " f"sha256={file_sha256[:16]}...) has no home_directory")
-                print("  This record should be cleaned up. Marking thumbnail as generic icon.")
-
-                # Mark both FileIndex and ThumbnailFiles as generic
-                index_data_item.is_generic_icon = True
-                index_data_item.save(update_fields=["is_generic_icon"])
-
-                # Return the thumbnail (empty, but marked as generic)
-                return thumbnail
+                # Orphaned FileIndex — its parent directory no longer exists.
+                # Raise so the caller can delete the ThumbnailFiles record and
+                # skip processing; it will be regenerated if the file returns.
+                raise OrphanedFileIndex(thumbnail, index_data_item.id, file_sha256)
 
             # If already marked as generic, check if parent directory has been invalidated
             # If parent is invalidated (rescanned), retry thumbnail creation
@@ -325,7 +331,10 @@ class ThumbnailFiles(models.Model):
 
                     # Validate thumbnail is not empty
                     if not thumbnails or not thumbnails.get("small"):
-                        raise ValueError(f"Image thumbnail creation returned empty result for {index_data_item.name}")
+                        raise ThumbnailGenerationError(
+                            f"Image thumbnail creation returned empty result for {index_data_item.name}",
+                            filename=index_data_item.name,
+                        )
 
                     # All-white corruption detection (re-enabled 2026-02-12)
                     # CoreImage GPU rendering can produce all-white thumbnails under
@@ -336,7 +345,10 @@ class ThumbnailFiles(models.Model):
                     with Image.open(io.BytesIO(thumbnails["small"])) as check_img:
                         extrema = check_img.getextrema()
                         if check_img.mode == "RGB" and extrema == ((255, 255), (255, 255), (255, 255)):
-                            raise ValueError(f"All-white thumbnail detected (GPU corruption) for {index_data_item.name}")
+                            raise ThumbnailGenerationError(
+                                f"All-white thumbnail detected (GPU corruption) for {index_data_item.name}",
+                                filename=index_data_item.name,
+                            )
                 elif filetype.is_movie:
                     thumbnails = create_thumbnails_from_path(
                         filename,
@@ -347,7 +359,10 @@ class ThumbnailFiles(models.Model):
                     )
                     # Validate result
                     if not thumbnails or not thumbnails.get("small"):
-                        raise ValueError(f"Video thumbnail creation returned empty result for {index_data_item.name}")
+                        raise ThumbnailGenerationError(
+                            f"Video thumbnail creation returned empty result for {index_data_item.name}",
+                            filename=index_data_item.name,
+                        )
 
                 elif filetype.is_pdf:
                     thumbnails = create_thumbnails_from_path(
@@ -359,7 +374,10 @@ class ThumbnailFiles(models.Model):
                     )
                     # Validate result
                     if not thumbnails or not thumbnails.get("small"):
-                        raise ValueError(f"PDF thumbnail creation returned empty result for {index_data_item.name}")
+                        raise ThumbnailGenerationError(
+                            f"PDF thumbnail creation returned empty result for {index_data_item.name}",
+                            filename=index_data_item.name,
+                        )
                 else:
                     # File type doesn't support custom thumbnails (text, archives, etc.)
                     # Mark ALL files with this SHA256 as generic (not just one)
@@ -594,7 +612,7 @@ class ThumbnailFiles(models.Model):
 
         # Validate that thumbnail blob is not empty
         if not blob:
-            raise ValueError(f"Thumbnail blob is empty for {filename}")
+            raise ThumbnailGenerationError(f"Thumbnail blob is empty for {filename}", filename=filename)
 
         from frontend.serve_up import send_file_response
 
@@ -714,6 +732,10 @@ class ThumbnailFiles(models.Model):
                     select_related_fileindex=("filetype",),
                 )
             return True, sha256, thumbnail
+        except (OrphanedThumbnail, OrphanedFileIndex) as exc:
+            print(f"Deleting orphaned thumbnail for {sha256}: {exc}")
+            exc.thumbnail.delete()
+            return False, sha256, None
         except IntegrityError as e:
             print(f"Error creating thumbnail for {sha256}: {e}")
             return False, sha256, None

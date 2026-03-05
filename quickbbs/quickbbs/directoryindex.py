@@ -1001,9 +1001,10 @@ class DirectoryIndex(models.Model):
         all_dirs_queryset = DirectoryIndex.objects.filter(parent_directory=self.pk, delete_pending=False)
         db_dirs = set(all_dirs_queryset.values_list("fqpndirectory", flat=True))
         # current_path is already normalized (lowercase, resolved, trailing sep).
-        # Appending entry.name + os.sep produces a valid normalized path without
-        # needing a normalize_fqpn() call — avoiding N syscalls for N subdirectories.
-        fs_dirs = {current_path + entry.name + os.sep for entry in fs_entries.values() if entry.is_dir()}
+        # entry.name is lowercased to match DB normalization — normalize_fqpn() lowercases
+        # paths, so DB entries are always lowercase. Appending entry.name.lower() + os.sep
+        # produces a valid normalized path without needing a normalize_fqpn() syscall per entry.
+        fs_dirs = {current_path + entry.name.lower() + os.sep for entry in fs_entries.values() if entry.is_dir()}
 
         # Load full objects only for directories that exist in both DB and filesystem
         # This requires select_related for lastmod/size comparisons
