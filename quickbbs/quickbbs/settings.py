@@ -251,6 +251,7 @@ INSTALLED_APPS += [
     "user_preferences",
     "django_htmx",
     "dbtasks",
+    "dbtasks.contrib.serve"
 ]
 
 SITE_ID = 1
@@ -456,6 +457,7 @@ STATICFILES_DIRS = [
 
 ACCOUNT_AUTHENTICATED_LOGIN_REDIRECTS = True
 ACCOUNT_LOGOUT_REDIRECT_URL = "/albums"
+ACCOUNT_SESSION_REMEMBER = True  # Always persist sessions; don't rely on "Remember me" checkbox
 LOGIN_URL = "/accounts/login/"
 LOGIN_REDIRECT_URL = "/albums"
 

@@ -1242,8 +1242,11 @@ class fs_Cache_Tracking(models.Model):
                     # Get the cached object before removing it
                     cached_obj = directoryindex_cache.pop(hashkey(sha), None)
                     if cached_obj is not None:
-                        # Refresh so any remaining reference sees updated invalidation state
-                        cached_obj.refresh_from_db()
+                        # Cache stores (found: bool, record: DirectoryIndex | None) tuples
+                        _, dir_record = cached_obj
+                        if dir_record is not None:
+                            # Refresh so any remaining reference sees updated invalidation state
+                            dir_record.refresh_from_db()
                         cleared_count += 1
 
             logger.debug("Cleared %d DirectoryIndex cache entries for %d directories", cleared_count, len(directories))

@@ -177,7 +177,7 @@ def run_indexdirs_read_benchmarks() -> list[BenchmarkResult]:
     results.append(
         benchmark_query(
             "DirectoryIndex.search_for_directory_by_sha(sha)",
-            lambda d: DirectoryIndex.search_for_directory_by_sha(d.dir_fqpn_sha256, DIRECTORYINDEX_SR_FILETYPE_THUMB, ()),
+            lambda d: DirectoryIndex.search_for_directory_by_sha(d.dir_fqpn_sha256),
             samples=sample_dirs,
         )
     )
@@ -186,7 +186,7 @@ def run_indexdirs_read_benchmarks() -> list[BenchmarkResult]:
     results.append(
         benchmark_query(
             "DirectoryIndex.search_for_directory(fqpn)",
-            lambda d: DirectoryIndex.search_for_directory(d.fqpndirectory, DIRECTORYINDEX_SR_FILETYPE_THUMB, ()),
+            lambda d: DirectoryIndex.search_for_directory(d.fqpndirectory),
             samples=sample_dirs,
         )
     )
