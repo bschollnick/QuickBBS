@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import timedelta
 
 from dbtasks.models import ScheduledTask
@@ -145,6 +146,7 @@ def generate_missing_thumbnails(
     logger.info("Processing %d thumbnails", len(sha256_list))
 
     thumbnails_to_update: list[ThumbnailFiles] = []
+    start_time = time.monotonic()
 
     for sha256 in sha256_list:
         try:
@@ -186,7 +188,8 @@ def generate_missing_thumbnails(
         )
 
     successful_count = sum(results.values())
-    if successful_count > 0 and directory_pk is not None:
+    newly_processed = successful_count - len(existing_shas)
+    if newly_processed > 0 and directory_pk is not None:
         cleared_count = clear_layout_cache_for_directories({directory_pk})
         if cleared_count:
             logger.info(
@@ -194,14 +197,17 @@ def generate_missing_thumbnails(
                 cleared_count,
             )
 
-    # newly_processed excludes the pre-existing shas that were seeded as True
-    newly_processed = successful_count - len(existing_shas)
     if newly_processed > 0:
+        elapsed = time.monotonic() - start_time
+        rate = newly_processed / elapsed if elapsed > 0 else float("inf")
         logger.info(
-            "Successfully processed %d new thumbnails, bulk-updated %d records (%d already existed)",
+            "Successfully processed %d new thumbnails, bulk-updated %d records (%d already existed) "
+            "in %.2fs (%.1f thumbnails/sec)",
             newly_processed,
             len(thumbnails_to_update),
             len(existing_shas),
+            elapsed,
+            rate,
         )
 
     return results

@@ -49,23 +49,35 @@ def ensures_endswith(string_to_check: str, value: str) -> str:
 
 
 @cached(webpaths_cache)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
-def convert_to_webpath(full_path, directory=None):
+def convert_to_webpath(full_path: str, directory: str | None = None) -> str:
     """
-    Convert a full path to a webpath - optimized for performance
+    Convert a full filesystem path to a web-relative path by stripping the albums prefix.
 
-    :Args:
-        full_path: The full path to convert
-        directory: Directory component for path construction
+    Args:
+        full_path: Absolute filesystem path beginning with ALBUMS_PATH (+ directory if provided)
+        directory: Optional subdirectory appended to ALBUMS_PATH before stripping.
+            Must be non-empty if provided — pass None to strip only the base ALBUMS_PATH.
 
     Returns:
-        str: The converted webpath
-    """
-    if directory is not None:
-        cutpath = _ALBUMS_PATH_LOWER + directory.lower() if directory else ""
-    else:
-        cutpath = _ALBUMS_PATH_LOWER
+        Web-relative path with the albums prefix removed.
 
-    return full_path.replace(cutpath, "")
+    Raises:
+        ValueError: If full_path does not start with the expected prefix, or if
+            directory is an empty string.
+    """
+    if directory == "":
+        raise ValueError("directory must be non-empty or None")
+
+    prefix = (_ALBUMS_PATH_LOWER + directory.lower()) if directory else _ALBUMS_PATH_LOWER
+    result = full_path.removeprefix(prefix)
+
+    if result == full_path:
+        logger.warning(
+            "convert_to_webpath: prefix %r not found in path %r", prefix, full_path
+        )
+        raise ValueError(f"Path {full_path!r} does not start with expected prefix {prefix!r}")
+
+    return result
 
 
 @cached(breadcrumbs_cache)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
@@ -79,10 +91,8 @@ def return_breadcrumbs(uri_path="") -> list[dict[str, str]]:
     Returns:
         List of dictionaries with 'name' and 'url' keys for each breadcrumb level
     """
-    webpath = convert_to_webpath(uri_path)
-
     # Extract path components (direct split, no urlsplit needed for paths)
-    parts = [p for p in webpath.split("/") if p]
+    parts = [p for p in uri_path.split("/") if p]
 
     # Build breadcrumbs with cumulative paths using list slicing
     # URL-encode each path component while preserving / separators

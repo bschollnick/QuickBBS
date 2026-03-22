@@ -4,69 +4,52 @@ import os
 import tempfile
 import shutil
 import pytest
-from django.test import TestCase, TransactionTestCase
-from django.db import connection
-from django.test.utils import override_settings
-from django.conf import settings
+from django.test import TestCase
 from django.core.management import call_command
 
-from quickbbs.models import IndexDirs
 from cache_watcher.models import fs_Cache_Tracking
-from quickbbs.common import get_dir_sha
-
-
-@pytest.fixture(scope="session", autouse=True)
-def django_db_setup(django_db_setup, django_db_blocker):
-    """Ensure filetypes table is populated before running tests."""
-    with django_db_blocker.unblock():
-        call_command("refresh-filetypes")
+from quickbbs.directoryindex import DIRECTORYINDEX_SR_PARENT
+from quickbbs.models import DirectoryIndex
 
 
 @pytest.mark.django_db
-class TestGetAllParentShas(TransactionTestCase):
-    """Test the optimized get_all_parent_shas method."""
+class TestGetAllParentShas(TestCase):
+    """Test the get_all_parent_shas method."""
 
-    @classmethod
-    def setUpClass(cls):
+    def setUp(self):
         """Create a test directory hierarchy."""
-        super().setUpClass()
-        # Ensure filetypes are populated
-        call_command("refresh-filetypes")
-
         # Create temporary directory structure for testing
-        cls.temp_dir = tempfile.mkdtemp()
-        cls.albums_path = os.path.join(cls.temp_dir, "albums")
+        self.temp_dir = tempfile.mkdtemp()
+        self.albums_path = os.path.join(self.temp_dir, "albums")
 
         # Create actual filesystem directories
-        os.makedirs(os.path.join(cls.albums_path, "photos", "2024", "january"), exist_ok=True)
-        os.makedirs(os.path.join(cls.albums_path, "videos", "2024"), exist_ok=True)
+        os.makedirs(os.path.join(self.albums_path, "photos", "2024", "january"), exist_ok=True)
+        os.makedirs(os.path.join(self.albums_path, "videos", "2024"), exist_ok=True)
 
-        cls.dirs = {}
+        self.dirs = {}
 
         # Create root
-        _, cls.dirs["root"] = IndexDirs.add_directory(cls.albums_path + "/")
+        _, self.dirs["root"] = DirectoryIndex.add_directory(self.albums_path + "/")
 
         # Create photos branch
-        _, cls.dirs["photos"] = IndexDirs.add_directory(os.path.join(cls.albums_path, "photos") + "/")
-        _, cls.dirs["photos_2024"] = IndexDirs.add_directory(os.path.join(cls.albums_path, "photos", "2024") + "/")
-        _, cls.dirs["photos_jan"] = IndexDirs.add_directory(os.path.join(cls.albums_path, "photos", "2024", "january") + "/")
+        _, self.dirs["photos"] = DirectoryIndex.add_directory(os.path.join(self.albums_path, "photos") + "/")
+        _, self.dirs["photos_2024"] = DirectoryIndex.add_directory(os.path.join(self.albums_path, "photos", "2024") + "/")
+        _, self.dirs["photos_jan"] = DirectoryIndex.add_directory(os.path.join(self.albums_path, "photos", "2024", "january") + "/")
 
         # Create videos branch
-        _, cls.dirs["videos"] = IndexDirs.add_directory(os.path.join(cls.albums_path, "videos") + "/")
-        _, cls.dirs["videos_2024"] = IndexDirs.add_directory(os.path.join(cls.albums_path, "videos", "2024") + "/")
+        _, self.dirs["videos"] = DirectoryIndex.add_directory(os.path.join(self.albums_path, "videos") + "/")
+        _, self.dirs["videos_2024"] = DirectoryIndex.add_directory(os.path.join(self.albums_path, "videos", "2024") + "/")
 
-    @classmethod
-    def tearDownClass(cls):
+    def tearDown(self):
         """Clean up temporary directories."""
-        super().tearDownClass()
-        if hasattr(cls, "temp_dir") and os.path.exists(cls.temp_dir):
-            shutil.rmtree(cls.temp_dir)
+        if hasattr(self, "temp_dir") and os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir)
 
     def test_get_all_parent_shas_single_leaf(self):
         """Test getting parents for a single leaf directory."""
         leaf_sha = self.dirs["photos_jan"].dir_fqpn_sha256
 
-        result = IndexDirs.get_all_parent_shas([leaf_sha])
+        result = DirectoryIndex.get_all_parent_shas([leaf_sha], DIRECTORYINDEX_SR_PARENT)
 
         # Should at minimum include the input SHA
         assert leaf_sha in result
@@ -84,7 +67,7 @@ class TestGetAllParentShas(TransactionTestCase):
             self.dirs["videos_2024"].dir_fqpn_sha256,  # Videos branch
         ]
 
-        result = IndexDirs.get_all_parent_shas(input_shas)
+        result = DirectoryIndex.get_all_parent_shas(input_shas, DIRECTORYINDEX_SR_PARENT)
 
         # Should include both input SHAs
         assert self.dirs["photos_jan"].dir_fqpn_sha256 in result
@@ -97,14 +80,14 @@ class TestGetAllParentShas(TransactionTestCase):
 
     def test_get_all_parent_shas_empty_list(self):
         """Test with empty input list."""
-        result = IndexDirs.get_all_parent_shas([])
+        result = DirectoryIndex.get_all_parent_shas([], DIRECTORYINDEX_SR_PARENT)
         assert result == set()
 
     def test_get_all_parent_shas_root_only(self):
         """Test with root directory (no parents)."""
         root_sha = self.dirs["root"].dir_fqpn_sha256
 
-        result = IndexDirs.get_all_parent_shas([root_sha])
+        result = DirectoryIndex.get_all_parent_shas([root_sha], DIRECTORYINDEX_SR_PARENT)
 
         # Should only include root itself
         assert result == {root_sha}
@@ -122,7 +105,7 @@ class TestGetAllParentShas(TransactionTestCase):
 
         # Count queries - should be very few (1-5 depending on directory depth)
         with CaptureQueriesContext(connection) as context:
-            result = IndexDirs.get_all_parent_shas(input_shas)
+            result = DirectoryIndex.get_all_parent_shas(input_shas, DIRECTORYINDEX_SR_PARENT)
 
         # Should use much fewer queries than old N*M approach (which would be 20+)
         assert len(context.captured_queries) <= 5, f"Expected ≤5 queries, got {len(context.captured_queries)}"
@@ -138,7 +121,7 @@ class TestGetAllParentShas(TransactionTestCase):
             self.dirs["photos_jan"].dir_fqpn_sha256,
         ]
 
-        result = IndexDirs.get_all_parent_shas(input_shas)
+        result = DirectoryIndex.get_all_parent_shas(input_shas, DIRECTORYINDEX_SR_PARENT)
 
         # Should include both input SHAs
         assert self.dirs["photos_2024"].dir_fqpn_sha256 in result
@@ -155,9 +138,6 @@ class TestRemoveMultipleFromCacheOptimization(TestCase):
 
     def setUp(self):
         """Create test directory hierarchy and cache entries for each test."""
-        # Ensure filetypes are populated
-        call_command("refresh-filetypes")
-
         # Create temporary directory structure for testing
         self.temp_dir = tempfile.mkdtemp()
         self.albums_path = os.path.join(self.temp_dir, "albums")
@@ -167,10 +147,10 @@ class TestRemoveMultipleFromCacheOptimization(TestCase):
 
         self.dirs = {}
 
-        _, self.dirs["root"] = IndexDirs.add_directory(self.albums_path + "/")
-        _, self.dirs["photos"] = IndexDirs.add_directory(os.path.join(self.albums_path, "photos") + "/")
-        _, self.dirs["photos_2024"] = IndexDirs.add_directory(os.path.join(self.albums_path, "photos", "2024") + "/")
-        _, self.dirs["photos_jan"] = IndexDirs.add_directory(os.path.join(self.albums_path, "photos", "2024", "january") + "/")
+        _, self.dirs["root"] = DirectoryIndex.add_directory(self.albums_path + "/")
+        _, self.dirs["photos"] = DirectoryIndex.add_directory(os.path.join(self.albums_path, "photos") + "/")
+        _, self.dirs["photos_2024"] = DirectoryIndex.add_directory(os.path.join(self.albums_path, "photos", "2024") + "/")
+        _, self.dirs["photos_jan"] = DirectoryIndex.add_directory(os.path.join(self.albums_path, "photos", "2024", "january") + "/")
 
         # Create cache entries for all directories
         self.cache_storage = fs_Cache_Tracking()
@@ -184,8 +164,12 @@ class TestRemoveMultipleFromCacheOptimization(TestCase):
 
     def test_recursive_parent_invalidation(self):
         """Test that invalidating a leaf directory invalidates all parents."""
-        # Verify all cache entries start as valid
-        initial_count = fs_Cache_Tracking.objects.filter(invalidated=False).count()
+        test_shas = {d.dir_fqpn_sha256 for d in self.dirs.values()}
+
+        # Verify all cache entries for our test dirs start as valid
+        initial_count = fs_Cache_Tracking.objects.filter(
+            directory__dir_fqpn_sha256__in=test_shas, invalidated=False
+        ).count()
         assert initial_count == 4
 
         # Invalidate the leaf directory
@@ -193,8 +177,10 @@ class TestRemoveMultipleFromCacheOptimization(TestCase):
 
         assert result is True
 
-        # Verify at least the target directory is invalidated
-        invalidated_dirs = fs_Cache_Tracking.objects.filter(invalidated=True)
+        # Verify at least the target directory is invalidated (scoped to our test dirs)
+        invalidated_dirs = fs_Cache_Tracking.objects.filter(
+            directory__dir_fqpn_sha256__in=test_shas, invalidated=True
+        )
         invalidated_shas = set(invalidated_dirs.values_list("directory__dir_fqpn_sha256", flat=True))
 
         # Should at minimum invalidate the target directory
@@ -213,7 +199,7 @@ class TestRemoveMultipleFromCacheOptimization(TestCase):
         # Create another branch (filesystem directory first)
         videos_path = os.path.join(self.albums_path, "videos")
         os.makedirs(videos_path, exist_ok=True)
-        _, videos_dir = IndexDirs.add_directory(videos_path + "/")
+        _, videos_dir = DirectoryIndex.add_directory(videos_path + "/")
         self.cache_storage.add_from_indexdirs(videos_dir)
 
         # Invalidate both leaf directories
@@ -226,13 +212,15 @@ class TestRemoveMultipleFromCacheOptimization(TestCase):
             result = self.cache_storage.remove_multiple_from_cache_indexdirs(dirs)
 
         # Should be much less than old approach (would be 60+ for 2 deep paths)
-        # Actual count includes: parent SHA collection + cache invalidation + directory counts
         assert len(context.captured_queries) <= 30, f"Expected ≤30 queries, got {len(context.captured_queries)}"
 
         assert result is True
 
-        # Verify all affected directories are invalidated
-        invalidated_count = fs_Cache_Tracking.objects.filter(invalidated=True).count()
+        # Verify all affected directories are invalidated (scoped to our test dirs)
+        test_shas = {d.dir_fqpn_sha256 for d in self.dirs.values()} | {videos_dir.dir_fqpn_sha256}
+        invalidated_count = fs_Cache_Tracking.objects.filter(
+            directory__dir_fqpn_sha256__in=test_shas, invalidated=True
+        ).count()
         assert invalidated_count >= 2  # At minimum the two specified paths
 
     def test_sha_computation_not_duplicated(self):
@@ -245,8 +233,11 @@ class TestRemoveMultipleFromCacheOptimization(TestCase):
         assert result is True
 
         # Should only process unique paths once (not 3x)
-        # At minimum invalidates the target directory
-        invalidated_count = fs_Cache_Tracking.objects.filter(invalidated=True).count()
+        # At minimum invalidates the target directory (scoped to our test dirs)
+        test_shas = {d.dir_fqpn_sha256 for d in self.dirs.values()}
+        invalidated_count = fs_Cache_Tracking.objects.filter(
+            directory__dir_fqpn_sha256__in=test_shas, invalidated=True
+        ).count()
 
         # Should be 1-4 depending on parent links, but definitely not 3-12 (3x the paths)
         assert invalidated_count >= 1
@@ -286,7 +277,7 @@ class TestOptimizationEdgeCases(TestCase):
 
         try:
             # Create DirectoryIndex for the test path
-            _, test_dir = IndexDirs.add_directory(test_path + "/")
+            _, test_dir = DirectoryIndex.add_directory(test_path + "/")
 
             # Even if there was a circular reference, should complete
             result = cache_storage.remove_multiple_from_cache_indexdirs([test_dir])

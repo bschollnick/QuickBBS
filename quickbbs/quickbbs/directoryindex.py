@@ -23,7 +23,6 @@ from django.urls import reverse
 
 from filetypes.models import filetypes, get_ftype_dict
 from frontend.file_listings import return_disk_listing_sync
-from frontend.utilities import convert_to_webpath
 from quickbbs.common import (
     DIR_SORT_MATRIX,
     SORT_MATRIX,
@@ -193,9 +192,8 @@ class DirectoryIndex(models.Model):
 
         # Normalize case once for all comparisons
         fqpn_lower = fqpn_directory.lower()
-        albums_path_lower = os.path.join(settings.ALBUMS_PATH, "albums").lower()
         albums_root_lower = DirectoryIndex.get_albums_root().lower()
-        is_in_albums = fqpn_lower.startswith(albums_path_lower)
+        is_in_albums = fqpn_lower.startswith(albums_root_lower)
 
         # Determine parent directory link
         if is_in_albums:
@@ -206,7 +204,7 @@ class DirectoryIndex(models.Model):
                 # Regular subdirectory - find or create parent
                 parent_dir = normalize_fqpn(str(Path(fqpn_directory).parent))
 
-                if parent_dir.lower().startswith(albums_path_lower):
+                if parent_dir.lower().startswith(albums_root_lower):
                     # Recursively add/update parent to ensure proper parent_directory chain
                     # This fixes both missing parents AND parents with NULL parent_directory
                     parent_sha = get_dir_sha(parent_dir)
@@ -576,8 +574,7 @@ class DirectoryIndex(models.Model):
         dirs = (
             DirectoryIndex.objects.select_related(*select_related)
             .prefetch_related(*prefetch_related)
-            .filter(dir_fqpn_sha256__in=sha256_list)
-            .filter(delete_pending=False)
+            .filter(dir_fqpn_sha256__in=sha256_list, delete_pending=False)
             .order_by(*SORT_MATRIX[sort])
         )
         return dirs
@@ -817,7 +814,7 @@ class DirectoryIndex(models.Model):
             Django URL object
 
         """
-        webpath = convert_to_webpath(self.fqpndirectory.removeprefix(self.get_albums_prefix()))
+        webpath = self.fqpndirectory.removeprefix(self.get_albums_prefix())
         # URL-encode each path component while preserving / separators
         parts = webpath.split("/")
         encoded_parts = [quote(part, safe="") for part in parts]
@@ -1012,51 +1009,52 @@ class DirectoryIndex(models.Model):
         existing_dirs_qs = self.dirs_in_dir(select_related=(), prefetch_related=(), fields_only=("id", "fqpndirectory", "lastmod")).filter(
             fqpndirectory__in=db_dirs & fs_dirs
         )
-        existing_count = existing_dirs_qs.count()
+        # Check each directory for updates (iterator avoids a redundant .count() round-trip)
+        updated_records = []
+        for db_dir_entry in existing_dirs_qs.iterator(chunk_size=settings.DIRECTORY_SYNC_CHUNK_SIZE):
+            # Extract directory name from full path and title-case it to match fs_entries keys
+            # NOTE: fs_entries dict is keyed by title-cased filenames (e.g., "Photos"), not full paths
+            # (e.g., "/volumes/c-8tb/gallery/albums/photos/"). Using full path would always return None.
+            # See return_disk_listing() in file_listings.py which uses normalize_string_title() for keys.
+            dir_name = Path(db_dir_entry.fqpndirectory.rstrip(os.sep)).name
+            dir_name_titled = normalize_string_title(dir_name)
 
-        logger.info("Existing directories in database: %d", existing_count)
-        if existing_count > 0:
-            # Check each directory for updates
-            updated_records = []
-            for db_dir_entry in existing_dirs_qs.iterator(chunk_size=settings.DIRECTORY_SYNC_CHUNK_SIZE):
-                # Extract directory name from full path and title-case it to match fs_entries keys
-                # NOTE: fs_entries dict is keyed by title-cased filenames (e.g., "Photos"), not full paths
-                # (e.g., "/volumes/c-8tb/gallery/albums/photos/"). Using full path would always return None.
-                # See return_disk_listing() in file_listings.py which uses normalize_string_title() for keys.
-                dir_name = Path(db_dir_entry.fqpndirectory.rstrip(os.sep)).name
-                dir_name_titled = normalize_string_title(dir_name)
+            if fs_entry := fs_entries.get(dir_name_titled):
+                try:
+                    # DirEntry.stat() is cached by Python's os.scandir()
+                    # Multiple stat() calls on the same DirEntry reuse cached result
+                    fs_stat = fs_entry.stat()
+                    # Update modification time if changed (DirectoryIndex doesn't track size)
+                    if db_dir_entry.lastmod != fs_stat.st_mtime:
+                        db_dir_entry.lastmod = fs_stat.st_mtime
+                        updated_records.append(db_dir_entry)
+                except (OSError, IOError) as e:
+                    logger.error("Error checking directory %s: %s", db_dir_entry.fqpndirectory, e)
 
-                if fs_entry := fs_entries.get(dir_name_titled):
-                    try:
-                        # DirEntry.stat() is cached by Python's os.scandir()
-                        # Multiple stat() calls on the same DirEntry reuse cached result
-                        fs_stat = fs_entry.stat()
-                        # Update modification time if changed (DirectoryIndex doesn't track size)
-                        if db_dir_entry.lastmod != fs_stat.st_mtime:
-                            db_dir_entry.lastmod = fs_stat.st_mtime
-                            updated_records.append(db_dir_entry)
-                    except (OSError, IOError) as e:
-                        logger.error("Error checking directory %s: %s", db_dir_entry.fqpndirectory, e)
+        logger.info("Directories to update: %d", len(updated_records))
 
-            logger.info("Directories to update: %d", len(updated_records))
-
-            if updated_records:
-                with transaction.atomic():
-                    # Acquire row-level locks before bulk_update to prevent concurrent modifications.
-                    # The queryset is evaluated (list()) to execute the SELECT FOR UPDATE, but the
-                    # result is intentionally discarded — only the DB-level locks matter.
-                    update_ids = [r.id for r in updated_records]
-                    list(DirectoryIndex.objects.select_for_update(skip_locked=True).filter(id__in=update_ids).only("id"))
-                    DirectoryIndex.objects.bulk_update(updated_records, ["lastmod"], batch_size=settings.DIRECTORY_SYNC_BATCH_SIZE)
-                    for db_dir_entry in updated_records:
-                        Cache_Storage.remove_from_cache_indexdirs(db_dir_entry)
-                logger.info("Processing %d directory updates", len(updated_records))
+        if updated_records:
+            with transaction.atomic():
+                # Acquire row-level locks before bulk_update to prevent concurrent modifications.
+                # The queryset is evaluated (list()) to execute the SELECT FOR UPDATE, but the
+                # result is intentionally discarded — only the DB-level locks matter.
+                update_ids = [r.id for r in updated_records]
+                list(DirectoryIndex.objects.select_for_update(skip_locked=True).filter(id__in=update_ids).only("id"))
+                DirectoryIndex.objects.bulk_update(updated_records, ["lastmod"], batch_size=settings.DIRECTORY_SYNC_BATCH_SIZE)
+                for db_dir_entry in updated_records:
+                    Cache_Storage.remove_from_cache_indexdirs(db_dir_entry)
+            logger.info("Processing %d directory updates", len(updated_records))
 
         # Create new directories BEFORE deleting old ones to prevent foreign key violations
         new_dirs = fs_dirs - db_dirs
         if new_dirs:
             logger.info("Directories to add: %d", len(new_dirs))
             with transaction.atomic():
+                # NOTE: add_directory() is called once per new directory (N round-trips).
+                # A bulk_create path is not feasible here because add_directory() recursively
+                # creates parent directories and links them — topological ordering would be
+                # required to bulk-insert safely. Acceptable because this path runs during
+                # background scanning, not during request handling.
                 for dir_to_create in new_dirs:
                     DirectoryIndex.add_directory(fqpn_directory=dir_to_create)
             # Clear cache for parent directory (self) to show new subdirectories in web view
@@ -1147,9 +1145,9 @@ class DirectoryIndex(models.Model):
             fs_name = fs_names_lower_map[db_file_entry.name.lower()]
             fs_entry = fs_file_names_dict[fs_name]
             updated_record = db_file_entry.check_for_updates(
-                fs_entry,
-                self,
-                sha_results.get(str(fs_entry)),
+                fs_entry=fs_entry,
+                home_directory=self,
+                precomputed_sha=sha_results.get(str(fs_entry)),
             )
             if updated_record:
                 records_to_update.append(updated_record)

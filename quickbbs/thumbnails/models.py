@@ -30,18 +30,23 @@ from __future__ import annotations
 
 import asyncio
 import io
+import logging
 from typing import TYPE_CHECKING
 
 from asgiref.sync import sync_to_async
 from cachetools import cached
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
-from django.db import models, transaction
+from django.db import connection, models, transaction
 from django.db.models import Q
 from django.db.utils import DatabaseError, IntegrityError, OperationalError
 
+from PIL import Image
+from frontend.serve_up import send_file_response
 from quickbbs.MonitoredCache import create_cache
-from thumbnails.exceptions import OrphanedFileIndex, OrphanedThumbnail, ThumbnailGenerationError, UnsupportedFormatError
+from quickbbs.cache_registry import clear_layout_cache_for_directories
+from thumbnails.exceptions import MediaProcessingError, OrphanedFileIndex, OrphanedThumbnail, ThumbnailGenerationError, UnsupportedFormatError
+from thumbnails.thumbnail_engine import create_thumbnails_from_path
 
 if TYPE_CHECKING:
     from PIL import Image
@@ -50,10 +55,9 @@ if TYPE_CHECKING:
 
     from quickbbs.models import DirectoryIndex, FileIndex
 
-# from .image_utils import resize_pil_image, return_image_obj
-# thumbnail_engine import deferred to first use — pulls in heavy backends (PyMuPDF, ffmpeg, etc.)
-
 __version__ = "4.0"
+
+logger = logging.getLogger(__name__)
 
 __author__ = "Benjamin Schollnick"
 __email__ = "Benjamin@schollnick.net"
@@ -149,7 +153,7 @@ class ThumbnailFiles(models.Model):
 
     @staticmethod
     def get_or_create_thumbnail_record(
-        file_sha256: str, suppress_save: bool, prefetch_related_thumbnail: list[str], select_related_fileindex: list[str]
+        file_sha256: str, suppress_save: bool, prefetch_related_thumbnail: list[str] | tuple[str, ...], select_related_fileindex: list[str] | tuple[str, ...]
     ) -> "ThumbnailFiles":
         """
         Get or create a thumbnail record for a file.
@@ -157,8 +161,8 @@ class ThumbnailFiles(models.Model):
         Args:
             file_sha256: The sha256 hash of the file to retrieve or create a thumbnail for
             suppress_save: If True, do not save the thumbnail after creation
-            prefetch_related_thumbnail: List of related fields to prefetch for ThumbnailFiles (required)
-            select_related_fileindex: List of related fields to select_related for FileIndex (required)
+            prefetch_related_thumbnail: Related fields to prefetch for ThumbnailFiles (required)
+            select_related_fileindex: Related fields to select_related for FileIndex (required)
 
         Returns:
             ThumbnailFiles object, either retrieved from database or newly created
@@ -181,9 +185,7 @@ class ThumbnailFiles(models.Model):
         if select_related_fileindex is None:
             raise ValueError("select_related_fileindex parameter is required")
 
-        from django.db import connection
-
-        from quickbbs.models import FileIndex
+        from quickbbs.models import FileIndex  # inline: circular import (fileindex.py → thumbnails.models)
 
         # MEMORY MANAGEMENT NOTE:
         # Periodic cache clearing was removed because it conflicts with CIContext recycling.
@@ -228,8 +230,11 @@ class ThumbnailFiles(models.Model):
             has_unlinked, updated_count = FileIndex.link_to_thumbnail(file_sha256, thumbnail)
 
             # Re-check if thumbnail exists (another worker may have generated it while we waited for lock)
-            # Must re-fetch from database to see changes from other processes
-            thumbnail.refresh_from_db()
+            # Must re-fetch from database to see changes from other processes.
+            # Skip refresh on fresh creates — no other process could have modified a record
+            # that didn't exist until this transaction.
+            if not created:
+                thumbnail.refresh_from_db()
             if thumbnail.thumbnail_exists():
                 return thumbnail
 
@@ -241,23 +246,29 @@ class ThumbnailFiles(models.Model):
             # CRITICAL: Handle orphaned ThumbnailFiles by linking to matching FileIndex records
             # This can happen if thumbnail was created but linking failed, or from data migration issues
             if index_data_item is None:
-                # No linked FileIndex - try to find and link FileIndex records with this SHA256
-                matching_files_count = FileIndex.objects.filter(file_sha256=file_sha256).count()
-                if matching_files_count > 0:
-                    # Found FileIndex records - link them
-                    print(
-                        f"Orphaned ThumbnailFiles {thumbnail.id}: Found {matching_files_count} FileIndex records with SHA256 {file_sha256[:16]}..., linking..."
+                # No linked FileIndex - attempt to link any FileIndex records with this SHA256.
+                # link_to_thumbnail returns updated_count=0 when nothing was linked (no records exist
+                # or all are already linked elsewhere), so no separate count()/exists() query needed.
+                has_unlinked_fix, updated_count_fix = FileIndex.link_to_thumbnail(file_sha256, thumbnail)
+                if updated_count_fix > 0:
+                    logger.warning(
+                        "Orphaned ThumbnailFiles %s: linked %d FileIndex records for SHA256 %s...",
+                        thumbnail.id,
+                        updated_count_fix,
+                        file_sha256[:16],
                     )
-                    has_unlinked_fix, updated_count_fix = FileIndex.link_to_thumbnail(file_sha256, thumbnail)
-                    if updated_count_fix > 0:
-                        print(f"  ✓ Linked {updated_count_fix} FileIndex records to ThumbnailFiles {thumbnail.id}")
-                        # Successfully linked - now fetch one for processing
-                        index_data_item = FileIndex.objects.select_related(*select_related_fileindex).filter(file_sha256=file_sha256).first()
-                        # Update has_unlinked to trigger save
-                        has_unlinked = True
-                    else:
-                        print(f"  ERROR: Failed to link FileIndex records (already linked elsewhere?)")
-                        raise ValueError(f"Cannot link orphaned ThumbnailFiles {thumbnail.id} to FileIndex records")
+                    # Successfully linked - now fetch one for processing
+                    index_data_item = FileIndex.objects.select_related(*select_related_fileindex).filter(file_sha256=file_sha256).first()
+                    # Update has_unlinked to trigger save
+                    has_unlinked = True
+                elif FileIndex.objects.filter(file_sha256=file_sha256).exists():
+                    # Records exist but couldn't be linked (already linked elsewhere?)
+                    logger.error(
+                        "Orphaned ThumbnailFiles %s: FileIndex records exist for SHA256 %s but could not be linked",
+                        thumbnail.id,
+                        file_sha256[:16],
+                    )
+                    raise ValueError(f"Cannot link orphaned ThumbnailFiles {thumbnail.id} to FileIndex records")
                 else:
                     # No FileIndex exists for this SHA256 - truly orphaned record.
                     # Raise OrphanedThumbnail so the caller can delete it and skip.
@@ -317,16 +328,15 @@ class ThumbnailFiles(models.Model):
             # Try to create thumbnails, but mark as generic on any failure
             thumbnails = None  # Initialize to prevent UnboundLocalError
             try:
-                from .thumbnail_engine import create_thumbnails_from_path
-
                 if filetype.is_image:
-                    # CoreImage re-enabled 2026-02-12 with GPU memory leak fixes
+                    # Apple Silicon optimizations (CoreImage/auto) disabled pending memory investigation.
+                    # Re-enable by changing backend="image" to backend="auto".
                     thumbnails = create_thumbnails_from_path(
                         filename,
                         settings.IMAGE_SIZE,
                         output="JPEG",
-                        quality=settings.CORE_IMAGE_QUALITY,
-                        backend="auto",
+                        quality=settings.PIL_IMAGE_QUALITY,
+                        backend="image",
                     )
 
                     # Validate thumbnail is not empty
@@ -336,20 +346,9 @@ class ThumbnailFiles(models.Model):
                             filename=index_data_item.name,
                         )
 
-                    # All-white corruption detection (re-enabled 2026-02-12)
-                    # CoreImage GPU rendering can produce all-white thumbnails under
-                    # concurrent multi-process conditions. Detect and reject them so
-                    # they get regenerated on next access.
-                    from PIL import Image
-
-                    with Image.open(io.BytesIO(thumbnails["small"])) as check_img:
-                        extrema = check_img.getextrema()
-                        if check_img.mode == "RGB" and extrema == ((255, 255), (255, 255), (255, 255)):
-                            raise ThumbnailGenerationError(
-                                f"All-white thumbnail detected (GPU corruption) for {index_data_item.name}",
-                                filename=index_data_item.name,
-                            )
                 elif filetype.is_movie:
+                    # Apple Silicon optimizations (AVFoundation/corevideo) disabled pending memory investigation.
+                    # Re-enable by changing backend="video" to: "corevideo" if _check_avfoundation_available() else "video"
                     thumbnails = create_thumbnails_from_path(
                         filename,
                         settings.IMAGE_SIZE,
@@ -365,12 +364,14 @@ class ThumbnailFiles(models.Model):
                         )
 
                 elif filetype.is_pdf:
+                    # Apple Silicon optimizations (PDFKit) disabled pending memory investigation.
+                    # Re-enable by changing backend="pymupdf" to backend="pdf".
                     thumbnails = create_thumbnails_from_path(
                         filename,
                         settings.IMAGE_SIZE,
                         output="JPEG",
                         quality=settings.PIL_IMAGE_QUALITY,
-                        backend="pdf",
+                        backend="pymupdf",
                     )
                     # Validate result
                     if not thumbnails or not thumbnails.get("small"):
@@ -414,29 +415,35 @@ class ThumbnailFiles(models.Model):
                 # File was moved or deleted — mark this specific FileIndex as delete_pending
                 # rather than marking ALL files with this SHA256 as generic.
                 # Other FileIndex records with the same SHA256 may still exist at valid paths.
-                print(f"File not found for {index_data_item.name}: {e}")
+                logger.warning("File not found for %s: %s", index_data_item.name, e)
                 index_data_item.delete_pending = True
                 index_data_item.save(update_fields=["delete_pending"])
 
                 # Clear layout cache so gallery view reflects the removed file
-                # Inline import required: circular import chain
-                # quickbbs.models → thumbnails.models → frontend.managers → quickbbs.models
-                from quickbbs.cache_registry import (
-                    clear_layout_cache_for_directories,  # pylint: disable=import-outside-toplevel
-                )
-
                 if index_data_item.home_directory_id:
                     clear_layout_cache_for_directories({index_data_item.home_directory_id})
 
                 # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
                 thumbnailfiles_cache.pop(file_sha256, None)
 
+            except MediaProcessingError as e:
+                # File exists but could not be loaded as an image (corrupt, wrong format, etc.)
+                # Log at WARNING (not ERROR) since this is a data issue, not a code issue.
+                logger.warning(
+                    "Unreadable image file, marking as generic icon: %s (%s)",
+                    filename,
+                    e,
+                )
+                if not index_data_item.is_generic_icon:
+                    FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
+                    thumbnailfiles_cache.pop(file_sha256, None)
+
             except (
                 Exception
             ) as e:  # TODO: narrow to (OSError, RuntimeError, ValueError) once thumbnail backend exception types are fully catalogued across PIL/PyMuPDF/ffmpeg
                 # Any error during thumbnail creation - mark ALL files with this SHA256 as generic
                 # Use FileIndex classmethod to ensure layout cache is cleared
-                print(f"Thumbnail creation failed for {index_data_item.name}: {e}")
+                logger.exception("Thumbnail creation failed for %s: %s", index_data_item.name, e)
                 if not index_data_item.is_generic_icon:
                     FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
 
@@ -452,7 +459,7 @@ class ThumbnailFiles(models.Model):
         Returns:
             Count of FileIndex objects referencing this thumbnail
         """
-        from quickbbs.models import FileIndex
+        from quickbbs.models import FileIndex  # inline: circular import (fileindex.py → thumbnails.models)
 
         return FileIndex.objects.filter(file_sha256=self.sha256_hash).count()
 
@@ -475,13 +482,13 @@ class ThumbnailFiles(models.Model):
         return cls.objects.prefetch_related(*prefetch_related).get(sha256_hash=sha256)
 
     @classmethod
-    def get_thumbnails_by_sha_list(cls, sha256_list: list[str], prefetch_related: list[str]) -> dict[str, "ThumbnailFiles"]:
+    def get_thumbnails_by_sha_list(cls, sha256_list: list[str], prefetch_related: list[str] | tuple[str, ...]) -> dict[str, "ThumbnailFiles"]:
         """
         Get multiple thumbnails by SHA256 hash list to avoid N+1 queries.
 
         Args:
             sha256_list: List of SHA256 hashes
-            prefetch_related: List of related fields to prefetch (required)
+            prefetch_related: Related fields to prefetch (required)
 
         Returns:
             Dictionary mapping SHA256 hash to ThumbnailFiles object
@@ -562,14 +569,14 @@ class ThumbnailFiles(models.Model):
         filename_override: str | None = None,
         fext_override: str | None = None,
         size: str = "small",
-        index_data_item=None,
+        index_data_item: "FileIndex | None" = None,
     ):
         """
         Send thumbnail as HTTP response with appropriate headers.
 
         Args:
             filename_override: Optional filename to use instead of the original
-            fext_override: Optional file extension override (unused, kept for API compatibility)
+            fext_override: Unused; retained for API compatibility
             size: The size of thumbnail to send (small, medium, or large)
             index_data_item: Pre-fetched FileIndex to avoid additional query
 
@@ -583,22 +590,18 @@ class ThumbnailFiles(models.Model):
         Example:
             >>> thumbnail.send_thumbnail(filename_override="cover.jpg", size="medium")
         """
-        # Get FileIndex to check if file is marked as generic
+        # Get FileIndex to check if file is marked as generic.
+        # Callers in hot paths should always supply index_data_item to avoid this query.
         if not index_data_item:
             try:
-                index_data_list = list(self.FileIndex.all())
-                if index_data_list:
-                    index_data_item = index_data_list[0]
+                index_data_item = self.FileIndex.only("name", "is_generic_icon", "filetype_id").first()
             except (AttributeError, ObjectDoesNotExist) as e:
                 # FileIndex relationship may not exist for this thumbnail
-                import logging
-
-                logger = logging.getLogger(__name__)
                 logger.debug("FileIndex not available for thumbnail %s: %s", self.pk, e)
 
         # If file is marked as generic icon OR filetype is generic, use filetype thumbnail instead
         # This handles both explicit marking (is_generic_icon) and filetype-based generic status (filetype.generic)
-        if index_data_item and (index_data_item.is_generic_icon or index_data_item.filetype.generic):
+        if index_data_item is not None and (index_data_item.is_generic_icon or index_data_item.filetype.generic):
             return index_data_item.filetype.send_thumbnail()
 
         # Use provided index_data_item for filename
@@ -613,8 +616,6 @@ class ThumbnailFiles(models.Model):
         # Validate that thumbnail blob is not empty
         if not blob:
             raise ThumbnailGenerationError(f"Thumbnail blob is empty for {filename}", filename=filename)
-
-        from frontend.serve_up import send_file_response
 
         return send_file_response(
             filename=filename,
@@ -660,7 +661,7 @@ class ThumbnailFiles(models.Model):
         # Limit to batchsize
         sha256_list = sha256_list[:batchsize]
 
-        print(f"Processing {len(sha256_list)} thumbnails with {max_workers} concurrent tasks")
+        logger.info("Processing %d thumbnails with %d concurrent tasks", len(sha256_list), max_workers)
 
         results = {}
 
@@ -672,7 +673,7 @@ class ThumbnailFiles(models.Model):
 
             for sha256, result in zip(batch, batch_results):
                 if isinstance(result, Exception):
-                    print(f"Task execution error for {sha256}: {result}")
+                    logger.error("Task execution error for %s: %s", sha256, result)
                     results[sha256] = False
                 else:
                     success, _, _ = result
@@ -680,33 +681,7 @@ class ThumbnailFiles(models.Model):
 
         successful_count = sum(1 for v in results.values() if v)
         if successful_count > 0:
-            print(f"Successfully processed {successful_count}/{len(sha256_list)} thumbnails")
-
-        # # MEMORY MANAGEMENT: Clear backend caches after batch completes
-        # # This releases Core Image CIContext instances and their GPU resources
-        # try:
-        #     from thumbnails.thumbnail_engine import (
-        #         clear_backend_caches,
-        #         get_cache_stats,
-        #     )
-
-        #     # Log cache stats before clearing
-        #     cache_stats_before = get_cache_stats()
-        #     if cache_stats_before["total_cached_instances"] > 0:
-        #         print(f"Cache stats before clearing: {cache_stats_before['total_cached_instances']} instances")
-
-        #         # Clear caches and get statistics
-        #         clear_stats = clear_backend_caches(force_gc=True)
-
-        #         print(
-        #             f"Cleared {clear_stats['processors_cleared']} processors, "
-        #             f"{clear_stats['backends_cleared']} backends. "
-        #             f"GC collected {clear_stats['gc_objects_collected']} objects. "
-        #             f"Memory change: {clear_stats['memory_freed_mb']:.1f} MB"
-        #         )
-        # except Exception as e:
-        #     # Don't fail the batch if cache clearing fails
-        #     print(f"Warning: Cache clearing failed: {e}")
+            logger.info("Successfully processed %d/%d thumbnails", successful_count, len(sha256_list))
 
         return results
 
@@ -733,14 +708,14 @@ class ThumbnailFiles(models.Model):
                 )
             return True, sha256, thumbnail
         except (OrphanedThumbnail, OrphanedFileIndex) as exc:
-            print(f"Deleting orphaned thumbnail for {sha256}: {exc}")
+            logger.warning("Deleting orphaned thumbnail for %s: %s", sha256, exc)
             exc.thumbnail.delete()
             return False, sha256, None
         except IntegrityError as e:
-            print(f"Error creating thumbnail for {sha256}: {e}")
+            logger.error("Integrity error creating thumbnail for %s: %s", sha256, e)
             return False, sha256, None
         except (DatabaseError, OperationalError) as e:
-            print(f"Unexpected error creating thumbnail for {sha256}: {e}")
+            logger.error("Database error creating thumbnail for %s: %s", sha256, e)
             return False, sha256, None
 
     @classmethod

@@ -22,13 +22,15 @@ Example:
 """
 
 import argparse
+import dataclasses
 import os
 import shutil
 import sys
 import time
+from collections.abc import Generator
 from pathlib import Path
-from struct import unpack
 
+import numpy as np
 import xattr
 from colorama import Fore, Style, init
 
@@ -42,48 +44,36 @@ ARCHIVE_EXTENSIONS = {".zip", ".rar", ".7z", ".lzh", ".gz"}
 FILENAME_TRANS = str.maketrans({"?": "", "/": "", ":": "", "#": "_", " ": "_"})
 
 
+@dataclasses.dataclass(slots=True)
 class ProcessingStats:
     """Simple statistics tracking without thread-local complexity."""
 
-    __slots__ = (
-        "total_files_scanned",
-        "files_with_color_tags",
-        "files_actually_processed",
-        "files_skipped_existing",
-        "files_skipped_no_color",
-        "errors_encountered",
-        "start_time",
-        "end_time",
-        "max_count_reached",
-    )
+    total_files_scanned: int = 0
+    files_with_color_tags: int = 0
+    files_actually_processed: int = 0
+    files_skipped_existing: int = 0
+    files_skipped_no_color: int = 0
+    errors_encountered: int = 0
+    start_time: float | None = None
+    end_time: float | None = None
+    max_count_reached: bool = False
 
-    def __init__(self):
-        self.total_files_scanned = 0
-        self.files_with_color_tags = 0
-        self.files_actually_processed = 0
-        self.files_skipped_existing = 0
-        self.files_skipped_no_color = 0
-        self.errors_encountered = 0
-        self.start_time = None
-        self.end_time = None
-        self.max_count_reached = False
-
-    def start_timing(self):
+    def start_timing(self) -> None:
         """Start the timing counter."""
         self.start_time = time.time()
 
-    def stop_timing(self):
+    def stop_timing(self) -> None:
         """Stop the timing counter."""
         self.end_time = time.time()
 
     def get_duration(self) -> float:
-        """Get the total execution time in seconds."""
-        if self.start_time and self.end_time:
+        """Return the total execution time in seconds."""
+        if self.start_time is not None and self.end_time is not None:
             return self.end_time - self.start_time
         return 0.0
 
     def format_duration(self) -> str:
-        """Format duration as human-readable string."""
+        """Return duration as a human-readable string."""
         duration = self.get_duration()
         if duration < 60:
             return f"{duration:.2f} seconds"
@@ -97,7 +87,7 @@ class ProcessingStats:
         seconds = duration % 60
         return f"{hours}h {minutes}m {seconds:.0f}s"
 
-    def print_summary(self):
+    def print_summary(self) -> None:
         """Print comprehensive processing summary."""
         duration = self.get_duration()
         status = "Maximum file count reached" if self.max_count_reached else "Processing complete"
@@ -114,25 +104,31 @@ class ProcessingStats:
             print(f"\nPerformance: {scan_rate:.1f} files/second")
 
 
-# Global statistics tracker
-stats = ProcessingStats()
+@dataclasses.dataclass
+class ProcessingConfig:
+    """Configuration for a file processing run."""
+
+    operation: str
+    max_count: int | None
+    existing_files: dict[str, set[str]]
 
 
-def get_color(filename):
+def get_color(filename: str | os.PathLike) -> int:
     """Get macOS Finder color label code for a file.
 
-    Args:
+    Uses np.frombuffer() for zero-copy parsing of the 32-byte FinderInfo struct.
+
+    :Args:
         filename: Path to the file to check
 
-    Returns:
-        Color code integer (0 = none, 1-7 = colors)
+    :return: Color code integer (0 = none, 1-7 = colors)
     """
     try:
         attrs = xattr.xattr(filename)
         finder_attrs = attrs["com.apple.FinderInfo"]
-        flags = unpack(32 * "B", finder_attrs)
-        return flags[9] >> 1 & 7
-    except (KeyError, OSError, FileNotFoundError):
+        flags = np.frombuffer(finder_attrs, dtype=np.uint8)
+        return int(flags[9] >> 1 & 7)
+    except (KeyError, OSError, IndexError):
         return 0
 
 
@@ -144,7 +140,7 @@ def copy_with_metadata(src: str, dst: str, move: bool = False) -> None:
     - Permissions and timestamps (via shutil.copy2)
     - Extended attributes (xattrs) - critical for macOS aliases
 
-    Args:
+    :Args:
         src: Source file path
         dst: Destination file path
         move: If True, move the file (copy + delete source); if False, copy only
@@ -158,7 +154,7 @@ def copy_with_metadata(src: str, dst: str, move: bool = False) -> None:
         dst_attrs = xattr.xattr(dst)
         for attr in src_attrs.list():
             dst_attrs.set(attr, src_attrs.get(attr))
-    except (OSError, IOError):
+    except OSError:
         # Silently continue if xattr copy fails - file is still copied
         pass
 
@@ -167,17 +163,23 @@ def copy_with_metadata(src: str, dst: str, move: bool = False) -> None:
         os.remove(src)
 
 
-def process_folder(src_dir, dst_dir, files, config):
+def process_folder(
+    src_dir: str,
+    dst_dir: str,
+    files: list[str],
+    config: ProcessingConfig,
+    stats: ProcessingStats,
+) -> bool:
     """Process files in a folder, copying/moving only those with color labels.
 
-    Args:
+    :Args:
         src_dir: Source directory path
         dst_dir: Destination directory path
         files: List of filenames to process
-        config: Dictionary with 'existing_files', 'operation', and 'max_count' keys
+        config: Processing configuration (operation, max_count, existing_files cache)
+        stats: Statistics tracker to update in place
 
-    Returns:
-        True if processing should continue, False if max_count reached
+    :return: True if processing should continue, False if max_count reached
     """
     for file_ in files:
         stats.total_files_scanned += 1
@@ -194,9 +196,10 @@ def process_folder(src_dir, dst_dir, files, config):
             )
 
         # Check if max_count has been reached
-        if config["max_count"] and stats.files_actually_processed >= config["max_count"]:
+        if config.max_count and stats.files_actually_processed >= config.max_count:
             stats.max_count_reached = True
             return False
+
         src_file = os.path.join(src_dir, file_)
         fext = os.path.splitext(file_)[1].lower()
 
@@ -218,21 +221,21 @@ def process_folder(src_dir, dst_dir, files, config):
         dst_filename = normalized_filename.translate(FILENAME_TRANS)
 
         # Lazy-load directory contents on first access
-        if dst_dir not in config["existing_files"]:
+        if dst_dir not in config.existing_files:
             # First time seeing this destination directory - scan it now
-            config["existing_files"][dst_dir] = set()
+            config.existing_files[dst_dir] = set()
             if os.path.exists(dst_dir):
                 try:
                     for existing_file in os.listdir(dst_dir):
                         # Normalize the same way we do for source files
                         normalized = existing_file.strip()
                         sanitized = normalized.translate(FILENAME_TRANS)
-                        config["existing_files"][dst_dir].add(sanitized)
-                except (OSError, PermissionError):
+                        config.existing_files[dst_dir].add(sanitized)
+                except OSError:
                     pass  # Empty cache for inaccessible directories
 
         # Check directory-specific index
-        if dst_filename in config["existing_files"][dst_dir]:
+        if dst_filename in config.existing_files[dst_dir]:
             stats.files_skipped_existing += 1
             continue
 
@@ -243,40 +246,65 @@ def process_folder(src_dir, dst_dir, files, config):
 
         # Perform file operation
         try:
-            move_file = config["operation"] == "move"
-            copy_with_metadata(src_file, dst_file, move=move_file)
-
-            # Update directory-specific index after successful operation
-            config["existing_files"].setdefault(dst_dir, set()).add(dst_filename)
-
+            copy_with_metadata(src_file, dst_file, move=config.operation == "move")
+            config.existing_files[dst_dir].add(dst_filename)
             stats.files_actually_processed += 1
-
-        except (OSError, IOError, PermissionError, shutil.Error) as e:
+        except (OSError, shutil.Error) as e:
             print(f"Error processing {src_file}: {e}")
             stats.errors_encountered += 1
 
     return True  # Continue processing
 
 
-def main(args):
-    """Main function to process files with color labels.
+def directory_generator(
+    root_src_dir: Path,
+    root_target_dir: Path,
+) -> Generator[tuple[str, str, list[str]], None, None]:
+    """Generate (src_dir, dst_dir, files) tuples for all directories containing files.
 
-    Args:
+    Destination paths are normalised: each path component has whitespace stripped,
+    spaces converted to underscores, and title case applied.
+
+    CRITICAL: Spaces are converted to underscores BEFORE title casing to prevent
+    duplicates. Without this, "Gonig South" and "goning_south" would produce two
+    different directories instead of mapping to the same "Goning_South".
+
+    :Args:
+        root_src_dir: Resolved source root Path
+        root_target_dir: Resolved destination root Path
+
+    :Yields:
+        Tuple of (src_dir, dst_dir, files) for each directory containing files
+    """
+    for src_dir, _, files in os.walk(root_src_dir):
+        if not files:
+            continue
+        rel = Path(src_dir).relative_to(root_src_dir)
+        dst_dir = (root_target_dir / rel).resolve()
+        parts = dst_dir.parts
+        normalized_parts = [parts[0]] + [
+            p
+            for p in (part.strip().replace(" ", "_").title() for part in parts[1:])
+            if p
+        ]
+        dst_dir = Path(*normalized_parts) if len(normalized_parts) > 1 else Path(normalized_parts[0])
+        yield (src_dir, str(dst_dir), files)
+
+
+def main(args: argparse.Namespace) -> None:
+    """Run the file mover/copier for files with macOS Finder color labels.
+
+    :Args:
         args: Parsed command line arguments
     """
-    operation = getattr(args, "operation", "copy")
-    max_count = getattr(args, "max_count", None)
-
     root_src_dir = Path(args.source).resolve()
     root_target_dir = Path(args.target).resolve()
 
     print(f"Starting with: {root_src_dir}")
     print(f"Target path: {root_target_dir}")
-    print(f"Operation: {operation}")
-    if max_count:
-        print(f"Maximum files to process: {max_count}")
-
-    stats.start_timing()
+    print(f"Operation: {args.operation}")
+    if args.max_count:
+        print(f"Maximum files to process: {args.max_count}")
 
     if not root_src_dir.exists():
         print(f"Error: Source directory '{root_src_dir}' does not exist.")
@@ -286,55 +314,25 @@ def main(args):
         print(f"Error: Source path '{root_src_dir}' is not a directory.")
         sys.exit(1)
 
-    # Start with empty cache - will populate on-demand per directory
-    existing_files = {}
+    stats = ProcessingStats()
+    stats.start_timing()
+
+    config = ProcessingConfig(
+        operation=args.operation,
+        max_count=args.max_count,
+        existing_files={},
+    )
 
     print("Processing directories...")
 
-    # Create config dictionary to reduce function arguments
-    config = {
-        "operation": operation,
-        "max_count": max_count,
-        "existing_files": existing_files,  # Directory-specific index shared across all processing
-    }
-
-    def directory_generator():
-        """Generate directory information for processing.
-
-        Yields:
-            Tuple of (src_dir, dst_dir, files) for each directory containing files
-
-        Uses os.walk to traverse the source directory tree and yields processing
-        information for directories that contain files. Destination paths are
-        transformed to title case and all path components are stripped of
-        leading/trailing whitespace.
-        """
-        for src_dir, _, files in os.walk(str(root_src_dir)):
-            if files:  # Only yield directories with files
-                dst_dir = Path(src_dir.replace(str(root_src_dir), str(root_target_dir))).resolve()
-
-                # Normalize path: strip whitespace from each component and apply title case
-                # This handles directories like "alice_with_cats - tifa /" -> "alice_with_cats - tifa/"
-                parts = dst_dir.parts
-                # CRITICAL: Convert spaces to underscores BEFORE title casing to prevent duplicates.
-                # Without this, "Gonig South" and "goning_south" create two different directories.
-                # Example: "Gonig South" -> "Gonig_South" -> "Gonig_South" (title case)
-                #          "goning_south" -> "goning_south" -> "Goning_South" (title case)
-                # Both now map to the same directory: "Goning_South"
-                normalized_parts = [parts[0]] + [p for p in (part.strip().replace(" ", "_").title() for part in parts[1:]) if p]
-
-                dst_dir = Path(*normalized_parts) if len(normalized_parts) > 1 else Path(normalized_parts[0])
-                yield (src_dir, str(dst_dir), files)
-
     # Process directories sequentially (no threading - simpler and prevents race conditions)
-    for src_dir, dst_dir, files in directory_generator():
+    for src_dir, dst_dir, files in directory_generator(root_src_dir, root_target_dir):
         try:
-            if not process_folder(src_dir, dst_dir, files, config):
+            if not process_folder(src_dir, dst_dir, files, config, stats):
                 break  # max_count reached
-        except (OSError, IOError, PermissionError, FileNotFoundError) as e:
+        except OSError as e:
             print(f"Error processing {src_dir}: {e}")
             stats.errors_encountered += 1
-            # Continue despite errors
 
     # Print newline after progress indicator
     print()

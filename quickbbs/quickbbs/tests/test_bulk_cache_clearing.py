@@ -5,18 +5,11 @@ import tempfile
 import shutil
 import pytest
 from django.test import TestCase
-from django.core.management import call_command
 
-from quickbbs.models import IndexDirs
 from cache_watcher.models import fs_Cache_Tracking
-from frontend.managers import layout_manager, layout_manager_cache
-
-
-@pytest.fixture(scope="session", autouse=True)
-def django_db_setup(django_db_setup, django_db_blocker):
-    """Ensure filetypes table is populated before running tests."""
-    with django_db_blocker.unblock():
-        call_command("refresh-filetypes")
+from frontend.managers import layout_manager
+from quickbbs.cache_registry import layout_manager_cache
+from quickbbs.models import DirectoryIndex
 
 
 @pytest.mark.django_db
@@ -25,9 +18,6 @@ class TestBulkLayoutCacheClearing(TestCase):
 
     def setUp(self):
         """Create test directory hierarchy for each test."""
-        # Ensure filetypes are populated
-        call_command("refresh-filetypes")
-
         # Clear layout cache to ensure test isolation
         layout_manager_cache.clear()
 
@@ -41,11 +31,11 @@ class TestBulkLayoutCacheClearing(TestCase):
 
         self.dirs = {}
 
-        _, self.dirs["root"] = IndexDirs.add_directory(self.albums_path + "/")
-        _, self.dirs["photos"] = IndexDirs.add_directory(os.path.join(self.albums_path, "photos") + "/")
-        _, self.dirs["photos_2024"] = IndexDirs.add_directory(os.path.join(self.albums_path, "photos", "2024") + "/")
-        _, self.dirs["videos"] = IndexDirs.add_directory(os.path.join(self.albums_path, "videos") + "/")
-        _, self.dirs["videos_2024"] = IndexDirs.add_directory(os.path.join(self.albums_path, "videos", "2024") + "/")
+        _, self.dirs["root"] = DirectoryIndex.add_directory(self.albums_path + "/")
+        _, self.dirs["photos"] = DirectoryIndex.add_directory(os.path.join(self.albums_path, "photos") + "/")
+        _, self.dirs["photos_2024"] = DirectoryIndex.add_directory(os.path.join(self.albums_path, "photos", "2024") + "/")
+        _, self.dirs["videos"] = DirectoryIndex.add_directory(os.path.join(self.albums_path, "videos") + "/")
+        _, self.dirs["videos_2024"] = DirectoryIndex.add_directory(os.path.join(self.albums_path, "videos", "2024") + "/")
 
         # Create cache entries
         self.cache_storage = fs_Cache_Tracking()
@@ -62,7 +52,7 @@ class TestBulkLayoutCacheClearing(TestCase):
         # Populate layout cache with entries for all directories
         for dir_obj in self.dirs.values():
             # Create cache entry for page 1, sort order 0
-            layout_manager(page_number=1, directory=dir_obj, sort_ordering=0)
+            layout_manager(page_number=1, directory=dir_obj, sort_ordering=0, show_duplicates=False)
 
         # Verify cache has entries
         initial_cache_size = len(layout_manager_cache)
@@ -83,7 +73,7 @@ class TestBulkLayoutCacheClearing(TestCase):
         # Populate layout cache with multiple sort orders
         for dir_obj in [self.dirs["photos"], self.dirs["videos"]]:
             for sort_order in [0, 1, 2]:
-                layout_manager(page_number=1, directory=dir_obj, sort_ordering=sort_order)
+                layout_manager(page_number=1, directory=dir_obj, sort_ordering=sort_order, show_duplicates=False)
 
         # Should have 2 dirs × 3 sort orders = 6 entries
         initial_cache_size = len(layout_manager_cache)
@@ -97,15 +87,15 @@ class TestBulkLayoutCacheClearing(TestCase):
         assert final_cache_size == 0, f"Expected 0 entries after bulk clear, found {final_cache_size}"
 
     def test_single_directory_clearing_uses_bulk(self):
-        """Test that _clear_layout_cache (single) delegates to bulk method."""
+        """Test that bulk clear works with a single-element list."""
         # Populate cache
-        layout_manager(page_number=1, directory=self.dirs["photos"], sort_ordering=0)
+        layout_manager(page_number=1, directory=self.dirs["photos"], sort_ordering=0, show_duplicates=False)
 
         initial_cache_size = len(layout_manager_cache)
         assert initial_cache_size > 0
 
-        # Use single-directory method (should delegate to bulk)
-        self.cache_storage._clear_layout_cache(self.dirs["photos"])
+        # Use bulk method with a single-element list
+        self.cache_storage._clear_layout_cache_bulk([self.dirs["photos"]])
 
         # Cache should be cleared
         final_cache_size = len(layout_manager_cache)
@@ -114,7 +104,7 @@ class TestBulkLayoutCacheClearing(TestCase):
     def test_bulk_clearing_with_empty_list(self):
         """Test that bulk clearing handles empty directory list gracefully."""
         # Populate cache
-        layout_manager(page_number=1, directory=self.dirs["photos"], sort_ordering=0)
+        layout_manager(page_number=1, directory=self.dirs["photos"], sort_ordering=0, show_duplicates=False)
         initial_cache_size = len(layout_manager_cache)
 
         # Clear with empty list - should not crash
@@ -131,7 +121,7 @@ class TestBulkLayoutCacheClearing(TestCase):
 
         # Populate cache
         for dir_obj in self.dirs.values():
-            layout_manager(page_number=1, directory=dir_obj, sort_ordering=0)
+            layout_manager(page_number=1, directory=dir_obj, sort_ordering=0, show_duplicates=False)
 
         # Count queries during bulk clear
         with CaptureQueriesContext(connection) as context:
