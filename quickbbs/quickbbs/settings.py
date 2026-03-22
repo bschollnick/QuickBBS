@@ -167,8 +167,7 @@ CACHES = {
     },
 }
 
-if not DEBUG:
-    CACHES.update({
+CACHES.update({
         "default": {
             "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
             "LOCATION": "quickbbs-default-cache",
@@ -406,6 +405,10 @@ DATABASES = {
                 "max_idle": 5,  # Max idle time before closing (5 seconds)
                 "timeout": 15,  # Connection timeout (seconds)
             },
+        },
+        "TEST": {
+            "NAME": "test_quickbbs",  # Explicit name — avoids implicit test_postgres
+            "OPTIONS": {},  # No pool — test runner needs direct autocommit connections
         },
     },
 }
