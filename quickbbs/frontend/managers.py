@@ -62,7 +62,7 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
         return HttpResponseBadRequest(content="No entry found.")
 
     start_time = time.perf_counter()
-    webpath = entry.fqpndirectory.lower().replace("//", "/")
+    webpath = convert_to_webpath(entry.fqpndirectory.lower().replace("//", "/"))
     directory_entry = entry.home_directory
 
     # Get navigation data - optimized to avoid materializing all SHAs when possible
@@ -162,7 +162,7 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
         "html": entry.get_content_html(webpath),
         # Navigation (inline breadcrumb processing)
         "breadcrumbs": return_breadcrumbs(webpath),
-        "up_uri": convert_to_webpath(str(Path(entry.full_filepathname).parent)).rstrip("/"),
+        "up_uri": webpath.rstrip("/"),  # webpath is already web-relative after convert_to_webpath()
         "webpath": webpath,
         # File context (inline)
         "filetype": entry.filetype,

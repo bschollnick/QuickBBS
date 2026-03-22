@@ -30,7 +30,7 @@
 cd "$(dirname "$0")"
 
 # Worker configuration
-NUMBER_OF_WORKERS=3  # Number of concurrent worker threads
+NUMBER_OF_WORKERS=4 # Number of concurrent worker threads
 
 echo "Starting QuickBBS Task Worker"
 echo "============================="

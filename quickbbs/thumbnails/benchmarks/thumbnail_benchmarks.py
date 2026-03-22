@@ -28,15 +28,18 @@ BENCHMARKS_DIR = Path(__file__).parent
 THUMBNAILS_DIR = BENCHMARKS_DIR.parent
 sys.path.insert(0, str(THUMBNAILS_DIR.parent))
 
+# pylint: disable=wrong-import-position
 from thumbnails.thumbnail_engine import (
     AVFOUNDATION_AVAILABLE,
-    CORE_IMAGE_AVAILABLE,
     PDFKIT_AVAILABLE,
+    _check_core_image_available,
     create_thumbnails_from_path,
 )
-
-# Import after path modification
 from quickbbs.quickbbs_settings import CORE_IMAGE_QUALITY, PIL_IMAGE_QUALITY
+
+# pylint: enable=wrong-import-position
+
+CORE_IMAGE_AVAILABLE = _check_core_image_available()
 
 # ============================================================================
 # Configuration

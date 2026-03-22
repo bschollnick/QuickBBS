@@ -8,6 +8,7 @@ Both sync and async versions will be maintained during transition.
 import asyncio
 import datetime
 import logging
+import math
 import os
 import pathlib
 import re
@@ -35,6 +36,7 @@ from frontend.managers import (
     _get_files_needing_thumbnails,
     async_build_context_info,
     async_layout_manager,
+    calculate_page_bounds,
 )
 from frontend.utilities import (
     convert_to_webpath,
@@ -104,7 +106,9 @@ async def async_render(request, template_name, context=None, **kwargs):
         template_name: Template file name
         context: Context dictionary
         **kwargs: Additional arguments for render
-    Returns: HttpResponse
+
+    Returns:
+        HttpResponse
     """
     return await sync_to_async(render)(request, template_name, context, **kwargs)
 
@@ -115,10 +119,10 @@ def get_sort_param(request: WSGIRequest) -> int:
 
     Valid values are defined by SORT_MATRIX keys.
 
-    :Args:
+    Args:
         request: Django request object
 
-    :Returns:
+    Returns:
         Sort parameter (validated against SORT_MATRIX), defaults to 0 if invalid
     """
     try:
@@ -135,7 +139,9 @@ def _create_base_context(request: WSGIRequest) -> dict:
 
     Args:
         request: Django WSGIRequest object
-    Returns: Base context dictionary
+
+    Returns:
+        Base context dictionary
     """
     small_size = settings.IMAGE_SIZE["small"]
     small_width, small_height = small_size
@@ -355,33 +361,55 @@ def get_search_results(
 #     )
 
 
-def _get_materialized_search_results(
+def _get_paginated_search_results(
     searchtext: str,
     regex_pattern: str,
     sort_order: int,
-    prefetch_dirs: tuple,
-    prefetch_files: tuple,
-    max_results: int,
-) -> tuple[list, list]:
+    page: int,
+    items_per_page: int,
+) -> tuple[list, list, int]:
     """
-    Get search results and materialize querysets in a single sync call.
+    Get search results for a single page using DB-level pagination.
 
-    Consolidates get_search_results + list materialization to reduce
-    async/sync boundary crossings from 3 to 1.
+    Mirrors the layout_manager pattern: COUNT first, then LIMIT/OFFSET slices
+    using calculate_page_bounds(). Only fetches SHA values from the DB, then
+    hydrates full objects via __in lookups — identical to how new_viewgallery()
+    consumes layout_manager output.
+
+    Reduces async/sync boundary crossings to 1 and avoids fetching objects
+    for pages that will never be rendered.
 
     Args:
         searchtext: Original search text for fallback
         regex_pattern: Compiled regex pattern
         sort_order: Sort order index
-        prefetch_dirs: Prefetch fields for directory results
-        prefetch_files: Prefetch fields for file results
-        max_results: Maximum total results to return
+        page: Current page number (1-indexed)
+        items_per_page: Number of items per page
 
     Returns:
-        Tuple of (directory_results_list, file_results_list)
+        Tuple of (directory_sha_list, file_sha_list, total_count)
     """
-    dirs, files = get_search_results(searchtext, regex_pattern, sort_order, prefetch_dirs, prefetch_files)
-    return list(dirs[: max_results // 2]), list(files[: max_results // 2])
+    # Pass empty prefetch tuples — we only need SHA values here for pagination.
+    # Full object hydration (with prefetch/annotate) happens in the caller via __in lookups.
+    dirs_qs, files_qs = get_search_results(searchtext, regex_pattern, sort_order, (), ())
+
+    dirs_count = dirs_qs.count()
+    files_count = files_qs.count()
+    total = dirs_count + files_count
+
+    bounds = calculate_page_bounds(page, items_per_page, dirs_count)
+
+    dir_shas = []
+    if bounds["dirs_slice"]:
+        start, end = bounds["dirs_slice"]
+        dir_shas = list(dirs_qs[start:end].values_list("dir_fqpn_sha256", flat=True))
+
+    file_shas = []
+    if bounds["files_slice"]:
+        start, end = bounds["files_slice"]
+        file_shas = list(files_qs[start:end].values_list("unique_sha256", flat=True))
+
+    return dir_shas, file_shas, total
 
 
 @vary_on_headers("HX-Request")
@@ -431,31 +459,43 @@ async def search_viewresults(request: WSGIRequest):
 
     # Perform search using shared functions (async wrapped)
     search_regex_pattern = create_search_regex_pattern(searchtext)
-    print(f"Search text: '{searchtext}' -> Regex pattern: '{search_regex_pattern}'")
+    logger.debug("Search text: '%s' -> Regex pattern: '%s'", searchtext, search_regex_pattern)
 
-    max_search_results = settings.MAX_SEARCH_RESULTS
-    directory_results, file_results = await sync_to_async(_get_materialized_search_results)(
+    items_per_page = settings.SEARCH_ITEMS_PER_PAGE
+
+    dir_shas, file_shas, total_items = await sync_to_async(_get_paginated_search_results)(
         searchtext,
         search_regex_pattern,
         context["sort"],
-        SEARCH_PR_FILETYPE,
-        SEARCH_PR_FILETYPE_HOME,
-        max_search_results,
+        current_page,
+        items_per_page,
     )
-    combined_results = directory_results + file_results
 
-    if len(combined_results) >= max_search_results:
-        print(f"Search results limited to {max_search_results} items for performance")
-
-    # Use optimized pagination (shared pattern with gallery view)
-    items_per_page = 30
-    total_items = len(combined_results)
-    total_pages = max(1, (total_items + items_per_page - 1) // items_per_page)
+    total_pages = max(1, math.ceil(total_items / items_per_page))
     current_page = max(1, min(current_page, total_pages))
 
-    start_idx = (current_page - 1) * items_per_page
-    end_idx = start_idx + items_per_page
-    page_items = combined_results[start_idx:end_idx]
+    # Hydrate full objects for this page only — same pattern as new_viewgallery()
+    dirs_to_display = await sync_to_async(list)(
+        DirectoryIndex.objects.filter(dir_fqpn_sha256__in=dir_shas, delete_pending=False)
+        .prefetch_related(*SEARCH_PR_FILETYPE)
+        .annotate(
+            file_count=Count(
+                "FileIndex_entries",
+                filter=Q(FileIndex_entries__delete_pending=False),
+                distinct=True,
+            ),
+            directory_count=Count(
+                "parent_dir",
+                filter=Q(parent_dir__delete_pending=False),
+                distinct=True,
+            ),
+        )
+    ) if dir_shas else []
+
+    files_to_display = await sync_to_async(list)(
+        FileIndex.objects.filter(unique_sha256__in=file_shas, delete_pending=False)
+        .prefetch_related(*SEARCH_PR_FILETYPE_HOME)
+    ) if file_shas else []
 
     # Update context with pagination data (consistent with gallery view)
     context.update(
@@ -466,7 +506,7 @@ async def search_viewresults(request: WSGIRequest):
             "current_page": current_page,
             "has_previous": current_page > 1,
             "has_next": current_page < total_pages,
-            "items_to_display": page_items,
+            "items_to_display": dirs_to_display + files_to_display,
         }
     )
 
@@ -504,7 +544,9 @@ def _determine_template(request: WSGIRequest, template_type: str = "gallery") ->
     Args:
         request: Django WSGIRequest object
         template_type: Type of template ("gallery", "search", "item")
-    Returns: Template name string
+
+    Returns:
+        Template name string
     """
     is_partial = request.htmx.boosted and request.htmx.current_url is not None and not request.GET.get("newwin", False)
 
@@ -535,7 +577,7 @@ def _find_directory(paths: dict) -> DirectoryIndex:
     DirectoryIndex.add_directory() already validates physical path existence,
     so we only need to handle the happy path and raise exceptions on errors.
 
-    :Args:
+    Args:
         paths: Dictionary containing path information (must have 'album_viewing' key)
 
     Returns:
@@ -690,7 +732,7 @@ async def new_viewgallery(request: WSGIRequest):
             "breadcrumbs": return_breadcrumbs(paths["webpath"])[:-1],
             "thumbpath": paths["thumbpath"],
             "gallery_name": pathlib.Path(paths["webpath"]).name,
-            "up_uri": convert_to_webpath(str(pathlib.Path(paths["webpath"]).parent)),
+            "up_uri": str(pathlib.Path(paths["webpath"]).parent),
             "search": False,
             "prev_uri": None,
             "next_uri": None,

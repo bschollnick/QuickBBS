@@ -16,6 +16,18 @@ _avfoundation_available: bool | None = None
 _pdfkit_available: bool | None = None
 
 
+def is_apple_silicon() -> bool:
+    """Return True if running on Apple Silicon (arm64 macOS).
+
+    Returns:
+        True if the current process is running on Apple Silicon, False otherwise.
+    """
+    try:
+        return platform.system() == "Darwin" and platform.processor() == "arm" and "arm64" in platform.machine().lower()
+    except OSError:
+        return False
+
+
 def _check_core_image_available() -> bool:
     """Check if Core Image backend is available (cached after first call)."""
     global _core_image_available
@@ -162,10 +174,7 @@ class FastImageProcessor:
 
     def _is_apple_silicon(self) -> bool:
         """Check if running on Apple Silicon."""
-        try:
-            return platform.system() == "Darwin" and platform.processor() == "arm" and "arm64" in platform.machine().lower()
-        except OSError:
-            return False
+        return is_apple_silicon()
 
     @property
     def current_backend(self) -> str:

@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from asgiref.sync import sync_to_async
 from cachetools import cached
+from cachetools.keys import hashkey
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import models, transaction
@@ -33,6 +34,7 @@ from quickbbs.common import (
 )
 from quickbbs.MonitoredCache import create_cache
 from quickbbs.natsort_model import NaturalSortField
+from thumbnails.exceptions import MediaProcessingError
 from thumbnails.models import ThumbnailFiles
 
 # Lazy-loaded video info function — AVFoundation/ffmpeg imports are deferred to first call.
@@ -280,14 +282,25 @@ class FileIndex(models.Model):
     @staticmethod
     def return_list_all_identical_files_by_sha(sha: str) -> "QuerySet[FileIndex]":
         """
-        Return a query of all duplicate files based on file SHA256 hash
+        Return a query of all duplicate files based on file SHA256 hash.
+
+        .. note::
+            **Prototype — not used in production code.**
+            This function is only called from benchmarks and tests. The query
+            structure (filter to one SHA, group by that SHA, annotate count) can
+            return at most one summary row, making the `.values()/.annotate()`
+            approach more complex than necessary. If promoted to production use,
+            consider replacing with ``return_identical_files_count(sha) >= 2``
+            at the call site, or simplifying the query to a plain filtered
+            QuerySet with a count check.
 
         Args:
             sha: The SHA256 hash of the file to find duplicates for
 
         Returns:
-            QuerySet containing summary data (file_sha256 + count) using .values()
-            and .annotate() for files with 2+ duplicates
+            QuerySet containing summary data (file_sha256 + dupe_count) using
+            .values() and .annotate() for files with 2+ duplicates. Always
+            returns zero or one row.
         """
         dupes = (
             FileIndex.objects.filter(file_sha256=sha)
@@ -352,11 +365,14 @@ class FileIndex(models.Model):
         )
         return files
 
-    @cached(fileindex_cache)
     @staticmethod
-    def get_by_sha256(sha_value: str, unique: bool, select_related: list[str]) -> FileIndex | None:
+    def get_by_sha256(sha_value: str, unique: bool, select_related: list[str]) -> "FileIndex | None":
         """
-        Return the FileIndex object by SHA256
+        Return the FileIndex object by SHA256.
+
+        Results are cached, but None (not found) is never cached — a missing record
+        may be created shortly after (e.g. during thumbnail generation) and a cached
+        None would mask it until eviction.
 
         Args:
             sha_value: The SHA256 of the FileIndex object
@@ -368,13 +384,21 @@ class FileIndex(models.Model):
         """
         if select_related is None:
             raise ValueError("select_related parameter is required")
+        key = hashkey(sha_value, unique, tuple(select_related))
+        cached_val = fileindex_cache.get(key)
+        if cached_val is not None:
+            return cached_val
         try:
             if unique:
-                return FileIndex.objects.select_related(*select_related).get(unique_sha256=sha_value, delete_pending=False)
-            # When searching by file_sha256, there may be duplicates - return first
-            return FileIndex.objects.select_related(*select_related).filter(file_sha256=sha_value, delete_pending=False).first()
+                result = FileIndex.objects.select_related(*select_related).get(unique_sha256=sha_value, delete_pending=False)
+            else:
+                # When searching by file_sha256, there may be duplicates - return first
+                result = FileIndex.objects.select_related(*select_related).filter(file_sha256=sha_value, delete_pending=False).first()
         except FileIndex.DoesNotExist:
-            return None
+            result = None
+        if result is not None:
+            fileindex_cache[key] = result
+        return result
 
     @cached(fileindex_download_cache)
     @staticmethod
@@ -636,11 +660,9 @@ class FileIndex(models.Model):
                 affected_directory_ids.update(pk for pk in deleted_dir_pks if pk is not None)
 
                 with transaction.atomic():
-                    # Process deletes in optimally-sized chunks
-                    for i in range(0, len(delete_ids_list), bulk_size):
-                        chunk_ids = delete_ids_list[i : i + bulk_size]
-                        # Use bulk delete with specific field for index usage
-                        cls.objects.filter(id__in=chunk_ids).delete()
+                    # Single DELETE — chunking integer PKs is unnecessary;
+                    # PostgreSQL handles large IN lists efficiently.
+                    cls.objects.filter(id__in=delete_ids_list).delete()
                     logger.info("Deleted %d records", len(records_to_delete_ids))
 
             # Batch update in chunks for memory efficiency
@@ -657,12 +679,12 @@ class FileIndex(models.Model):
                         # Single pass to detect which optional fields need updating
                         has_movies = has_hashes = has_link_with_vdir = False
                         for record in chunk:
-                            ft = getattr(record, "filetype", None)
-                            if not has_movies and getattr(ft, "is_movie", False) and getattr(record, "duration", None) is not None:
+                            ft = record.filetype
+                            if not has_movies and ft.is_movie and record.duration is not None:
                                 has_movies = True
-                            if not has_hashes and getattr(record, "file_sha256", None):
+                            if not has_hashes and record.file_sha256:
                                 has_hashes = True
-                            if not has_link_with_vdir and getattr(ft, "is_link", False) and getattr(record, "virtual_directory", None) is not None:
+                            if not has_link_with_vdir and ft.is_link and record.virtual_directory is not None:
                                 has_link_with_vdir = True
                             if has_movies and has_hashes and has_link_with_vdir:
                                 break
@@ -963,25 +985,23 @@ class FileIndex(models.Model):
 
     def inline_sendfile(self, request: Any, ranged: bool = False) -> Any:
         """
-        Helper function to send data to remote - matches original fast implementation.
+        Helper function to send data to remote.
 
-        Loads entire file into memory for non-ranged requests (fast for small files,
-        benefits from OS caching on repeated reads).
+        Uses FileResponse (streaming) for non-ranged requests — avoids loading the
+        entire file into worker memory. Django closes the file handle automatically
+        when streaming completes, so no context manager is needed.
 
-        Uses HttpResponse for non-ranged, RangedFileResponse for ranged (videos).
+        Uses RangedFileResponse for ranged requests (video streaming).
         """
         mtype = self.filetype.mimetype or "application/octet-stream"
 
         if not ranged:
-            # Load entire file into memory - matches old fast code
+            # SECURITY: Sanitize filename to prevent header injection
+            safe_filename = sanitize_filename_for_http(self.name)
             try:
-                with open(self.full_filepathname, "rb") as fh:
-                    response = HttpResponse(fh.read(), content_type=mtype)
-                    # SECURITY: Use Django's built-in helper to prevent header injection
-                    # Sanitize filename to remove control chars and problematic characters
-                    safe_filename = sanitize_filename_for_http(self.name)
-                    response["Content-Disposition"] = content_disposition_header(as_attachment=False, filename=safe_filename)
-                    response["Cache-Control"] = f"public, max-age={settings.HTTP_CACHE_MAX_AGE}"
+                fh = open(self.full_filepathname, "rb")  # pylint: disable=consider-using-with
+                response = FileResponse(fh, content_type=mtype, as_attachment=False, filename=safe_filename)
+                response["Cache-Control"] = f"public, max-age={settings.HTTP_CACHE_MAX_AGE}"
             except FileNotFoundError as exc:
                 raise Http404 from exc
         else:
@@ -1117,6 +1137,8 @@ class FileIndex(models.Model):
             # Multiple stat() calls on the same DirEntry object reuse the cached result
             if fs_stat is None:
                 fs_stat = fs_entry.stat()
+            elif not hasattr(fs_stat, "st_mtime"):
+                raise TypeError(f"fs_stat must be a stat result or None, got {type(fs_stat)!r}")
             update_needed = False
 
             # Get filetype (prefetched via select_related by caller)
@@ -1166,13 +1188,14 @@ class FileIndex(models.Model):
                         video_details = _get_video_info(str(fs_entry))
                         self.duration = video_details.get("duration", None)
                         update_needed = True
-                    except (OSError, ValueError, RuntimeError) as e:
+                    except (OSError, ValueError, RuntimeError, MediaProcessingError) as e:
                         logger.error("Error getting duration for %s: %s", fs_entry, e)
 
                 # Animated GIF detection - only check if not previously checked
                 if filetype.is_image and fext == ".gif" and not self.is_animated:
-                    self.is_animated = FileIndex.is_animated_gif(fs_entry)
-                    update_needed = True
+                    if FileIndex.is_animated_gif(fs_entry):
+                        self.is_animated = True
+                        update_needed = True
 
             return self if update_needed else None
 
@@ -1288,46 +1311,68 @@ class FileIndex(models.Model):
         Raises:
             ValueError: If bookmark data cannot be created or resolved
         """
+        key = hashkey(alias_path)
+        cached_val = cls._alias_cache.get(key)
+        if cached_val is not None:
+            return cached_val
+        result = cls._resolve_alias_uncached(alias_path)
+        cls._alias_cache[key] = result
+        return result
+
+    @staticmethod
+    def _resolve_alias_uncached(path: str) -> str:
+        """
+        Resolve a macOS alias to its target path without caching.
+
+        Foundation imports are deferred to preserve lazy-loading behaviour —
+        the framework is only available on macOS and should not be imported
+        at module load time.
+
+        :Args:
+            path: Path to the macOS alias file
+
+        Returns:
+            Resolved path to the target file/directory
+
+        Raises:
+            ValueError: If bookmark data cannot be created or resolved
+        """
         from Foundation import (  # pylint: disable=no-name-in-module
             NSURL,
             NSURLBookmarkResolutionWithoutMounting,
             NSURLBookmarkResolutionWithoutUI,
         )
 
-        @cached(cls._alias_cache)
-        def _resolve_cached(path: str) -> str:
-            options = NSURLBookmarkResolutionWithoutUI | NSURLBookmarkResolutionWithoutMounting
-            alias_url = NSURL.fileURLWithPath_(path)
-            bookmark, error = NSURL.bookmarkDataWithContentsOfURL_error_(alias_url, None)
-            if error:
-                raise ValueError(f"Error creating bookmark data: {error}")
+        options = NSURLBookmarkResolutionWithoutUI | NSURLBookmarkResolutionWithoutMounting
+        alias_url = NSURL.fileURLWithPath_(path)
+        bookmark, error = NSURL.bookmarkDataWithContentsOfURL_error_(alias_url, None)
+        if error:
+            raise ValueError(f"Error creating bookmark data: {error}")
 
-            resolved_url, _, error = NSURL.URLByResolvingBookmarkData_options_relativeToURL_bookmarkDataIsStale_error_(
-                bookmark, options, None, None, None
-            )
-            if error:
-                raise ValueError(f"Error resolving bookmark data: {error}")
+        resolved_url, _, error = NSURL.URLByResolvingBookmarkData_options_relativeToURL_bookmarkDataIsStale_error_(
+            bookmark, options, None, None, None
+        )
+        if error:
+            raise ValueError(f"Error resolving bookmark data: {error}")
 
-            resolved_url = str(resolved_url.path()).strip().lower()
-            # album_path = f"{settings.ALBUMS_PATH}{os.sep}albums{os.sep}"
-            for disk_path, replacement_path in settings.ALIAS_MAPPING.items():
-                if resolved_url.startswith(disk_path.lower()):
-                    resolved_url = resolved_url.replace(disk_path.lower(), replacement_path.lower()) + os.sep
-                    break
+        resolved_url = str(resolved_url.path()).strip().lower()
+        # album_path = f"{settings.ALBUMS_PATH}{os.sep}albums{os.sep}"
+        for disk_path, replacement_path in settings.ALIAS_MAPPING.items():
+            if resolved_url.startswith(disk_path.lower()):
+                resolved_url = resolved_url.replace(disk_path.lower(), replacement_path.lower()) + os.sep
+                break
 
-            # The copier is set to transform spaces to underscores.  We can safely disable that now, but
-            # that legacy means that there would be tremendous pain in duplication of data.  So for now,
-            # we will just check if the resolved path exists, and if not, we will try replacing spaces with underscores.
-            # If that works, then we will return that modified path instead.  Otherwise, we return the original resolved path.
+        # The copier is set to transform spaces to underscores.  We can safely disable that now, but
+        # that legacy means that there would be tremendous pain in duplication of data.  So for now,
+        # we will just check if the resolved path exists, and if not, we will try replacing spaces with underscores.
+        # If that works, then we will return that modified path instead.  Otherwise, we return the original resolved path.
 
-            if resolved_url:
-                if os.path.exists(resolved_url):
-                    return resolved_url
-                resolved_url = resolved_url.replace(" ", "_")
+        if resolved_url:
+            if os.path.exists(resolved_url):
+                return resolved_url
+            resolved_url = resolved_url.replace(" ", "_")
 
-            return resolved_url
-
-        return _resolve_cached(alias_path)
+        return resolved_url
 
     class Meta:
         verbose_name = "Master Files Index"

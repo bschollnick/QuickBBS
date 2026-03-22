@@ -19,12 +19,10 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 import io
 import os
 import time
 
-from asgiref.sync import sync_to_async
 from cachetools.keys import hashkey
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
@@ -228,7 +226,7 @@ def verify_directories(start_path: str | None = None, max_count: int = 0):
     print("=" * 60)
 
 
-async def _process_verify_files_chunk(
+def _process_verify_files_chunk(
     directory_pks: list[int],
     processed_count: int,
     start_time: float,
@@ -244,17 +242,15 @@ async def _process_verify_files_chunk(
     Returns:
         Updated processed_count
     """
-    # Fetch full directory objects for this chunk with related data
-    directories = await sync_to_async(list, thread_sensitive=True)(
+    directories = list(
         DirectoryIndex.objects.select_related("Cache_Watcher", "parent_directory").filter(pk__in=directory_pks).order_by("fqpndirectory")
     )
 
     # Batch-invalidate all directories in the chunk before rescanning
-    await sync_to_async(Cache_Storage.remove_multiple_from_cache_indexdirs, thread_sensitive=True)(directories)
+    Cache_Storage.remove_multiple_from_cache_indexdirs(directories)
 
     for directory in directories:
-        # Verify and sync files
-        await sync_to_async(update_database_from_disk)(directory)
+        update_database_from_disk(directory)
         processed_count += 1
 
         # Progress indicator every 100 directories
@@ -266,11 +262,10 @@ async def _process_verify_files_chunk(
     return processed_count
 
 
-async def _verify_files_async(start_path: str | None = None, max_count: int = 0):
+def verify_files(start_path: str | None = None, max_count: int = 0):
     """
-    Async implementation of verify_files.
+    Verify files in the database against the filesystem and perform cleanup.
 
-    Verifies files in the database against the filesystem and performs cleanup:
     - Invalidates directories with NULL SHA256 files
     - Invalidates directories with NULL virtual_directory link files
     - Deletes orphaned FileIndex records (where home_directory is None)
@@ -292,15 +287,15 @@ async def _verify_files_async(start_path: str | None = None, max_count: int = 0)
     overall_start = time.time()
 
     # Invalidate directories containing files with NULL SHA256
-    await sync_to_async(invalidate_directories_with_null_sha256, thread_sensitive=True)(start_path=start_path)
+    invalidate_directories_with_null_sha256(start_path=start_path)
 
     # Invalidate directories with link files missing virtual_directory
-    await sync_to_async(invalidate_directories_with_null_virtual_directory, thread_sensitive=True)(start_path=start_path)
+    invalidate_directories_with_null_virtual_directory(start_path=start_path)
 
     # Delete orphaned FileIndex records (where home_directory is None)
     print("-" * 60)
     print("Checking for orphaned FileIndex records (home_directory=None)...")
-    orphaned_deleted, _ = await sync_to_async(FileIndex.objects.filter(home_directory=None).delete, thread_sensitive=True)()
+    orphaned_deleted, _ = FileIndex.objects.filter(home_directory=None).delete()
     if orphaned_deleted > 0:
         print(f"  ✓ Deleted {orphaned_deleted} orphaned FileIndex records")
     else:
@@ -308,7 +303,7 @@ async def _verify_files_async(start_path: str | None = None, max_count: int = 0)
     print("-" * 60)
 
     print("Checking for invalid files in Database")
-    start_count = await sync_to_async(FileIndex.objects.count, thread_sensitive=True)()
+    start_count = FileIndex.objects.count()
     print(f"\tStarting File Count: {start_count}")
 
     # Build base queryset
@@ -320,7 +315,7 @@ async def _verify_files_async(start_path: str | None = None, max_count: int = 0)
         base_qs = DirectoryIndex.objects.order_by("fqpndirectory")
 
     # Fetch only primary keys (lightweight - avoids loading full objects into memory)
-    all_pks = await sync_to_async(list, thread_sensitive=True)(base_qs.values_list("pk", flat=True))
+    all_pks = list(base_qs.values_list("pk", flat=True))
     total_dirs = len(all_pks)
     print(f"\tFound {total_dirs} directories to process (chunked mode)...")
 
@@ -336,14 +331,13 @@ async def _verify_files_async(start_path: str | None = None, max_count: int = 0)
 
     for i in range(0, len(all_pks), BULK_UPDATE_BATCH_SIZE):
         chunk_pks = all_pks[i : i + BULK_UPDATE_BATCH_SIZE]
-
-        processed_count = await _process_verify_files_chunk(chunk_pks, processed_count, start_time)
+        processed_count = _process_verify_files_chunk(chunk_pks, processed_count, start_time)
 
         # Close connections after each chunk to prevent exhaustion
-        await sync_to_async(close_old_connections, thread_sensitive=True)()
+        close_old_connections()
 
     # Final statistics
-    end_count = await sync_to_async(FileIndex.objects.count, thread_sensitive=True)()
+    end_count = FileIndex.objects.count()
     total_time = time.time() - overall_start
     scan_time = time.time() - start_time
     dir_rate = processed_count / scan_time if scan_time > 0 else 0
@@ -357,26 +351,6 @@ async def _verify_files_async(start_path: str | None = None, max_count: int = 0)
     print(f"  Directory rate: {dir_rate:.1f} dirs/sec")
     print(f"  Total time: {total_time:.1f} seconds")
     print("=" * 60)
-
-
-def verify_files(start_path: str | None = None, max_count: int = 0):
-    """
-    Synchronous wrapper for verify_files.
-
-    Verifies files in the database against the filesystem and performs cleanup:
-    - Invalidates directories with NULL SHA256 files
-    - Invalidates directories with NULL virtual_directory link files
-    - Deletes orphaned FileIndex records (where home_directory is None)
-    - Verifies all files exist on disk and syncs database with filesystem
-
-    Args:
-        start_path: Starting directory path to verify from (default: ALBUMS_PATH/albums)
-        max_count: Maximum number of directories to process (0 = unlimited)
-
-    Returns:
-        None
-    """
-    asyncio.run(_verify_files_async(start_path=start_path, max_count=max_count))
 
 
 def verify_thumbnails(max_count: int = 0):

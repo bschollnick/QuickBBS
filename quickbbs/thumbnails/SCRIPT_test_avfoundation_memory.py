@@ -76,7 +76,7 @@ def test_memory_leak(video_file: str, iterations: int = 100):
     # Initialize backend
     try:
         backend = AVFoundationVideoBackend()
-    except Exception as e:
+    except (ImportError, RuntimeError, OSError) as e:
         print(f"Error: Failed to initialize AVFoundation backend: {e}")
         sys.exit(1)
 
@@ -85,7 +85,7 @@ def test_memory_leak(video_file: str, iterations: int = 100):
     try:
         backend.process_from_file(str(video_path), SIZES, "JPEG", 85)
         print("Warmup complete.\n")
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError) as e:
         print(f"Error during warmup: {e}")
         sys.exit(1)
 
@@ -105,7 +105,7 @@ def test_memory_leak(video_file: str, iterations: int = 100):
             if "small" not in result or "medium" not in result or "large" not in result:
                 print(f"Warning: Incomplete thumbnail set at iteration {i + 1}")
 
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             print(f"Error at iteration {i + 1}: {e}")
             continue
 
@@ -115,12 +115,7 @@ def test_memory_leak(video_file: str, iterations: int = 100):
             growth = current - start_memory
             avg_growth = growth / (i + 1)
 
-            print(
-                f"After {i + 1:4d} videos: "
-                f"{current:6.1f} MB "
-                f"(growth: {growth:5.1f} MB, "
-                f"avg: {avg_growth * 1000:.2f} KB/video)"
-            )
+            print(f"After {i + 1:4d} videos: " f"{current:6.1f} MB " f"(growth: {growth:5.1f} MB, " f"avg: {avg_growth * 1000:.2f} KB/video)")
 
     # Final measurements
     end_memory = measure_memory_mb()
@@ -164,20 +159,20 @@ def test_memory_leak(video_file: str, iterations: int = 100):
 
 if __name__ == "__main__":
     # Parse command line arguments
-    video_file = "test.mp4"
-    iterations = 100
+    main_video_file = "test.mp4"
+    main_iterations = 100
 
     if len(sys.argv) > 1:
-        video_file = sys.argv[1]
+        main_video_file = sys.argv[1]
 
     if len(sys.argv) > 2:
         try:
-            iterations = int(sys.argv[2])
-            if iterations < 1:
+            main_iterations = int(sys.argv[2])
+            if main_iterations < 1:
                 print("Error: Iterations must be at least 1")
                 sys.exit(1)
         except ValueError:
             print(f"Error: Invalid iterations value: {sys.argv[2]}")
             sys.exit(1)
 
-    test_memory_leak(video_file, iterations)
+    test_memory_leak(main_video_file, main_iterations)
