@@ -96,8 +96,9 @@ def _process_directory_verification_chunk(
             update_fields=["invalidated", "lastscan"],
             unique_fields=["directory"],
         )
+        prev_cache_added = cache_added_count
         cache_added_count += len(needs_cache_entry)
-        if cache_added_count % 100 < len(needs_cache_entry):
+        if cache_added_count // 500 > prev_cache_added // 500:
             print(f"Added {cache_added_count} directories to fs_Cache_Tracking so far")
 
     return deleted_count, cache_added_count
@@ -121,8 +122,6 @@ def verify_directories(start_path: str | None = None, max_count: int = 0):
     print("Checking for invalid directories in Database (eg. Deleted, Moved, etc).")
     print("=" * 60)
     start_time = time.time()
-    start_count = DirectoryIndex.objects.count()
-    print(f"Starting Directory Count: {start_count}")
     albums_root = normalize_fqpn(os.path.join(settings.ALBUMS_PATH, "albums"))
 
     # Invalidate directories with link files missing virtual_directory
@@ -131,11 +130,15 @@ def verify_directories(start_path: str | None = None, max_count: int = 0):
     invalidate_directories_with_null_virtual_directory(start_path=start_path, verbose=True)
     print("-" * 30)
 
-    # Invalidate empty directories before verification begins
-    print("-" * 30)
-    print("Invalidating empty directories (before verification)...")
-    invalidate_empty_directories(start_path=start_path, verbose=True)
-    print("-" * 30)
+    # NOTE: The pre-verification invalidate_empty_directories call below appears
+    # redundant — at this point no deletions have occurred yet, so any empty
+    # directories here will still be empty at the post-verification call (line ~216).
+    # Commented out pending verification that removing it causes no unexpected side
+    # effects. The post-verification call at the end of this function is sufficient.
+    # print("-" * 30)
+    # print("Invalidating empty directories (before verification)...")
+    # invalidate_empty_directories(start_path=start_path, verbose=True)
+    # print("-" * 30)
 
     # Build base queryset
     if start_path:
@@ -146,9 +149,12 @@ def verify_directories(start_path: str | None = None, max_count: int = 0):
         print("Gathering all directories")
         base_qs = DirectoryIndex.objects.order_by("fqpndirectory")
 
-    # Fetch only primary keys (lightweight)
+    # Fetch only primary keys (lightweight) — len() gives the starting count for free,
+    # avoiding a separate COUNT(*) query.
     all_pks = list(base_qs.values_list("pk", flat=True))
     total_dirs = len(all_pks)
+    start_count = total_dirs
+    print(f"Starting Directory Count: {start_count}")
     print(f"Found {total_dirs} directories to verify (chunked mode)...")
 
     # Apply max_count limit if specified
@@ -188,14 +194,18 @@ def verify_directories(start_path: str | None = None, max_count: int = 0):
     # Check for unlinked parents
     print("-" * 30)
     print("Checking for unlinked parents")
-    unlinked_parents = DirectoryIndex.objects.filter(parent_directory__isnull=True).exclude(fqpndirectory=albums_root)
-    unlinked_count = unlinked_parents.count()
+    # Fetch paths directly — len() gives the count for free, avoiding a separate COUNT(*).
+    # CRITICAL: Order by fqpndirectory to process parents before children.
+    unlinked_paths = list(
+        DirectoryIndex.objects.filter(parent_directory__isnull=True)
+        .exclude(fqpndirectory=albums_root)
+        .order_by("fqpndirectory")
+        .values_list("fqpndirectory", flat=True)
+    )
+    unlinked_count = len(unlinked_paths)
     print(f"Found {unlinked_count} directories with no parents")
 
     if unlinked_count > 0:
-        # Fetch paths only — add_directory() only needs the fqpndirectory string.
-        # CRITICAL: Order by fqpndirectory to process parents before children.
-        unlinked_paths = list(unlinked_parents.order_by("fqpndirectory").values_list("fqpndirectory", flat=True))
         fixed_count = 0
 
         for i in range(0, len(unlinked_paths), BULK_UPDATE_BATCH_SIZE):
@@ -253,8 +263,8 @@ def _process_verify_files_chunk(
         update_database_from_disk(directory)
         processed_count += 1
 
-        # Progress indicator every 100 directories
-        if processed_count % 100 == 0:
+        # Progress indicator every 500 directories
+        if processed_count % 500 == 0:
             elapsed = time.time() - start_time
             rate = processed_count / elapsed if elapsed > 0 else 0
             print(f"\tProcessed {processed_count} directories ({rate:.1f} dirs/sec)...")
@@ -430,8 +440,12 @@ def verify_thumbnails(max_count: int = 0):
             batch_counter += 1
 
             try:
+                # Single query: fetch a linked FileIndex record (used for both the orphan
+                # check and the filename display if the thumbnail is corrupted).
+                fi = FileIndex.objects.filter(file_sha256=thumbnail.sha256_hash).only("name").first()
+
                 # Check for orphaned thumbnail (no linked FileIndex records)
-                if not FileIndex.objects.filter(file_sha256=thumbnail.sha256_hash).exists():
+                if fi is None:
                     orphaned_count += 1
                     thumbnail.delete()
                     continue
@@ -453,7 +467,6 @@ def verify_thumbnails(max_count: int = 0):
 
                 if is_all_white:
                     corrupted_count += 1
-                    fi = FileIndex.objects.filter(file_sha256=thumbnail.sha256_hash).first()
                     fi_name = fi.name if fi else "unknown"
                     print(f"  Found potential issue: SHA256={thumbnail.sha256_hash[:16]}... file={fi_name}")
 

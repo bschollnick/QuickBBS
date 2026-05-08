@@ -1008,12 +1008,13 @@ class FileIndex(models.Model):
             # Ranged request for video streaming
             try:
                 # SECURITY: Sanitize filename to prevent header injection
+                from frontend.serve_up import open_sized_file
                 from ranged_fileresponse import RangedFileResponse
 
                 safe_filename = sanitize_filename_for_http(self.name)
                 response = RangedFileResponse(
                     request,
-                    file=open(self.full_filepathname, "rb"),  # pylint: disable=consider-using-with
+                    file=open_sized_file(self.full_filepathname),
                     as_attachment=False,
                     filename=safe_filename,
                 )
@@ -1064,44 +1065,34 @@ class FileIndex(models.Model):
                     filename=safe_filename,
                 )
             else:
-                # Ranged request for video streaming - requires seekable sync file handle
-                # RangedFileResponse needs seek() which aiofiles doesn't support
-                #
-                # IMPORTANT: RangedFileResponse takes ownership of the file handle and closes it
-                # when the response completes. Do NOT use context manager (with open()) as it
-                # would close the handle prematurely before streaming completes.
-                #
-                # Handle lifecycle:
-                # - Normal operation: RangedFileResponse closes handle when streaming completes
-                # - Errors: Exception handlers below close handle (FileNotFoundError, CancelledError)
-                # - Concurrent streams: 50+ simultaneous open handles is safe (system limit ~1024)
-                def _open_file():
-                    return open(self.full_filepathname, "rb")
+                # Ranged video streaming — use fully async generator response.
+                # RangedFileResponse wraps a sync iterator; under ASGI Django
+                # materialises the whole iterator via sync_to_async(list) before
+                # yielding, loading the entire file into memory.
+                # build_async_ranged_response uses aiofiles to yield 64 KB chunks
+                # asynchronously, so memory usage stays flat regardless of file size.
+                from frontend.serve_up import build_async_ranged_response
 
-                from ranged_fileresponse import RangedFileResponse
-
-                file_handle = await sync_to_async(_open_file)()
-                response = RangedFileResponse(
-                    request,
-                    file=file_handle,
-                    as_attachment=False,
+                file_size = await sync_to_async(os.path.getsize)(self.full_filepathname)
+                return build_async_ranged_response(
+                    request=request,
+                    path=self.full_filepathname,
+                    file_size=file_size,
+                    content_type=mtype,
                     filename=safe_filename,
+                    expiration=settings.HTTP_CACHE_MAX_AGE,
                 )
-                response["Content-Type"] = mtype
 
             response["Cache-Control"] = f"public, max-age={settings.HTTP_CACHE_MAX_AGE}"
             return response
 
         except FileNotFoundError as exc:
-            # Clean up file handle if opened
             if file_handle is not None:
                 file_handle.close()
             raise Http404 from exc
         except asyncio.CancelledError:
-            # Client disconnected - clean up file handle if opened
             if file_handle is not None:
                 file_handle.close()
-            # Re-raise to let Django handle the cancellation
             raise
 
     def check_for_updates(

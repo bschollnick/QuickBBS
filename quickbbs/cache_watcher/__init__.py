@@ -10,7 +10,7 @@ logger = logging.getLogger()
 #
 #   Bootstrap by loading the configuration path data
 #
-__version__ = "3.95"
+__version__ = "3.99"
 
 __author__ = "Benjamin Schollnick"
 __email__ = "Benjamin@schollnick.net"
