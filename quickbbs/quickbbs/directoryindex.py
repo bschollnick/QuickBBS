@@ -1210,7 +1210,7 @@ def update_database_from_disk(directory_record: "DirectoryIndex") -> "DirectoryI
     )
 
     dirpath = directory_record.fqpndirectory
-    print("Starting ...  Syncing database with disk for directory:", dirpath)
+    logger.debug("Starting sync of directory: %s", dirpath)
     start_time = time.perf_counter()
     # Use simplified batch sizing
     bulk_size = settings.BATCH_SIZES.get("db_write", 100)
@@ -1218,7 +1218,7 @@ def update_database_from_disk(directory_record: "DirectoryIndex") -> "DirectoryI
     # Fast path: if the directory was already valid when loaded by _find_directory,
     # skip the extra DB round-trip. The object is fresh enough for this request.
     if directory_record.is_cached:
-        print(f"Directory {dirpath} is already cached, skipping sync.")
+        logger.debug("Directory %s is already cached, skipping sync.", dirpath)
         return None
 
     # Reload from DB before doing work: the watchdog may have invalidated the
@@ -1235,15 +1235,15 @@ def update_database_from_disk(directory_record: "DirectoryIndex") -> "DirectoryI
 
     # Re-check after reload in case the watchdog re-validated it concurrently.
     if directory_record.is_cached:
-        print(f"Directory {dirpath} was re-cached during reload, skipping sync.")
+        logger.debug("Directory %s was re-cached during reload, skipping sync.", dirpath)
         return None
 
-    print(f"Rescanning directory: {dirpath}")
+    logger.debug("Rescanning directory: %s", dirpath)
 
     # Get filesystem entries using the directory path from the record
     success, fs_entries = return_disk_listing_sync(dirpath)
     if not success:
-        print("File path doesn't exist, removing from cache and database.")
+        logger.warning("File path doesn't exist, removing from cache and database: %s", dirpath)
         directory_record.handle_missing()
         return None
 
@@ -1254,7 +1254,7 @@ def update_database_from_disk(directory_record: "DirectoryIndex") -> "DirectoryI
     # Cache the result using the directory record
     Cache_Storage.add_from_indexdirs(directory_record)
     logger.info("Cached directory: %s", dirpath)
-    print("Elapsed Time (Sync Database Disk): ", time.perf_counter() - start_time)
+    logger.debug("Elapsed time (sync database from disk): %.4fs", time.perf_counter() - start_time)
 
     # Close connections that have exceeded CONN_MAX_AGE (may have gone stale during sync)
     close_old_connections()

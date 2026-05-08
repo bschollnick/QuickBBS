@@ -54,6 +54,8 @@ class ProcessingStats:
     files_skipped_existing: int = 0
     files_skipped_no_color: int = 0
     errors_encountered: int = 0
+    mirror_files_removed: int = 0
+    mirror_dirs_removed: int = 0
     start_time: float | None = None
     end_time: float | None = None
     max_count_reached: bool = False
@@ -98,6 +100,9 @@ class ProcessingStats:
         print(f"Skipped (no color): {self.files_skipped_no_color:,}")
         print(f"Skipped (existing): {self.files_skipped_existing:,}")
         print(f"Errors: {self.errors_encountered:,}")
+        if self.mirror_files_removed or self.mirror_dirs_removed:
+            print(f"Mirror removed files: {self.mirror_files_removed:,}")
+            print(f"Mirror removed dirs: {self.mirror_dirs_removed:,}")
 
         if duration > 0 and self.total_files_scanned > 0:
             scan_rate = self.total_files_scanned / duration
@@ -291,6 +296,101 @@ def directory_generator(
         yield (src_dir, str(dst_dir), files)
 
 
+def build_expected_target_paths(root_src_dir: Path, root_target_dir: Path) -> set[Path]:
+    """Build the set of all paths that should exist in the target after a mirror copy.
+
+    Walks the source tree and computes the normalized target path for every source
+    file and directory using the same normalization as directory_generator(). Also
+    adds all ancestor directories so intermediate dirs are not flagged as orphans.
+
+    :Args:
+        root_src_dir: Resolved source root Path
+        root_target_dir: Resolved destination root Path
+
+    :return: Set of Path objects for every file, dir, and ancestor dir expected in target
+    """
+    expected: set[Path] = set()
+
+    for src_dir, subdirs, files in os.walk(root_src_dir):
+        src_path = Path(src_dir)
+        rel = src_path.relative_to(root_src_dir)
+
+        # Normalize only the relative portion — apply title-case/underscore to rel parts only,
+        # keeping root_target_dir untouched so system path components aren't mangled.
+        normalized_rel_parts = [
+            p
+            for p in (part.strip().replace(" ", "_").title() for part in rel.parts)
+            if p
+        ]
+        dst_dir = root_target_dir.joinpath(*normalized_rel_parts) if normalized_rel_parts else root_target_dir
+
+        # Add this dir and all its ancestors up to (not including) root_target_dir
+        ancestor = dst_dir
+        while ancestor != root_target_dir:
+            expected.add(ancestor)
+            ancestor = ancestor.parent
+            if ancestor == ancestor.parent:
+                break  # safety: stop at filesystem root
+
+        # Add expected target path for each file
+        for file_ in files:
+            normalized_filename = file_.strip()
+            dst_filename = normalized_filename.translate(FILENAME_TRANS)
+            expected.add(dst_dir / dst_filename)
+
+    return expected
+
+
+def mirror_cleanup(
+    root_src_dir: Path,
+    root_target_dir: Path,
+    stats: ProcessingStats,
+) -> None:
+    """Remove files and directories in the target that have no counterpart in the source.
+
+    Walks the target tree bottom-up so files are removed before their parent
+    directories are evaluated. Uses os.rmdir() for directories so only truly
+    empty (and orphaned) dirs are removed.
+
+    :Args:
+        root_src_dir: Resolved source root Path
+        root_target_dir: Resolved destination root Path
+        stats: Statistics tracker updated in place
+    """
+    if not root_target_dir.exists():
+        return
+
+    print(f"{Fore.YELLOW}Mirror cleanup: checking target for orphaned files...{Style.RESET_ALL}")
+    expected = build_expected_target_paths(root_src_dir, root_target_dir)
+
+    for target_dir, subdirs, files in os.walk(root_target_dir, topdown=False):
+        target_dir_path = Path(target_dir).resolve()
+
+        # Remove orphaned files
+        for file_ in files:
+            file_path = (target_dir_path / file_).resolve()
+            if file_path not in expected:
+                try:
+                    os.remove(file_path)
+                    print(f"  {Fore.RED}Removed file:{Style.RESET_ALL} {file_path}")
+                    stats.mirror_files_removed += 1
+                except OSError as e:
+                    print(f"  Error removing {file_path}: {e}")
+                    stats.errors_encountered += 1
+
+        # Remove orphaned directories (only if empty after file removals)
+        if target_dir_path == root_target_dir:
+            continue
+        if target_dir_path not in expected:
+            try:
+                os.rmdir(target_dir_path)
+                print(f"  {Fore.RED}Removed dir: {Style.RESET_ALL} {target_dir_path}")
+                stats.mirror_dirs_removed += 1
+            except OSError:
+                # Dir is not empty or not accessible — leave it
+                pass
+
+
 def main(args: argparse.Namespace) -> None:
     """Run the file mover/copier for files with macOS Finder color labels.
 
@@ -305,6 +405,8 @@ def main(args: argparse.Namespace) -> None:
     print(f"Operation: {args.operation}")
     if args.max_count:
         print(f"Maximum files to process: {args.max_count}")
+    if args.mirror:
+        print("Mirror mode: orphaned target files will be removed")
 
     if not root_src_dir.exists():
         print(f"Error: Source directory '{root_src_dir}' does not exist.")
@@ -336,6 +438,10 @@ def main(args: argparse.Namespace) -> None:
 
     # Print newline after progress indicator
     print()
+
+    if args.mirror:
+        mirror_cleanup(root_src_dir, root_target_dir, stats)
+
     stats.stop_timing()
     stats.print_summary()
 
@@ -357,6 +463,12 @@ if __name__ == "__main__":
         type=int,
         default=None,
         help="Maximum number of files to copy/move (stops after this limit)",
+    )
+    parser.add_argument(
+        "--mirror",
+        action="store_true",
+        default=False,
+        help="Mirror mode: remove files/dirs in target that do not exist in source",
     )
 
     print("QuickBBS File Mover v3.1 - Optimized Edition")

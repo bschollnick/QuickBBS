@@ -581,8 +581,11 @@ LOGGING = {
         },
         "cache_file": {
             "level": "DEBUG",
-            "class": "logging.FileHandler",
+            "class": "quickbbs.settings.SafeTimedRotatingFileHandler",
             "filename": os.path.join(BASE_DIR, "logs", "cache_logging.log"),
+            "when": "midnight",
+            "interval": 1,
+            "backupCount": 3,
             "formatter": "verbose",
             "encoding": "utf-8",
         },
@@ -599,6 +602,11 @@ LOGGING = {
         },
         "django.request": {
             "handlers": ["rotating_file", "console"],  # Both handlers
+            "level": "WARNING",
+            "propagate": False,
+        },
+        "django.security": {
+            "handlers": ["rotating_file", "console"],
             "level": "WARNING",
             "propagate": False,
         },

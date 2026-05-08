@@ -63,7 +63,7 @@ def _process_directory_chunk(
 
             processed_count += 1
 
-            if processed_count % 100 == 0:
+            if processed_count % 500 == 0:
                 elapsed_time = time.time() - start_time
                 dir_rate = processed_count / elapsed_time if elapsed_time > 0 else 0
                 print(f"Processed {processed_count} directories ({dir_rate:.1f} dirs/sec)...")
@@ -104,10 +104,13 @@ def add_files(max_count: int = 0, start_path: str | None = None) -> None:
     invalidate_directories_with_null_sha256(start_path=start_path, verbose=True)
     invalidate_directories_with_null_virtual_directory(start_path=start_path, verbose=True)
 
-    print("-" * 30)
-    print("Invalidating empty directories (before adding files)...")
-    invalidate_empty_directories(start_path=start_path, verbose=True)
-    print("-" * 30)
+    # NOTE: Pre-scan invalidation appears redundant — no directory modifications have
+    # occurred at this point, so empty directories found here will still be caught by
+    # the post-scan call below. Commented out pending confirmation of no side effects.
+    # print("-" * 30)
+    # print("Invalidating empty directories (before adding files)...")
+    # invalidate_empty_directories(start_path=start_path, verbose=True)
+    # print("-" * 30)
 
     if start_path:
         albums_root = normalize_fqpn(start_path)
