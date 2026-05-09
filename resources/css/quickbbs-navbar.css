@@ -1,45 +1,34 @@
-/* Navbar Styles - All navbar styling consolidated here */
+/* Navbar Styles */
 
-/* Force horizontal layout - no hamburger menu */
 .navbar {
     min-height: 3.25rem;
-}
-
-.navbar-menu {
-    display: flex !important;
-    opacity: 1 !important;
-    visibility: visible !important;
-}
-
-.navbar-burger {
-    display: none !important;
 }
 
 .navbar-brand {
     flex-shrink: 0;
 }
 
-.navbar-start,
-.navbar-end {
-    display: flex !important;
-    align-items: center;
-    opacity: 1 !important;
-    visibility: visible !important;
+/* User menu - prevent text wrapping */
+.navbar-link,
+.navbar-link .icon-text {
+    white-space: nowrap;
 }
 
-.navbar-start {
-    margin-right: 1rem;
+/* User dropdown — click-toggled, works on touch devices */
+.navbar-dropdown {
+    min-width: 250px;
+    display: none;
 }
 
-.navbar-end {
-    margin-left: 1rem;
-    display: flex;
-    gap: 0.5rem;
+.has-dropdown.is-active .navbar-dropdown {
+    display: block;
 }
 
-.navbar-item,
-.navbar-link {
-    display: flex !important;
+/* Desktop: also allow hover as a fallback */
+@media screen and (min-width: 1024px) {
+    .has-dropdown:hover .navbar-dropdown {
+        display: block;
+    }
 }
 
 /* Logout button in dropdown */
@@ -57,31 +46,142 @@
 }
 
 /* Search input sizing */
-.navbar-item .control .input {
+.navbar-center .control .input {
     width: 300px;
     font-size: 1rem;
 }
 
-/* User menu - prevent text wrapping */
-.navbar-link {
-    white-space: nowrap;
+/* -------------------------------------------------------
+   Desktop layout (≥1024px)
+   navbar-menu is a flex row: [start flex:1] [center flex:2] [end flex:1]
+   start is empty so center is visually centered, end is right-aligned.
+------------------------------------------------------- */
+@media screen and (min-width: 1024px) {
+    .navbar-burger {
+        display: none !important;
+    }
+
+    .navbar-menu {
+        display: flex !important;
+        flex-wrap: nowrap;
+        align-items: center;
+        flex-grow: 1;
+        opacity: 1 !important;
+        visibility: visible !important;
+    }
+
+    .navbar-start {
+        display: flex !important;
+        flex: 1;
+        align-items: center;
+        opacity: 1 !important;
+        visibility: visible !important;
+    }
+
+    .navbar-center {
+        flex: 2;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+
+    .navbar-end {
+        display: flex !important;
+        flex: 1;
+        justify-content: flex-end;
+        align-items: center;
+        opacity: 1 !important;
+        visibility: visible !important;
+        padding-right: 1rem;
+    }
+
+    .navbar-item,
+    .navbar-link {
+        display: flex !important;
+    }
 }
 
-.navbar-link .icon-text {
-    white-space: nowrap;
-}
-
-/* Responsive - compact layout for smaller screens */
+/* -------------------------------------------------------
+   Mobile/tablet layout (≤1023px)
+   Force entire navbar into a single row:
+   [brand] [search flex:1] [user menu]
+------------------------------------------------------- */
 @media screen and (max-width: 1023px) {
+    .navbar-burger {
+        display: none !important;
+    }
+
+    /* Make the whole navbar a single flex row */
+    .navbar {
+        display: flex !important;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        align-items: center;
+        padding: 0 0.5rem;
+    }
+
+    .navbar-brand {
+        flex-shrink: 0;
+        padding: 0;
+        min-height: unset;
+    }
+
+    /* navbar-menu fills the remaining space as a flex row */
+    .navbar-menu {
+        display: flex !important;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        align-items: center;
+        flex: 1;
+        min-width: 0;
+        opacity: 1 !important;
+        visibility: visible !important;
+        padding: 0;
+        gap: 0.5rem;
+        /* Override Bulma's box-shadow on open menu */
+        box-shadow: none !important;
+    }
+
+    .navbar-start {
+        display: flex !important;
+        flex-shrink: 0;
+        align-items: center;
+    }
+
+    .navbar-center {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        min-width: 0;
+    }
+
+    .navbar-center .field {
+        width: 100%;
+        margin-bottom: 0;
+    }
+
+    .navbar-center .control {
+        width: 100%;
+    }
+
+    .navbar-center .control .input {
+        width: 100%;
+        min-width: 0;
+        font-size: 0.875rem;
+    }
+
+    .navbar-end {
+        display: flex !important;
+        flex-shrink: 0;
+        align-items: center;
+        opacity: 1 !important;
+        visibility: visible !important;
+    }
+
     .navbar-item,
     .navbar-link {
         font-size: 0.875rem;
-        padding: 0.5rem 0.75rem;
-    }
-
-    .navbar-item .control .input {
-        width: 200px;
-        font-size: 0.875rem;
+        padding: 0.5rem 0.5rem;
     }
 
     .navbar-brand .navbar-item img {
