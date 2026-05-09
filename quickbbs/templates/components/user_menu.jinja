@@ -1,7 +1,7 @@
 <!-- User Menu Component -->
 {% if user.is_authenticated %}
-  <div class="navbar-item has-dropdown is-hoverable">
-    <a class="navbar-link">
+  <div class="navbar-item has-dropdown" id="user-menu-dropdown">
+    <a class="navbar-link" id="user-menu-trigger" role="button" aria-haspopup="true" aria-expanded="false">
       <span class="icon-text">
         <span class="icon">
           <i class="fas fa-user"></i>
@@ -77,3 +77,30 @@
     </div>
   </div>
 {% endif %}
+
+<script>
+(function() {
+  function initUserMenu() {
+    var dropdown = document.getElementById('user-menu-dropdown');
+    var trigger = document.getElementById('user-menu-trigger');
+    if (!dropdown || !trigger) return;
+
+    // Toggle on click/tap
+    trigger.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var open = dropdown.classList.toggle('is-active');
+      trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+
+    // Close when clicking outside
+    document.addEventListener('click', function() {
+      dropdown.classList.remove('is-active');
+      trigger.setAttribute('aria-expanded', 'false');
+    });
+  }
+
+  // Re-init after HTMX swaps (navbar is included in every partial)
+  document.addEventListener('DOMContentLoaded', initUserMenu);
+  document.addEventListener('htmx:afterSwap', initUserMenu);
+})();
+</script>

@@ -548,7 +548,7 @@ def _determine_template(request: WSGIRequest, template_type: str = "gallery") ->
     Returns:
         Template name string
     """
-    is_partial = request.htmx.boosted and request.htmx.current_url is not None and not request.GET.get("newwin", False)
+    is_partial = bool(request.htmx) and not request.GET.get("newwin", False)
 
     template_map = {
         "gallery": {
