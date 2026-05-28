@@ -8,6 +8,7 @@ from datetime import timedelta
 
 from dbtasks.models import ScheduledTask
 from django.conf import settings
+from django.db import connection
 from django.tasks import TaskResultStatus, task
 from django.utils import timezone
 
@@ -201,8 +202,7 @@ def generate_missing_thumbnails(
         elapsed = time.monotonic() - start_time
         rate = newly_processed / elapsed if elapsed > 0 else float("inf")
         logger.info(
-            "Successfully processed %d new thumbnails, bulk-updated %d records (%d already existed) "
-            "in %.2fs (%.1f thumbnails/sec)",
+            "Successfully processed %d new thumbnails, bulk-updated %d records (%d already existed) " "in %.2fs (%.1f thumbnails/sec)",
             newly_processed,
             len(thumbnails_to_update),
             len(existing_shas),
@@ -211,6 +211,85 @@ def generate_missing_thumbnails(
         )
 
     return results
+
+
+def get_vacuum_candidates(
+    scale_factor_threshold: float = 0.15,
+    min_live_rows: int = 1000,
+) -> list[dict]:
+    """Return PostgreSQL tables where dead tuple ratio exceeds a threshold.
+
+    Queries pg_stat_user_tables to find tables with significant bloat.
+    Ignores tables with fewer than min_live_rows to avoid false positives on
+    small tables where a handful of dead rows produces extreme ratios.
+    Returns an empty list on non-PostgreSQL backends.
+
+    Args:
+        scale_factor_threshold: Dead-to-live ratio that flags a table.
+            Defaults to 0.15 (15%), triggering before autovacuum's default 20%.
+        min_live_rows: Minimum live row count to consider. Tables below this
+            are skipped — small tables with low absolute dead counts but high
+            ratios are not a meaningful vacuum concern. Defaults to 1000.
+
+    Returns:
+        List of dicts with table_name, n_live_tup, n_dead_tup, dead_ratio,
+        last_autovacuum, and last_vacuum. Empty list on non-PostgreSQL backends.
+    """
+    if connection.vendor != "postgresql":
+        return []
+
+    sql = """
+        SELECT
+            relname AS table_name,
+            n_live_tup,
+            n_dead_tup,
+            ROUND(n_dead_tup::float8 / NULLIF(n_live_tup, 0), 4) AS dead_ratio,
+            last_autovacuum::text,
+            last_vacuum::text
+        FROM pg_stat_user_tables
+        WHERE n_live_tup >= %s
+          AND n_dead_tup::float / NULLIF(n_live_tup, 0) > %s
+        ORDER BY dead_ratio DESC;
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(sql, [min_live_rows, scale_factor_threshold])
+        columns = [col[0] for col in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+
+@task()
+def weekly_vacuum_check() -> list[dict]:
+    """Log tables with high dead tuple ratios as a vacuum health check.
+
+    Calls get_vacuum_candidates() and logs a warning for each table that
+    exceeds the 15% dead-tuple threshold. Safe on non-PostgreSQL backends.
+
+    Registered as a periodic task via TASKS settings (runs weekly on Sundays).
+
+    Returns:
+        List of candidate dicts returned by get_vacuum_candidates().
+    """
+    candidates = get_vacuum_candidates()
+    if not candidates:
+        logger.info("Weekly vacuum check: all tables are healthy")
+        return []
+
+    for table in candidates:
+        logger.warning(
+            "Vacuum candidate: %s — %d dead / %d live rows (%.1f%%), " "last autovacuum: %s, last manual vacuum: %s",
+            table["table_name"],
+            table["n_dead_tup"],
+            table["n_live_tup"],
+            float(table["dead_ratio"]) * 100,
+            table["last_autovacuum"] or "never",
+            table["last_vacuum"] or "never",
+        )
+
+    logger.warning(
+        "Weekly vacuum check: %d table(s) exceed 15%% dead tuple threshold",
+        len(candidates),
+    )
+    return candidates
 
 
 @task()

@@ -393,6 +393,61 @@ Version 3.95 focuses on comprehensive template system optimization using Jinja2 
 
 ---
 
+## Version 3.99 (March 21, 2026)
+**Technology**: Django 6.0, HTMX, Background Tasks, Passkey Authentication
+
+Version 3.99 is a major pre-release milestone on the march to v4, introducing passkey authentication, background task infrastructure via django-dbtasks, significant performance optimizations, and improved settings architecture.
+
+### Major Enhancements:
+
+**Authentication:**
+- **Passkey Support**: Added WebAuthn/passkey authentication support for passwordless login
+- **Login Amnesia Fix**: Resolved issue where login sessions were not persisting correctly
+
+**Background Task Infrastructure:**
+- **django-dbtasks Migration**: Replaced `steady_queue` with `django-dbtasks` for background task management, enabling thumbnail generation to run separately from the web server process
+- **Task Worker**: Added dedicated task runner (`python manage.py taskrunner`) for background processing
+- **Daily Cleanup**: Added scheduled daily cleanup of stale background task jobs
+- **Updated Documentation**: Expanded user documentation for django-dbtasks task management
+
+**Performance & Optimization:**
+- **HTMX & Web Optimizations**: Multiple HTMX improvements including better fragment caching control for the search gallery view
+- **Y-Axis Crop Fix**: Fixed Y-axis cropping behavior in the item view for correct image display
+
+**Settings & Configuration:**
+- **Settings Consolidation**: Reorganized constants into `quickbbs_settings.py` for centralized project configuration
+- **User-Customizable Cache Settings**: Moved cache settings to `quickbbs_settings.py` to allow end-user customization without modifying core files
+
+**macOS Thumbnail Engine:**
+- **macOS GPU Optimizations Disabled**: macOS Core Image optimizations remain disabled due to unresolved memory leaks during thumbnail generation; stability takes priority over performance
+- **Awaiting Pillow 12.2**: Monitoring Pillow 12.2 release for new functionality expected to bridge the performance gap between PIL and macOS Core Image thumbnail generation
+
+**Code Quality & Cleanup:**
+- **Exception Handling**: Improved exception specificity in thumbnail generation — eliminated broad bare `except` clauses
+- **Template & API Cleanup**: Updated Ninja/HTMX/HTML templates; deprecated `web.py` and removed `quickbbs_optimized` from incorrect directory
+- **Function Renaming**: Renamed `sync_database_disk` → `update_database_from_disk` for clarity (sync vs async semantics)
+- **Here Be Dragons Warning**: Added explicit warning section in documentation for high-risk areas of the codebase
+
+**Bug Fixes:**
+- **New Folder Discovery**: Fixed edge case where completely new directories were not always being added during web-based discovery
+- **Duplicate Caching**: Fixed `show duplicates` caching issue in the item view
+- **Search View Caching**: Fixed search view being inadvertently cached due to HTMX settings
+
+---
+
+## Version 4.0 (April 28, 2026)
+
+### Utility Enhancements:
+
+**file_mover_colors3 Mirror Mode:**
+- **`--mirror` flag**: New command-line option that, after the normal forward copy, removes any files or directories in the target that have no corresponding entry in the source
+- Mirror mode is **off by default** — normal copy/move behavior is unchanged unless `--mirror` is explicitly passed
+- Orphaned files are deleted; orphaned directories are removed only if empty (uses `os.rmdir()` for safety)
+- Summary output includes counts of mirror-removed files and directories when non-zero
+- Normalization consistency: mirror cleanup uses the same path normalization (whitespace strip, spaces→underscores, title case) as the forward copy, so target paths are correctly matched back to their source counterparts
+
+---
+
 ## Performance Evolution Summary:
 
 | Version | Release Date        | Storage                    | Thumbnails     | Monitoring             |
@@ -407,4 +462,5 @@ Version 3.95 focuses on comprehensive template system optimization using Jinja2 
 | v3.85   | November 3, 2025    | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI |
 | v3.90   | November 15, 2025   | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI |
 | v3.95   | December 2025       | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI + Macro Templates |
+| v3.99   | March 21, 2026      | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI + django-dbtasks  |
 

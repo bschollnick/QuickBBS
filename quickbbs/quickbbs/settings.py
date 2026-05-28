@@ -483,6 +483,7 @@ TASKS = {
             "retain": timedelta(days=TASK_RETAIN_DAYS),
             "periodic": {
                 "quickbbs.tasks.daily_cleanup_finished_jobs": Periodic("0 0 * * *"),
+                "quickbbs.tasks.weekly_vacuum_check": Periodic("0 6 * * 0"),
             },
         },
     },
