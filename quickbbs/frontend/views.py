@@ -475,27 +475,34 @@ async def search_viewresults(request: WSGIRequest):
     current_page = max(1, min(current_page, total_pages))
 
     # Hydrate full objects for this page only — same pattern as new_viewgallery()
-    dirs_to_display = await sync_to_async(list)(
-        DirectoryIndex.objects.filter(dir_fqpn_sha256__in=dir_shas, delete_pending=False)
-        .prefetch_related(*SEARCH_PR_FILETYPE)
-        .annotate(
-            file_count=Count(
-                "FileIndex_entries",
-                filter=Q(FileIndex_entries__delete_pending=False),
-                distinct=True,
-            ),
-            directory_count=Count(
-                "parent_dir",
-                filter=Q(parent_dir__delete_pending=False),
-                distinct=True,
-            ),
+    dirs_to_display = (
+        await sync_to_async(list)(
+            DirectoryIndex.objects.filter(dir_fqpn_sha256__in=dir_shas, delete_pending=False)
+            .prefetch_related(*SEARCH_PR_FILETYPE)
+            .annotate(
+                file_count=Count(
+                    "FileIndex_entries",
+                    filter=Q(FileIndex_entries__delete_pending=False),
+                    distinct=True,
+                ),
+                directory_count=Count(
+                    "parent_dir",
+                    filter=Q(parent_dir__delete_pending=False),
+                    distinct=True,
+                ),
+            )
         )
-    ) if dir_shas else []
+        if dir_shas
+        else []
+    )
 
-    files_to_display = await sync_to_async(list)(
-        FileIndex.objects.filter(unique_sha256__in=file_shas, delete_pending=False)
-        .prefetch_related(*SEARCH_PR_FILETYPE_HOME)
-    ) if file_shas else []
+    files_to_display = (
+        await sync_to_async(list)(
+            FileIndex.objects.filter(unique_sha256__in=file_shas, delete_pending=False).prefetch_related(*SEARCH_PR_FILETYPE_HOME)
+        )
+        if file_shas
+        else []
+    )
 
     # Update context with pagination data (consistent with gallery view)
     context.update(

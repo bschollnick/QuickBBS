@@ -202,11 +202,7 @@ def add_thumbnails(max_count: int = 0) -> None:
         small_thumb__in=[b"", None],
         FileIndex__delete_pending=False,
         FileIndex__filetype__is_link=False,
-    ).filter(
-        Q(FileIndex__filetype__is_image=True)
-        | Q(FileIndex__filetype__is_pdf=True)
-        | Q(FileIndex__filetype__is_movie=True)
-    )
+    ).filter(Q(FileIndex__filetype__is_image=True) | Q(FileIndex__filetype__is_pdf=True) | Q(FileIndex__filetype__is_movie=True))
 
     # Collect all candidate SHA256s, then use set logic to split into two groups:
     # - non_generic_shas: at least one linked FileIndex is not marked generic → attempt generation
@@ -217,16 +213,12 @@ def add_thumbnails(max_count: int = 0) -> None:
         print("All thumbnails are already generated")
         return
 
-    non_generic_shas = set(
-        FileIndex.objects.filter(file_sha256__in=all_shas, is_generic_icon=False)
-        .values_list("file_sha256", flat=True)
-        .distinct()
-    )
+    non_generic_shas = set(FileIndex.objects.filter(file_sha256__in=all_shas, is_generic_icon=False).values_list("file_sha256", flat=True).distinct())
     generic_shas = all_shas - non_generic_shas
 
     if max_count > 0:
         non_generic_shas = set(list(non_generic_shas)[:max_count])
-        generic_shas = set(list(generic_shas)[:max(0, max_count - len(non_generic_shas))])
+        generic_shas = set(list(generic_shas)[: max(0, max_count - len(non_generic_shas))])
         print(f"Limiting to {max_count} thumbnails...")
 
     print(f"  {len(non_generic_shas)} thumbnails to generate (non-generic)")

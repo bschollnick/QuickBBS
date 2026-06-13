@@ -71,9 +71,7 @@ class OrphanedThumbnail(Exception):
     def __init__(self, thumbnail: object, sha256: str) -> None:
         self.thumbnail = thumbnail
         self.sha256 = sha256
-        super().__init__(
-            f"Orphaned ThumbnailFiles {thumbnail.id}: No FileIndex records found for SHA256 {sha256}"  # type: ignore[union-attr]
-        )
+        super().__init__(f"Orphaned ThumbnailFiles {thumbnail.id}: No FileIndex records found for SHA256 {sha256}")  # type: ignore[union-attr]
 
 
 class OrphanedFileIndex(Exception):
@@ -93,9 +91,7 @@ class OrphanedFileIndex(Exception):
         self.thumbnail = thumbnail
         self.file_index_id = file_index_id
         self.sha256 = sha256
-        super().__init__(
-            f"FileIndex {file_index_id} (SHA256 {sha256}) has no home_directory"
-        )
+        super().__init__(f"FileIndex {file_index_id} (SHA256 {sha256}) has no home_directory")
 
 
 class UnsupportedFormatError(ValueError):
