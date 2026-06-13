@@ -153,7 +153,10 @@ class ThumbnailFiles(models.Model):
 
     @staticmethod
     def get_or_create_thumbnail_record(
-        file_sha256: str, suppress_save: bool, prefetch_related_thumbnail: list[str] | tuple[str, ...], select_related_fileindex: list[str] | tuple[str, ...]
+        file_sha256: str,
+        suppress_save: bool,
+        prefetch_related_thumbnail: list[str] | tuple[str, ...],
+        select_related_fileindex: list[str] | tuple[str, ...],
     ) -> "ThumbnailFiles":
         """
         Get or create a thumbnail record for a file.

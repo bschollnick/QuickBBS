@@ -167,7 +167,8 @@ CACHES = {
     },
 }
 
-CACHES.update({
+CACHES.update(
+    {
         "default": {
             "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
             "LOCATION": "quickbbs-default-cache",
@@ -186,7 +187,8 @@ CACHES.update({
                 "CULL_FREQUENCY": 3,
             },
         },
-    })
+    }
+)
 
 # Before using the database cache, you must create the cache table with this command:
 # python manage.py createcachetable django_session_cache
@@ -250,7 +252,7 @@ INSTALLED_APPS += [
     "user_preferences",
     "django_htmx",
     "dbtasks",
-    "dbtasks.contrib.serve"
+    "dbtasks.contrib.serve",
 ]
 
 SITE_ID = 1

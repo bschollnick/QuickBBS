@@ -19,6 +19,12 @@ PATH AND FILENAME NORMALIZATION:
 Example:
   Source: /albums/alice - tifa /subdir/ file.jpg
   Target: /target/Alice - Tifa/Subdir/file.jpg
+
+DIRECTORY EXCLUSIONS (--exclude):
+- Pass a comma-separated list of directory name fragments to skip entirely
+- Matching is case-insensitive; fragments are checked against each directory name component
+- Excluded source directories are never processed and never removed from the target
+- Example: --exclude Facebook,Reddit,Fapello,Cfakes
 """
 
 import argparse
@@ -42,6 +48,22 @@ ARCHIVE_EXTENSIONS = {".zip", ".rar", ".7z", ".lzh", ".gz"}
 
 # Filename sanitization translation table (faster than regex)
 FILENAME_TRANS = str.maketrans({"?": "", "/": "", ":": "", "#": "_", " ": "_"})
+
+
+def is_excluded_dir(dirname: str, exclude_fragments: list[str]) -> bool:
+    """Return True if dirname contains any excluded fragment (case-insensitive).
+
+    Args:
+        dirname: The directory name (single path component, not a full path) to test.
+        exclude_fragments: List of pre-lowercased fragment strings to match against.
+
+    Returns:
+        True if the directory should be excluded from processing.
+    """
+    if not exclude_fragments:
+        return False
+    lower = dirname.lower()
+    return any(frag in lower for frag in exclude_fragments)
 
 
 @dataclasses.dataclass(slots=True)
@@ -264,6 +286,7 @@ def process_folder(
 def directory_generator(
     root_src_dir: Path,
     root_target_dir: Path,
+    exclude_fragments: list[str] | None = None,
 ) -> Generator[tuple[str, str, list[str]], None, None]:
     """Generate (src_dir, dst_dir, files) tuples for all directories containing files.
 
@@ -274,54 +297,63 @@ def directory_generator(
     duplicates. Without this, "Gonig South" and "goning_south" would produce two
     different directories instead of mapping to the same "Goning_South".
 
-    :Args:
-        root_src_dir: Resolved source root Path
-        root_target_dir: Resolved destination root Path
+    Args:
+        root_src_dir: Resolved source root Path.
+        root_target_dir: Resolved destination root Path.
+        exclude_fragments: Pre-lowercased directory name fragments to skip entirely.
+            Any directory whose name contains a fragment (and all its descendants)
+            is excluded from processing.
 
-    :Yields:
-        Tuple of (src_dir, dst_dir, files) for each directory containing files
+    Yields:
+        Tuple of (src_dir, dst_dir, files) for each non-excluded directory with files.
     """
-    for src_dir, _, files in os.walk(root_src_dir):
+    frags = exclude_fragments or []
+    for src_dir, dirs, files in os.walk(root_src_dir, topdown=True):
+        if frags:
+            dirs[:] = [d for d in dirs if not is_excluded_dir(d, frags)]
         if not files:
             continue
         rel = Path(src_dir).relative_to(root_src_dir)
         dst_dir = (root_target_dir / rel).resolve()
         parts = dst_dir.parts
-        normalized_parts = [parts[0]] + [
-            p
-            for p in (part.strip().replace(" ", "_").title() for part in parts[1:])
-            if p
-        ]
+        normalized_parts = [parts[0]] + [p for p in (part.strip().replace(" ", "_").title() for part in parts[1:]) if p]
         dst_dir = Path(*normalized_parts) if len(normalized_parts) > 1 else Path(normalized_parts[0])
         yield (src_dir, str(dst_dir), files)
 
 
-def build_expected_target_paths(root_src_dir: Path, root_target_dir: Path) -> set[Path]:
+def build_expected_target_paths(
+    root_src_dir: Path,
+    root_target_dir: Path,
+    exclude_fragments: list[str] | None = None,
+) -> set[Path]:
     """Build the set of all paths that should exist in the target after a mirror copy.
 
     Walks the source tree and computes the normalized target path for every source
     file and directory using the same normalization as directory_generator(). Also
     adds all ancestor directories so intermediate dirs are not flagged as orphans.
+    Excluded source directories (and their descendants) are omitted entirely.
 
-    :Args:
-        root_src_dir: Resolved source root Path
-        root_target_dir: Resolved destination root Path
+    Args:
+        root_src_dir: Resolved source root Path.
+        root_target_dir: Resolved destination root Path.
+        exclude_fragments: Pre-lowercased directory name fragments to skip. Excluded
+            source directories produce no expected target entries.
 
-    :return: Set of Path objects for every file, dir, and ancestor dir expected in target
+    Returns:
+        Set of Path objects for every file, dir, and ancestor dir expected in target.
     """
+    frags = exclude_fragments or []
     expected: set[Path] = set()
 
-    for src_dir, subdirs, files in os.walk(root_src_dir):
+    for src_dir, subdirs, files in os.walk(root_src_dir, topdown=True):
+        if frags:
+            subdirs[:] = [d for d in subdirs if not is_excluded_dir(d, frags)]
         src_path = Path(src_dir)
         rel = src_path.relative_to(root_src_dir)
 
         # Normalize only the relative portion — apply title-case/underscore to rel parts only,
         # keeping root_target_dir untouched so system path components aren't mangled.
-        normalized_rel_parts = [
-            p
-            for p in (part.strip().replace(" ", "_").title() for part in rel.parts)
-            if p
-        ]
+        normalized_rel_parts = [p for p in (part.strip().replace(" ", "_").title() for part in rel.parts) if p]
         dst_dir = root_target_dir.joinpath(*normalized_rel_parts) if normalized_rel_parts else root_target_dir
 
         # Add this dir and all its ancestors up to (not including) root_target_dir
@@ -345,26 +377,37 @@ def mirror_cleanup(
     root_src_dir: Path,
     root_target_dir: Path,
     stats: ProcessingStats,
+    exclude_fragments: list[str] | None = None,
 ) -> None:
     """Remove files and directories in the target that have no counterpart in the source.
 
     Walks the target tree bottom-up so files are removed before their parent
     directories are evaluated. Uses os.rmdir() for directories so only truly
-    empty (and orphaned) dirs are removed.
+    empty (and orphaned) dirs are removed. Target directories whose path contains
+    an excluded fragment are skipped entirely and left untouched.
 
-    :Args:
-        root_src_dir: Resolved source root Path
-        root_target_dir: Resolved destination root Path
-        stats: Statistics tracker updated in place
+    Args:
+        root_src_dir: Resolved source root Path.
+        root_target_dir: Resolved destination root Path.
+        stats: Statistics tracker updated in place.
+        exclude_fragments: Pre-lowercased directory name fragments. Target dirs
+            matching any fragment (and all their contents) are preserved as-is.
     """
+    frags = exclude_fragments or []
     if not root_target_dir.exists():
         return
 
     print(f"{Fore.YELLOW}Mirror cleanup: checking target for orphaned files...{Style.RESET_ALL}")
-    expected = build_expected_target_paths(root_src_dir, root_target_dir)
+    expected = build_expected_target_paths(root_src_dir, root_target_dir, frags)
 
-    for target_dir, subdirs, files in os.walk(root_target_dir, topdown=False):
+    for target_dir, _, files in os.walk(root_target_dir, topdown=False):
         target_dir_path = Path(target_dir).resolve()
+
+        # Preserve excluded target subtrees — skip if any path component matches a fragment.
+        # topdown=False queues all dirs before yielding, so pruning dirs[:] has no effect;
+        # the per-dir check here covers all descendants because child paths share the fragment.
+        if frags and any(is_excluded_dir(part, frags) for part in target_dir_path.parts):
+            continue
 
         # Remove orphaned files
         for file_ in files:
@@ -394,11 +437,12 @@ def mirror_cleanup(
 def main(args: argparse.Namespace) -> None:
     """Run the file mover/copier for files with macOS Finder color labels.
 
-    :Args:
-        args: Parsed command line arguments
+    Args:
+        args: Parsed command line arguments.
     """
     root_src_dir = Path(args.source).resolve()
     root_target_dir = Path(args.target).resolve()
+    exclude_fragments = [f.strip().lower() for f in args.exclude.split(",") if f.strip()]
 
     print(f"Starting with: {root_src_dir}")
     print(f"Target path: {root_target_dir}")
@@ -407,6 +451,8 @@ def main(args: argparse.Namespace) -> None:
         print(f"Maximum files to process: {args.max_count}")
     if args.mirror:
         print("Mirror mode: orphaned target files will be removed")
+    if exclude_fragments:
+        print(f"Excluding directories containing: {', '.join(exclude_fragments)}")
 
     if not root_src_dir.exists():
         print(f"Error: Source directory '{root_src_dir}' does not exist.")
@@ -428,7 +474,7 @@ def main(args: argparse.Namespace) -> None:
     print("Processing directories...")
 
     # Process directories sequentially (no threading - simpler and prevents race conditions)
-    for src_dir, dst_dir, files in directory_generator(root_src_dir, root_target_dir):
+    for src_dir, dst_dir, files in directory_generator(root_src_dir, root_target_dir, exclude_fragments):
         try:
             if not process_folder(src_dir, dst_dir, files, config, stats):
                 break  # max_count reached
@@ -440,7 +486,7 @@ def main(args: argparse.Namespace) -> None:
     print()
 
     if args.mirror:
-        mirror_cleanup(root_src_dir, root_target_dir, stats)
+        mirror_cleanup(root_src_dir, root_target_dir, stats, exclude_fragments)
 
     stats.stop_timing()
     stats.print_summary()
@@ -469,6 +515,15 @@ if __name__ == "__main__":
         action="store_true",
         default=False,
         help="Mirror mode: remove files/dirs in target that do not exist in source",
+    )
+    parser.add_argument(
+        "--exclude",
+        default="",
+        metavar="FRAGMENTS",
+        help="Comma-separated directory name fragments to exclude (case-insensitive). "
+        "Any source directory whose name contains a fragment is skipped entirely, "
+        "and its target counterpart is preserved. "
+        "Example: --exclude Facebook,Reddit,Fapello,Cfakes",
     )
 
     print("QuickBBS File Mover v3.1 - Optimized Edition")

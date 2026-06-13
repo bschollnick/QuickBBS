@@ -72,9 +72,7 @@ def convert_to_webpath(full_path: str, directory: str | None = None) -> str:
     result = full_path.removeprefix(prefix)
 
     if result == full_path:
-        logger.warning(
-            "convert_to_webpath: prefix %r not found in path %r", prefix, full_path
-        )
+        logger.warning("convert_to_webpath: prefix %r not found in path %r", prefix, full_path)
         raise ValueError(f"Path {full_path!r} does not start with expected prefix {prefix!r}")
 
     return result
