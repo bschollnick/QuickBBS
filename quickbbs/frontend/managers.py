@@ -148,6 +148,11 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
         first_sha = all_shas[0] if all_shas else ""
         last_sha = all_shas[all_shas_count - 1] if all_shas else ""
 
+    # Subdirectory count needed to compute the correct gallery page for the "up" link.
+    # Gallery pages interleave dirs then files, so file at position N among files is at
+    # overall position (dirs_count + N - 1), which determines which gallery page it appears on.
+    dirs_count = directory_entry.get_dir_counts()
+
     # Single comprehensive dictionary creation
     context = {
         # Core data
@@ -185,7 +190,7 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
         "last_sha": last_sha,
         "next_sha": next_sha,
         "previous_sha": previous_sha,
-        "page_locale": (current_page - 1) // settings.GALLERY_ITEMS_PER_PAGE + 1,
+        "page_locale": (dirs_count + current_page - 1) // settings.GALLERY_ITEMS_PER_PAGE + 1,
         # DEPRECATED: dir_link is unused by templates. Remove after 2026-06-01.
         # "dir_link": f"{webpath}{entry.name}?sort={sort_order_value}",
     }
