@@ -87,6 +87,7 @@ SMALL_THUMBNAIL_SAFEGUARD_SIZE = 2500
 ALIAS_MAPPING = {
     r"/volumes/masters/masters/hyp-collective": r"/volumes/Support-8tb/gallery/quickbbs/albums/hentai_idea/hyp-collective",
     r"/volumes/masters/masters": r"/volumes/Support-8tb/gallery/quickbbs/albums/hentai_idea",
+    r"/volumes/f-16tb/masters/videos": r"/volumes/Support-8tb/gallery/quickbbs/albums/hentai_idea/test/videos",
 }
 
 
@@ -94,6 +95,11 @@ ALIAS_MAPPING = {
 # When enabled, caches use MonitoredLRUCache which tracks hits/misses/hit_rate
 # Check stats in Django shell: print(directoryindex_cache.stats())
 CACHE_MONITORING = True
+
+# Minimum seconds between cache-statistics snapshots (snapshot_cache_statistics
+# in tasks.py). Counters are cumulative in-memory, so throttling only delays how
+# fresh the cache_statistics_tracking rows are — no hits/misses are lost.
+SNAPSHOT_MIN_INTERVAL = 60
 
 # Maximum number of rows to retain in the cache_statistics_tracking table.
 # The snapshot task trims oldest rows (by last_snapshot_at) when this limit is exceeded.
@@ -106,6 +112,8 @@ CACHE_STATISTICS_MAX_RECORDS = 1000
 DIRECTORYINDEX_CACHE_SIZE = 750  # DirectoryIndex lookups by SHA256 (directoryindex.py)
 GET_VIEW_URL_CACHE_SIZE = 500  # DirectoryIndex.get_view_url() results (directoryindex.py)
 DISTINCT_FILES_CACHE_SIZE = 500  # Distinct file SHA lists per directory+sort (directoryindex.py)
+DIR_COUNTS_CACHE_SIZE = 750  # Subdirectory counts per directory (cache_registry.py / directoryindex.py)
+SIBLING_DIRS_CACHE_SIZE = 500  # Ordered sibling-directory lists per parent+sort (cache_registry.py / directoryindex.py)
 FILEINDEX_CACHE_SIZE = 250  # FileIndex lookups by SHA256 (fileindex.py)
 FILEINDEX_DOWNLOAD_CACHE_SIZE = 250  # FileIndex download lookups by SHA256 (fileindex.py)
 LAYOUT_MANAGER_CACHE_SIZE = 500  # Gallery page layout results (managers.py)
@@ -114,7 +122,6 @@ BREADCRUMBS_CACHE_SIZE = 400  # Breadcrumb navigation lists (utilities.py)
 NORMALIZED_STRINGS_CACHE_SIZE = 500  # Normalized string lookups (common.py)
 DIRECTORY_SHA_CACHE_SIZE = 1000  # Directory SHA256 hash computations (common.py)
 NORMALIZED_PATHS_CACHE_SIZE = 1000  # Normalized path lookups (common.py)
-THUMBNAILFILES_CACHE_SIZE = 1000  # ThumbnailFiles lookups by SHA256 (thumbnails/models.py)
 ENCODING_CACHE_SIZE = 1000  # Text file encoding detection results (fileindex.py)
 ALIAS_CACHE_SIZE = 250  # macOS alias resolution results (fileindex.py)
 

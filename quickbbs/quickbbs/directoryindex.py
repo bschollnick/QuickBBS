@@ -15,6 +15,7 @@ from urllib.parse import quote, unquote
 from cachetools import cached
 from cachetools.keys import hashkey
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import close_old_connections, models, transaction
 from django.db.models import Count, Q
@@ -45,11 +46,14 @@ directoryindex_cache = create_cache(settings.DIRECTORYINDEX_CACHE_SIZE, "directo
 # Kept separate from directoryindex_cache to avoid key-type confusion with SHA-based keys.
 get_view_url_cache = create_cache(settings.GET_VIEW_URL_CACHE_SIZE, "get_view_url", monitored=settings.CACHE_MONITORING)
 
-# distinct_files_cache lives in quickbbs.cache_registry (shared across apps).
-# Import here for use by @cached decorator on get_distinct_file_shas().
+# These caches live in quickbbs.cache_registry (shared across apps).
+# Imported here for use by @cached decorators on get_distinct_file_shas(),
+# get_dir_counts(), and get_ordered_sibling_dirs().
 # Must come after module-level cache creation above to avoid a cyclic import.
 from quickbbs.cache_registry import (  # noqa: E402  # pylint: disable=wrong-import-position
+    dir_counts_cache,
     distinct_files_cache,
+    sibling_dirs_cache,
 )
 
 if TYPE_CHECKING:
@@ -129,16 +133,22 @@ class DirectoryIndex(models.Model):
         default=None,
         related_name="parent_dir",
     )
-    lastscan = models.FloatField(db_index=True, default=None)  # Stored as Unix TimeStamp (ms)
-    lastmod = models.FloatField(db_index=True, default=None)  # Stored as Unix TimeStamp (ms)
-    name_sort = NaturalSortField(for_field="fqpndirectory", max_length=384, default="")
+    # lastscan/lastmod are never filtered standalone (sorts always follow a
+    # parent_directory filter), so they carry no index (pg_stat, 2026-07-04).
+    lastscan = models.FloatField(default=None)  # Stored as Unix TimeStamp (ms)
+    lastmod = models.FloatField(default=None)  # Stored as Unix TimeStamp (ms)
+    # db_index=False: name_sort is only used in ORDER BY after a parent filter.
+    name_sort = NaturalSortField(for_field="fqpndirectory", max_length=384, default="", db_index=False)
     is_generic_icon = models.BooleanField(default=False)  # File is to be ignored
-    delete_pending = models.BooleanField(default=False, db_index=True)  # File is to be deleted,
+    # delete_pending predicates always pair with parent_directory or
+    # dir_fqpn_sha256 — covered by the Meta composite indexes.
+    delete_pending = models.BooleanField(default=False)  # File is to be deleted,
     filetype = models.ForeignKey(
         filetypes,
         to_field="fileext",
         on_delete=models.CASCADE,
-        db_index=True,
+        # db_index=False: every row is ".dir" — an index on a constant is never scanned.
+        db_index=False,
         default=".dir",
         related_name="dirs_filetype_data",
     )
@@ -172,19 +182,25 @@ class DirectoryIndex(models.Model):
         indexes = [
             models.Index(fields=["parent_directory", "delete_pending"]),
             models.Index(fields=["dir_fqpn_sha256", "delete_pending"]),
+            # Trigram index: serves search's fqpndirectory__iregex / __icontains
+            # (frontend/views.py _safe_regex_search) — previously a ~108 ms seq
+            # scan over 52k rows per search query.
+            GinIndex(fields=["fqpndirectory"], name="directoryindex_fqpn_trgm_idx", opclasses=["gin_trgm_ops"]),
         ]
 
     @staticmethod
-    def add_directory(fqpn_directory: str, thumbnail: bytes = b"") -> tuple[bool, "DirectoryIndex"]:  # pylint: disable=unused-argument
+    def add_directory(fqpn_directory: str, thumbnail: bytes = b"") -> tuple[bool, "DirectoryIndex | None"]:  # pylint: disable=unused-argument
         """
-        Create a new directory entry or get existing one
+        Create a new directory entry or update the existing one.
 
         Args:
             fqpn_directory: The fully qualified pathname for the directory
             thumbnail: thumbnail image to store for the thumbnail/cover art (currently unused)
 
         Returns:
-            Database record
+            Tuple of (success, record). success is True whenever a record was
+            created or updated; (False, None) is returned only when the
+            directory does not exist on the filesystem (stat failure).
         """
         # Normalize once and compute SHA once
         fqpn_directory = normalize_fqpn(fqpn_directory)
@@ -240,14 +256,13 @@ class DirectoryIndex(models.Model):
             "thumbnail": None,
         }
 
-        # Use get_or_create with fqpndirectory as the unique lookup field
-        new_rec, created = DirectoryIndex.objects.update_or_create(
+        # Use update_or_create with dir_fqpn_sha256 as the unique lookup field
+        new_rec, _created = DirectoryIndex.objects.update_or_create(
             dir_fqpn_sha256=defaults["dir_fqpn_sha256"],
             defaults=defaults,
             create_defaults=defaults,
         )
-        found = not created
-        return found, new_rec
+        return True, new_rec
 
     def invalidate_thumb(self) -> None:
         """
@@ -412,9 +427,8 @@ class DirectoryIndex(models.Model):
             None
         """
         # Deferred: cache_watcher.models imports back into directoryindex (genuine cycle)
-        from cache_watcher.models import (
-            Cache_Storage,  # pylint: disable=import-outside-toplevel
-        )
+        # pylint: disable-next=import-outside-toplevel
+        from cache_watcher.models import Cache_Storage
 
         if not index_dir:
             return
@@ -440,9 +454,8 @@ class DirectoryIndex(models.Model):
             None
         """
         # Deferred: cache_watcher.models imports back into directoryindex (genuine cycle)
-        from cache_watcher.models import (
-            Cache_Storage,  # pylint: disable=import-outside-toplevel
-        )
+        # pylint: disable-next=import-outside-toplevel
+        from cache_watcher.models import Cache_Storage
 
         dir_sha256 = get_dir_sha(normalize_fqpn(fqpn_directory))
         Cache_Storage.remove_from_cache_sha(dir_sha256)
@@ -468,9 +481,16 @@ class DirectoryIndex(models.Model):
         """
         return self.FileIndex_entries.filter(delete_pending=False).count()
 
+    @cached(dir_counts_cache, key=lambda self: hashkey(self.pk))
     def get_dir_counts(self) -> int:
         """
         Return the number of directories that are in the database for the current directory
+
+        Results are cached in dir_counts_cache keyed on the bare pk (so
+        clear_layout_cache_for_directories() can construct the key without a
+        stub instance). Invalidated whenever this directory's membership
+        changes, via clear_layout_cache_for_directories().
+
         Returns: Integer - Number of directories
         """
         return DirectoryIndex.objects.filter(parent_directory=self.pk, delete_pending=False).count()
@@ -501,11 +521,15 @@ class DirectoryIndex(models.Model):
 
         return totals
 
-    @cached(directoryindex_cache, key=lambda sha_256: hashkey(sha_256))
     @staticmethod
-    def search_for_directory_by_sha(sha_256: str) -> tuple[bool, "DirectoryIndex"]:
+    def search_for_directory_by_sha(sha_256: str) -> tuple[bool, "DirectoryIndex | None"]:
         """
         Return the database object matching the dir_fqpn_sha256.
+
+        Results are cached, but a not-found result is never cached — the
+        directory may be created moments later (e.g. by add_directory() during
+        web discovery), and a cached (False, None) would keep reporting the
+        directory as missing until LRU eviction.
 
         Always loads the full set of relations needed by gallery views
         (DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT). Cache_watcher and
@@ -522,14 +546,20 @@ class DirectoryIndex(models.Model):
 
         Returns: A boolean representing the success of the search, and the resultant record
         """
+        key = hashkey(sha_256)
+        cached_val = directoryindex_cache.get(key)
+        if cached_val is not None:
+            return cached_val
         try:
             record = DirectoryIndex.objects.select_related(*DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT).get(
                 dir_fqpn_sha256=sha_256,
                 delete_pending=False,
             )
-            return (True, record)
         except DirectoryIndex.DoesNotExist:
-            return (False, None)  # Return None when not found
+            return (False, None)  # Not cached — the record may be created shortly after
+        result = (True, record)
+        directoryindex_cache[key] = result
+        return result
 
     @staticmethod
     def search_for_directory(fqpn_directory: str) -> tuple[bool, "DirectoryIndex"]:
@@ -579,6 +609,33 @@ class DirectoryIndex(models.Model):
         )
         return dirs
 
+    def _distinct_file_pks(self, sort: int, additional_filters: dict[str, Any] | None = None) -> list[int]:
+        """
+        Return the PKs of this directory's files, deduplicated by file_sha256.
+
+        Step 1 of the two-query distinct design shared by files_in_dir() and
+        get_distinct_file_shas(): PostgreSQL DISTINCT ON requires file_sha256
+        to lead the ORDER BY, which disrupts the caller's sort order, so the
+        caller re-queries these PKs with its own ordering. values_list("pk")
+        lets the ORDER BY reference joined sort columns (filetype__is_dir,
+        filetype__is_link) without selecting them, so nothing is materialized
+        beyond the PK list.
+
+        Args:
+            sort: Sort order to apply (0-2)
+            additional_filters: Additional Django ORM filters to apply
+
+        Returns:
+            List of FileIndex PKs, one per distinct file_sha256.
+        """
+        additional_filters = additional_filters or {}
+        return list(
+            self.FileIndex_entries.filter(delete_pending=False, **additional_filters)
+            .order_by("file_sha256", *SORT_MATRIX[sort])
+            .distinct("file_sha256")
+            .values_list("pk", flat=True)
+        )
+
     def files_in_dir(
         self,
         sort: int = 0,
@@ -595,8 +652,10 @@ class DirectoryIndex(models.Model):
             distinct: If True, return distinct files based on file_sha256 (deduplicates identical files)
             additional_filters: Additional Django ORM filters to apply (e.g., filetype, status filters)
             fields_only: If provided, return lightweight query with only these fields.
-                        With distinct=True: Only optimizes if sort doesn't require related fields.
-                        Current sort modes (0-2) use filetype relations, so fall back to full query.
+                        With distinct=True: applies to the step-2 re-query, and only
+                        when the sort needs no related fields. Current sort modes (0-2)
+                        use filetype relations, so step 2 falls back to full rows;
+                        step 1 always selects PKs only regardless of this parameter.
             select_related: List of related fields to select (required)
 
         Returns: QuerySet[FileIndex] when distinct=False, list[FileIndex] when distinct=True
@@ -626,48 +685,18 @@ class DirectoryIndex(models.Model):
 
         files = self.FileIndex_entries.filter(delete_pending=False, **additional_filters)
 
-        # Determine field loading strategy
-        if fields_only:
-            if distinct:
-                # For distinct queries, we need sort fields + requested fields for Python re-sorting
-                sort_fields = SORT_MATRIX[sort]
-
-                # Extract field names from sort specification (remove - prefix)
-                sort_field_names = {f.lstrip("-") for f in sort_fields}
-
-                # Combine requested fields, sort fields, and file_sha256 (needed for DISTINCT ON)
-                all_fields_needed = set(fields_only) | sort_field_names | {"file_sha256"}
-
-                # Check if sort fields require related objects (contain __)
-                needs_related_fields = any("__" in field for field in sort_field_names)
-
-                if needs_related_fields:
-                    # Sort requires related fields - must use full select_related
-                    # We can't use .only() effectively with related fields without causing N+1
-                    # So fall back to full query for these cases
-                    files = files.select_related(*select_related)
-                else:
-                    # Sort only uses local fields - can safely use .only()
-                    files = files.only(*all_fields_needed)
-            else:
-                # Non-distinct queries - simple field restriction
-                files = files.only(*fields_only)
-        else:
-            # Full query with all related objects
-            files = files.select_related(*select_related)
-
         if distinct:
-            # Step 1: Get deduplicated records (PostgreSQL DISTINCT ON requires
-            # file_sha256 as first ORDER BY field, disrupting user's sort order)
-            distinct_qs = files.order_by("file_sha256", *SORT_MATRIX[sort]).distinct("file_sha256")
+            # Step 1: Get deduplicated PKs (PostgreSQL DISTINCT ON requires
+            # file_sha256 as first ORDER BY field, disrupting user's sort order).
+            # _distinct_file_pks selects only the PK column — the ORDER BY joins
+            # need no select_related/only decoration.
+            distinct_pks = self._distinct_file_pks(sort, additional_filters)
 
             # Step 2: Re-query the deduplicated PKs with the user's sort order.
             # This avoids Python re-sorting which uses different collation than
             # PostgreSQL (Python ASCII: '-' < '_', PostgreSQL en_US.UTF-8: '_' < '-').
             # Using a second DB query ensures sort order matches the non-distinct
             # path used by the gallery view, preventing navigation mismatches.
-            distinct_pks = [f.pk for f in distinct_qs]
-
             # Import FileIndex here to avoid circular import at module level
             # pylint: disable-next=import-outside-toplevel
             from .fileindex import FileIndex as FileIndexModel
@@ -680,6 +709,12 @@ class DirectoryIndex(models.Model):
             resorted_qs = resorted_qs.order_by(*SORT_MATRIX[sort])
 
             return list(resorted_qs)
+
+        # Non-distinct: apply the field loading strategy directly
+        if fields_only:
+            files = files.only(*fields_only)
+        else:
+            files = files.select_related(*select_related)
 
         files = files.order_by(*SORT_MATRIX[sort])
         return files
@@ -697,7 +732,8 @@ class DirectoryIndex(models.Model):
         Allows efficient pagination across multiple pages without re-fetching distinct files.
 
         Performance Impact:
-        - First call: Fetches SHA256s with minimal data using fields_only (efficient)
+        - First call: two values_list queries (PKs, then SHA256 strings) — no
+          FileIndex objects or joined rows are materialized
         - Subsequent calls: Returns cached list (instant, no DB query)
         - Memory: ~64KB per 1,000 files (just SHA256 strings)
 
@@ -714,18 +750,15 @@ class DirectoryIndex(models.Model):
             List of unique_sha256 strings for distinct files in the directory,
             sorted according to sort order
         """
-        # Use fields_only to minimize memory usage - only load fields needed for deduplication
-        # This prevents loading full FileIndex objects with all relationships (~1KB each)
-        # For a directory with 10,000 files, this saves ~10MB of memory per call
-        # Note: files_in_dir(distinct=True) returns a list after deduplication and re-sorting
+        # Two-query distinct design (see _distinct_file_pks): step 2 reads only
+        # the unique_sha256 column with the user's sort order, so no FileIndex
+        # objects or joined rows are materialized on a cache-miss recompute.
         # Import here to avoid circular import at module level
         # pylint: disable-next=import-outside-toplevel
-        from .fileindex import FILEINDEX_SR_FILETYPE_HOME_VIRTUAL
+        from .fileindex import FileIndex as FileIndexModel
 
-        distinct_files_list = self.files_in_dir(
-            sort=sort, distinct=True, fields_only=("unique_sha256", "file_sha256"), select_related=FILEINDEX_SR_FILETYPE_HOME_VIRTUAL
-        )
-        return [f.unique_sha256 for f in distinct_files_list]
+        distinct_pks = self._distinct_file_pks(sort)
+        return list(FileIndexModel.objects.filter(pk__in=distinct_pks).order_by(*SORT_MATRIX[sort]).values_list("unique_sha256", flat=True))
 
     def get_cover_image(self) -> FileIndex | None:
         """
@@ -860,34 +893,34 @@ class DirectoryIndex(models.Model):
         This is a sync method — all operations are direct Django ORM calls.
         Wrap with sync_to_async() when calling from async contexts.
 
-        :Args:
+        Reads the sibling ordering through get_ordered_sibling_dirs(), which is
+        cached in sibling_dirs_cache keyed on (parent_pk, sort) and invalidated
+        by clear_layout_cache_for_directories() when the parent's membership
+        changes. Steady-state calls are in-memory scans with no queries.
+
+        Args:
             sort_order: Sort order to apply (0=name, 1=date, 2=name only)
 
-        :return: Tuple of (prev_dict, next_dict) where each dict has 'url' and 'name' keys,
-                 or (None, None) if no parent directory
-
-        Note:
-            ORM only derived from https://stackoverflow.com/questions/1042596/
-            get-the-index-of-an-element-in-a-queryset
-            Specifically Richard's answer.
+        Returns:
+            Tuple of (prev_dict, next_dict) where each dict has 'url' and
+            'name' keys, or (None, None) if no parent directory
         """
-        # No parent directory means this is a root directory
-        if self.parent_directory is None:
+        # No parent directory means this is a root directory.
+        # Attname check — comparing self.parent_directory would lazy-load the row.
+        if self.parent_directory_id is None:
             return (None, None)
 
-        # Direct sync ORM calls
-        directories = self.parent_directory.dirs_in_dir(sort=sort_order, select_related=(), prefetch_related=())
-        parent_dir_data = list(directories.values("fqpndirectory"))
+        siblings = get_ordered_sibling_dirs(self.parent_directory_id, sort_order)
 
         prevdir = None
         nextdir = None
 
-        for count, entry in enumerate(parent_dir_data):
-            if entry["fqpndirectory"] == self.fqpndirectory:
+        for count, (dir_sha, _) in enumerate(siblings):
+            if dir_sha == self.dir_fqpn_sha256:
                 if count >= 1:
-                    prevdir = self._make_sibling_link(parent_dir_data[count - 1]["fqpndirectory"])
-                if count + 1 < len(parent_dir_data):
-                    nextdir = self._make_sibling_link(parent_dir_data[count + 1]["fqpndirectory"])
+                    prevdir = self._make_sibling_link(siblings[count - 1][1])
+                if count + 1 < len(siblings):
+                    nextdir = self._make_sibling_link(siblings[count + 1][1])
                 break
 
         return (prevdir, nextdir)
@@ -986,9 +1019,8 @@ class DirectoryIndex(models.Model):
             fs_entries: Dictionary mapping entry names to DirEntry objects
         """
         # Deferred: cache_watcher.models imports back into directoryindex (genuine cycle)
-        from cache_watcher.models import (
-            Cache_Storage,  # pylint: disable=import-outside-toplevel
-        )
+        # pylint: disable-next=import-outside-toplevel
+        from cache_watcher.models import Cache_Storage
 
         logger.info("Synchronizing directories...")
         current_path = normalize_fqpn(self.fqpndirectory)
@@ -1006,9 +1038,11 @@ class DirectoryIndex(models.Model):
         # Load full objects only for directories that exist in both DB and filesystem
         # This requires select_related for lastmod/size comparisons
         # Use queryset with iterator for memory-efficient streaming (single-pass iteration)
-        existing_dirs_qs = self.dirs_in_dir(select_related=(), prefetch_related=(), fields_only=("id", "fqpndirectory", "lastmod")).filter(
-            fqpndirectory__in=db_dirs & fs_dirs
-        )
+        # dir_fqpn_sha256 is included so the bulk cache invalidation below can read
+        # it from the already-loaded instances without per-record lazy loads.
+        existing_dirs_qs = self.dirs_in_dir(
+            select_related=(), prefetch_related=(), fields_only=("id", "fqpndirectory", "lastmod", "dir_fqpn_sha256")
+        ).filter(fqpndirectory__in=db_dirs & fs_dirs)
         # Check each directory for updates (iterator avoids a redundant .count() round-trip)
         updated_records = []
         for db_dir_entry in existing_dirs_qs.iterator(chunk_size=settings.DIRECTORY_SYNC_CHUNK_SIZE):
@@ -1041,8 +1075,12 @@ class DirectoryIndex(models.Model):
                 update_ids = [r.id for r in updated_records]
                 list(DirectoryIndex.objects.select_for_update(skip_locked=True).filter(id__in=update_ids).only("id"))
                 DirectoryIndex.objects.bulk_update(updated_records, ["lastmod"], batch_size=settings.DIRECTORY_SYNC_BATCH_SIZE)
-                for db_dir_entry in updated_records:
-                    Cache_Storage.remove_from_cache_indexdirs(db_dir_entry)
+                # Bulk equivalent of the per-directory remove_from_cache_indexdirs loop:
+                # one UPDATE preserves invalidate_thumb() semantics for every changed
+                # directory, then one bulk cache invalidation (which also clears the
+                # layout and DirectoryIndex LRU caches, including parents).
+                DirectoryIndex.objects.filter(id__in=update_ids).update(thumbnail=None, is_generic_icon=False)
+                Cache_Storage.remove_multiple_from_cache_indexdirs(updated_records)
             logger.info("Processing %d directory updates", len(updated_records))
 
         # Create new directories BEFORE deleting old ones to prevent foreign key violations
@@ -1191,6 +1229,40 @@ class DirectoryIndex(models.Model):
         FileIndex.bulk_sync(records_to_update, records_to_create, files_to_delete_ids, bulk_size)
 
 
+# The lambda is required (not key=hashkey): it rebinds keyword-argument calls
+# to positional hashing so hashkey(pk, sort) always matches the keys popped by
+# clear_layout_cache_for_directories().
+@cached(sibling_dirs_cache, key=lambda parent_pk, sort: hashkey(parent_pk, sort))  # pylint: disable=unnecessary-lambda
+def get_ordered_sibling_dirs(parent_pk: int, sort: int) -> list[tuple[str, str]]:
+    """
+    Return the ordered list of subdirectories of a parent directory.
+
+    Shared, cached source for sibling-directory ordering: consumed by
+    DirectoryIndex.get_prev_next_siblings() (prev/next navigation links) and
+    frontend.managers.layout_manager() (page_locale computation), replacing
+    the per-request sibling fetch each of those previously performed.
+
+    Results are cached in sibling_dirs_cache keyed hashkey(parent_pk, sort)
+    (explicit key function so keyword-argument calls hash identically).
+    Invalidated by clear_layout_cache_for_directories() — the parent directory
+    is in the invalidated set whenever a subdirectory is added, removed, or
+    renamed.
+
+    Args:
+        parent_pk: Primary key of the parent DirectoryIndex row
+        sort: Sort order to apply (0=name, 1=date, 2=name only)
+
+    Returns:
+        Ordered list of (dir_fqpn_sha256, fqpndirectory) tuples for the
+        parent's subdirectories, excluding delete-pending rows.
+    """
+    return list(
+        DirectoryIndex.objects.filter(parent_directory=parent_pk, delete_pending=False)
+        .order_by(*DIR_SORT_MATRIX[sort])
+        .values_list("dir_fqpn_sha256", "fqpndirectory")
+    )
+
+
 def update_database_from_disk(directory_record: "DirectoryIndex") -> "DirectoryIndex | None":
     """
     Update database entries to match filesystem state for a given directory.
@@ -1205,9 +1277,8 @@ def update_database_from_disk(directory_record: "DirectoryIndex") -> "DirectoryI
         The directory_record on success, None on early exit (cached or missing)
     """
     # Deferred: cache_watcher.models imports back into directoryindex (genuine cycle)
-    from cache_watcher.models import (
-        Cache_Storage,  # pylint: disable=import-outside-toplevel
-    )
+    # pylint: disable-next=import-outside-toplevel
+    from cache_watcher.models import Cache_Storage
 
     dirpath = directory_record.fqpndirectory
     logger.debug("Starting sync of directory: %s", dirpath)

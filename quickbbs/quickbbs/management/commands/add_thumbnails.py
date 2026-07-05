@@ -37,17 +37,10 @@ def _bulk_create_thumbnail_records(unique_sha256s: list[str]) -> int:
     # Find which SHA256s already have ThumbnailFiles records
     existing_sha256s = set(ThumbnailFiles.objects.filter(sha256_hash__in=unique_sha256s).values_list("sha256_hash", flat=True))
 
-    # Create records only for SHA256s that don't exist
-    records_to_create = [
-        ThumbnailFiles(
-            sha256_hash=sha256,
-            small_thumb=b"",
-            medium_thumb=b"",
-            large_thumb=b"",
-        )
-        for sha256 in unique_sha256s
-        if sha256 not in existing_sha256s
-    ]
+    # Create records only for SHA256s that don't exist. Blob fields are left
+    # at their default (None) — NULL is the canonical "no thumbnail data"
+    # state, and b"" is rejected by the thumbnails_no_empty_blobs constraint.
+    records_to_create = [ThumbnailFiles(sha256_hash=sha256) for sha256 in unique_sha256s if sha256 not in existing_sha256s]
 
     if records_to_create:
         ThumbnailFiles.objects.bulk_create(
@@ -199,7 +192,7 @@ def add_thumbnails(max_count: int = 0) -> None:
     # not a link/alias file. Mirrors Pass 1 exclusions so ineligible records are
     # never reported as needing generation.
     empty_thumbnails_qs = ThumbnailFiles.objects.filter(
-        small_thumb__in=[b"", None],
+        small_thumb__isnull=True,
         FileIndex__delete_pending=False,
         FileIndex__filetype__is_link=False,
     ).filter(Q(FileIndex__filetype__is_image=True) | Q(FileIndex__filetype__is_pdf=True) | Q(FileIndex__filetype__is_movie=True))

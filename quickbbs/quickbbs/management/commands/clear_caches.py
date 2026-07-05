@@ -52,10 +52,7 @@ class Command(BaseCommand):
             "--cache",
             nargs="+",
             metavar="NAME",
-            help=(
-                "Clear only caches whose label contains NAME (e.g. webpaths breadcrumbs). "
-                "Omit to clear all caches."
-            ),
+            help=("Clear only caches whose label contains NAME (e.g. webpaths breadcrumbs). " "Omit to clear all caches."),
         )
         parser.add_argument(
             "--list",

@@ -22,9 +22,20 @@ class NaturalSortField(models.CharField):
         kwargs.setdefault("max_length", 255)
         super().__init__(**kwargs)
 
-    def deconstruct(self):
+    def deconstruct(self) -> tuple[str, str, list, dict]:
+        """Return the field's deconstructed form for migration serialization.
+
+        ``db_index`` is emitted explicitly: ``__init__`` defaults it to True via
+        setdefault, so omitting it (CharField only serializes non-default values,
+        and the Field default is False) would make a ``db_index=False`` declaration
+        reconstruct as ``db_index=True``, causing endless AlterField churn.
+
+        Returns:
+            Tuple of (name, path, args, kwargs) for reconstructing the field.
+        """
         name, path, args, kwargs = super().deconstruct()  # pylint: disable=no-member
         args.append(self.for_field)
+        kwargs["db_index"] = self.db_index
         return name, path, args, kwargs
 
     def pre_save(self, model_instance, add):

@@ -30,6 +30,7 @@ from frontend.utilities import (
 )
 from quickbbs.cache_registry import layout_manager_cache
 from quickbbs.common import SORT_MATRIX
+from quickbbs.directoryindex import get_ordered_sibling_dirs
 from quickbbs.fileindex import FILEINDEX_SR_FILETYPE_HOME_VIRTUAL
 from quickbbs.models import FileIndex
 from thumbnails.models import ThumbnailFiles
@@ -44,8 +45,11 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
     approach that builds the entire context dictionary in a single operation,
     eliminating multiple dictionary updates and function call overhead.
 
-    IMPORTANT: Cache key now uses (unique_file_sha256, sort_order_value, show_duplicates)
-    instead of request object, enabling proper caching across requests.
+    This function is not itself cached, but its heavy lookups read through
+    per-object caches: FileIndex.get_by_sha256 (fileindex_cache),
+    get_distinct_file_shas (distinct_files_cache), and get_dir_counts
+    (dir_counts_cache), so repeat item views for the same directory issue
+    few or no queries.
 
     Args:
         unique_file_sha256: The unique SHA256 hash of the item
@@ -333,7 +337,9 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int = 0,
 
     # Get base querysets first
     directories_qs = directory.dirs_in_dir(sort=sort_ordering, fields_only=("dir_fqpn_sha256",), select_related=(), prefetch_related=())
-    dirs_count = directories_qs.count()
+    # Reads through dir_counts_cache (invalidated with the layout cache) —
+    # directories_qs is still needed below for the page slice.
+    dirs_count = directory.get_dir_counts()
 
     # Handle files differently based on show_duplicates to avoid over-fetching
     if show_duplicates:
@@ -404,12 +410,11 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int = 0,
     # cached layout data when thumbnails are generated. Thumbnail creation
     # does not change pagination boundaries or file lists.
 
-    # Calculate page_locale - which page this directory appears on in its parent
-    if directory.parent_directory:
-        sibling_directories = directory.parent_directory.dirs_in_dir(
-            sort=sort_ordering, fields_only=("dir_fqpn_sha256",), select_related=(), prefetch_related=()
-        )
-        sibling_dir_shas = list(sibling_directories.values_list("dir_fqpn_sha256", flat=True))
+    # Calculate page_locale - which page this directory appears on in its parent.
+    # Attname check avoids lazy-loading the parent row; the ordered sibling list
+    # comes from sibling_dirs_cache (shared with get_prev_next_siblings).
+    if directory.parent_directory_id:
+        sibling_dir_shas = [sha for sha, _ in get_ordered_sibling_dirs(directory.parent_directory_id, sort_ordering)]
         try:
             position = sibling_dir_shas.index(directory.dir_fqpn_sha256)
             page_locale = position // items_per_page + 1

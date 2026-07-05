@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 _MONITORED_CACHE_LOCATIONS: list[tuple[str, str, str | None]] = [
     ("quickbbs.cache_registry", "distinct_files_cache", None),
     ("quickbbs.cache_registry", "layout_manager_cache", None),
+    ("quickbbs.cache_registry", "dir_counts_cache", None),
+    ("quickbbs.cache_registry", "sibling_dirs_cache", None),
     ("quickbbs.directoryindex", "directoryindex_cache", None),
     ("quickbbs.directoryindex", "get_view_url_cache", None),
     ("quickbbs.fileindex", "fileindex_cache", None),
@@ -35,7 +37,6 @@ _MONITORED_CACHE_LOCATIONS: list[tuple[str, str, str | None]] = [
     ("quickbbs.common", "normalized_strings_cache", None),
     ("quickbbs.common", "directory_sha_cache", None),
     ("quickbbs.common", "normalized_paths_cache", None),
-    ("thumbnails.models", "thumbnailfiles_cache", None),
     ("quickbbs.fileindex", "_encoding_cache", "FileIndex"),
     ("quickbbs.fileindex", "_alias_cache", "FileIndex"),
 ]
@@ -125,9 +126,7 @@ def generate_missing_thumbnails(
         ThumbnailFiles.objects.filter(
             sha256_hash__in=sha256_list,
             small_thumb__isnull=False,
-        )
-        .exclude(small_thumb=b"")
-        .values_list("sha256_hash", flat=True)
+        ).values_list("sha256_hash", flat=True)
     )
 
     if existing_shas:
@@ -320,6 +319,12 @@ def daily_cleanup_finished_jobs() -> int:
     return deleted
 
 
+# Monotonic timestamp of the last completed snapshot; module-level so the
+# throttle spans all requests served by this process. -inf ensures the first
+# call after process start is never throttled.
+_last_snapshot_time: float = float("-inf")
+
+
 def snapshot_cache_statistics() -> dict[str, dict[str, int | float | str]]:
     """
     Snapshot current MonitoredLRUCache hit/miss statistics to the database.
@@ -330,13 +335,23 @@ def snapshot_cache_statistics() -> dict[str, dict[str, int | float | str]]:
     are accessible — calling from a separate worker process (e.g. a dbtasks
     runner) would see freshly-initialised caches with zero counts.
 
-    Called directly from new_viewgallery() on every gallery request when
-    CACHE_MONITORING is True. Skips caches whose stats are unchanged since the
-    last snapshot to minimise unnecessary writes.
+    Called from new_viewgallery() on gallery requests when CACHE_MONITORING is
+    True, but writes at most once per SNAPSHOT_MIN_INTERVAL seconds — the
+    counters are cumulative, so throttled calls lose no data, only DB-row
+    freshness. Skips caches whose stats are unchanged since the last snapshot
+    to minimise unnecessary writes.
 
     Returns:
-        Dictionary mapping cache name to its snapshot stats dict for changed caches.
+        Dictionary mapping cache name to its snapshot stats dict for changed
+        caches; empty dict when throttled.
     """
+    global _last_snapshot_time  # pylint: disable=global-statement
+
+    now = time.monotonic()
+    if now - _last_snapshot_time < settings.SNAPSHOT_MIN_INTERVAL:
+        return {}
+    _last_snapshot_time = now
+
     # Deferred import to avoid circular dependency:
     # cache_watcher.models → quickbbs.cache_registry → (indirectly) tasks
     from cache_watcher.models import (

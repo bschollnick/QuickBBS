@@ -16,7 +16,6 @@ import time
 import urllib.parse
 
 from asgiref.sync import sync_to_async
-from cachetools import TTLCache
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.db.models import Count, Q
@@ -56,6 +55,7 @@ from quickbbs.models import (
     DirectoryIndex,
     FileIndex,
 )
+from quickbbs.MonitoredCache import ThreadSafeTTLCache
 from quickbbs.tasks import generate_missing_thumbnails, snapshot_cache_statistics
 
 # download_cache = LRUCache(maxsize=1000)
@@ -113,6 +113,23 @@ async def async_render(request, template_name, context=None, **kwargs):
     return await sync_to_async(render)(request, template_name, context, **kwargs)
 
 
+def get_page_param(request: WSGIRequest) -> int:
+    """
+    Get and validate the page number from POST or GET parameters.
+
+    Args:
+        request: Django request object
+
+    Returns:
+        Page number (minimum 1); defaults to 1 for missing or non-numeric values
+    """
+    raw_value = request.POST.get("page") or request.GET.get("page", 1)
+    try:
+        return max(1, int(raw_value))
+    except (ValueError, TypeError):
+        return 1
+
+
 def get_sort_param(request: WSGIRequest) -> int:
     """
     Get and validate sort parameter from query string.
@@ -154,7 +171,7 @@ def _create_base_context(request: WSGIRequest) -> dict:
         "user": request.user,
         "sort": get_sort_param(request),
         "fromtimestamp": datetime.datetime.fromtimestamp,
-        "current_page": int(request.GET.get("page", 1)),
+        "current_page": get_page_param(request),
         "missing": [],
         "items_to_display": [],
         "files_needing_thumbnails": [],
@@ -167,7 +184,7 @@ def _create_base_context(request: WSGIRequest) -> dict:
 # TTL cache for user show_duplicates preference — avoids a DB query on every page load.
 # Keyed on user.pk, expires after USER_PREF_CACHE_TTL seconds.
 # Explicitly cleared by toggle_show_duplicates() in user_preferences/views.py.
-_user_pref_cache: TTLCache = TTLCache(
+_user_pref_cache: ThreadSafeTTLCache = ThreadSafeTTLCache(
     maxsize=settings.USER_PREF_CACHE_SIZE,
     ttl=settings.USER_PREF_CACHE_TTL,
 )
@@ -238,7 +255,14 @@ def create_search_regex_pattern(text: str) -> str:
     return pattern if len(pattern) <= 500 else ""
 
 
-def _safe_regex_search(model, field_name: str, regex_pattern: str, fallback_text: str, order_by: tuple, **filter_kwargs):
+def _safe_regex_search(
+    model,
+    field_name: str,
+    regex_pattern: str,
+    fallback_text: str,
+    order_by: tuple,
+    **filter_kwargs,
+):
     """
     Perform regex search with automatic fallback to icontains on failure.
 
@@ -281,8 +305,16 @@ def _safe_regex_search(model, field_name: str, regex_pattern: str, fallback_text
     return qs.order_by(*order_by)
 
 
-def get_search_results(
-    searchtext: str, search_regex_pattern: str, sort_order_value: int, prefetch_dirs: list[str], prefetch_files: list[str]
+# Sixth argument is a keyword-only flag; bundling it into a config object would
+# be heavier than the problem it solves.
+def get_search_results(  # pylint: disable=too-many-arguments
+    searchtext: str,
+    search_regex_pattern: str,
+    sort_order_value: int,
+    prefetch_dirs: list[str],
+    prefetch_files: list[str],
+    *,
+    include_annotations: bool = True,
 ) -> tuple:
     """
     Get both directory and file search results with optimized queries.
@@ -295,6 +327,10 @@ def get_search_results(
         sort_order_value: Sort order index
         prefetch_dirs: List of related fields to prefetch for directories (required)
         prefetch_files: List of related fields to prefetch for files (required)
+        include_annotations: Whether to annotate directory results with
+            file_count/directory_count (LEFT JOINs + GROUP BY). Pass False when
+            only identifiers are needed (e.g. the pagination phase), which makes
+            slicing the queryset a plain filtered scan.
 
     Returns:
         Tuple of (dirs_queryset, files_queryset)
@@ -309,15 +345,8 @@ def get_search_results(
     base_filters = {"delete_pending": False}
     order_by = SORT_MATRIX[sort_order_value]
 
-    # Directory search with optimized prefetching
-    dirs = _safe_regex_search(
-        DirectoryIndex,
-        "fqpndirectory",
-        search_regex_pattern,
-        searchtext,
-        order_by,
-        prefetch_fields=prefetch_dirs,
-        annotate_kwargs={
+    dir_annotations = (
+        {
             "file_count": Count(
                 "FileIndex_entries",
                 filter=Q(FileIndex_entries__delete_pending=False),
@@ -328,7 +357,20 @@ def get_search_results(
                 filter=Q(parent_dir__delete_pending=False),
                 distinct=True,
             ),
-        },
+        }
+        if include_annotations
+        else {}
+    )
+
+    # Directory search with optimized prefetching
+    dirs = _safe_regex_search(
+        DirectoryIndex,
+        "fqpndirectory",
+        search_regex_pattern,
+        searchtext,
+        order_by,
+        prefetch_fields=prefetch_dirs,
+        annotate_kwargs=dir_annotations,
         **base_filters,
     )
 
@@ -389,9 +431,10 @@ def _get_paginated_search_results(
     Returns:
         Tuple of (directory_sha_list, file_sha_list, total_count)
     """
-    # Pass empty prefetch tuples — we only need SHA values here for pagination.
+    # Pass empty prefetch tuples and skip annotations — we only need SHA values
+    # here for pagination, so the sliced query stays a plain filtered scan.
     # Full object hydration (with prefetch/annotate) happens in the caller via __in lookups.
-    dirs_qs, files_qs = get_search_results(searchtext, regex_pattern, sort_order, (), ())
+    dirs_qs, files_qs = get_search_results(searchtext, regex_pattern, sort_order, (), (), include_annotations=False)
 
     dirs_count = dirs_qs.count()
     files_count = files_qs.count()
@@ -434,7 +477,7 @@ async def search_viewresults(request: WSGIRequest):
 
     # Get search parameters (support both POST and GET)
     searchtext = request.POST.get("searchtext") or request.GET.get("searchtext", default=None)
-    current_page = int(request.POST.get("page") or request.GET.get("page", 1))
+    current_page = get_page_param(request)
 
     # Build base context using shared function
     context = _create_base_context(request)
@@ -610,16 +653,17 @@ def _find_directory(paths: dict) -> DirectoryIndex:
             # - Physical path validation (returns False, None if path doesn't exist)
             # - Parent directory creation (recursive)
             # - Database record creation
-            created, directory = DirectoryIndex.add_directory(dirpath)
+            success, directory = DirectoryIndex.add_directory(dirpath)
 
-            if not created and not directory:
+            if not success:
                 # Physical directory doesn't exist on filesystem
                 logger.info("Directory not found on filesystem: %s", dirpath)
                 raise DirectoryNotFoundError(f"Gallery not found: {dirpath}")
 
-            # Clear parent's cache if this is a new directory (web discovery case)
-            # This ensures the parent directory listing shows the new subdirectory
-            if created and directory.parent_directory:
+            # The search above missed, so this directory is newly discovered via
+            # the web — clear the parent's cache so its listing shows the new
+            # subdirectory.
+            if directory.parent_directory:
                 Cache_Storage.remove_from_cache_indexdirs(directory.parent_directory)
 
             # Reload with optimized prefetches for view rendering
@@ -770,9 +814,11 @@ async def new_viewgallery(request: WSGIRequest):
     # Only fetch directories if there are any on this page (async wrapped)
     if layout["page_items"]["directory_shas"]:
         dirs_to_display = await sync_to_async(list)(
-            directory.dirs_in_dir(sort=context["sort"], select_related=DIRECTORYINDEX_SR_FILETYPE_THUMB, prefetch_related=()).filter(
-                dir_fqpn_sha256__in=layout["page_items"]["directory_shas"]
-            )
+            directory.dirs_in_dir(
+                sort=context["sort"],
+                select_related=DIRECTORYINDEX_SR_FILETYPE_THUMB,
+                prefetch_related=(),
+            ).filter(dir_fqpn_sha256__in=layout["page_items"]["directory_shas"])
             # REMOVED: .select_related("thumbnail__new_ftnail") - Phase 5 Fix 1
             # Thumbnails load on-demand via thumbnail2_dir() - no need for 750KB binary blobs
             .annotate(

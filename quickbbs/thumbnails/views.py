@@ -38,13 +38,13 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
         The image of the thumbnail to send
 
     Raises:
-        HttpResponseBadRequest: If the directory cannot be found
+        Http404: If the directory cannot be found
     """
     # Use optimized model method with prefetched relationships
     success, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha256)
     if not success:
-        print(f"Directory not found: {dir_sha256}")
-        return Http404
+        logger.warning("Directory not found for thumbnail request: %s", dir_sha256)
+        raise Http404(f"Directory not found: {dir_sha256}")
 
     # If directory already has a thumbnail set AND cache is valid, try to return it
     try:
@@ -124,9 +124,67 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
         return directory.filetype.send_thumbnail()
 
 
+def _serve_existing_thumbnail(request: WSGIRequest, sha256: str, thumbsize: str):
+    """
+    Serve an already-generated thumbnail without the generation lock.
+
+    Read-only fast path for thumbnail2_file: resolves the FileIndex via the
+    cached get_by_sha256 lookup, honors the generic-icon and link
+    short-circuits, then serves the requested blob size loaded with a single
+    single-column SELECT.
+
+    Args:
+        request: Django Request object
+        sha256: The sha256 of the file - FileIndex object
+        thumbsize: Validated thumbnail size (small, medium, or large)
+
+    Returns:
+        An HTTP response when the request can be satisfied without generation,
+        or None when the caller must fall through to the locked
+        get_or_create_thumbnail_record path (record or requested size missing).
+    """
+    index_data_item = FileIndex.get_by_sha256(sha256, unique=False, select_related=FILEINDEX_SR_FILETYPE_HOME_VIRTUAL)
+    if index_data_item is None:
+        return None
+
+    # Return generic icon if filetype is generic OR if file is marked as generic icon
+    if index_data_item.filetype.generic or index_data_item.is_generic_icon:
+        return index_data_item.filetype.send_thumbnail()
+
+    # Handle link files: if this is a link type with a virtual_directory,
+    # delegate to the virtual directory's thumbnail
+    if index_data_item.filetype.is_link and index_data_item.virtual_directory:
+        return thumbnail2_dir(request, index_data_item.virtual_directory.dir_fqpn_sha256)
+
+    existing_thumbnail = ThumbnailFiles.objects.only("id", "sha256_hash", f"{thumbsize}_thumb").filter(sha256_hash=sha256).first()
+    if existing_thumbnail is None or not existing_thumbnail.retrieve_sized_tnail(size=thumbsize):
+        return None
+
+    try:
+        return existing_thumbnail.send_thumbnail(
+            filename_override=index_data_item.name,
+            fext_override=".jpg",
+            size=thumbsize,
+            index_data_item=index_data_item,
+        )
+    except (OSError, ValueError, AttributeError) as e:
+        # If thumbnail serving fails, mark ALL files with this SHA256 as generic
+        # Use FileIndex classmethod to ensure layout cache is cleared
+        print(f"Thumbnail serving failed for {index_data_item.name}: {e}")
+        FileIndex.set_generic_icon_for_sha(sha256, is_generic=True, clear_cache=True)
+        return index_data_item.filetype.send_thumbnail()
+
+
 def thumbnail2_file(request: WSGIRequest, sha256: str):
     """
     Create and serve a thumbnail for a specific file.
+
+    Steady state (thumbnail already generated) is served by the read-only
+    fast path in _serve_existing_thumbnail: one cached FileIndex lookup plus
+    one single-column SELECT of the requested blob size. Only when the record
+    or the requested size is missing does the request fall through to
+    get_or_create_thumbnail_record, which takes the transaction + advisory
+    lock needed to serialize generation.
 
     Args:
         request: Django Request object
@@ -135,6 +193,16 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
     Returns:
         The sent thumbnail
     """
+    thumbsize = request.GET.get("size", "small").lower()
+    if thumbsize not in ("small", "medium", "large"):
+        thumbsize = "small"
+
+    fast_response = _serve_existing_thumbnail(request, sha256, thumbsize)
+    if fast_response is not None:
+        return fast_response
+
+    # Slow path: no thumbnail record, or the requested size is not yet
+    # generated — take the locked generation path.
     try:
         thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(
             sha256, suppress_save=False, prefetch_related_thumbnail=THUMBNAILFILES_PR_FILEINDEX_FILETYPE, select_related_fileindex=("filetype",)
@@ -169,7 +237,6 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
         return thumbnail2_dir(request, index_data_item.virtual_directory.dir_fqpn_sha256)
 
     # Try to return custom thumbnail, fall back to generic icon on error
-    thumbsize = request.GET.get("size", "small").lower()
     try:
         return thumbnail.send_thumbnail(
             filename_override=index_data_item.name,

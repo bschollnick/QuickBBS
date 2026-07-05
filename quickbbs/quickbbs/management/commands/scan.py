@@ -434,18 +434,22 @@ def verify_thumbnails(max_count: int = 0):
     # Process suspect PKs in chunks
     for pk_chunk in batched(suspect_pks, chunk_size):
         # Load only needed fields for this chunk
-        thumbnails = ThumbnailFiles.objects.filter(pk__in=pk_chunk).only("id", "sha256_hash", "small_thumb")
+        thumbnails = list(ThumbnailFiles.objects.filter(pk__in=pk_chunk).only("id", "sha256_hash", "small_thumb"))
+
+        # Single query per chunk: map sha256 -> a linked FileIndex name (used for
+        # both the orphan check and the filename display if corrupted).
+        fileindex_names: dict[str, str] = {
+            sha: name
+            for sha, name in FileIndex.objects.filter(file_sha256__in=[t.sha256_hash for t in thumbnails]).values_list("file_sha256", "name")
+            if sha is not None
+        }
 
         for thumbnail in thumbnails:
             batch_counter += 1
 
             try:
-                # Single query: fetch a linked FileIndex record (used for both the orphan
-                # check and the filename display if the thumbnail is corrupted).
-                fi = FileIndex.objects.filter(file_sha256=thumbnail.sha256_hash).only("name").first()
-
                 # Check for orphaned thumbnail (no linked FileIndex records)
-                if fi is None:
+                if thumbnail.sha256_hash not in fileindex_names:
                     orphaned_count += 1
                     thumbnail.delete()
                     continue
@@ -467,7 +471,7 @@ def verify_thumbnails(max_count: int = 0):
 
                 if is_all_white:
                     corrupted_count += 1
-                    fi_name = fi.name if fi else "unknown"
+                    fi_name = fileindex_names.get(thumbnail.sha256_hash, "unknown")
                     print(f"  Found potential issue: SHA256={thumbnail.sha256_hash[:16]}... file={fi_name}")
 
                     # Invalidate immediately

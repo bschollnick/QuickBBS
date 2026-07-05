@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TypeVar
 
 from cachetools import cached
+from cachetools.keys import hashkey
 from django.conf import settings
 from django.db import models
 
@@ -47,7 +48,11 @@ DIR_SORT_MATRIX = {
 }
 
 
-@cached(normalized_strings_cache)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
+# Both normalize_string_* functions share normalized_strings_cache, so their keys
+# must be namespaced by function: cachetools keys on arguments only, and a bare
+# hashkey(s) would let whichever function ran first poison the result for the
+# other (title lookups returning lowercase values, and vice versa).
+@cached(normalized_strings_cache, key=lambda s: hashkey("lower", s))  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
 def normalize_string_lower(s: str) -> str:
     """
     Normalize string to lowercase and strip whitespace.
@@ -61,7 +66,7 @@ def normalize_string_lower(s: str) -> str:
     return s.lower().strip()
 
 
-@cached(normalized_strings_cache)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
+@cached(normalized_strings_cache, key=lambda s: hashkey("title", s))  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
 def normalize_string_title(s: str) -> str:
     """
     Normalize string to title case and strip whitespace.

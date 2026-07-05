@@ -11,20 +11,19 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/stable/ref/settings/
 """
 
-from datetime import timedelta
-from dbtasks import Periodic
 import logging
 import logging.handlers
 import os
 import socket
+from datetime import timedelta
 from pathlib import Path
 
 import humanize
+from dbtasks import Periodic
 from django_htmx.jinja import django_htmx_script, htmx_script
 
-
-from quickbbs.quickbbs_settings import *  # intentional: re-exports all settings constants to this module
 from quickbbs import __version__ as QUICKBBS_VERSION
+from quickbbs.quickbbs_settings import *  # intentional: re-exports all settings constants to this module
 
 #
 #   Debug, enables the debugging mode
@@ -226,6 +225,7 @@ INSTALLED_APPS += [
     "django.contrib.staticfiles",
     "django.contrib.sessions",
     "django.contrib.messages",
+    "django.contrib.postgres",  # GinIndex/TrigramExtension for search trigram indexes
     "rest_framework",
     "django.contrib.sites",
     "django_jinja",
@@ -270,7 +270,9 @@ MIDDLEWARE = [
     "filetypes.middleware.FiletypeLoaderMiddleware",  # Load filetypes once per worker
     "django.middleware.cache.UpdateCacheMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    "compression_middleware.middleware.CompressionMiddleware",
+    # Async-safe wrapper: skips async streaming responses (file downloads),
+    # which the upstream stream compressors cannot iterate. See quickbbs/middleware.py.
+    "quickbbs.middleware.AsyncSafeCompressionMiddleware",
     "django.middleware.http.ConditionalGetMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",

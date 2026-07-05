@@ -4,19 +4,19 @@ FileIndex Model - Master index for all files in the gallery
 
 from __future__ import annotations
 
-import asyncio
-import io
 import logging
 import os
 import platform
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from asgiref.sync import sync_to_async
 from cachetools import cached
 from cachetools.keys import hashkey
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import models, transaction
 from django.db.models import Count
@@ -188,11 +188,16 @@ class FileIndex(models.Model):
         max_length=64,
     )  # This is the sha256 of the (file + fqfn)
 
-    lastscan = models.FloatField(db_index=True)  # Stored as Unix timestamp (seconds)
-    lastmod = models.FloatField(db_index=True)  # Stored as Unix timestamp (seconds)
-    name = models.CharField(max_length=384, default=None)  # indexed via Meta composite indexes
+    # lastscan/lastmod are never filtered or ordered on standalone (sorts always
+    # follow a home_directory filter), so they carry no index — this also allows
+    # HOT updates for the common mtime/size-only sync change.
+    lastscan = models.FloatField()  # Stored as Unix timestamp (seconds)
+    lastmod = models.FloatField()  # Stored as Unix timestamp (seconds)
+    name = models.CharField(max_length=384, default=None)  # indexed via Meta indexes (btree + trigram)
     # FQFN of the file itself
-    name_sort = NaturalSortField(for_field="name", max_length=384, default="")
+    # db_index=False: name_sort is only used in ORDER BY after a home_directory
+    # filter — a global index on it was never scanned (pg_stat, 2026-07-04).
+    name_sort = NaturalSortField(for_field="name", max_length=384, default="", db_index=False)
     duration = models.BigIntegerField(null=True)
     size = models.BigIntegerField(default=0)  # File size
 
@@ -210,15 +215,19 @@ class FileIndex(models.Model):
         default=None,
         related_name="Virtual_FileIndex",
     )
-    is_animated = models.BooleanField(default=False, db_index=True)
-    ignore = models.BooleanField(default=False, db_index=True)  # File is to be ignored
-    delete_pending = models.BooleanField(default=False, db_index=True)  # File is to be deleted,
-    cover_image = models.BooleanField(default=False, db_index=True)  # This image is the directory placard
+    is_animated = models.BooleanField(default=False)  # read as attribute, never filtered
+    ignore = models.BooleanField(default=False)  # File is to be ignored
+    # delete_pending=True rows are found via the partial fileindex_delete_pending_idx
+    # (Meta.indexes); delete_pending=False predicates ride the composite indexes.
+    delete_pending = models.BooleanField(default=False)  # File is to be deleted,
+    cover_image = models.BooleanField(default=False)  # This image is the directory placard
     filetype = models.ForeignKey(
         filetypes,
         to_field="fileext",
         on_delete=models.CASCADE,
-        db_index=True,
+        # db_index=False: fileindex_filetype_delete_idx leads on filetype_id and
+        # covers both query and FK-cascade lookups.
+        db_index=False,
         default=".none",
         related_name="file_filetype_data",
     )
@@ -325,27 +334,6 @@ class FileIndex(models.Model):
         """
         return FileIndex.objects.values("name", "home_directory__fqpndirectory").filter(file_sha256=sha)
 
-    @cached(fileindex_cache)
-    @staticmethod
-    def get_by_filters(
-        select_related: list[str],
-        additional_filters: dict[str, Any] | None = None,
-    ) -> "QuerySet[FileIndex]":
-        """
-        Return the files in the current directory, filtered by additional filters
-
-        Args:
-            select_related: List of related fields to select (required)
-            additional_filters: Additional filters to apply to the query
-
-        Returns: The filtered query of files
-        """
-        if select_related is None:
-            raise ValueError("select_related parameter is required")
-        if additional_filters is None:
-            additional_filters = {}
-        return FileIndex.objects.select_related(*select_related).filter(delete_pending=False, **additional_filters)
-
     @staticmethod
     def return_by_sha256_list(sha256_list: list[str], sort: int, select_related: list[str]) -> "QuerySet[FileIndex]":
         """
@@ -366,7 +354,7 @@ class FileIndex(models.Model):
         return files
 
     @staticmethod
-    def get_by_sha256(sha_value: str, unique: bool, select_related: list[str]) -> "FileIndex | None":
+    def get_by_sha256(sha_value: str, unique: bool, select_related: list[str] | tuple[str, ...]) -> "FileIndex | None":
         """
         Return the FileIndex object by SHA256.
 
@@ -378,7 +366,7 @@ class FileIndex(models.Model):
             sha_value: The SHA256 of the FileIndex object
             unique: If True, search by unique_sha256 (expects one result),
                     If False, search by file_sha256 (may return first of multiple)
-            select_related: List of related fields to select (required)
+            select_related: Related fields to select (required)
 
         Returns: FileIndex object or None if not found
         """
@@ -674,7 +662,9 @@ class FileIndex(models.Model):
                     chunk = records_to_update[i : i + bulk_size]
                     with transaction.atomic():
                         # Dynamic update field selection - only update fields that have changed
-                        update_fields = ["lastmod", "size", "home_directory"]
+                        # is_animated is included unconditionally: check_for_updates() can set
+                        # it, and omitting it here silently discards the change in bulk_update.
+                        update_fields = ["lastmod", "size", "home_directory", "is_animated"]
 
                         # Single pass to detect which optional fields need updating
                         has_movies = has_hashes = has_link_with_vdir = False
@@ -812,11 +802,11 @@ class FileIndex(models.Model):
 
             # Common resolution logic (once)
             if redirect_path:
-                found, virtual_dir = DirectoryIndex.search_for_directory(redirect_path)
-                if not found:
-                    found, virtual_dir = DirectoryIndex.add_directory(redirect_path)
+                success, virtual_dir = DirectoryIndex.search_for_directory(redirect_path)
+                if not success:
+                    success, virtual_dir = DirectoryIndex.add_directory(redirect_path)
 
-                if found and virtual_dir is not None:
+                if success and virtual_dir is not None:
                     return virtual_dir
 
                 logger.warning("Skipping link with broken target: %s → %s", filename, redirect_path)
@@ -957,10 +947,13 @@ class FileIndex(models.Model):
     def get_download_url(self) -> str:
         """Generate the URL for downloading the current database item.
 
+        The filename is percent-encoded — names containing characters like
+        ``#``, ``?``, or ``%`` would otherwise produce broken URLs.
+
         Returns:
             URL string for this item's download endpoint
         """
-        return reverse("download_file") + self.name + f"?usha={self.unique_sha256}"
+        return reverse("download_file") + quote(self.name, safe="") + f"?usha={self.unique_sha256}"
 
     def get_content_html(self, _webpath: str) -> str:
         """
@@ -1008,8 +1001,9 @@ class FileIndex(models.Model):
             # Ranged request for video streaming
             try:
                 # SECURITY: Sanitize filename to prevent header injection
-                from frontend.serve_up import open_sized_file
                 from ranged_fileresponse import RangedFileResponse
+
+                from frontend.serve_up import open_sized_file
 
                 safe_filename = sanitize_filename_for_http(self.name)
                 response = RangedFileResponse(
@@ -1024,76 +1018,49 @@ class FileIndex(models.Model):
         response["Content-Type"] = mtype
         return response
 
-    async def async_inline_sendfile(self, request: Any, ranged: bool = False) -> Any:
+    async def async_inline_sendfile(self, request: Any, ranged: bool = False) -> Any:  # pylint: disable=unused-argument
         """
         Helper function to send data to remote (ASGI async version).
 
-        Uses aiofiles for true async file I/O to avoid sync iterator warnings.
-        For non-ranged requests, loads file into memory for optimal async serving.
-        For ranged requests (videos), uses sync file handle as RangedFileResponse
-        requires seekable files.
+        All requests are served by build_async_ranged_response, which streams
+        the file through an aiofiles async generator in 64 KB chunks, so worker
+        memory stays flat regardless of file size. Requests without a Range
+        header get a streaming 200; requests with a valid Range header get a
+        206 Partial Content.
 
         Args:
             request: Django request object
-            ranged: Whether to support HTTP range requests for video streaming
+            ranged: Unused; retained for signature compatibility with
+                inline_sendfile. Range headers are honored regardless.
 
         Returns:
-            FileResponse or RangedFileResponse with file content
+            StreamingHttpResponse (200 or 206) streaming the file content
 
         Raises:
             Http404: If file not found
-            asyncio.CancelledError: Re-raised if client disconnects (file handle cleaned up)
         """
         mtype = self.filetype.mimetype or "application/octet-stream"
-        file_handle = None
 
         # SECURITY: Sanitize filename to prevent header injection
         safe_filename = sanitize_filename_for_http(self.name)
 
+        # Deferred: frontend.serve_up imports back into quickbbs modules
+        # pylint: disable-next=import-outside-toplevel
+        from frontend.serve_up import build_async_ranged_response
+
         try:
-            if not ranged:
-                # Non-ranged: Load file async and serve from memory (eliminates sync iterator warning)
-                import aiofiles
-
-                async with aiofiles.open(self.full_filepathname, "rb") as f:
-                    content = await f.read()
-
-                response = FileResponse(
-                    io.BytesIO(content),
-                    content_type=mtype,
-                    as_attachment=False,
-                    filename=safe_filename,
-                )
-            else:
-                # Ranged video streaming — use fully async generator response.
-                # RangedFileResponse wraps a sync iterator; under ASGI Django
-                # materialises the whole iterator via sync_to_async(list) before
-                # yielding, loading the entire file into memory.
-                # build_async_ranged_response uses aiofiles to yield 64 KB chunks
-                # asynchronously, so memory usage stays flat regardless of file size.
-                from frontend.serve_up import build_async_ranged_response
-
-                file_size = await sync_to_async(os.path.getsize)(self.full_filepathname)
-                return build_async_ranged_response(
-                    request=request,
-                    path=self.full_filepathname,
-                    file_size=file_size,
-                    content_type=mtype,
-                    filename=safe_filename,
-                    expiration=settings.HTTP_CACHE_MAX_AGE,
-                )
-
-            response["Cache-Control"] = f"public, max-age={settings.HTTP_CACHE_MAX_AGE}"
-            return response
-
+            file_size = await sync_to_async(os.path.getsize)(self.full_filepathname)
         except FileNotFoundError as exc:
-            if file_handle is not None:
-                file_handle.close()
             raise Http404 from exc
-        except asyncio.CancelledError:
-            if file_handle is not None:
-                file_handle.close()
-            raise
+
+        return build_async_ranged_response(
+            request=request,
+            path=self.full_filepathname,
+            file_size=file_size,
+            content_type=mtype,
+            filename=safe_filename,
+            expiration=settings.HTTP_CACHE_MAX_AGE,
+        )
 
     def check_for_updates(
         self,
@@ -1149,9 +1116,11 @@ class FileIndex(models.Model):
                         self.virtual_directory = virtual_dir
                         update_needed = True
 
-                # Use precomputed hash if available, otherwise calculate
+                # Use precomputed hash if available, otherwise calculate.
+                # A failed batch hash arrives as (None, None) — treat it the same
+                # as "no precomputed value" so we don't flag a no-op update.
                 if not self.file_sha256:
-                    if precomputed_sha:
+                    if precomputed_sha and precomputed_sha[0]:
                         self.file_sha256, self.unique_sha256 = precomputed_sha
                         update_needed = True
                     else:
@@ -1159,7 +1128,10 @@ class FileIndex(models.Model):
                         if self.file_sha256 is not None:
                             update_needed = True
 
-                if self.home_directory != home_directory:
+                # Compare by FK id — comparing the objects would lazy-load the
+                # DirectoryIndex row (not in the caller's select_related), one
+                # query per synced file.
+                if self.home_directory_id != home_directory.pk:
                     self.home_directory = home_directory
                     update_needed = True
 
@@ -1357,24 +1329,34 @@ class FileIndex(models.Model):
         # that legacy means that there would be tremendous pain in duplication of data.  So for now,
         # we will just check if the resolved path exists, and if not, we will try replacing spaces with underscores.
         # If that works, then we will return that modified path instead.  Otherwise, we return the original resolved path.
+        #
+        # Note: the existence checks assume all media is already mounted (see the
+        # WithoutMounting resolution option above) — alias targets never live on
+        # volumes that need mounting, so a missing path means the file is really
+        # gone (or renamed by the copier), not that a volume is offline.
 
         if resolved_url:
             if os.path.exists(resolved_url):
                 return resolved_url
-            resolved_url = resolved_url.replace(" ", "_")
+            # resolved_url is known missing here — try the legacy underscored name
+            candidate = resolved_url.replace(" ", "_")
+            if os.path.exists(candidate):
+                return candidate
 
         return resolved_url
 
     class Meta:
         verbose_name = "Master Files Index"
         verbose_name_plural = "Master Files Index"
+        # Index set pruned 2026-07-04 against pg_stat_user_indexes evidence
+        # (see claude_docs/plans/fable_optimizations-2.md Opt 2a). Removed as
+        # never/rarely scanned: (home_directory, delete_pending),
+        # (unique_sha256, delete_pending), (name, delete_pending) — lookups use
+        # the plain FK index, the unique_sha256 unique index, and
+        # quickbbs_fileindex_name_idx respectively.
         indexes = [
-            models.Index(fields=["home_directory", "delete_pending"]),
             models.Index(fields=["file_sha256", "delete_pending"]),
-            models.Index(fields=["unique_sha256", "delete_pending"]),
             models.Index(fields=["name"], name="quickbbs_fileindex_name_idx"),
-            # Composite indexes for common query patterns
-            models.Index(fields=["name", "delete_pending"], name="fileindex_name_delete_idx"),
             models.Index(fields=["filetype", "delete_pending"], name="fileindex_filetype_delete_idx"),
             # Performance optimization: Partial index for thumbnail linking queries
             # Speeds up: FileIndex.objects.filter(file_sha256=sha, new_ftnail__isnull=True).exists()
@@ -1389,4 +1371,15 @@ class FileIndex(models.Model):
                 fields=["home_directory", "filetype", "delete_pending"],
                 name="fileindex_home_type_delete_idx",
             ),
+            # Partial index for scan's delete_pending=True cleanup pass — the
+            # pending set is tiny, so this replaces the 24 MB full-column index.
+            models.Index(
+                fields=["id"],
+                name="fileindex_delete_pending_idx",
+                condition=models.Q(delete_pending=True),
+            ),
+            # Trigram index: serves search's name__iregex / name__icontains
+            # (frontend/views.py _safe_regex_search) — previously a 1.3 s
+            # parallel seq scan over 1.8M rows per search query.
+            GinIndex(fields=["name"], name="fileindex_name_trgm_idx", opclasses=["gin_trgm_ops"]),
         ]

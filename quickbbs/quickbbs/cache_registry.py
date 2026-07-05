@@ -36,6 +36,24 @@ layout_manager_cache = create_cache(
     monitored=settings.CACHE_MONITORING,
 )
 
+# Per-directory subdirectory counts (item-view "up" link page locale)
+# Cache key: hashkey(directory_pk)
+dir_counts_cache = create_cache(
+    settings.DIR_COUNTS_CACHE_SIZE,
+    "dir_counts",
+    monitored=settings.CACHE_MONITORING,
+)
+
+# Ordered sibling-directory lists per parent directory (prev/next navigation
+# and layout_manager page_locale computation)
+# Cache key: hashkey(parent_pk, sort)
+# Cache value: ordered list of (dir_fqpn_sha256, fqpndirectory) tuples
+sibling_dirs_cache = create_cache(
+    settings.SIBLING_DIRS_CACHE_SIZE,
+    "sibling_dirs",
+    monitored=settings.CACHE_MONITORING,
+)
+
 
 # ---------------------------------------------------------------------------
 # Cache invalidation
@@ -44,8 +62,8 @@ layout_manager_cache = create_cache(
 
 def clear_layout_cache_for_directories(directory_ids: set[int]) -> int:
     """
-    Clear layout_manager_cache and distinct_files_cache entries for one or more
-    directories.
+    Clear layout_manager_cache, distinct_files_cache, dir_counts_cache, and
+    sibling_dirs_cache entries for one or more directories.
 
     Shared function to ensure consistent cache clearing across:
     - Cache watcher during filesystem invalidation
@@ -55,7 +73,7 @@ def clear_layout_cache_for_directories(directory_ids: set[int]) -> int:
         directory_ids: Set of directory PKs to clear cache for
 
     Returns:
-        Number of cache entries cleared (combined from both caches)
+        Number of cache entries cleared (combined from all caches)
     """
     if not directory_ids:
         return 0
@@ -74,8 +92,15 @@ def clear_layout_cache_for_directories(directory_ids: set[int]) -> int:
     # Django models with same PK hash equally, so a stub instance matches cached entries
     for pk in directory_ids:
         stub = DirectoryIndex(pk=pk)
+        # dir_counts_cache: keyed hashkey(directory_pk)
+        if dir_counts_cache.pop(hashkey(pk), None) is not None:
+            count += 1
         for sort in range(3):
             if distinct_files_cache.pop(hashkey(stub, sort), None) is not None:
+                count += 1
+            # sibling_dirs_cache: keyed hashkey(parent_pk, sort) — the pk being
+            # invalidated is the parent of the cached sibling list
+            if sibling_dirs_cache.pop(hashkey(pk, sort), None) is not None:
                 count += 1
 
     # layout_manager_cache: scan keys (page_number is unbounded, can't construct keys)

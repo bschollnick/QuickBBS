@@ -28,30 +28,31 @@ v3 - Pilot changing the thumbnail storage to be a single table, with the small, 
 
 from __future__ import annotations
 
-import asyncio
 import io
 import logging
 from typing import TYPE_CHECKING
 
-from asgiref.sync import sync_to_async
-from cachetools import cached
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import connection, models, transaction
 from django.db.models import Q
-from django.db.utils import DatabaseError, IntegrityError, OperationalError
-
 from PIL import Image
+
 from frontend.serve_up import send_file_response
-from quickbbs.MonitoredCache import create_cache
 from quickbbs.cache_registry import clear_layout_cache_for_directories
-from thumbnails.exceptions import MediaProcessingError, OrphanedFileIndex, OrphanedThumbnail, ThumbnailGenerationError, UnsupportedFormatError
+from thumbnails.exceptions import (
+    MediaProcessingError,
+    OrphanedFileIndex,
+    OrphanedThumbnail,
+    ThumbnailGenerationError,
+    UnsupportedFormatError,
+)
 from thumbnails.thumbnail_engine import create_thumbnails_from_path
 
 if TYPE_CHECKING:
-    from PIL import Image
     from django.db.models import QuerySet
     from django.db.models.manager import RelatedManager
+    from PIL import Image
 
     from quickbbs.models import DirectoryIndex, FileIndex
 
@@ -87,9 +88,6 @@ ThumbnailFiles_Bulk_Prefetch_List = [
 # Minimal - one FileIndex with filetype (for path and graphic check)
 THUMBNAILFILES_PR_FILEINDEX_FILETYPE = ("FileIndex__filetype",)
 
-# Async-safe cache for thumbnail lookups
-thumbnailfiles_cache = create_cache(settings.THUMBNAILFILES_CACHE_SIZE, "thumbnailfiles", monitored=settings.CACHE_MONITORING)
-
 # Empty-value sentinel for thumbnail existence checks (avoids per-call list creation)
 _EMPTY_THUMB_VALUES = ("", b"", None)
 
@@ -114,9 +112,11 @@ class ThumbnailFiles(models.Model):
         default=None,
         max_length=64,
     )
-    small_thumb = models.BinaryField(default=b"", null=True)
-    medium_thumb = models.BinaryField(default=b"", null=True)
-    large_thumb = models.BinaryField(default=b"", null=True)
+    # NULL is the only representation of "no thumbnail data" — b"" is
+    # forbidden by the thumbnails_no_empty_blobs constraint below.
+    small_thumb = models.BinaryField(default=None, null=True)
+    medium_thumb = models.BinaryField(default=None, null=True)
+    large_thumb = models.BinaryField(default=None, null=True)
 
     # Reverse ForeignKey relationship
     FileIndex: "RelatedManager[FileIndex]"  # From FileIndex.new_ftnail
@@ -124,32 +124,37 @@ class ThumbnailFiles(models.Model):
     class Meta:
         verbose_name = "Image File Thumbnails Cache"
         verbose_name_plural = "Image File Thumbnails Cache"
+        # Index set pruned 2026-07-04 against pg_stat_user_indexes evidence
+        # (see claude_docs/plans/fable_optimizations-2.md Opt 2b). Removed:
+        # thumbnails_sha256_lookup_idx (duplicate of the sha256_hash unique
+        # index, which equality lookups now use) and the never-scanned
+        # has_medium/has_large partials (nothing queries medium/large-blob
+        # existence — only small_thumb drives generation decisions).
         indexes = [
-            # Optimize SHA256 lookups with partial index
-            models.Index(
-                fields=["sha256_hash"],
-                name="thumbnails_sha256_lookup_idx",
-                condition=models.Q(sha256_hash__isnull=False),
-            ),
-            # Optimize thumbnail existence checks
+            # Small-thumbnail existence checks (generate_missing_thumbnails
+            # pre-filter: sha256_hash__in=... AND small_thumb IS NOT NULL).
             models.Index(
                 fields=["sha256_hash"],
                 name="thumbnails_has_small_idx",
                 condition=models.Q(small_thumb__isnull=False) & ~models.Q(small_thumb=b""),
             ),
+            # Missing-thumbnail lookups: lets get_files_needing_thumbnail_shas
+            # read the (tiny) set of thumbnail ids awaiting generation instead
+            # of probing this table once per file in a directory.
             models.Index(
-                fields=["sha256_hash"],
-                name="thumbnails_has_medium_idx",
-                condition=models.Q(medium_thumb__isnull=False) & ~models.Q(medium_thumb=b""),
-            ),
-            models.Index(
-                fields=["sha256_hash"],
-                name="thumbnails_has_large_idx",
-                condition=models.Q(large_thumb__isnull=False) & ~models.Q(large_thumb=b""),
+                fields=["id"],
+                name="thumbnails_small_missing_idx",
+                condition=models.Q(small_thumb__isnull=True),
             ),
         ]
-        # Note: Constraints can be added later after cleaning up existing data
-        # constraints = []
+        constraints = [
+            # NULL is the only "no thumbnail data" state; a stray b"" write
+            # would silently escape thumbnails_small_missing_idx, so fail loudly.
+            models.CheckConstraint(
+                name="thumbnails_no_empty_blobs",
+                condition=~models.Q(small_thumb=b"") & ~models.Q(medium_thumb=b"") & ~models.Q(large_thumb=b""),
+            ),
+        ]
 
     @staticmethod
     def get_or_create_thumbnail_record(
@@ -188,7 +193,9 @@ class ThumbnailFiles(models.Model):
         if select_related_fileindex is None:
             raise ValueError("select_related_fileindex parameter is required")
 
-        from quickbbs.models import FileIndex  # inline: circular import (fileindex.py → thumbnails.models)
+        from quickbbs.models import (
+            FileIndex,  # inline: circular import (fileindex.py → thumbnails.models)
+        )
 
         # MEMORY MANAGEMENT NOTE:
         # Periodic cache clearing was removed because it conflicts with CIContext recycling.
@@ -196,9 +203,8 @@ class ThumbnailFiles(models.Model):
         # Clearing caches more frequently (every 100) prevents the recycling from working
         # and causes GPU memory accumulation from repeated CIContext recreations.
         #
-        # Cache clearing still happens:
-        # 1. After batch operations (batch_create_async)
-        # 2. Automatically via CIContext recycling (every 500 operations)
+        # Cache clearing still happens automatically via CIContext recycling
+        # (every 500 operations).
         #
         # This provides sufficient memory management without the overhead and GPU memory
         # issues caused by too-frequent cache clearing.
@@ -220,9 +226,9 @@ class ThumbnailFiles(models.Model):
 
             defaults = {
                 "sha256_hash": file_sha256,
-                "small_thumb": b"",
-                "medium_thumb": b"",
-                "large_thumb": b"",
+                "small_thumb": None,
+                "medium_thumb": None,
+                "large_thumb": None,
             }
             thumbnail, created = ThumbnailFiles.objects.prefetch_related(*prefetch_related_thumbnail).get_or_create(
                 sha256_hash=file_sha256, defaults=defaults
@@ -237,7 +243,9 @@ class ThumbnailFiles(models.Model):
             # Skip refresh on fresh creates — no other process could have modified a record
             # that didn't exist until this transaction.
             if not created:
-                thumbnail.refresh_from_db()
+                # Only the blob columns can change under us; a full-row
+                # refresh would reload all three blobs plus every other field.
+                thumbnail.refresh_from_db(fields=["small_thumb", "medium_thumb", "large_thumb"])
             if thumbnail.thumbnail_exists():
                 return thumbnail
 
@@ -392,9 +400,6 @@ class ThumbnailFiles(models.Model):
                     # )
                     FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
 
-                    # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
-                    thumbnailfiles_cache.pop(file_sha256, None)
-
                     return thumbnail
 
                 thumbnail.small_thumb = thumbnails["small"]
@@ -411,9 +416,6 @@ class ThumbnailFiles(models.Model):
                     # print(f"Thumbnail creation succeeded on retry for {index_data_item.name}, " f"turning off generic flag for all instances")
                     FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=False, clear_cache=True)
 
-                    # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
-                    thumbnailfiles_cache.pop(file_sha256, None)
-
             except FileNotFoundError as e:
                 # File was moved or deleted — mark this specific FileIndex as delete_pending
                 # rather than marking ALL files with this SHA256 as generic.
@@ -426,9 +428,6 @@ class ThumbnailFiles(models.Model):
                 if index_data_item.home_directory_id:
                     clear_layout_cache_for_directories({index_data_item.home_directory_id})
 
-                # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
-                thumbnailfiles_cache.pop(file_sha256, None)
-
             except MediaProcessingError as e:
                 # File exists but could not be loaded as an image (corrupt, wrong format, etc.)
                 # Log at WARNING (not ERROR) since this is a data issue, not a code issue.
@@ -439,19 +438,15 @@ class ThumbnailFiles(models.Model):
                 )
                 if not index_data_item.is_generic_icon:
                     FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
-                    thumbnailfiles_cache.pop(file_sha256, None)
 
-            except (
-                Exception
-            ) as e:  # TODO: narrow to (OSError, RuntimeError, ValueError) once thumbnail backend exception types are fully catalogued across PIL/PyMuPDF/ffmpeg
+            # TODO: narrow to (OSError, RuntimeError, ValueError) once thumbnail backend
+            # exception types are fully catalogued across PIL/PyMuPDF/ffmpeg
+            except Exception as e:
                 # Any error during thumbnail creation - mark ALL files with this SHA256 as generic
                 # Use FileIndex classmethod to ensure layout cache is cleared
                 logger.exception("Thumbnail creation failed for %s: %s", index_data_item.name, e)
                 if not index_data_item.is_generic_icon:
                     FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
-
-                    # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
-                    thumbnailfiles_cache.pop(file_sha256, None)
 
             return thumbnail
 
@@ -462,45 +457,11 @@ class ThumbnailFiles(models.Model):
         Returns:
             Count of FileIndex objects referencing this thumbnail
         """
-        from quickbbs.models import FileIndex  # inline: circular import (fileindex.py → thumbnails.models)
+        from quickbbs.models import (
+            FileIndex,  # inline: circular import (fileindex.py → thumbnails.models)
+        )
 
         return FileIndex.objects.filter(file_sha256=self.sha256_hash).count()
-
-    @classmethod
-    @cached(thumbnailfiles_cache)
-    def get_thumbnail_by_sha(cls, sha256: str, prefetch_related: tuple[str, ...]) -> "ThumbnailFiles":
-        """
-        Get thumbnail object by SHA256 hash with optimized caching.
-
-        Args:
-            sha256: SHA256 hash of the file
-            prefetch_related: Tuple of related fields to prefetch (must be a tuple,
-                not a list, so it is hashable and usable as a cache key)
-
-        Returns:
-            ThumbnailFiles object for the specified hash
-        """
-        if prefetch_related is None:
-            raise ValueError("prefetch_related parameter is required")
-        return cls.objects.prefetch_related(*prefetch_related).get(sha256_hash=sha256)
-
-    @classmethod
-    def get_thumbnails_by_sha_list(cls, sha256_list: list[str], prefetch_related: list[str] | tuple[str, ...]) -> dict[str, "ThumbnailFiles"]:
-        """
-        Get multiple thumbnails by SHA256 hash list to avoid N+1 queries.
-
-        Args:
-            sha256_list: List of SHA256 hashes
-            prefetch_related: Related fields to prefetch (required)
-
-        Returns:
-            Dictionary mapping SHA256 hash to ThumbnailFiles object
-        """
-        if prefetch_related is None:
-            raise ValueError("prefetch_related parameter is required")
-        thumbnails = cls.objects.prefetch_related(*prefetch_related).filter(sha256_hash__in=sha256_list)
-
-        return {thumb.sha256_hash: thumb for thumb in thumbnails}
 
     def thumbnail_exists(self, size: str = "small") -> bool:
         """
@@ -525,7 +486,8 @@ class ThumbnailFiles(models.Model):
         """
         Clear all thumbnail data for regeneration.
 
-        Sets all thumbnail binary fields (small, medium, large) to empty byte strings.
+        Sets all thumbnail binary fields (small, medium, large) to None —
+        NULL is the canonical "no thumbnail data" state.
         Does not save the object - call save() explicitly after invalidation.
 
         Returns:
@@ -540,12 +502,9 @@ class ThumbnailFiles(models.Model):
             >>> thumbnail.invalidate_thumb()
             >>> thumbnail.save()
         """
-        self.small_thumb = b""
-        self.medium_thumb = b""
-        self.large_thumb = b""
-
-        # Clear LRUCache entry for this SHA256 to avoid serving stale cached data
-        thumbnailfiles_cache.pop(self.sha256_hash, None)
+        self.small_thumb = None
+        self.medium_thumb = None
+        self.large_thumb = None
 
     def retrieve_sized_tnail(self, size: str = "small") -> bytes:
         """
@@ -555,9 +514,10 @@ class ThumbnailFiles(models.Model):
             size: The size string (small, medium, or large)
 
         Returns:
-            Binary blob containing the image data for the specified size
+            Binary blob containing the image data for the specified size,
+            or b"" when no thumbnail has been generated (column is NULL).
         """
-        blobdata = b""
+        blobdata: bytes | memoryview | None = b""
         match size.lower():
             case "small":
                 blobdata = self.small_thumb
@@ -565,7 +525,7 @@ class ThumbnailFiles(models.Model):
                 blobdata = self.medium_thumb
             case "large":
                 blobdata = self.large_thumb
-        return blobdata
+        return bytes(blobdata) if blobdata else b""
 
     def send_thumbnail(
         self,
@@ -628,125 +588,42 @@ class ThumbnailFiles(models.Model):
             expiration=300,
         )
 
-    # NOTE: Future optimization opportunity
-    # Current implementation uses asyncio.gather() which doesn't parallelize CPU-bound
-    # image processing operations. If batch thumbnail generation becomes slow, consider
-    # implementing a singleton ProcessPoolExecutor pattern similar to the SHA256 pool
-    # in frontend/utilities.py:46-169. This would parallelize PIL/PyMuPDF operations
-    # across multiple CPU cores while maintaining proper cleanup.
-    @classmethod
-    async def batch_create_async(cls, sha256_list: list[str], batchsize: int = 100, max_workers: int = 4) -> dict[str, bool]:
-        """
-        Batch create thumbnails asynchronously with controlled concurrency.
-
-        This method processes multiple thumbnails in parallel using asyncio tasks,
-        with batching to limit concurrent operations and avoid overwhelming the system.
-
-        MEMORY MANAGEMENT: Clears backend caches after batch completion to release
-        accumulated resources (especially important for Core Image on macOS).
-
-        :Args:
-            sha256_list: List of SHA256 hashes to create thumbnails for
-            batchsize: Maximum number of thumbnails to process (default: 100)
-            max_workers: Maximum number of concurrent tasks (default: 4)
-
-        Returns:
-            Dictionary mapping SHA256 hash to success status (True/False)
-
-        Example:
-            >>> results = await ThumbnailFiles.batch_create_async(['abc123', 'def456'], max_workers=6)
-            >>> results
-            {'abc123': True, 'def456': False}
-        """
-        if not sha256_list:
-            return {}
-
-        # Limit to batchsize
-        sha256_list = sha256_list[:batchsize]
-
-        logger.info("Processing %d thumbnails with %d concurrent tasks", len(sha256_list), max_workers)
-
-        results = {}
-
-        # Process in batches to limit concurrency
-        for i in range(0, len(sha256_list), max_workers):
-            batch = sha256_list[i : i + max_workers]
-            tasks = [cls._process_single_thumbnail_async(sha256) for sha256 in batch]
-            batch_results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            for sha256, result in zip(batch, batch_results):
-                if isinstance(result, Exception):
-                    logger.error("Task execution error for %s: %s", sha256, result)
-                    results[sha256] = False
-                else:
-                    success, _, _ = result
-                    results[sha256] = success
-
-        successful_count = sum(1 for v in results.values() if v)
-        if successful_count > 0:
-            logger.info("Successfully processed %d/%d thumbnails", successful_count, len(sha256_list))
-
-        return results
-
-    @classmethod
-    @sync_to_async
-    def _process_single_thumbnail_async(cls, sha256: str) -> tuple[bool, str, "ThumbnailFiles | None"]:
-        """
-        Process a single thumbnail with proper Django database handling (async wrapper).
-
-        :Args:
-            sha256: SHA256 hash of the file to create thumbnail for
-
-        Returns:
-            Tuple of (success, sha256, thumbnail) where success is bool,
-            sha256 is the file hash, and thumbnail is the ThumbnailFiles object or None
-        """
-        try:
-            with transaction.atomic():
-                thumbnail = cls.get_or_create_thumbnail_record(
-                    sha256,
-                    suppress_save=False,
-                    prefetch_related_thumbnail=THUMBNAILFILES_PR_FILEINDEX_FILETYPE,
-                    select_related_fileindex=("filetype",),
-                )
-            return True, sha256, thumbnail
-        except (OrphanedThumbnail, OrphanedFileIndex) as exc:
-            logger.warning("Deleting orphaned thumbnail for %s: %s", sha256, exc)
-            exc.thumbnail.delete()
-            return False, sha256, None
-        except IntegrityError as e:
-            logger.error("Integrity error creating thumbnail for %s: %s", sha256, e)
-            return False, sha256, None
-        except (DatabaseError, OperationalError) as e:
-            logger.error("Database error creating thumbnail for %s: %s", sha256, e)
-            return False, sha256, None
-
+    # Batch thumbnail generation lives in quickbbs.tasks.generate_missing_thumbnails
+    # (suppress_save=True + one bulk_update). Image decode there is sequential by
+    # design: ThreadPoolExecutor with the ORM is forbidden (see
+    # .claude/critical-runtime.md) and ProcessPoolExecutor cannot spawn from the
+    # daemon worker threads that run tasks (see quickbbs/common.py).
     @classmethod
     def get_files_needing_thumbnail_shas(cls, directory: "DirectoryIndex", sort_ordering: int) -> "QuerySet":
         """
         Return a queryset of file SHA256 hashes that don't have valid thumbnails.
 
-        Checks for both missing ThumbnailFiles links and empty thumbnail records:
-        1. Files with no ThumbnailFiles link (new_ftnail__isnull=True)
-        2. Files linked to ThumbnailFiles records with empty small_thumb blobs
+        A file needs a thumbnail when either:
+        1. It has no ThumbnailFiles link (``new_ftnail__isnull=True``), or
+        2. Its linked ThumbnailFiles row has ``small_thumb`` NULL — the canonical
+           "no thumbnail data" state (a record is linked before generation
+           completes; see get_or_create_thumbnail_record).
 
-        This handles the case where a FileIndex is linked to a ThumbnailFiles record
-        before thumbnail generation completes (see get_or_create_thumbnail_record).
+        The NULL condition is evaluated as a subquery over the
+        ``thumbnails_small_missing_idx`` partial index, so the planner hashes
+        the (tiny) set of missing-thumbnail ids instead of probing the
+        thumbnails table once per file in the directory.
 
         Returns a queryset (not a list) to allow caller flexibility:
         - Slice for batch processing: ``qs[:limit]``
         - Count without materialising: ``qs.count()``
         - Existence check: ``qs.exists()``
 
-        :Args:
+        Args:
             directory: DirectoryIndex object whose files to check
             sort_ordering: Sort order to apply to the file query
 
         Returns:
             QuerySet of file_sha256 values for files needing thumbnail generation.
         """
+        missing_thumb_ids = cls.objects.filter(small_thumb__isnull=True).values("id")
         return (
             directory.files_in_dir(sort=sort_ordering, fields_only=("file_sha256",), select_related=())
-            .filter(Q(new_ftnail__isnull=True) | Q(new_ftnail__small_thumb__in=[b"", None]))
+            .filter(Q(new_ftnail__isnull=True) | Q(new_ftnail_id__in=missing_thumb_ids))
             .values_list("file_sha256", flat=True)
         )
