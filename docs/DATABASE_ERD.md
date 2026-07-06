@@ -1,79 +1,69 @@
 # QuickBBS Database Entity Relationship Diagram
 
-This ERD shows all database models and their relationships in the QuickBBS gallery application.
+This ERD shows the QuickBBS application models and their relationships, generated from the current codebase (2026-07-06, post-migration `quickbbs.0040` which removed the unused `file_links` M2M).
 
 ```mermaid
 erDiagram
-    %% Core Gallery Models
-    DirectoryIndex ||--o{ FileIndex : "contains (home_directory)"
-    DirectoryIndex ||--o{ FileIndex : "virtual_directory"
-    DirectoryIndex ||--o| FileIndex : "thumbnail"
-    DirectoryIndex }o--o{ FileIndex : "file_links (M2M)"
-    DirectoryIndex ||--o{ DirectoryIndex : "parent_directory (self)"
-    DirectoryIndex ||--|| filetypes : "filetype"
-
-    %% File Models
-    FileIndex ||--|| filetypes : "filetype"
-    FileIndex ||--o| ThumbnailFiles : "new_ftnail"
-    FileIndex ||--o| Owners : "ownership"
-
-    %% Cache Tracking
-    DirectoryIndex ||--|| fs_Cache_Tracking : "Cache_Watcher"
+    %% Core Gallery Relationships
+    DirectoryIndex |o--o{ FileIndex : "contains (home_directory)"
+    DirectoryIndex |o--o{ FileIndex : "link target (virtual_directory)"
+    FileIndex |o--o{ DirectoryIndex : "cover image (thumbnail)"
+    DirectoryIndex |o--o{ DirectoryIndex : "parent_directory (self)"
+    filetypes ||--o{ DirectoryIndex : "filetype"
+    filetypes ||--o{ FileIndex : "filetype"
 
     %% Thumbnail Storage
-    ThumbnailFiles ||--o{ FileIndex : "thumbnail links"
+    ThumbnailFiles |o--o{ FileIndex : "new_ftnail"
 
-    %% User & Preferences
-    User ||--|| Owners : "ownerdetails"
-    User ||--|| UserPreferences : "preferences"
+    %% Cache Tracking
+    DirectoryIndex ||--o| fs_Cache_Tracking : "Cache_Watcher (1:1)"
 
-    %% Favorites (stub model)
-    Favorites {
-        int id PK
-        uuid uuid
-    }
+    %% User & Ownership
+    User ||--o| Owners : "ownerdetails (1:1)"
+    Owners ||--o| FileIndex : "ownership (1:1)"
+    User ||--o| UserPreferences : "user (1:1)"
 
     %% Core Directory Model
     DirectoryIndex {
-        int id PK
-        string fqpndirectory UK "fully qualified pathname"
+        bigint id PK
+        string fqpndirectory UK "fully qualified pathname, normalized"
         string dir_fqpn_sha256 UK "sha256 of directory path"
-        int parent_directory FK "self-referential"
+        bigint parent_directory FK "self-referential, SET_NULL"
         float lastscan "Unix timestamp"
         float lastmod "Unix timestamp"
-        string name_sort "natural sort field"
+        string name_sort "NaturalSortField over fqpndirectory"
         bool is_generic_icon
-        bool delete_pending
-        string filetype FK "to filetypes.fileext"
-        int thumbnail FK "to FileIndex"
+        bool delete_pending "soft-delete flag"
+        string filetype FK "to filetypes.fileext, always .dir"
+        int thumbnail FK "to FileIndex (cover image), SET_NULL"
     }
 
     %% Core File Model
     FileIndex {
         int id PK
-        string file_sha256 "file content hash"
-        string unique_sha256 UK "file + path hash"
+        string file_sha256 "content hash (nullable, duplicates share)"
+        string unique_sha256 UK "content + path hash (nullable)"
         float lastscan "Unix timestamp"
         float lastmod "Unix timestamp"
         string name "filename"
-        string name_sort "natural sort field"
-        bigint duration
-        bigint size
-        int home_directory FK "to DirectoryIndex"
-        int virtual_directory FK "to DirectoryIndex"
-        bool is_animated
+        string name_sort "NaturalSortField over name"
+        bigint duration "video duration (nullable)"
+        bigint size "file size in bytes"
+        bigint home_directory FK "to DirectoryIndex, SET_NULL"
+        bigint virtual_directory FK "to DirectoryIndex (link target), SET_NULL"
+        bool is_animated "animated GIF flag"
         bool ignore
-        bool delete_pending
-        bool cover_image
-        string filetype FK "to filetypes.fileext"
+        bool delete_pending "soft-delete flag"
+        bool cover_image "flagged directory cover"
+        string filetype FK "to filetypes.fileext, CASCADE"
         bool is_generic_icon
-        int new_ftnail FK "to ThumbnailFiles"
-        int ownership FK "to Owners"
+        bigint new_ftnail FK "to ThumbnailFiles, SET_NULL"
+        int ownership FK "OneToOne to Owners, CASCADE"
     }
 
     %% File Type Definitions
     filetypes {
-        string fileext PK ".ext with dot"
+        string fileext PK "extension with dot, e.g. .jpg"
         bool generic
         string icon_filename
         string color
@@ -89,13 +79,13 @@ erDiagram
         bool is_html
         bool is_markdown
         bool is_link
-        blob thumbnail
+        blob thumbnail "generic icon data"
     }
 
     %% Thumbnail Storage
     ThumbnailFiles {
-        int id PK
-        string sha256_hash UK "file sha256"
+        bigint id PK
+        string sha256_hash UK "file content sha256"
         blob small_thumb
         blob medium_thumb
         blob large_thumb
@@ -103,27 +93,45 @@ erDiagram
 
     %% Cache Tracking
     fs_Cache_Tracking {
-        int id PK
+        bigint id PK
         float lastscan "Unix timestamp"
         bool invalidated
-        string directory UK "FK to DirectoryIndex.dir_fqpn_sha256"
+        bigint directory FK "OneToOne to DirectoryIndex, CASCADE"
+    }
+
+    %% Cache Statistics (standalone, no relationships)
+    CacheStatisticsTracking {
+        bigint id PK
+        string cache_name UK "LRU cache identifier"
+        bigint hits
+        bigint misses
+        int current_size
+        int max_size
+        datetime last_snapshot_at
+        datetime last_reset_at
     }
 
     %% Ownership
     Owners {
         int id PK
         uuid uuid
-        int ownerdetails FK "OneToOne to User"
+        int ownerdetails FK "OneToOne to auth.User"
     }
 
     %% User Preferences
     UserPreferences {
-        int id PK
-        int user FK "OneToOne to User"
+        bigint id PK
+        int user FK "OneToOne to auth.User"
         bool show_duplicates
     }
 
-    %% Django User Model (external)
+    %% Favorites (stub model, no relationships yet)
+    Favorites {
+        int id PK
+        uuid uuid
+    }
+
+    %% Django User Model (django.contrib.auth)
     User {
         int id PK
         string username
@@ -134,157 +142,169 @@ erDiagram
 
 ## Model Descriptions
 
-### Core Gallery Models
+### Core Gallery Models (`quickbbs` app)
 
-#### DirectoryIndex
-Master directory index for the gallery filesystem. Each record represents a folder in the albums directory.
-- **Primary Key**: Auto-incrementing `id`
-- **Unique Keys**: `fqpndirectory` (path), `dir_fqpn_sha256` (hash)
-- **Self-referential**: `parent_directory` links to parent folder
+#### DirectoryIndex (`quickbbs_directoryindex`)
+Master directory index for the gallery filesystem. Each record represents a folder under the albums root.
+- **Primary Key**: Auto-incrementing `id` (BigAutoField)
+- **Unique Keys**: `fqpndirectory` (normalized path), `dir_fqpn_sha256` (path hash — primary lookup)
+- **Self-referential**: `parent_directory` links to the parent folder (NULL at the albums root)
 - **Relationships**:
-  - Has many files (`FileIndex.home_directory`)
-  - Has optional thumbnail (`thumbnail` → `FileIndex`)
-  - Can link to files via M2M (`file_links`)
-  - Tracked by cache system (`Cache_Watcher`)
+  - Has many files — reverse accessor `FileIndex_entries` (from `FileIndex.home_directory`)
+  - Is the link target for `.link`/`.alias` files — reverse accessor `Virtual_FileIndex` (from `FileIndex.virtual_directory`)
+  - Has an optional cover image (`thumbnail` → `FileIndex`)
+  - Tracked by the cache system — reverse accessor `Cache_Watcher` (1:1 from `fs_Cache_Tracking.directory`)
 
-#### FileIndex
-Master file index for all files in the gallery.
+#### FileIndex (`quickbbs_fileindex`)
+Master file index for all files in the gallery. One row per physical file path.
 - **Primary Key**: Auto-incrementing `id`
-- **Unique Key**: `unique_sha256` (hash of file content + path)
+- **Unique Key**: `unique_sha256` (hash of file content + path — stable across DB rebuilds)
 - **Key Fields**:
-  - `file_sha256`: Hash of file content (allows duplicate detection)
-  - `unique_sha256`: Hash of file + path (unique identifier)
-  - `home_directory`: Physical directory location
-  - `virtual_directory`: Optional virtual organization
+  - `file_sha256`: content-only hash; identical files in different locations share the same value (duplicate detection, shared thumbnails)
+  - `home_directory`: the physical containing directory (many-to-one FK)
+  - `virtual_directory`: for `.link`/`.alias` files only — the directory the link resolves to
 - **Relationships**:
-  - Belongs to directory (`home_directory` → `DirectoryIndex`)
+  - Belongs to one directory (`home_directory` → `DirectoryIndex`)
   - Has filetype metadata (`filetype` → `filetypes`)
-  - Has thumbnail (`new_ftnail` → `ThumbnailFiles`)
-  - Can be directory thumbnail (reverse: `DirectoryIndex.thumbnail`)
+  - Shares a thumbnail record with content-identical files (`new_ftnail` → `ThumbnailFiles`)
+  - Can serve as a directory's cover image — reverse accessor `dir_thumbnail` (from `DirectoryIndex.thumbnail`)
+  - Optional ownership (`ownership` 1:1 → `Owners`)
+
+> **Note (2026-07-06):** The former `DirectoryIndex.file_links` ManyToMany to `FileIndex` was removed in migration `quickbbs.0040`. It was never populated; the directory↔file relationship is fully expressed by the `home_directory` / `virtual_directory` / `thumbnail` foreign keys. See `claude_docs/fable_m2m.md` for the analysis.
 
 ### Supporting Models
 
-#### filetypes
+#### filetypes (`filetypes_filetypes`, `filetypes` app)
 Defines file type characteristics and generic icons.
-- **Primary Key**: `fileext` (e.g., ".jpg", ".pdf")
-- **Purpose**: Store filetype metadata, MIME types, and generic icons
-- **Boolean flags**: Quick tests for images, movies, PDFs, archives, etc.
+- **Primary Key**: `fileext` (e.g., ".jpg", ".pdf", ".dir")
+- **Purpose**: MIME types, category flags, and generic icon data
+- **Boolean flags**: quick tests for images, movies, PDFs, archives, text, links, etc.
 
-#### ThumbnailFiles
-Binary storage for generated thumbnails (3 sizes per file).
-- **Primary Key**: Auto-incrementing `id`
+#### ThumbnailFiles (`thumbnails_thumbnailfiles`, `thumbnails` app)
+Binary storage for generated thumbnails (three sizes per unique file content).
+- **Primary Key**: Auto-incrementing `id` (BigAutoField)
 - **Unique Key**: `sha256_hash` (file content hash)
-- **Storage**: `small_thumb`, `medium_thumb`, `large_thumb` (binary fields)
-- **Design**: One thumbnail record per unique file (deduplication by hash)
+- **Storage**: `small_thumb`, `medium_thumb`, `large_thumb` (nullable BinaryFields)
+- **Design**: one record per unique `file_sha256` — all duplicate files link to the same record via `FileIndex.new_ftnail`
+- **Integrity**: a CheckConstraint forbids empty-bytes (`b""`) thumbnails — sizes are either NULL (not generated) or real data
 
-#### fs_Cache_Tracking
-Tracks which directories have been scanned and cached.
-- **Primary Key**: Auto-incrementing `id`
-- **OneToOne**: `directory` → `DirectoryIndex.dir_fqpn_sha256`
-- **Purpose**: Invalidate cached gallery data when filesystem changes
-- **Watchdog Integration**: Monitors filesystem and sets `invalidated` flag
+#### fs_Cache_Tracking (`CacheWatcher_fs_cache_tracking`, `cache_watcher` app)
+Tracks which directories have been scanned and whether their cached state is still valid.
+- **Primary Key**: Auto-incrementing `id` (BigAutoField)
+- **OneToOne**: `directory` → `DirectoryIndex` (CASCADE — cache rows die with their directory)
+- **Purpose**: the Watchdog filesystem monitor sets `invalidated=True` when a directory changes; gallery views re-sync invalidated directories on demand
 
-#### Owners
-Stub model for future permissions system.
-- **Primary Key**: Auto-incrementing `id`
-- **OneToOne**: `ownerdetails` → Django `User`
-- **Purpose**: Link files to user ownership
+#### CacheStatisticsTracking (`cache_statistics_tracking`, `cache_watcher` app)
+Standalone persistence for in-process LRU cache statistics (no FK relationships).
+- **Unique Key**: `cache_name` — one row per monitored cache (e.g. `directoryindex`, `fileindex`, layout caches)
+- **Purpose**: hit/miss/size snapshots from `MonitoredCache` survive process restarts
 
-#### UserPreferences
-Store user-specific gallery preferences.
-- **Primary Key**: Auto-incrementing `id`
+#### Owners (`quickbbs_owners`)
+Ownership link between files and Django users (groundwork for a permissions system).
+- **OneToOne**: `ownerdetails` → Django `User`; reverse 1:1 from `FileIndex.ownership`
+
+#### UserPreferences (`user_preferences_userpreferences`, `user_preferences` app)
+Per-user gallery preferences.
 - **OneToOne**: `user` → Django `User`
-- **Settings**: `show_duplicates` (display duplicate files)
+- **Settings**: `show_duplicates` (whether item navigation includes duplicate files)
 
-#### Favorites
-Placeholder for future favorites functionality.
-- **Status**: Stub model with no relationships yet
+#### Favorites (`quickbbs_favorites`)
+Placeholder for future favorites functionality — stub with `id` and `uuid` only, no relationships yet.
+
+### Third-Party / Framework Tables (not diagrammed)
+
+| App | Models | Purpose |
+|---|---|---|
+| `django.contrib.auth` | `User`, `Group`, `Permission` | Authentication (User is diagrammed where project models link to it) |
+| `django.contrib.admin` / `contenttypes` / `sessions` / `sites` | `LogEntry`, `ContentType`, `Session`, `Site` | Framework plumbing |
+| `allauth` (`account`, `socialaccount`) | `EmailAddress`, `EmailConfirmation`, `SocialApp`, `SocialAccount`, `SocialToken` | Login/registration flows |
+| `allauth.mfa` | `Authenticator` | Passkeys / MFA (WebAuthn) |
+| `django-dbtasks` (`dbtasks`) | `ScheduledTask` | Background task queue (`manage.py taskrunner`) |
 
 ## Key Relationships Explained
 
 ### Directory Hierarchy
 ```
 DirectoryIndex (parent)
-    ↓ parent_directory (self-referential FK)
+    ↓ parent_directory (self-referential FK, SET_NULL)
 DirectoryIndex (child)
-    ↓ FileIndex_entries (reverse FK)
+    ↓ FileIndex_entries (reverse of home_directory FK)
 FileIndex (files in directory)
 ```
 
-### Thumbnail System
+### Thumbnail Sharing (deduplication)
 ```
-FileIndex (file)
-    ↓ file_sha256
-ThumbnailFiles (sha256_hash match)
-    → small_thumb, medium_thumb, large_thumb
+FileIndex rows with identical file_sha256  (any number of paths)
+    ↓ new_ftnail FK (all point to the same row)
+ThumbnailFiles (sha256_hash == file_sha256)
+    → small_thumb / medium_thumb / large_thumb
+```
+
+### Link Files (.link / .alias)
+```
+FileIndex (filetype.is_link = True)
+    ↓ virtual_directory FK
+DirectoryIndex (the directory the shortcut resolves to)
 ```
 
 ### Cache Invalidation
 ```
-DirectoryIndex (directory)
-    ↔ Cache_Watcher (OneToOne)
-fs_Cache_Tracking (invalidated flag)
+Watchdog observes filesystem change
+    → fs_Cache_Tracking.invalidated = True   (1:1 with DirectoryIndex)
+    → next gallery request re-syncs the directory and re-validates
 ```
 
-### File Type Detection
-```
-FileIndex (file)
-    ↓ filetype (FK)
-filetypes (fileext = ".jpg")
-    → is_image=True, mimetype="image/jpeg", etc.
-```
+## Database Indexes (current, post index-prune of 2026-07-04)
 
-## Database Indexes
+### DirectoryIndex
+- `fqpndirectory` unique constraint; `dir_fqpn_sha256` unique constraint (primary lookup)
+- `(parent_directory, delete_pending)` composite
+- `(dir_fqpn_sha256, delete_pending)` composite
+- `fqpndirectory` trigram GIN (`directoryindex_fqpn_trgm_idx`) — serves search `icontains`/`iregex`
 
-The models use extensive indexing for performance:
+### FileIndex
+- `unique_sha256` unique constraint (primary lookup)
+- `(file_sha256, delete_pending)` composite
+- `name` btree (`quickbbs_fileindex_name_idx`)
+- `(filetype, delete_pending)` composite (`fileindex_filetype_delete_idx`)
+- `(home_directory, filetype, delete_pending)` composite (`fileindex_home_type_delete_idx`)
+- `file_sha256` partial, `WHERE new_ftnail IS NULL` (`fileindex_sha256_unlinked_idx`) — thumbnail linking
+- `id` partial, `WHERE delete_pending` (`fileindex_delete_pending_idx`) — cleanup pass
+- `name` trigram GIN (`fileindex_name_trgm_idx`) — serves search `icontains`/`iregex`
 
-### DirectoryIndex Indexes
-- `dir_fqpn_sha256` (unique, primary lookup)
-- `parent_directory + delete_pending` (composite)
-- `filetype` (foreign key)
+### ThumbnailFiles
+- `sha256_hash` unique (primary lookup)
+- Partial indexes on `sha256_hash` for "has small thumb" / "missing small thumb" checks
+- CheckConstraint: no `b""` thumbnail values (NULL or real data only)
 
-### FileIndex Indexes
-- `file_sha256` (duplicate detection)
-- `unique_sha256` (unique, primary lookup)
-- `home_directory + delete_pending` (composite)
-- `home_directory + filetype + delete_pending` (composite)
-- `file_sha256` partial (unlinked thumbnails)
-
-### ThumbnailFiles Indexes
-- `sha256_hash` (unique, primary lookup)
-- Partial indexes for thumbnail existence checks
-
-### fs_Cache_Tracking Indexes
-- `directory + invalidated` (composite)
+### fs_Cache_Tracking
+- `(directory, invalidated)` composite; `directory` unique (OneToOne)
 
 ## Design Patterns
 
 ### SHA256 Hashing
-- **file_sha256**: Content hash (allows duplicate detection across locations)
-- **unique_sha256**: Content + path hash (stable unique ID across DB rebuilds)
-- **dir_fqpn_sha256**: Directory path hash (stable directory lookup)
+- **file_sha256**: content hash — duplicate detection across locations, thumbnail sharing
+- **unique_sha256**: content + path hash — stable unique ID that survives DB rebuilds
+- **dir_fqpn_sha256**: directory path hash — stable directory lookup key
 
 ### Deduplication
-- Files with same `file_sha256` share one `ThumbnailFiles` record
-- Saves storage and processing time for duplicate files
+- Files with the same `file_sha256` share one `ThumbnailFiles` record
+- Gallery views can deduplicate listings via PostgreSQL `DISTINCT ON (file_sha256)`
 
 ### Soft Deletes
-- `delete_pending` flag instead of hard deletes
-- Allows recovery and cleanup processes
+- `delete_pending` flag instead of immediate hard deletes; cleanup passes remove flagged rows
 
 ### Natural Sorting
-- `name_sort` fields use `NaturalSortField` for human-friendly ordering
-- Sorts "file10.jpg" after "file2.jpg"
+- `name_sort` fields use `NaturalSortField` for human-friendly ordering ("file2" before "file10")
 
-### Optimized Prefetching
-- Models define `SELECT_RELATED_LIST` and `PREFETCH_LIST` constants
-- Reduces N+1 query problems
-- Forward FKs use `select_related()` (SQL JOINs)
-- Reverse FKs use `prefetch_related()` (separate queries)
+### Optimized Fetching
+- Per-model `select_related` tuples are defined as module constants (`FILEINDEX_SR_*` in `fileindex.py`, `DIRECTORYINDEX_SR_*` in `directoryindex.py`, `THUMBNAILFILES_PR_*` in `thumbnails/models.py`) and passed explicitly by callers
+- Forward FKs use `select_related()` (SQL JOINs); reverse FKs/1:1 use `prefetch_related()` where needed
+- Hot lookups are fronted by in-process LRU caches (`MonitoredCache`), with statistics persisted to `CacheStatisticsTracking`
 
 ## Migration Notes
 
-- Database uses PostgreSQL-specific features (partial indexes, DISTINCT ON)
-- SHA256 fields support deduplication and stable identifiers
-- Cache tracking system integrates with Watchdog filesystem monitoring
-- Models designed for ASGI/async compatibility (see CLAUDE.md)
+- PostgreSQL-specific features in use: partial indexes, trigram GIN indexes (`pg_trgm`), `DISTINCT ON`
+- Migration `quickbbs.0040` (2026-07-06) dropped the empty `quickbbs_directoryindex_file_links` join table
+- Cache tracking integrates with the Watchdog filesystem monitor
+- Models are designed for ASGI/async compatibility (see CLAUDE.md / `.claude/critical-runtime.md`)

@@ -8,8 +8,8 @@ JQUERY_URI = f"https://cdnjs.cloudflare.com/ajax/libs/jquery/{JQUERY_VERSION}/jq
 BULMA_VERSION = "1.0.3"
 BULMA_URI = f"https://cdnjs.cloudflare.com/ajax/libs/bulma/{BULMA_VERSION}/css/bulma.min.css"
 
-# see https://cdnjs.com/libraries/htmx
-DJANGO_HTMX_VERSION = "2.0.4"
+# HTMX version bundled by django-htmx 1.21.0
+DJANGO_HTMX_VERSION = "2.0.7"
 DJANGO_HTMX_URI = f"https://cdnjs.cloudflare.com/ajax/libs/htmx/{DJANGO_HTMX_VERSION}/htmx.min.js"
 
 # see https://cdnjs.com/libraries/font-awesome

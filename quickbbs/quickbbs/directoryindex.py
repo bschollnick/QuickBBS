@@ -9,7 +9,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote, unquote
 
 from cachetools import cached
@@ -18,7 +18,7 @@ from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import close_old_connections, models, transaction
-from django.db.models import Count, Q
+from django.db.models import Case, Count, Q, Value, When
 from django.db.models.query import QuerySet
 from django.urls import reverse
 
@@ -48,15 +48,18 @@ get_view_url_cache = create_cache(settings.GET_VIEW_URL_CACHE_SIZE, "get_view_ur
 
 # These caches live in quickbbs.cache_registry (shared across apps).
 # Imported here for use by @cached decorators on get_distinct_file_shas(),
-# get_dir_counts(), and get_ordered_sibling_dirs().
+# get_all_file_shas(), get_dir_counts(), and get_ordered_sibling_dirs().
 # Must come after module-level cache creation above to avoid a cyclic import.
 from quickbbs.cache_registry import (  # noqa: E402  # pylint: disable=wrong-import-position
+    all_files_shas_cache,
     dir_counts_cache,
     distinct_files_cache,
     sibling_dirs_cache,
 )
 
 if TYPE_CHECKING:
+    from django.db.models.fields.related_descriptors import RelatedManager
+
     from cache_watcher.models import fs_Cache_Tracking
 
     from .fileindex import FileIndex
@@ -159,21 +162,15 @@ class DirectoryIndex(models.Model):
         null=True,
         default=None,
     )
-    file_links = models.ManyToManyField(
-        "FileIndex",
-        default=None,
-        related_name="file_links",
-    )
-
     # Reverse relationships
-    # From fs_Cache_Tracking.directory
-    Cache_Watcher: "models.OneToOneRel[fs_Cache_Tracking]"  # type: ignore[valid-type]
+    # From fs_Cache_Tracking.directory (reverse OneToOne resolves to the instance)
+    Cache_Watcher: "fs_Cache_Tracking"
     # From DirectoryIndex.parent_directory (self-referential)
-    parent_dir: "models.manager.RelatedManager[DirectoryIndex]"
+    parent_dir: "RelatedManager[DirectoryIndex]"
     # From FileIndex.home_directory
-    FileIndex_entries: "models.manager.RelatedManager[FileIndex]"
+    FileIndex_entries: "RelatedManager[FileIndex]"
     # From FileIndex.virtual_directory
-    Virtual_FileIndex: "models.manager.RelatedManager[FileIndex]"
+    Virtual_FileIndex: "RelatedManager[FileIndex]"
 
     class Meta:
         db_table = "quickbbs_directoryindex"
@@ -199,8 +196,9 @@ class DirectoryIndex(models.Model):
 
         Returns:
             Tuple of (success, record). success is True whenever a record was
-            created or updated; (False, None) is returned only when the
-            directory does not exist on the filesystem (stat failure).
+            created, updated, or found already up to date; (False, None) is
+            returned only when the directory does not exist on the filesystem
+            (stat failure).
         """
         # Normalize once and compute SHA once
         fqpn_directory = normalize_fqpn(fqpn_directory)
@@ -229,8 +227,9 @@ class DirectoryIndex(models.Model):
                     if not found:
                         logger.info("Creating parent directory: %s", parent_dir)
 
-                    # Always call add_directory to ensure parent has correct parent_directory link
-                    # update_or_create will handle both new and existing records
+                    # Always call add_directory to ensure parent has correct parent_directory link.
+                    # The fast path makes this a no-write cache read when the parent is already
+                    # correct; update_or_create handles new records and repairs.
                     _, parent_dir_link = DirectoryIndex.add_directory(parent_dir)
                 else:
                     # Parent is outside albums path, don't link it
@@ -239,11 +238,31 @@ class DirectoryIndex(models.Model):
             parent_dir_link = None
 
         # Use single stat call for both exists check and mtime
-        dir_path = Path(fqpn_directory)
         try:
-            stat_info = dir_path.stat()
+            stat_info = Path(fqpn_directory).stat()
         except (FileNotFoundError, OSError):
             return (False, None)  # Return None when directory doesn't exist
+
+        # Fast path: skip the write entirely when the stored record already
+        # matches the filesystem and its parent link is correct. The
+        # unconditional update_or_create below rewrites the row on every call
+        # (fresh lastscan, thumbnail and is_generic_icon reset) — parent-chain
+        # recursion and link-target resolution were paying that write even
+        # when nothing had changed. parent_directory_id is compared (not just
+        # assumed) so records with a NULL/incorrect parent link still fall
+        # through to update_or_create for repair.
+        # search_for_directory_by_sha reads through directoryindex_cache;
+        # its entry is invalidated by Cache_Storage whenever a scan touches
+        # this directory, so a cached lastmod is trustworthy here.
+        found, existing = DirectoryIndex.search_for_directory_by_sha(dir_sha256)
+        if (
+            found
+            and existing is not None
+            and existing.fqpndirectory == fqpn_directory
+            and existing.lastmod == stat_info.st_mtime
+            and existing.parent_directory_id == (parent_dir_link.pk if parent_dir_link else None)
+        ):
+            return True, existing
 
         defaults = {
             "fqpndirectory": fqpn_directory,  # Already normalized
@@ -262,12 +281,20 @@ class DirectoryIndex(models.Model):
             defaults=defaults,
             create_defaults=defaults,
         )
+        # The write leaves any cached copy of this record stale — pop it so
+        # the fast path above compares against the fresh row on the next call
+        # instead of falling through to a redundant rewrite.
+        directoryindex_cache.pop(hashkey(dir_sha256), None)
         return True, new_rec
 
     def invalidate_thumb(self) -> None:
         """
         Invalidate the thumbnail for the directory.  This is used when the directory
         is deleted, and the thumbnail is no longer valid.
+
+        Also clears the cover_image flag on any of this directory's files so the
+        next get_cover_image() call re-runs filename-priority selection instead
+        of short-circuiting to the previously flagged cover.
 
         Uses QuerySet.update() for efficient database-level UPDATE without
         model serialization overhead.
@@ -276,6 +303,7 @@ class DirectoryIndex(models.Model):
             None
         """
         DirectoryIndex.objects.filter(pk=self.pk).update(thumbnail=None, is_generic_icon=False)
+        self.FileIndex_entries.filter(cover_image=True).update(cover_image=False)
         # Refresh local instance to reflect DB state
         self.thumbnail = None
         self.is_generic_icon = False
@@ -398,8 +426,11 @@ class DirectoryIndex(models.Model):
                 .values_list("parent_directory__dir_fqpn_sha256", flat=True)
             )
 
-            # Get unique parent SHAs from this level (only new ones)
-            parent_shas = set(parents) - all_shas
+            # Get unique parent SHAs from this level (only new ones).
+            # dir_fqpn_sha256 is nullable in the schema; drop any NULLs so the
+            # set[str] return contract holds (a NULL parent SHA can't be
+            # traversed anyway).
+            parent_shas = {sha for sha in parents if sha is not None} - all_shas
 
             if not parent_shas:
                 break  # No more parents to traverse
@@ -562,9 +593,10 @@ class DirectoryIndex(models.Model):
         return result
 
     @staticmethod
-    def search_for_directory(fqpn_directory: str) -> tuple[bool, "DirectoryIndex"]:
+    def search_for_directory(fqpn_directory: str) -> tuple[bool, "DirectoryIndex | None"]:
         """
         Return the database object matching the fqpn_directory.
+        Returns (False, None) when no matching directory exists.
 
         NOTE: This method is NOT cached. It delegates to search_for_directory_by_sha()
         which IS cached. Do NOT add @cached decorator here as it creates duplicate cache
@@ -609,31 +641,37 @@ class DirectoryIndex(models.Model):
         )
         return dirs
 
-    def _distinct_file_pks(self, sort: int, additional_filters: dict[str, Any] | None = None) -> list[int]:
+    def _distinct_file_pks(self, sort: int, additional_filters: dict[str, Any] | None = None) -> "QuerySet":
         """
-        Return the PKs of this directory's files, deduplicated by file_sha256.
+        Return a values("pk") queryset of this directory's files, deduplicated by file_sha256.
 
-        Step 1 of the two-query distinct design shared by files_in_dir() and
+        Step 1 of the two-step distinct design shared by files_in_dir() and
         get_distinct_file_shas(): PostgreSQL DISTINCT ON requires file_sha256
         to lead the ORDER BY, which disrupts the caller's sort order, so the
-        caller re-queries these PKs with its own ordering. values_list("pk")
-        lets the ORDER BY reference joined sort columns (filetype__is_dir,
-        filetype__is_link) without selecting them, so nothing is materialized
-        beyond the PK list.
+        caller wraps this queryset as an uncorrelated pk__in subquery and
+        applies its own ordering. The deduplicated PK set never leaves the
+        database — one round-trip instead of materializing the PKs in Python
+        and shipping them back as an IN list.
+
+        Django preserves the DISTINCT ON ordering inside the __in subquery
+        because distinct fields are set (verified against live data
+        2026-07-06: DISTINCT ON and its inner ORDER BY survive subquery
+        compilation, results identical to the materialized-list design).
 
         Args:
             sort: Sort order to apply (0-2)
             additional_filters: Additional Django ORM filters to apply
 
         Returns:
-            List of FileIndex PKs, one per distinct file_sha256.
+            QuerySet selecting one PK per distinct file_sha256, for use as a
+            pk__in subquery.
         """
         additional_filters = additional_filters or {}
-        return list(
+        return (
             self.FileIndex_entries.filter(delete_pending=False, **additional_filters)
             .order_by("file_sha256", *SORT_MATRIX[sort])
             .distinct("file_sha256")
-            .values_list("pk", flat=True)
+            .values("pk")
         )
 
     def files_in_dir(
@@ -641,8 +679,8 @@ class DirectoryIndex(models.Model):
         sort: int = 0,
         distinct: bool = False,
         additional_filters: dict[str, Any] | None = None,
-        fields_only: list[str] | None = None,
-        select_related: list[str] | None = None,
+        fields_only: list[str] | tuple[str, ...] | None = None,
+        select_related: list[str] | tuple[str, ...] | None = None,
     ) -> "QuerySet[FileIndex] | list[FileIndex]":
         """
         Return the files in the current directory
@@ -686,16 +724,17 @@ class DirectoryIndex(models.Model):
         files = self.FileIndex_entries.filter(delete_pending=False, **additional_filters)
 
         if distinct:
-            # Step 1: Get deduplicated PKs (PostgreSQL DISTINCT ON requires
+            # Step 1: Deduplicated-PK subquery (PostgreSQL DISTINCT ON requires
             # file_sha256 as first ORDER BY field, disrupting user's sort order).
             # _distinct_file_pks selects only the PK column — the ORDER BY joins
             # need no select_related/only decoration.
             distinct_pks = self._distinct_file_pks(sort, additional_filters)
 
-            # Step 2: Re-query the deduplicated PKs with the user's sort order.
+            # Step 2: Wrap the subquery with the user's sort order — a single
+            # round-trip; the deduplicated PK set never leaves the database.
             # This avoids Python re-sorting which uses different collation than
             # PostgreSQL (Python ASCII: '-' < '_', PostgreSQL en_US.UTF-8: '_' < '-').
-            # Using a second DB query ensures sort order matches the non-distinct
+            # DB-side ordering ensures sort order matches the non-distinct
             # path used by the gallery view, preventing navigation mismatches.
             # Import FileIndex here to avoid circular import at module level
             # pylint: disable-next=import-outside-toplevel
@@ -719,7 +758,11 @@ class DirectoryIndex(models.Model):
         files = files.order_by(*SORT_MATRIX[sort])
         return files
 
-    @cached(distinct_files_cache)
+    # Explicit key normalizes keyword and positional calls to hashkey(self, sort);
+    # cachetools' default key would store get_distinct_file_shas(sort=1) under
+    # hashkey(self, sort=1), which clear_layout_cache_for_directories() (which
+    # pops the positional hashkey(stub, sort)) could never find.
+    @cached(distinct_files_cache, key=lambda self, sort=0: hashkey(self, sort))
     def get_distinct_file_shas(self, sort: int = 0) -> list[str]:
         """
         Get distinct file SHA256s for this directory with caching.
@@ -732,8 +775,9 @@ class DirectoryIndex(models.Model):
         Allows efficient pagination across multiple pages without re-fetching distinct files.
 
         Performance Impact:
-        - First call: two values_list queries (PKs, then SHA256 strings) — no
-          FileIndex objects or joined rows are materialized
+        - First call: one query — the deduplicated-PK subquery is evaluated
+          inside the outer SHA256 values_list query, so no FileIndex objects,
+          joined rows, or PK lists are materialized in Python
         - Subsequent calls: Returns cached list (instant, no DB query)
         - Memory: ~64KB per 1,000 files (just SHA256 strings)
 
@@ -750,46 +794,103 @@ class DirectoryIndex(models.Model):
             List of unique_sha256 strings for distinct files in the directory,
             sorted according to sort order
         """
-        # Two-query distinct design (see _distinct_file_pks): step 2 reads only
-        # the unique_sha256 column with the user's sort order, so no FileIndex
-        # objects or joined rows are materialized on a cache-miss recompute.
+        # Two-step distinct design (see _distinct_file_pks): the outer query
+        # reads only the unique_sha256 column with the user's sort order, with
+        # the deduplicated PKs as an inline subquery — one round-trip, no
+        # FileIndex objects, joined rows, or PK lists materialized in Python.
         # Import here to avoid circular import at module level
         # pylint: disable-next=import-outside-toplevel
         from .fileindex import FileIndex as FileIndexModel
 
         distinct_pks = self._distinct_file_pks(sort)
-        return list(FileIndexModel.objects.filter(pk__in=distinct_pks).order_by(*SORT_MATRIX[sort]).values_list("unique_sha256", flat=True))
+        # cast: unique_sha256 is nullable in the schema (django-stubs types the
+        # values_list element as str | None), but scanned files carry a SHA and
+        # existing behavior keeps any transient NULL rows in the list rather
+        # than silently changing pagination counts.
+        return cast(
+            "list[str]",
+            list(FileIndexModel.objects.filter(pk__in=distinct_pks).order_by(*SORT_MATRIX[sort]).values_list("unique_sha256", flat=True)),
+        )
+
+    # Same key normalization as get_distinct_file_shas — see the note there.
+    @cached(all_files_shas_cache, key=lambda self, sort=0: hashkey(self, sort))
+    def get_all_file_shas(self, sort: int = 0) -> list[str]:
+        """
+        Get all file SHA256s for this directory (duplicates included) with caching.
+
+        The show_duplicates counterpart of get_distinct_file_shas(): one ordered
+        values_list query over unique_sha256, no deduplication step. Item-view
+        navigation (build_context_info) and gallery pagination (layout_manager)
+        share this list, so prev/next ordering and page boundaries agree even
+        for rows with tied sort keys — the DB is consulted once per
+        (directory, sort) instead of re-deriving positions per request.
+
+        Cache key: (self, sort) — directory instance and sort order, identical
+        shape to distinct_files_cache, and invalidated alongside it by
+        clear_layout_cache_for_directories().
+
+        Args:
+            sort: Sort order to apply (0-2)
+
+        Returns:
+            List of unique_sha256 strings for all non-deleted files in the
+            directory, sorted according to sort order
+        """
+        # cast: same nullable unique_sha256 rationale as get_distinct_file_shas.
+        return cast(
+            "list[str]",
+            list(self.FileIndex_entries.filter(delete_pending=False).order_by(*SORT_MATRIX[sort]).values_list("unique_sha256", flat=True)),
+        )
 
     def get_cover_image(self) -> FileIndex | None:
         """
         Return the cover image for the directory based on priority filename matching.
 
+        PostgreSQL selects the winner in a single query via a priority
+        annotation ordered ahead of the default name sort:
+            0 — a file already flagged cover_image=True (set by thumbnail2_dir
+                when a cover is selected)
+            1 — a filename matching DIRECTORY_COVER_NAMES (case-insensitive,
+                lazy-built query from settings)
+            2 — any other thumbnailable file (images, movies, PDFs; links
+                excluded)
+
+        The flagged=0 tier folds the previous flagged-cover short-circuit
+        under the thumbnailable filter; this is safe because cover_image is
+        only ever set on files chosen from the thumbnailable set
+        (thumbnail2_dir).
+
         Returns:
             FileIndex record if a suitable cover image is found, None otherwise
-
-        Logic:
-            1. Get files in directory that can be thumbnailed (images, movies, PDFs)
-            2. Check for files matching DIRECTORY_COVER_NAMES (case-insensitive)
-            3. If match found, return that file's FileIndex record
-            4. If no match, return the first thumbnailable file (or None if empty)
         """
-        # Get thumbnailable files (images, movies, PDFs), excluding link files
+        # Thumbnailable files (images, movies, PDFs), excluding link files
         thumbnailable_filters = (Q(filetype__is_image=True) & ~Q(filetype__is_link=True)) | Q(filetype__is_movie=True) | Q(filetype__is_pdf=True)
 
-        files = self.files_in_dir(sort=0, select_related=FILEINDEX_SR_FILETYPE).filter(thumbnailable_filters)
+        # cast: files_in_dir with distinct=False always returns a QuerySet,
+        # but its union return type can't be narrowed by mypy.
+        files = cast(
+            "QuerySet[FileIndex]",
+            self.files_in_dir(sort=0, select_related=FILEINDEX_SR_FILETYPE),
+        ).filter(thumbnailable_filters)
 
-        # Try to find a file matching the cover names using lazy-built query from settings
-        # This replaces nested loops with a single database query for ~99% speedup
-        cover_queries = get_directory_cover_queries()
-        cover_file = files.filter(cover_queries).first()
-        if cover_file:
-            return cover_file
-
-        # No cover match — return first thumbnailable file (None if queryset is empty)
-        return files.first()
+        return (
+            files.annotate(
+                cover_priority=Case(
+                    When(cover_image=True, then=Value(0)),
+                    When(get_directory_cover_queries(), then=Value(1)),
+                    default=Value(2),
+                )
+            )
+            .order_by("cover_priority", *SORT_MATRIX[0])
+            .first()
+        )
 
     def dirs_in_dir(
-        self, sort: int = 0, fields_only: list[str] | None = None, select_related: list[str] | None = None, prefetch_related: list[str] | None = None
+        self,
+        sort: int = 0,
+        fields_only: list[str] | tuple[str, ...] | None = None,
+        select_related: list[str] | tuple[str, ...] | None = None,
+        prefetch_related: list[str] | tuple[str, ...] | None = None,
     ) -> "QuerySet[DirectoryIndex]":
         """
         Return the directories in the current directory
@@ -960,7 +1061,8 @@ class DirectoryIndex(models.Model):
         Returns:
             List of new FileIndex records to create
         """
-        # Import at function level to avoid circular dependency
+        # Deferred: .fileindex imports from .directoryindex at module level (genuine cycle)
+        # pylint: disable-next=import-outside-toplevel
         from .fileindex import FileIndex
 
         records_to_create = []
@@ -1159,7 +1261,14 @@ class DirectoryIndex(models.Model):
         # Load full objects with prefetch only for files that need comparison
         # Convert matching lowercase names back to original database names
         matching_db_names = {name for name in all_db_filenames if name.lower() in matching_lower_names}
-        potential_updates = list(self.files_in_dir(select_related=FILEINDEX_SR_FILETYPE).filter(name__in=matching_db_names))
+        # cast: files_in_dir with distinct=False always returns a QuerySet,
+        # but its union return type can't be narrowed by mypy.
+        potential_updates = list(
+            cast(
+                "QuerySet[FileIndex]",
+                self.files_in_dir(select_related=FILEINDEX_SR_FILETYPE),
+            ).filter(name__in=matching_db_names)
+        )
 
         # Batch compute SHA256 for files missing hashes
         files_needing_hash = []
@@ -1256,10 +1365,16 @@ def get_ordered_sibling_dirs(parent_pk: int, sort: int) -> list[tuple[str, str]]
         Ordered list of (dir_fqpn_sha256, fqpndirectory) tuples for the
         parent's subdirectories, excluding delete-pending rows.
     """
-    return list(
-        DirectoryIndex.objects.filter(parent_directory=parent_pk, delete_pending=False)
-        .order_by(*DIR_SORT_MATRIX[sort])
-        .values_list("dir_fqpn_sha256", "fqpndirectory")
+    # cast: dir_fqpn_sha256 is nullable in the schema (django-stubs types the
+    # tuple element as str | None), but add_directory() always computes it, so
+    # every stored row carries a SHA.
+    return cast(
+        "list[tuple[str, str]]",
+        list(
+            DirectoryIndex.objects.filter(parent_directory=parent_pk, delete_pending=False)
+            .order_by(*DIR_SORT_MATRIX[sort])
+            .values_list("dir_fqpn_sha256", "fqpndirectory")
+        ),
     )
 
 

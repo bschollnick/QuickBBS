@@ -21,9 +21,8 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.db import models, transaction
 from django.db.models import Count
 from django.db.models.query import QuerySet
-from django.http import FileResponse, Http404, HttpResponse
+from django.http import FileResponse, Http404
 from django.urls import reverse
-from django.utils.http import content_disposition_header
 
 from filetypes.models import filetypes
 from quickbbs.common import (
@@ -40,7 +39,9 @@ from thumbnails.models import ThumbnailFiles
 # Lazy-loaded video info function — AVFoundation/ffmpeg imports are deferred to first call.
 # Prefer AVFoundation on macOS for video metadata (no subprocess spawn, ~10x faster).
 # Fall back to ffmpeg-based probe on other platforms.
-_get_video_info_impl = None
+# invalid-name disabled: pylint sees a module-level assignment and expects UPPER_CASE,
+# but this is a mutable cache slot for the resolved backend, not a constant.
+_get_video_info_impl = None  # pylint: disable=invalid-name
 
 
 def _get_video_info(path: str) -> dict:
@@ -49,6 +50,9 @@ def _get_video_info(path: str) -> dict:
     if _get_video_info_impl is None:
         if platform.system() == "Darwin":
             try:
+                # Deferred: pyobjc/AVFoundation is macOS-only and expensive to import —
+                # loaded on first video-metadata call, never at module import time.
+                # pylint: disable-next=import-outside-toplevel
                 from thumbnails.avfoundation_video_thumbnails import (
                     _get_video_info as _avf_get_video_info,
                 )
@@ -57,6 +61,8 @@ def _get_video_info(path: str) -> dict:
             except ImportError:
                 pass
         if _get_video_info_impl is None:
+            # Deferred: ffmpeg probe fallback, only loaded when AVFoundation is unavailable.
+            # pylint: disable-next=import-outside-toplevel
             from thumbnails.video_thumbnails import (
                 _get_video_info as _ffmpeg_get_video_info,
             )
@@ -76,6 +82,8 @@ fileindex_cache = create_cache(settings.FILEINDEX_CACHE_SIZE, "fileindex", monit
 fileindex_download_cache = create_cache(settings.FILEINDEX_DOWNLOAD_CACHE_SIZE, "fileindex_download", monitored=settings.CACHE_MONITORING)
 
 if TYPE_CHECKING:
+    from django.db.models.fields.related_descriptors import RelatedManager
+
     from .directoryindex import DirectoryIndex
 
 
@@ -254,8 +262,7 @@ class FileIndex(models.Model):
     )
 
     # Reverse relationships
-    dir_thumbnail: "models.manager.RelatedManager[DirectoryIndex]"  # From DirectoryIndex.thumbnail
-    file_links: "models.manager.RelatedManager[DirectoryIndex]"  # From DirectoryIndex.file_links (ManyToMany)
+    dir_thumbnail: "RelatedManager[DirectoryIndex]"  # From DirectoryIndex.thumbnail
 
     @property
     def fqpndirectory(self) -> str:
@@ -447,7 +454,8 @@ class FileIndex(models.Model):
         Returns:
             Number of files updated
         """
-        # Inline import to avoid circular dependency (frontend.utilities imports DirectoryIndex)
+        # Deferred: quickbbs.cache_registry imports back into this module chain (genuine cycle)
+        # pylint: disable-next=import-outside-toplevel
         from quickbbs.cache_registry import clear_layout_cache_for_directories
 
         # Get directory IDs BEFORE update (same pattern as link_to_thumbnail)
@@ -771,7 +779,8 @@ class FileIndex(models.Model):
         Returns:
             DirectoryIndex object for the target directory, or None if target cannot be resolved
         """
-        # Inline import to avoid circular dependency (DirectoryIndex imports FileIndex)
+        # Deferred: .directoryindex imports FileIndex at module level (genuine cycle)
+        # pylint: disable-next=import-outside-toplevel
         from .directoryindex import DirectoryIndex
 
         try:
@@ -832,6 +841,8 @@ class FileIndex(models.Model):
             True if animated, False if static or on error
         """
         try:
+            # Deferred: PIL is only needed for GIF animation checks — keeps module import light.
+            # pylint: disable-next=import-outside-toplevel
             from PIL import Image
 
             with Image.open(fs_entry) as img:
@@ -1001,8 +1012,12 @@ class FileIndex(models.Model):
             # Ranged request for video streaming
             try:
                 # SECURITY: Sanitize filename to prevent header injection
+                # Deferred: only the ranged (video streaming) path needs these; frontend.serve_up
+                # also imports back into quickbbs modules (genuine cycle).
+                # pylint: disable-next=import-outside-toplevel
                 from ranged_fileresponse import RangedFileResponse
 
+                # pylint: disable-next=import-outside-toplevel
                 from frontend.serve_up import open_sized_file
 
                 safe_filename = sanitize_filename_for_http(self.name)
@@ -1184,7 +1199,9 @@ class FileIndex(models.Model):
             with open(filename, "rb") as f:
                 raw_data = f.read(settings.ENCODING_DETECT_READ_SIZE)
 
-                # Detect encoding using charset_normalizer (lazy import - only needed for text display)
+                # Deferred: charset_normalizer is only needed for text-file display — lazy import
+                # keeps it off the hot module-load path.
+                # pylint: disable-next=import-outside-toplevel
                 import charset_normalizer
 
                 result = charset_normalizer.from_bytes(raw_data)
@@ -1246,6 +1263,9 @@ class FileIndex(models.Model):
                 # Process content based on type
                 if is_markdown:
                     if FileIndex._markdown_processor is None:
+                        # Deferred: markdown2 is only needed to render markdown files —
+                        # imported once on first use, cached on the class.
+                        # pylint: disable-next=import-outside-toplevel
                         import markdown2
 
                         FileIndex._markdown_processor = markdown2.Markdown()
@@ -1300,7 +1320,9 @@ class FileIndex(models.Model):
         Raises:
             ValueError: If bookmark data cannot be created or resolved
         """
-        from Foundation import (  # pylint: disable=no-name-in-module
+        # Deferred: the Foundation framework is macOS-only and must not be imported at
+        # module load time (see docstring); no-name-in-module is a pyobjc stub limitation.
+        from Foundation import (  # pylint: disable=no-name-in-module,import-outside-toplevel
             NSURL,
             NSURLBookmarkResolutionWithoutMounting,
             NSURLBookmarkResolutionWithoutUI,

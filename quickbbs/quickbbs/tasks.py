@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 # module-level variables; for class attributes set it to the class name string.
 _MONITORED_CACHE_LOCATIONS: list[tuple[str, str, str | None]] = [
     ("quickbbs.cache_registry", "distinct_files_cache", None),
+    ("quickbbs.cache_registry", "all_files_shas_cache", None),
     ("quickbbs.cache_registry", "layout_manager_cache", None),
     ("quickbbs.cache_registry", "dir_counts_cache", None),
     ("quickbbs.cache_registry", "sibling_dirs_cache", None),

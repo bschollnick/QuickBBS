@@ -112,6 +112,7 @@ CACHE_STATISTICS_MAX_RECORDS = 1000
 DIRECTORYINDEX_CACHE_SIZE = 750  # DirectoryIndex lookups by SHA256 (directoryindex.py)
 GET_VIEW_URL_CACHE_SIZE = 500  # DirectoryIndex.get_view_url() results (directoryindex.py)
 DISTINCT_FILES_CACHE_SIZE = 500  # Distinct file SHA lists per directory+sort (directoryindex.py)
+ALL_FILES_SHAS_CACHE_SIZE = 500  # Non-distinct file SHA lists per directory+sort (directoryindex.py)
 DIR_COUNTS_CACHE_SIZE = 750  # Subdirectory counts per directory (cache_registry.py / directoryindex.py)
 SIBLING_DIRS_CACHE_SIZE = 500  # Ordered sibling-directory lists per parent+sort (cache_registry.py / directoryindex.py)
 FILEINDEX_CACHE_SIZE = 250  # FileIndex lookups by SHA256 (fileindex.py)

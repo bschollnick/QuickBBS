@@ -1,14 +1,20 @@
+"""Django admin registrations for the QuickBBS core models."""
+
 import time
 
 from django.contrib import admin
 from django.db import transaction
+from django.db.models.query import QuerySet
+from django.http import HttpRequest
 
 from cache_watcher.models import fs_Cache_Tracking
 from quickbbs.models import DirectoryIndex, Favorites, FileIndex, Owners
 
 
 @admin.register(FileIndex)
-class AdminMaster_Index(admin.ModelAdmin):
+class AdminMasterIndex(admin.ModelAdmin):
+    """Admin configuration for FileIndex (the master file index)."""
+
     search_fields = [
         "name",
         "file_sha256",
@@ -59,7 +65,17 @@ class AdminMaster_Index(admin.ModelAdmin):
         "small_thumb",
     )
 
-    def has_thumbs(self, obj):
+    def has_thumbs(self, obj: FileIndex) -> bool:
+        """
+        Return whether the file has any thumbnail data.
+
+        Args:
+            obj: FileIndex record being displayed
+
+        Returns:
+            True if the linked ThumbnailFiles record holds a small, medium,
+            or large thumbnail; False if unlinked or all sizes are empty
+        """
         if obj.new_ftnail is None:
             return False
         if any(
@@ -72,17 +88,47 @@ class AdminMaster_Index(admin.ModelAdmin):
             return True
         return False
 
-    def display_fqpndirectory(self, obj):
+    def display_fqpndirectory(self, obj: FileIndex) -> str:
+        """
+        Return the file's directory path for display.
+
+        Args:
+            obj: FileIndex record being displayed
+
+        Returns:
+            The fully qualified directory path, or "No directory" when unset
+        """
         if obj.fqpndirectory:
             return obj.fqpndirectory
         return "No directory"
 
-    def display_parent_directory(self, obj):
+    def display_parent_directory(self, obj: FileIndex) -> str:
+        """
+        Return the home directory path for display.
+
+        Args:
+            obj: FileIndex record being displayed
+
+        Returns:
+            The home directory's fully qualified path, or "No home directory"
+            when the record is orphaned
+        """
         if obj.home_directory:
             return obj.home_directory.fqpndirectory
         return "No home directory"
 
-    def small_thumb(self, obj):  # pragma: no cover
+    def small_thumb(self, obj: FileIndex) -> bytes | memoryview | None:  # pragma: no cover
+        """
+        Return a short preview of the small thumbnail's raw bytes.
+
+        Args:
+            obj: FileIndex record being displayed
+
+        Returns:
+            The first 20 bytes of the small thumbnail (bytes or memoryview,
+            depending on how the BinaryField was loaded), or None when no
+            thumbnail is linked or the small size is empty
+        """
         if obj.new_ftnail is None:
             return None
         if obj.new_ftnail.small_thumb:
@@ -91,7 +137,9 @@ class AdminMaster_Index(admin.ModelAdmin):
 
 
 @admin.register(DirectoryIndex)
-class AdminMaster_Dirs(admin.ModelAdmin):
+class AdminMasterDirs(admin.ModelAdmin):
+    """Admin configuration for DirectoryIndex (the master directory index)."""
+
     search_fields = [
         "fqpndirectory",
         "dir_fqpn_sha256",
@@ -100,8 +148,6 @@ class AdminMaster_Dirs(admin.ModelAdmin):
     readonly_fields = (
         "id",
         "dir_fqpn_sha256",
-        "file_links",
-        "display_file_links",
     )
     list_display = (
         "id",
@@ -122,18 +168,10 @@ class AdminMaster_Dirs(admin.ModelAdmin):
         "fqpndirectory",
         "is_generic_icon",
         "delete_pending",
-        "display_file_links",
     )
 
-    def display_file_links(self, obj):
-        links = obj.file_links.all()
-        if len(links) > 25:
-            links = links[:25]
-            links.append("+ More files (Files truncated)...")
-        return ", \n".join([f"{link.fqpndirectory}{link.name}" for link in links]) if links else "No links"
-
     @admin.action(description="Force rebuild thumbnails for selected directories")
-    def force_rebuild_thumbnails(self, request, queryset):
+    def force_rebuild_thumbnails(self, request: HttpRequest, queryset: "QuerySet[DirectoryIndex]") -> None:
         """
         Force rebuild thumbnails for all files in the selected directories.
 
@@ -141,7 +179,7 @@ class AdminMaster_Dirs(admin.ModelAdmin):
         directories, forcing them to be regenerated on next access. Also marks the
         directories as invalidated in the cache system.
 
-        :Args:
+        Args:
             request: The HTTP request object
             queryset: QuerySet of selected DirectoryIndex objects
 

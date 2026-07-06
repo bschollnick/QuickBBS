@@ -28,6 +28,16 @@ distinct_files_cache = create_cache(
     monitored=settings.CACHE_MONITORING,
 )
 
+# Per-directory full (non-distinct) file SHA lists — the show_duplicates
+# counterpart of distinct_files_cache, shared by item-view navigation and
+# layout_manager pagination
+# Cache key: hashkey(directory_instance, sort_ordering)
+all_files_shas_cache = create_cache(
+    settings.ALL_FILES_SHAS_CACHE_SIZE,
+    "all_files_shas",
+    monitored=settings.CACHE_MONITORING,
+)
+
 # Gallery page layout results (pagination boundaries, page items)
 # Cache key: hashkey(page_number, directory.pk, sort_ordering, show_duplicates)
 layout_manager_cache = create_cache(
@@ -62,8 +72,9 @@ sibling_dirs_cache = create_cache(
 
 def clear_layout_cache_for_directories(directory_ids: set[int]) -> int:
     """
-    Clear layout_manager_cache, distinct_files_cache, dir_counts_cache, and
-    sibling_dirs_cache entries for one or more directories.
+    Clear layout_manager_cache, distinct_files_cache, all_files_shas_cache,
+    dir_counts_cache, and sibling_dirs_cache entries for one or more
+    directories.
 
     Shared function to ensure consistent cache clearing across:
     - Cache watcher during filesystem invalidation
@@ -97,6 +108,10 @@ def clear_layout_cache_for_directories(directory_ids: set[int]) -> int:
             count += 1
         for sort in range(3):
             if distinct_files_cache.pop(hashkey(stub, sort), None) is not None:
+                count += 1
+            # all_files_shas_cache: keyed hashkey(directory_instance, sort),
+            # same shape as distinct_files_cache
+            if all_files_shas_cache.pop(hashkey(stub, sort), None) is not None:
                 count += 1
             # sibling_dirs_cache: keyed hashkey(parent_pk, sort) — the pk being
             # invalidated is the parent of the cached sibling list

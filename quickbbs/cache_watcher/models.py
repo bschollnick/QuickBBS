@@ -22,14 +22,13 @@ Known Behavior - macOS Duplicate Events:
     This is OS-level behavior and not a bug in the watchdog implementation.
 """
 
-import collections
 import logging
 import os
 import pathlib
 import threading
 import time
 import warnings
-from typing import Any
+from typing import Any, cast
 
 from asgiref.sync import async_to_sync, sync_to_async
 from django.conf import settings
@@ -43,14 +42,24 @@ from quickbbs.common import get_dir_sha
 # Configure logging
 logger = logging.getLogger(__name__)
 
-Cache_Storage = None
+# Module-level singleton, assigned an fs_Cache_Tracking() instance by
+# CacheWatcherConfig.ready() (cache_watcher/apps.py) before any caller runs.
+# cast: declared as the instance type (not Optional) so the ~10 call sites
+# across modules don't each need a None guard for a state that only exists
+# during app startup.
+Cache_Storage: "fs_Cache_Tracking" = cast("fs_Cache_Tracking", None)
 
 
 class LockFreeEventBuffer:
     """
-    Thread-safe event buffer for file system events with automatic deduplication.
+    Thread-safe event buffer for file system events with deduplication at insert.
 
-    Replaces global defaultdict with lock to reduce contention during high file activity.
+    Paths are stored in a set, so duplicate events for the same directory
+    (the common case — many file events within one directory) occupy a single
+    slot. The max_size cap therefore applies to *unique* directories, which
+    prevents the previous failure mode where a bulk copy spanning many
+    directories overflowed a raw event deque and silently dropped
+    invalidations.
 
     IMPORTANT - Threading.Lock Usage:
     This class MUST use threading.RLock (not asyncio.Lock) because:
@@ -68,10 +77,10 @@ class LockFreeEventBuffer:
     def __init__(self, max_size: int = 200):
         """
         Args:
-            max_size: Maximum number of events to buffer before auto-cleanup
+            max_size: Maximum number of unique directories to buffer before auto-cleanup
         """
-        # Thread-safe deque for event paths
-        self._events = collections.deque()
+        # Deduplicated set of directory paths with pending events
+        self._events: set[str] = set()
         # RLock allows recursive locking if needed
         # MUST be threading.RLock (see class docstring for why)
         self._lock = threading.RLock()
@@ -79,20 +88,27 @@ class LockFreeEventBuffer:
 
     def add_event(self, dirpath: str) -> None:
         """
-        Add directory path to event buffer.
+        Add directory path to event buffer (deduplicated).
 
         Args:
             dirpath: Directory path that had file system changes
         """
         with self._lock:
-            self._events.append(dirpath)
+            self._events.add(dirpath)
 
-            # Prevent buffer from growing too large to avoid memory issues
+            # Safety valve: with insert-time dedup this should realistically
+            # never trigger (it requires >max_size *unique* directories in one
+            # debounce window). If it does, drop arbitrary entries and say so.
             if len(self._events) > self._max_size:
-                # Remove oldest events to prevent memory buildup
-                cleanup_target = int(self._max_size * 0.5)  # Remove 50% of max size
+                cleanup_target = int(self._max_size * 0.5)  # Keep 50% of max size
+                dropped = len(self._events) - cleanup_target
                 while len(self._events) > cleanup_target:
-                    self._events.popleft()
+                    self._events.pop()
+                logger.warning(
+                    "Event buffer overflow: dropped %d directory invalidation events (max_size=%d)",
+                    dropped,
+                    self._max_size,
+                )
 
     def get_events_to_process(self) -> set[str]:
         """
@@ -105,9 +121,8 @@ class LockFreeEventBuffer:
             if not self._events:
                 return set()
 
-            # Convert to set for automatic deduplication
-            unique_paths = set(self._events)
-            self._events.clear()
+            unique_paths = self._events
+            self._events = set()
             return unique_paths
 
     def size(self) -> int:
@@ -559,10 +574,11 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
 
                         for path in verified_paths:
                             # Use DirectoryIndex.add_directory which handles parent creation
-                            # Returns (success, directory_object)
-                            created, dir_obj = DirectoryIndex.add_directory(path)
+                            # Returns (success, directory_object); these paths are known to be
+                            # missing from DirectoryIndex, so success means newly created.
+                            success, dir_obj = DirectoryIndex.add_directory(path)
 
-                            if created and dir_obj:
+                            if success and dir_obj:
                                 created_dirs.append(dir_obj)
                                 logger.debug("Created DirectoryIndex placeholder for: %s", path)
 
@@ -652,7 +668,9 @@ class fs_Cache_Tracking(models.Model):
 
     # Stored as Unix TimeStamp (ms)
     lastscan = models.FloatField(default=0, blank=True)
-    invalidated = models.BooleanField(default=False, db_index=True)
+    # No standalone index: every real query pairs invalidated with directory,
+    # served by the (directory, invalidated) composite in Meta.indexes.
+    invalidated = models.BooleanField(default=False)
 
     # OneToOne relationship to DirectoryIndex using dir_fqpn_sha256
     # This is the ONLY source of directory information (SHA256 and path)
@@ -917,15 +935,11 @@ class fs_Cache_Tracking(models.Model):
 
         logger.info("Removing %d directories from cache (object-based)", len(sha_list))
 
-        # Create mapping for later cache clearing (already have the objects!)
-        fqpn_by_dir_sha = {d.dir_fqpn_sha256: d for d in index_dirs if self._validate_index_dir(d)}
-
-        # Perform bulk invalidation using helper method
+        # Perform bulk invalidation — also clears layout/DirectoryIndex LRU
+        # caches for all affected directories (including parents).
         update_count = self._bulk_invalidate_by_shas(sha_list)
 
-        # Clear layout caches for affected directories - BULK OPERATION
         if update_count > 0:
-            self._clear_caches_for_affected_directories(sha_list, fqpn_by_dir_sha)
             logger.info("Successfully invalidated %d cache entries (object-based)", update_count)
 
         return update_count > 0
@@ -1094,31 +1108,22 @@ class fs_Cache_Tracking(models.Model):
                 del new_entries
 
             # Explicitly delete large objects to free memory
+            # (index_dirs_list is kept — needed below for LRU cache clearing)
             del all_dirs_to_invalidate
-            del index_dirs_list
             del found_shas
             del existing_cache_shas
             del missing_shas
 
+        # Clear layout and DirectoryIndex LRU caches for ALL invalidated
+        # directories — including parents. The DB rows above are marked
+        # invalidated for parents too; without clearing their LRU entries,
+        # cached parent objects keep reporting is_cached=True (via the
+        # select_related Cache_Watcher relation) and the parents never
+        # rescan until LRU eviction.
+        self._clear_layout_cache_bulk(index_dirs_list)
+        self._clear_directoryindex_cache_bulk(index_dirs_list)
+
         return update_count
-
-    def _clear_caches_for_affected_directories(self, sha_list: list[str], fqpn_by_dir_sha: dict[str, Any]) -> None:
-        """Clear layout and DirectoryIndex caches for affected directories.
-
-        Args:
-            sha_list: List of directory SHA256 hashes
-            fqpn_by_dir_sha: Mapping of SHA256 -> DirectoryIndex objects
-        """
-        # Build list of affected directories, filtering out None values and objects without pk
-        affected_directories = [
-            fqpn_by_dir_sha[sha]
-            for sha in set(sha_list) & fqpn_by_dir_sha.keys()
-            if (fqpn_by_dir_sha[sha] is not None and hasattr(fqpn_by_dir_sha[sha], "pk") and fqpn_by_dir_sha[sha].pk is not None)
-        ]
-
-        if affected_directories:
-            self._clear_layout_cache_bulk(affected_directories)
-            self._clear_directoryindex_cache_bulk(affected_directories)
 
     def remove_multiple_from_cache(self, dir_names: list[str]) -> bool:
         """Remove multiple directories from cache in a single transaction.
@@ -1176,12 +1181,11 @@ class fs_Cache_Tracking(models.Model):
                     except (DatabaseError, OSError) as e:
                         logger.error("Failed to create DirectoryIndex entry for %s: %s", dir_path, e)
 
-        # Perform bulk invalidation using helper method
+        # Perform bulk invalidation — also clears layout/DirectoryIndex LRU
+        # caches for all affected directories (including parents).
         update_count = self._bulk_invalidate_by_shas(sha_list)
 
-        # Clear layout caches for affected directories - BULK OPERATION
         if update_count > 0:
-            self._clear_caches_for_affected_directories(sha_list, fqpn_by_dir_sha)
             logger.info("Successfully invalidated %d cache entries", update_count)
 
         return update_count > 0

@@ -87,6 +87,11 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
         directory.thumbnail = cover_image
         directory.is_generic_icon = False
         directory.save(update_fields=["thumbnail", "is_generic_icon"])
+        # Flag the file as the directory's cover so future
+        # get_cover_image() calls short-circuit to it directly
+        if not cover_image.cover_image:
+            cover_image.cover_image = True
+            cover_image.save(update_fields=["cover_image"])
 
     # Ensure thumbnail record exists
     if not directory.thumbnail.new_ftnail:

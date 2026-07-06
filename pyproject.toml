@@ -26,6 +26,8 @@ exclude = ["**/gallery/**", "**/albums/**"]
 
 [tool.pylint]
 max-line-length = 150
+load-plugins = ["pylint_django"]
+django-settings-module = "quickbbs.settings"
 
 [tool.mypy]
 python_version = "3.14"
