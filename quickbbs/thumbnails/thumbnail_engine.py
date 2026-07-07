@@ -4,16 +4,57 @@ Backend imports are deferred to first use to avoid loading heavy libraries
 (PyMuPDF/fitz, ffmpeg, macOS frameworks) at Django startup time.
 """
 
+import logging
+import os
 import platform
 import threading
 from typing import TYPE_CHECKING, Literal
 
-from .exceptions import UnsupportedFormatError
+try:
+    from .exceptions import UnsupportedFormatError
+except ImportError:
+    from exceptions import UnsupportedFormatError
+
+if __package__ in (None, ""):
+    # Running standalone (python thumbnail_engine.py): put the parent directory
+    # on sys.path and adopt the package name (PEP 366) so the lazy relative
+    # backend imports inside _create_backend resolve at call time.
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    __package__ = "thumbnails"  # noqa: A001
+
+logger = logging.getLogger(__name__)
 
 # Availability is checked lazily on first use
 _core_image_available: bool | None = None
 _avfoundation_available: bool | None = None
 _pdfkit_available: bool | None = None
+
+
+def macintosh_optimizations_enabled() -> bool:
+    """Return True if macOS-accelerated backends may be auto-selected.
+
+    Reads settings.MACINTOSH_OPTIMIZATIONS when Django is configured. Outside a
+    Django context (standalone scripts, benchmarks, the __main__ block below) the
+    hardware backends remain selectable, since the setting is an application
+    concern. Explicit backend requests ("coreimage", "pdfkit") are never gated
+    by this — only the auto-selecting cases ("auto", "corevideo", "pdf").
+
+    Returns:
+        True if the macOS backends may be chosen automatically, False otherwise.
+    """
+    try:
+        from django.conf import settings
+        from django.core.exceptions import ImproperlyConfigured
+
+        try:
+            return bool(getattr(settings, "MACINTOSH_OPTIMIZATIONS", False))
+        except ImproperlyConfigured:
+            return True
+    except ImportError:
+        return True
 
 
 def is_apple_silicon() -> bool:
@@ -33,7 +74,9 @@ def _check_core_image_available() -> bool:
     global _core_image_available
     if _core_image_available is None:
         try:
-            from .core_image_thumbnails import CoreImageBackend  # noqa: F401  # imported to verify availability via try/except; not used directly
+            from .core_image_thumbnails import (  # noqa: F401  # imported to verify availability via try/except; not used directly
+                CoreImageBackend,
+            )
 
             _core_image_available = True
         except ImportError:
@@ -96,10 +139,22 @@ class FastImageProcessor:
         self._backend = self._get_cached_backend()
 
     def _get_cached_backend(self):
-        """Get or create cached backend instance for reuse (thread-safe)."""
+        """Get or create cached backend instance for reuse (thread-safe).
+
+        Logs the resolved backend class once per process per backend type so
+        worker logs show whether the macOS-accelerated paths are actually in
+        use (backends are cached, so this does not spam per-file).
+        """
         with self._backend_lock:
             if self.backend_type not in self._backend_cache:
-                self._backend_cache[self.backend_type] = self._create_backend()
+                backend = self._create_backend()
+                logger.info(
+                    "Thumbnail backend resolved: %r -> %s (macintosh optimizations %s)",
+                    self.backend_type,
+                    type(backend).__name__,
+                    "enabled" if macintosh_optimizations_enabled() else "disabled",
+                )
+                self._backend_cache[self.backend_type] = backend
             return self._backend_cache[self.backend_type]
 
     def _create_backend(self):
@@ -129,7 +184,7 @@ class FastImageProcessor:
 
                 return VideoBackend()
             case "corevideo":
-                if _check_avfoundation_available():
+                if macintosh_optimizations_enabled() and _check_avfoundation_available():
                     from .avfoundation_video_thumbnails import AVFoundationVideoBackend
 
                     return AVFoundationVideoBackend()
@@ -138,7 +193,7 @@ class FastImageProcessor:
                 return VideoBackend()
             case "pdf":
                 # Prefer PDFKit on Apple Silicon, fall back to PyMuPDF elsewhere
-                if _check_pdfkit_available() and self._is_apple_silicon():
+                if macintosh_optimizations_enabled() and _check_pdfkit_available() and self._is_apple_silicon():
                     from .pdfkit_thumbnails import PDFKitBackend
 
                     return PDFKitBackend()
@@ -159,7 +214,7 @@ class FastImageProcessor:
                 return PDFBackend()
             case "auto":
                 # Prefer Core Image on Apple Silicon for GPU-accelerated Lanczos
-                if _check_core_image_available() and self._is_apple_silicon():
+                if macintosh_optimizations_enabled() and _check_core_image_available() and self._is_apple_silicon():
                     try:
                         from .core_image_thumbnails import CoreImageBackend
 
@@ -202,6 +257,49 @@ _processor_cache: dict = {}
 _processor_lock = threading.Lock()
 
 
+def _fork_acquire_locks() -> None:
+    """Serialize fork against cache mutation so no lock is held mid-fork.
+
+    Acquired in fixed order (processor, then backend) to avoid lock-order
+    inversion with _fork_release_locks_parent.
+    """
+    _processor_lock.acquire()
+    FastImageProcessor._backend_lock.acquire()
+
+
+def _fork_release_locks_parent() -> None:
+    """Release the fork-serialization locks in the parent (reverse order)."""
+    FastImageProcessor._backend_lock.release()
+    _processor_lock.release()
+
+
+def _fork_reset_child() -> None:
+    """Reset engine state in a forked child process.
+
+    The child gets fresh locks (the inherited ones are owned by threads that do
+    not exist in the child) and empty caches — discarding any CoreImageBackend
+    whose Metal command queue references the parent's now-dead Mach ports.
+    Using such a backend can silently produce blank/white renders instead of
+    raising, so the caches must be cleared before any thumbnail work runs.
+
+    Note: register_at_fork makes THIS module fork-correct; forking after the
+    ObjC/Metal runtime is initialized remains discouraged by Apple. The child
+    recovers via the per-PID Metal device recreation in core_image_thumbnails.
+    """
+    global _processor_lock
+    _processor_lock = threading.Lock()
+    FastImageProcessor._backend_lock = threading.Lock()
+    _processor_cache.clear()
+    FastImageProcessor._backend_cache.clear()
+
+
+os.register_at_fork(
+    before=_fork_acquire_locks,
+    after_in_parent=_fork_release_locks_parent,
+    after_in_child=_fork_reset_child,
+)
+
+
 def _get_cached_processor(sizes: dict[str, tuple[int, int]], backend: BackendType) -> FastImageProcessor:
     """Get or create cached processor for common configurations (thread-safe)."""
     cache_key = (tuple(sorted(sizes.items())), backend)
@@ -211,7 +309,23 @@ def _get_cached_processor(sizes: dict[str, tuple[int, int]], backend: BackendTyp
         return _processor_cache[cache_key]
 
 
-def clear_backend_caches(force_gc: bool = True) -> dict[str, int]:
+def resolve_backend_name(backend: BackendType, sizes: dict[str, tuple[int, int]]) -> str:
+    """Return the class name of the backend that will process this configuration.
+
+    Resolves (and caches) the backend exactly as generation will, so callers
+    can log which frontend — e.g. CoreImageBackend vs ImageBackend — is active.
+
+    Args:
+        backend: Backend selector (e.g. "auto", "corevideo", "pdf").
+        sizes: Dictionary mapping size names to (width, height) tuples.
+
+    Returns:
+        Backend class name, e.g. "CoreImageBackend" or "ImageBackend".
+    """
+    return _get_cached_processor(sizes, backend).current_backend
+
+
+def clear_backend_caches(force_gc: bool = True) -> dict[str, int | float]:
     """
     Clear cached processor and backend instances to release resources.
 

@@ -16,6 +16,7 @@ from quickbbs.cache_registry import clear_layout_cache_for_directories
 from quickbbs.MonitoredCache import MonitoredLRUCache
 from thumbnails.exceptions import OrphanedFileIndex, OrphanedThumbnail
 from thumbnails.models import THUMBNAILFILES_PR_FILEINDEX_FILETYPE, ThumbnailFiles
+from thumbnails.thumbnail_engine import resolve_backend_name
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +145,14 @@ def generate_missing_thumbnails(
     if not sha256_list:
         return results
 
-    logger.info("Processing %d thumbnails", len(sha256_list))
+    # resolve_backend_name resolves "auto" exactly as image generation will,
+    # so the log shows whether the macOS-accelerated frontend is in use.
+    logger.info(
+        "Processing %d thumbnails (image backend: %s, macintosh optimizations %s)",
+        len(sha256_list),
+        resolve_backend_name("auto", settings.IMAGE_SIZE),
+        "enabled" if settings.MACINTOSH_OPTIMIZATIONS else "disabled",
+    )
 
     thumbnails_to_update: list[ThumbnailFiles] = []
     start_time = time.monotonic()

@@ -47,18 +47,18 @@ from thumbnails.exceptions import (
     ThumbnailGenerationError,
     UnsupportedFormatError,
 )
-from thumbnails.thumbnail_engine import create_thumbnails_from_path
+from thumbnails.thumbnail_engine import BackendType, create_thumbnails_from_path
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
     from django.db.models.fields.related_descriptors import RelatedManager
     from PIL import Image
 
-    from quickbbs.models import DirectoryIndex, FileIndex
-
     # Inside the ThumbnailFiles class body, the bare name "FileIndex" in a
     # type string resolves to the reverse-manager class attribute (declared
     # below), not the model — annotations there must use this alias instead.
+    from quickbbs.models import DirectoryIndex
+    from quickbbs.models import FileIndex
     from quickbbs.models import FileIndex as FileIndexModel
 
 __version__ = "4.0"
@@ -95,6 +95,48 @@ THUMBNAILFILES_PR_FILEINDEX_FILETYPE = ("FileIndex__filetype",)
 
 # Empty-value sentinel for thumbnail existence checks (avoids per-call list creation)
 _EMPTY_THUMB_VALUES = ("", b"", None)
+
+
+def is_all_white_thumbnail(small_thumb: bytes | memoryview | None) -> bool:
+    """Return True if the thumbnail blob decodes to an entirely white image.
+
+    Shared detector used by both the creation-time white check
+    (settings.MAC_OPTIMIZATION_WHITECHECK) and the offline repair scan
+    (manage.py scan --verify_thumbnails). Callers apply their own size
+    prefilter (settings.SMALL_THUMBNAIL_SAFEGUARD_SIZE).
+
+    Args:
+        small_thumb: JPEG/PNG blob of the small thumbnail (bytes or a
+            memoryview from a BinaryField), or None.
+
+    Returns:
+        True if every pixel is white, False for empty/None blobs, non-RGB/L
+        modes, or any non-white pixel.
+    """
+    if not small_thumb:
+        return False
+    with Image.open(io.BytesIO(small_thumb)) as img:
+        extrema = img.getextrema()
+        if img.mode == "RGB":
+            return extrema == ((255, 255), (255, 255), (255, 255))
+        if img.mode == "L":
+            return extrema == (255, 255)
+    return False
+
+
+def _is_suspect_all_white(small_thumb: bytes) -> bool:
+    """Return True if a fresh thumbnail looks like GPU all-white corruption.
+
+    Creation-time gate: only blobs small enough to plausibly be corruption
+    (below SMALL_THUMBNAIL_SAFEGUARD_SIZE) are decoded and pixel-checked.
+
+    Args:
+        small_thumb: JPEG blob of the freshly generated small thumbnail.
+
+    Returns:
+        True if the blob is below the safeguard size and entirely white.
+    """
+    return len(small_thumb) < settings.SMALL_THUMBNAIL_SAFEGUARD_SIZE and is_all_white_thumbnail(small_thumb)
 
 
 class ThumbnailFiles(models.Model):
@@ -356,14 +398,14 @@ class ThumbnailFiles(models.Model):
             thumbnails = None  # Initialize to prevent UnboundLocalError
             try:
                 if filetype.is_image:
-                    # Apple Silicon optimizations (CoreImage/auto) disabled pending memory investigation.
-                    # Re-enable by changing backend="image" to backend="auto".
+                    # "auto" resolves to CoreImage only when settings.MACINTOSH_OPTIMIZATIONS
+                    # is True (and the platform supports it); otherwise PIL.
                     thumbnails = create_thumbnails_from_path(
                         filename,
                         settings.IMAGE_SIZE,
                         output="JPEG",
                         quality=settings.PIL_IMAGE_QUALITY,
-                        backend="image",
+                        backend="auto",
                     )
 
                     # Validate thumbnail is not empty
@@ -374,14 +416,14 @@ class ThumbnailFiles(models.Model):
                         )
 
                 elif filetype.is_movie:
-                    # Apple Silicon optimizations (AVFoundation/corevideo) disabled pending memory investigation.
-                    # Re-enable by changing backend="video" to: "corevideo" if _check_avfoundation_available() else "video"
+                    # "corevideo" resolves to AVFoundation only when
+                    # settings.MACINTOSH_OPTIMIZATIONS is True; otherwise FFmpeg.
                     thumbnails = create_thumbnails_from_path(
                         filename,
                         settings.IMAGE_SIZE,
                         output="JPEG",
                         quality=settings.PIL_IMAGE_QUALITY,
-                        backend="video",
+                        backend="corevideo",
                     )
                     # Validate result
                     if not thumbnails or not thumbnails.get("small"):
@@ -391,14 +433,14 @@ class ThumbnailFiles(models.Model):
                         )
 
                 elif filetype.is_pdf:
-                    # Apple Silicon optimizations (PDFKit) disabled pending memory investigation.
-                    # Re-enable by changing backend="pymupdf" to backend="pdf".
+                    # "pdf" resolves to PDFKit only when settings.MACINTOSH_OPTIMIZATIONS
+                    # is True (and the platform supports it); otherwise PyMuPDF.
                     thumbnails = create_thumbnails_from_path(
                         filename,
                         settings.IMAGE_SIZE,
                         output="JPEG",
                         quality=settings.PIL_IMAGE_QUALITY,
-                        backend="pymupdf",
+                        backend="pdf",
                     )
                     # Validate result
                     if not thumbnails or not thumbnails.get("small"):
@@ -417,6 +459,33 @@ class ThumbnailFiles(models.Model):
                     FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
 
                     return thumbnail
+
+                # Creation-time GPU-corruption safeguard (opt-in). A suspiciously
+                # small, entirely white small-thumb is regenerated ONCE with the
+                # explicit cross-platform backend; the retry result is used
+                # unconditionally — genuinely all-white content (e.g. blank PDF
+                # pages) is legitimate and must not loop.
+                if settings.MAC_OPTIMIZATION_WHITECHECK and _is_suspect_all_white(thumbnails["small"]):
+                    fallback_backend: BackendType
+                    if filetype.is_image:
+                        fallback_backend = "image"
+                    elif filetype.is_movie:
+                        fallback_backend = "video"
+                    else:
+                        fallback_backend = "pymupdf"
+                    white_defect_msg = (
+                        f"All-white thumbnail detected for {index_data_item.name} "
+                        f"(sha256={file_sha256}) — regenerating with backend '{fallback_backend}'"
+                    )
+                    logger.warning("%s", white_defect_msg)
+                    print(white_defect_msg)
+                    thumbnails = create_thumbnails_from_path(
+                        filename,
+                        settings.IMAGE_SIZE,
+                        output="JPEG",
+                        quality=settings.PIL_IMAGE_QUALITY,
+                        backend=fallback_backend,
+                    )
 
                 thumbnail.small_thumb = thumbnails["small"]
                 thumbnail.medium_thumb = thumbnails["medium"]

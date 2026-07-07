@@ -15,6 +15,7 @@ try:
     from Foundation import NSURL, NSAutoreleasePool, NSData
     from Quartz import (
         CGColorSpaceCreateDeviceRGB,
+        CGRectMake,
         CIContext,
         CIFilter,
         CIImage,
@@ -71,9 +72,11 @@ except ImportError:
 try:
     from .Abstractbase_thumbnails import AbstractBackend
     from .exceptions import MediaProcessingError, UnsupportedFormatError
+    from .pil_thumbnails import convert_image_for_format
 except ImportError:
     from Abstractbase_thumbnails import AbstractBackend
     from exceptions import MediaProcessingError, UnsupportedFormatError
+    from pil_thumbnails import convert_image_for_format
 
 
 @contextmanager
@@ -272,6 +275,11 @@ class CoreImageBackend(AbstractBackend):
         original_width = extent.size.width
         original_height = extent.size.height
 
+        # Guard against empty/degenerate extents (zero-sized or infinite images)
+        # before they become ZeroDivisionError or absurd scale factors below.
+        if not 0 < original_width < float("inf") or not 0 < original_height < float("inf"):
+            raise MediaProcessingError(f"CIImage has unusable extent {original_width}x{original_height}")
+
         # Sort sizes by area (largest first) for optimal processing
         sorted_sizes = sorted(sizes.items(), key=lambda x: x[1][0] * x[1][1], reverse=True)
 
@@ -320,8 +328,17 @@ class CoreImageBackend(AbstractBackend):
         """
         with autorelease_pool():
             extent = ci_image.extent()
+            # Extents are fractional after Lanczos scaling. Floor them and render
+            # bounds that exactly match the buffer dimensions — rendering the
+            # fractional extent into a truncated-width buffer misaligns every row
+            # (bytes_per_row mismatch), producing sheared/corrupt thumbnails.
+            # Floor (crop the sub-pixel fringe) rather than ceil (pad), so no
+            # undefined content is rendered into the last column/row.
             width = int(extent.size.width)
             height = int(extent.size.height)
+            if width <= 0 or height <= 0:
+                raise MediaProcessingError(f"CIImage extent too small to render ({extent.size.width}x{extent.size.height})")
+            render_bounds = CGRectMake(extent.origin.x, extent.origin.y, width, height)
 
             # Render directly to bitmap buffer — NO IOSurface allocation
             bytes_per_row = width * 4  # RGBA8 = 4 bytes per pixel
@@ -332,7 +349,7 @@ class CoreImageBackend(AbstractBackend):
                 ci_image,
                 bitmap_data,
                 bytes_per_row,
-                extent,
+                render_bounds,
                 kCIFormatRGBA8,
                 self._color_space,
             )
@@ -343,7 +360,13 @@ class CoreImageBackend(AbstractBackend):
             buffer = io.BytesIO()
             fmt = output_format.upper()
             if fmt == "JPEG":
-                pil_img = pil_img.convert("RGB")
+                # Composite transparency onto a white background (same helper the
+                # PIL backend uses) instead of convert("RGB"), which drops alpha
+                # and leaves transparent regions black. Core Image output is
+                # premultiplied alpha, so semi-transparent edge pixels composite
+                # slightly darker than the PIL path; fully transparent/opaque
+                # pixels — the ones that matter for parity — are exact.
+                pil_img = convert_image_for_format(pil_img, "JPEG")
                 pil_img.save(buffer, format="JPEG", quality=quality)
             elif fmt == "PNG":
                 pil_img.save(buffer, format="PNG")

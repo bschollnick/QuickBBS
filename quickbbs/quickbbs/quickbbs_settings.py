@@ -73,7 +73,31 @@ PIL_LOAD_TRUNCATED_IMAGES = True  # Allow loading truncated images
 
 # Thumbnail Quality Settings (1-100, where 100 is highest quality)
 PIL_IMAGE_QUALITY = 85  # Quality for PIL/Pillow thumbnail generation
+# CORE_IMAGE_QUALITY is NOT currently used by the runtime — thumbnail generation
+# always passes PIL_IMAGE_QUALITY regardless of backend. Retained as the historical
+# calibration reference for SMALL_THUMBNAIL_SAFEGUARD_SIZE (all-white JPEGs at q=55).
 CORE_IMAGE_QUALITY = 55  # Quality for Core Image thumbnail generation (macOS)
+
+# Master switch for the macOS hardware-accelerated thumbnail backends:
+# CoreImage (images), AVFoundation (videos), PDFKit (PDFs).
+# When False, the cross-platform backends are used instead (PIL, FFmpeg, PyMuPDF).
+# Default False pending the GPU memory investigation documented in
+# claude_docs/macintosh_optimizations_memory.md (16GB kernel_task accumulation
+# during full rebuilds).
+# NOTE: backend instances are cached per-process on first use — changing this
+# setting requires restarting the web server and taskrunner.
+MACINTOSH_OPTIMIZATIONS = True
+
+# Creation-time all-white thumbnail detection (GPU-corruption safeguard).
+# When True, every freshly generated small thumbnail below
+# SMALL_THUMBNAIL_SAFEGUARD_SIZE is decoded and checked for all-white pixels;
+# detections are logged AND printed to the console, and the thumbnail is
+# regenerated once via the cross-platform backend for that file type.
+# Independent of MACINTOSH_OPTIMIZATIONS so it can be used to audit either path.
+# Applies ONLY to thumbnail creation — the offline repair scan
+# (manage.py scan --verify_thumbnails) always checks for all-white thumbnails
+# regardless of this setting.
+MAC_OPTIMIZATION_WHITECHECK = False
 
 # All-white corruption detection threshold (bytes)
 # Thumbnails with small_thumb blob size below this value are suspected GPU corruption

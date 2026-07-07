@@ -19,7 +19,6 @@ Usage:
 
 from __future__ import annotations
 
-import io
 import os
 import time
 
@@ -28,7 +27,6 @@ from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.management.base import BaseCommand, CommandError
 from django.db import close_old_connections, transaction
-from PIL import Image
 
 from cache_watcher.models import Cache_Storage, fs_Cache_Tracking
 from quickbbs.common import normalize_fqpn
@@ -42,7 +40,7 @@ from quickbbs.management.commands.management_helper import (
     invalidate_empty_directories,
 )
 from quickbbs.models import DirectoryIndex, FileIndex
-from thumbnails.models import ThumbnailFiles
+from thumbnails.models import ThumbnailFiles, is_all_white_thumbnail
 
 # Batch size for chunked processing operations
 BULK_UPDATE_BATCH_SIZE = 250
@@ -420,7 +418,7 @@ def verify_thumbnails(max_count: int = 0):
         print(f"Limiting to {max_count} thumbnails...")
 
     # Track directories that need invalidation (only store IDs, not objects)
-    directories_to_invalidate = set()
+    directories_to_invalidate: set[int] = set()
     batch_counter = 0
     corrupted_count = 0
     orphaned_count = 0
@@ -454,22 +452,10 @@ def verify_thumbnails(max_count: int = 0):
                     thumbnail.delete()
                     continue
 
-                # Skip if small_thumb is empty or None
-                if not thumbnail.small_thumb:
-                    continue
-
-                # Check if thumbnail is all-white
-                with Image.open(io.BytesIO(thumbnail.small_thumb)) as img:
-                    extrema = img.getextrema()
-
-                    # Check if all pixels are white
-                    is_all_white = False
-                    if img.mode == "RGB":
-                        is_all_white = extrema == ((255, 255), (255, 255), (255, 255))
-                    elif img.mode == "L":
-                        is_all_white = extrema == (255, 255)
-
-                if is_all_white:
+                # Shared detector (thumbnails.models) — also handles empty/None blobs.
+                # This scan is unconditional; settings.MAC_OPTIMIZATION_WHITECHECK
+                # only gates the creation-time check, not this repair pass.
+                if is_all_white_thumbnail(thumbnail.small_thumb):
                     corrupted_count += 1
                     fi_name = fileindex_names.get(thumbnail.sha256_hash, "unknown")
                     print(f"  Found potential issue: SHA256={thumbnail.sha256_hash[:16]}... file={fi_name}")
