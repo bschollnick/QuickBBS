@@ -34,12 +34,12 @@ def verify_login_status(request, force_login=False) -> bool:
     - No CSRF protection
     - No HTTP method validation
 
-    :Args:
+    Args:
         request: Django request object
         force_login: Unused parameter
 
-    :Returns:
-        Never returns (raises NotImplementedError)
+    Raises:
+        NotImplementedError: Always — this function is no longer supported.
     """
     warnings.warn(
         ("verify_login_status() is deprecated and will be removed in v4.0. " "Use django-allauth and @login_required instead."),
@@ -57,13 +57,13 @@ def respond_as_attachment(request, file_path, original_filename):
 
     This function had a file handle leak vulnerability.
 
-    :Args:
+    Args:
         request: Django request object
         file_path: Path to file directory
         original_filename: Name of file to send
 
-    :Returns:
-        Never returns (raises NotImplementedError)
+    Raises:
+        NotImplementedError: Always — this function is no longer supported.
     """
     warnings.warn(
         ("respond_as_attachment() is deprecated and will be removed in v4.0. " "Use serve_up.send_file_response() instead."),
@@ -79,13 +79,13 @@ def stream_video(request, fqpn, content_type="video/mp4"):
 
     This function was orphaned after video.js feature reversal.
 
-    :Args:
+    Args:
         request: Django request object
         fqpn: Fully qualified path name to video file
         content_type: MIME type of video
 
-    :Returns:
-        Never returns (raises NotImplementedError)
+    Raises:
+        NotImplementedError: Always — this function is no longer supported.
     """
     warnings.warn(
         "stream_video() is deprecated and will be removed in v4.0.",
@@ -101,14 +101,14 @@ def file_iterator(file_path, chunk_size=8192, offset=0, length=None):
 
     This function was only used by stream_video() which is also deprecated.
 
-    :Args:
+    Args:
         file_path: Path to file for iteration
         chunk_size: Size of chunks to read
         offset: Starting offset in file
         length: Total length to read
 
-    :Returns:
-        Never returns (raises NotImplementedError)
+    Raises:
+        NotImplementedError: Always — this function is no longer supported.
     """
     warnings.warn(
         "file_iterator() is deprecated and will be removed in v4.0.",

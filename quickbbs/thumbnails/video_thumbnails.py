@@ -3,17 +3,18 @@
 import io
 from fractions import Fraction
 from pathlib import Path
+from typing import Any
 
 import ffmpeg
 from PIL import Image
 
 try:
     from .Abstractbase_thumbnails import AbstractBackend
-    from .exceptions import UnsupportedFormatError
+    from .exceptions import UnsupportedFormatError, VideoProcessingError
     from .pil_thumbnails import ImageBackend, convert_image_for_format
 except ImportError:
     from Abstractbase_thumbnails import AbstractBackend
-    from exceptions import UnsupportedFormatError
+    from exceptions import UnsupportedFormatError, VideoProcessingError
     from pil_thumbnails import ImageBackend, convert_image_for_format
 
 
@@ -23,6 +24,17 @@ class VideoBackend(AbstractBackend):
     Uses ffmpeg-python to extract frames from video files and processes
     them using the PIL backend for thumbnail generation.
     Includes optimization for backend reuse.
+
+    Example:
+        >>> backend = VideoBackend()
+        >>> thumbs = backend.process_from_file(
+        ...     "/albums/clips/sample.mp4",
+        ...     sizes={"small": (200, 200), "large": (1024, 1024)},
+        ...     output_format="JPEG",
+        ...     quality=85,
+        ... )
+        >>> sorted(thumbs)
+        ['duration', 'format', 'large', 'small']
     """
 
     __slots__ = ("_image_backend",)
@@ -39,15 +51,25 @@ class VideoBackend(AbstractBackend):
         quality: int,
     ) -> dict[str, bytes]:
         """
-        Process video file and generate thumbnails.
+        Process a video file and generate thumbnails from a frame at its midpoint.
 
-        :Args:
-            file_path: Path to video file
-            sizes: Dictionary mapping size names to (width, height) tuples
-            output_format: Output format (JPEG, PNG, WEBP)
-            quality: Image quality (1-100)
+        Extracts a single frame at half the video's duration via FFmpeg, then
+        resizes it to each requested size using the PIL image backend.
 
-        :return: Dictionary with 'duration', 'format', and size-keyed thumbnail bytes
+        Args:
+            file_path: Path to the video file.
+            sizes: Dictionary mapping size names to (width, height) tuples.
+            output_format: Output format (JPEG, PNG, WEBP).
+            quality: Image quality (1-100).
+
+        Returns:
+            Dictionary with 'duration' (float seconds), 'format' (the output
+            format string), and one entry per size name mapping to the
+            thumbnail bytes.
+
+        Raises:
+            FileNotFoundError: If the video file does not exist.
+            VideoProcessingError: If FFmpeg cannot probe the file or extract a frame.
         """
         output = {}
         video_data = _get_video_info(file_path)
@@ -68,15 +90,16 @@ class VideoBackend(AbstractBackend):
         quality: int,
     ) -> dict[str, bytes]:
         """
-        Process image from memory and generate thumbnails.
+        Process an image from memory and generate thumbnails.
 
-        :Args:
-            image_bytes: Image data as bytes
-            sizes: Dictionary mapping size names to (width, height) tuples
-            output_format: Output format (JPEG, PNG, WEBP)
-            quality: Image quality (1-100)
+        Args:
+            image_bytes: Image data as bytes.
+            sizes: Dictionary mapping size names to (width, height) tuples.
+            output_format: Output format (JPEG, PNG, WEBP).
+            quality: Image quality (1-100).
 
-        :return: Dictionary mapping size names to thumbnail bytes
+        Returns:
+            Dictionary mapping size names to thumbnail bytes.
         """
         with Image.open(io.BytesIO(image_bytes)) as img:
             return self._process_pil_image(img, sizes, output_format, quality)
@@ -89,15 +112,16 @@ class VideoBackend(AbstractBackend):
         quality: int,
     ) -> dict[str, bytes]:
         """
-        Process PIL Image object and generate thumbnails.
+        Process a PIL Image object and generate thumbnails.
 
-        :Args:
-            pil_image: PIL Image object to process
-            sizes: Dictionary mapping size names to (width, height) tuples
-            output_format: Output format (JPEG, PNG, WEBP)
-            quality: Image quality (1-100)
+        Args:
+            pil_image: PIL Image object to process.
+            sizes: Dictionary mapping size names to (width, height) tuples.
+            output_format: Output format (JPEG, PNG, WEBP).
+            quality: Image quality (1-100).
 
-        :return: Dictionary mapping size names to thumbnail bytes
+        Returns:
+            Dictionary mapping size names to thumbnail bytes.
         """
         img_copy = pil_image.copy()
         return self._process_pil_image(img_copy, sizes, output_format, quality)
@@ -112,15 +136,24 @@ def _generate_thumbnail_to_pil(
     """
     Generate a thumbnail from a video file and return it as a PIL Image.
 
-    Args:
-        video_path: Path to the input video file
-        time_offset: Time position to capture thumbnail (format: HH:MM:SS or seconds as int)
-        width: Thumbnail width in pixels
-        height: Thumbnail height in pixels
+    Extracts a single MJPEG frame via FFmpeg at the requested time offset,
+    scaled to fit within width x height (aspect ratio preserved, padded
+    with black to the exact dimensions).
 
-    Returns: PIL Image object of the video frame
-    :raises FileNotFoundError: If video file doesn't exist
-    :raises Exception: If ffmpeg processing fails
+    Args:
+        video_path: Path to the input video file.
+        time_offset: Time position to capture thumbnail (format: HH:MM:SS
+            string, or seconds as an int).
+        width: Thumbnail width in pixels.
+        height: Thumbnail height in pixels.
+
+    Returns:
+        PIL Image object of the extracted video frame.
+
+    Raises:
+        FileNotFoundError: If the video file does not exist.
+        VideoProcessingError: If FFmpeg exits with an error or produces no
+            frame data (e.g. corrupt stream, seek past the last frame).
     """
     video_path = Path(video_path)
 
@@ -141,7 +174,20 @@ def _generate_thumbnail_to_pil(
         raw_data, stderr = process.communicate()
 
         if process.returncode != 0:
-            raise Exception(f"FFmpeg error: {stderr.decode()}")
+            raise VideoProcessingError(
+                f"FFmpeg error: {stderr.decode(errors='replace')}",
+                file_path=str(video_path),
+            )
+
+        # FFmpeg can exit 0 without emitting a frame (corrupt stream, seek past
+        # the last decodable frame). Raise with ffmpeg's stderr instead of
+        # letting PIL fail on empty bytes with a misleading
+        # "cannot identify image file <_io.BytesIO>" error.
+        if not raw_data:
+            raise VideoProcessingError(
+                f"FFmpeg produced no frame data: {stderr.decode(errors='replace')}",
+                file_path=str(video_path),
+            )
 
         # Create PIL Image from JPEG data
         image = Image.open(io.BytesIO(raw_data))
@@ -149,7 +195,7 @@ def _generate_thumbnail_to_pil(
         return image
 
     except ffmpeg.Error as e:
-        raise Exception(f"FFmpeg error: {e}")
+        raise VideoProcessingError(f"FFmpeg error: {e}", file_path=str(video_path)) from e
 
 
 # def _generate_multiple_thumbnails_pil(video_path, count=5, width=320, height=240):
@@ -198,15 +244,26 @@ def _generate_thumbnail_to_pil(
 #     return thumbnails
 
 
-def _get_video_info(video_path: str) -> dict[str, any]:
+def _get_video_info(video_path: str) -> dict[str, Any]:
     """
-    Get basic information about a video file.
+    Get basic information about a video file using ffprobe.
 
     Args:
-        video_path: Path to the video file
+        video_path: Path to the video file.
 
-    Returns: Dictionary containing video metadata (duration, width, height, fps, codec, format)
-    :raises Exception: If ffmpeg probe fails
+    Returns:
+        Dictionary with keys 'duration' (float seconds), 'width', 'height'
+        (ints), 'fps' (float), 'codec' (codec name string), and 'format'
+        (container format string).
+
+    Raises:
+        VideoProcessingError: If the ffprobe call fails or the file contains
+            no video stream.
+
+    Example:
+        >>> info = _get_video_info("/albums/clips/sample.mp4")
+        >>> info["duration"], info["codec"]
+        (66.7, 'h264')
     """
     try:
         probe = ffmpeg.probe(str(video_path))
@@ -216,7 +273,7 @@ def _get_video_info(video_path: str) -> dict[str, any]:
         )
 
         if video_stream is None:
-            raise Exception("No video stream found")
+            raise VideoProcessingError("No video stream found", file_path=str(video_path))
 
         fps_fraction = Fraction(video_stream["r_frame_rate"])
 
@@ -232,20 +289,24 @@ def _get_video_info(video_path: str) -> dict[str, any]:
         return info
 
     except ffmpeg.Error as e:
-        raise Exception(f"Error getting video info: {e}")
+        raise VideoProcessingError(f"Error getting video info: {e}", file_path=str(video_path)) from e
 
 
 def _pil_to_binary(image: Image.Image, img_format: str = "JPEG", quality: int = 85) -> bytes:
     """
-    Convert PIL Image to binary data.
+    Convert a PIL Image to binary data.
 
     Args:
-        image: PIL Image object to convert
-        img_format: Output format (JPEG, PNG, or WEBP)
-        quality: Quality for JPEG/WEBP (1-100)
+        image: PIL Image object to convert.
+        img_format: Output format (JPEG, PNG, or WEBP).
+        quality: Quality for JPEG/WEBP (1-100). Ignored for PNG.
 
-    Returns: Binary image data as bytes
-    :raises UnsupportedFormatError: If unsupported format is specified
+    Returns:
+        Binary image data as bytes.
+
+    Raises:
+        UnsupportedFormatError: If a format other than JPEG, PNG, or WEBP
+            is specified.
     """
     output_buffer = io.BytesIO()
 
@@ -297,6 +358,6 @@ if __name__ == "__main__":
     print(f"Duration: {result['duration']} seconds")
     print(f"Format: {result['format']}")
     print(f"size of small thumbnail: {len(result['small'])} bytes")
-    print(f"size of medium thumbnail: {len(output['medium'])} bytes")
-    print(f"size of large thumbnail: {len(output['large'])} bytes")
+    print(f"size of medium thumbnail: {len(result['medium'])} bytes")
+    print(f"size of large thumbnail: {len(result['large'])} bytes")
     # print(output)

@@ -45,7 +45,6 @@ from thumbnails.exceptions import (
     OrphanedFileIndex,
     OrphanedThumbnail,
     ThumbnailGenerationError,
-    UnsupportedFormatError,
 )
 from thumbnails.thumbnail_engine import BackendType, create_thumbnails_from_path
 
@@ -141,14 +140,30 @@ def _is_suspect_all_white(small_thumb: bytes) -> bool:
 
 class ThumbnailFiles(models.Model):
     """
-    ThumbnailFiles is the primary storage for any thumbnails that are created.
+    Primary storage for generated thumbnails, content-addressed by file hash.
 
-    Primary Key - `sha256_hash` - This is the sha256 hash of the file that the thumbnail is for.
+    One row per unique file content: `sha256_hash` (unique, indexed) is the
+    SHA256 of the source file, so all FileIndex records with identical
+    content share a single thumbnail row (via the FileIndex.new_ftnail
+    foreign key). The primary key is the implicit auto-increment `id`.
 
-    * SmallThumb - The binary storage for the Small Thumbnails
-    * MediumThumb - The Binary storage for the Medium Thumbnails
-    * LargeThumb - The Binary Storage for the Large Thumbnails
+    Blob fields:
+    * small_thumb - Binary storage for the small thumbnail
+    * medium_thumb - Binary storage for the medium thumbnail
+    * large_thumb - Binary storage for the large thumbnail
 
+    NULL is the only "no thumbnail data" state for the blob fields; empty
+    bytes are rejected by the thumbnails_no_empty_blobs constraint.
+
+    Example:
+        >>> thumb = ThumbnailFiles.get_or_create_thumbnail_record(
+        ...     file_sha256,
+        ...     suppress_save=False,
+        ...     prefetch_related_thumbnail=("FileIndex",),
+        ...     select_related_fileindex=("filetype",),
+        ... )
+        >>> thumb.thumbnail_exists("small")
+        True
     """
 
     sha256_hash = models.CharField(
@@ -169,6 +184,8 @@ class ThumbnailFiles(models.Model):
     FileIndex: "RelatedManager[FileIndexModel]"  # From FileIndex.new_ftnail
 
     class Meta:
+        """Model metadata: partial indexes for thumbnail existence checks and the no-empty-blobs constraint."""
+
         verbose_name = "Image File Thumbnails Cache"
         verbose_name_plural = "Image File Thumbnails Cache"
         # Index set pruned 2026-07-04 against pg_stat_user_indexes evidence
@@ -514,10 +531,11 @@ class ThumbnailFiles(models.Model):
                     clear_layout_cache_for_directories({index_data_item.home_directory_id})
 
             except MediaProcessingError as e:
-                # File exists but could not be loaded as an image (corrupt, wrong format, etc.)
+                # File exists but the media backend could not decode it (corrupt,
+                # wrong format, no frame data, etc.). Covers images, videos, and PDFs.
                 # Log at WARNING (not ERROR) since this is a data issue, not a code issue.
                 logger.warning(
-                    "Unreadable image file, marking as generic icon: %s (%s)",
+                    "Unreadable media file, marking as generic icon: %s (%s)",
                     filename,
                     e,
                 )

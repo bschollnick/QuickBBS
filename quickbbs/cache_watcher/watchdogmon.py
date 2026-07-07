@@ -83,10 +83,13 @@ class WatchdogMonitor:
         """
         Start the watchdog observer to monitor filesystem changes.
 
-        :param monitor_path: Path to monitor for filesystem changes
-        :param event_handler: Event handler to process filesystem events
-        :param force_recreate: If True, stop and recreate the observer (prevents memory leaks)
-        :return: None
+        Args:
+            monitor_path: Path to monitor for filesystem changes.
+            event_handler: Event handler to process filesystem events.
+            force_recreate: If True, stop and recreate the observer (prevents memory leaks).
+
+        Returns:
+            None
         """
         logger.info("Monitoring : %s", monitor_path)
 
@@ -119,7 +122,8 @@ class WatchdogMonitor:
         Stop the watchdog observer without exiting the process.
         Use this for restarts or cleanup that should not terminate the application.
 
-        :return: None
+        Returns:
+            None
         """
         if self.my_observer is not None:
             logger.debug("Stopping observer")
@@ -155,8 +159,11 @@ class WatchdogMonitor:
         Shutdown the watchdog observer and exit the process.
         Use this for full application shutdown.
 
-        :param args: Variable arguments for shutdown handling
-        :return: None
+        Args:
+            *args: Variable arguments for shutdown handling (unused).
+
+        Returns:
+            None
         """
         if os.environ.get("RUN_MAIN") == "true":
             logger.info("Shutting down")

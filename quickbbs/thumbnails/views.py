@@ -31,14 +31,15 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
     (e.g., "cover", "title") before falling back to the first available file.
 
     Args:
-        request: Django Request object
-        dir_sha256: the sha256 of the directory
+        request: Django Request object.
+        dir_sha256: The dir_fqpn_sha256 of the directory.
 
     Returns:
-        The image of the thumbnail to send
+        FileResponse containing the cover thumbnail JPEG, or the filetype's
+        generic icon when no cover image can be found or served.
 
     Raises:
-        Http404: If the directory cannot be found
+        Http404: If the directory cannot be found.
     """
     # Use optimized model method with prefetched relationships
     success, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha256)
@@ -192,11 +193,14 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
     lock needed to serialize generation.
 
     Args:
-        request: Django Request object
-        sha256: The sha256 of the file - FileIndex object
+        request: Django Request object. The optional ?size= query parameter
+            selects small (default), medium, or large.
+        sha256: The file_sha256 of the FileIndex record.
 
     Returns:
-        The sent thumbnail
+        FileResponse containing the thumbnail JPEG; the filetype's generic
+        icon for generic/failed files; or HttpResponseBadRequest when no
+        FileIndex exists for the hash.
     """
     thumbsize = request.GET.get("size", "small").lower()
     if thumbsize not in ("small", "medium", "large"):

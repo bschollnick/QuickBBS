@@ -8,19 +8,23 @@ from io import BytesIO
 from pathlib import Path
 
 import av  # Video Previews
-import filetypes
 import fitz  # PDF previews
 from django.conf import settings
 from PIL import Image
 
+import filetypes
 
-def pdf_to_pil(fspath):
+
+def pdf_to_pil(fspath: str) -> Image.Image | None:
     """
-    The load_pdf function loads a PDF file from the filesystem and returns an image.
+    Render the first page of a PDF file as a PIL Image.
 
-        fspath: Load the file
-    Returns: A pil
-    :doc-author: Trelent
+    Args:
+        fspath: Filesystem path to the PDF file.
+
+    Returns:
+        PIL Image of the first page (with alpha channel), or None if PIL
+        raises a UserWarning while decoding the rendered pixmap.
     """
     with fitz.open(fspath) as pdf_file:
         pdf_page = pdf_file.load_page(0)
@@ -33,19 +37,16 @@ def pdf_to_pil(fspath):
     return source_image
 
 
-def movie_duration(fspath):
+def movie_duration(fspath: str) -> int | None:
     """
-    The load_movie function loads a movie from the file system and returns an image.
+    Return the duration of a video file in whole seconds.
 
-    Updated - 2022/12/21 - It will now search for the next
-        fspath: Specify the path to the video file
-        offset_from: The number of frames to advance *after* detecting a non-solid
-        black or white frame.
-    Returns: A pillow image object
+    Args:
+        fspath: Path to the video file.
 
-    References:
-        * https://stackoverflow.com/questions/14041562/
-            python-pil-detect-if-an-image-is-completely-black-or-white
+    Returns:
+        Duration in seconds as an int, or None if the first video stream
+        has no readable duration.
     """
     # try:
     with av.open(fspath) as container:
@@ -60,19 +61,20 @@ def movie_duration(fspath):
     return duration_sec
 
 
-def movie_to_pil(fspath):
+def movie_to_pil(fspath: str) -> Image.Image:
     """
-    The load_movie function loads a movie from the file system and returns an image.
+    Extract a frame from the midpoint of a video file as a PIL Image.
 
-        Updated - 2022/12/21 - It will now search for the next
-        fspath: Specify the path to the video file
-        offset_from: The number of frames to advance *after* detecting a non-solid
-        black or white frame.
-    Returns: A pillow image object
+    Seeks to half the container duration and decodes the next frame from
+    the first video stream.
 
-    References:
-        * https://stackoverflow.com/questions/14041562/
-            python-pil-detect-if-an-image-is-completely-black-or-white
+    Args:
+        fspath: Path to the video file.
+
+    Returns:
+        PIL Image of the decoded frame. If the file cannot be decoded,
+        returns the "broken video" placeholder image from RESOURCES_PATH
+        instead.
     """
     image = None
     try:
@@ -103,14 +105,18 @@ def movie_to_pil(fspath):
 #         return frame.to_image()
 
 
-def image_to_pil(fspath, mem=False):
+def image_to_pil(fspath: str | bytes, mem: bool = False) -> Image.Image | None:
     """
-    The load_image function loads an image from a file path or byte stream.
-    It returns the source_image object, which is a PIL Image object.
+    Load an image from a file path or from bytes in memory.
 
-        fspath: Pass the path of the image file
-        mem: Determine if the source file is a local file or a byte stream, if true, byte stream
-    Returns: A pil / Image object
+    Args:
+        fspath: Path to the image file, or the raw image bytes when
+            mem is True.
+        mem: If True, treat fspath as raw image bytes instead of a path.
+
+    Returns:
+        PIL Image object, or None if the data could not be opened as
+        an image.
     """
     source_image = None
     if not mem:
@@ -129,25 +135,22 @@ def image_to_pil(fspath, mem=False):
     return source_image
 
 
-def resize_pil_image(source_image, size, fext) -> Image:
+def resize_pil_image(source_image: Image.Image | None, size: tuple[int, int], fext: str) -> bytes | None:
     """
-    Given the PILLOW object, resize the image to <SIZE>
-    and return the saved version of the file (using FEXT
-    as the format to save as [eg. PNG])
+    Resize a PIL Image in place and return the encoded thumbnail bytes.
 
-    Return the binary representation of the file that
-    was saved to memory
+    Saves as PNG (to preserve alpha for icons); falls back to JPEG with an
+    RGB conversion if the PNG save fails.
 
     Args:
-        source_image (PIL.Image): Pillow Image Object to modify
-        size (Str) : The size to resize the image to (e.g. 200 for 200x200)
-            This always is set as (size, size)
-        fext (str): The file extension of the file that is to be processed
-            e.g. .jpg, .mp4
+        source_image: Pillow Image object to resize (modified in place).
+        size: Maximum (width, height) for the thumbnail; aspect ratio is
+            preserved.
+        fext: File extension of the source file (e.g. .jpg). Currently
+            unused — output format is always PNG or the JPEG fallback.
 
-    returns:
-        blob: The binary blog of the thumbnail
-
+    Returns:
+        Encoded thumbnail bytes, or None when source_image is None.
     """
     if source_image is None:
         return None
@@ -169,28 +172,22 @@ def resize_pil_image(source_image, size, fext) -> Image:
     return data
 
 
-def return_image_obj(fs_path, memory=False) -> Image:
+def return_image_obj(fs_path: str, memory: bool = False) -> Image.Image | None:
     """
-    Given a Fully Qualified FileName/Pathname, open the image
-    (or PDF) and return the PILLOW object for the image
-    Fitz == py
+    Open a media file and return a PIL Image, dispatching by file extension.
 
+    Looks up the extension in FILETYPE_DATA (loading it on first use) and
+    routes to the matching loader: first PDF page for PDFs, midpoint frame
+    for movies, or a direct image load for images.
 
     Args:
-        fs_path (str) - File system path
-        memory (bool) - Is this to be mapped in memory
+        fs_path: Fully qualified path to the media file.
+        memory: If True and the file is an image, treat fs_path as raw
+            image bytes instead of a path.
 
     Returns:
-        boolean::
-            `True` if uuid_to_test is a valid UUID, otherwise `False`.
-
-    Raises:
-        obj::
-            Pillow image object
-
-
-    Examples
-    --------
+        PIL Image object, or None if the extension is not a PDF, movie,
+        or image type (or the file could not be decoded).
     """
     if not filetypes.models.FILETYPE_DATA:
         print("Loading filetypes")

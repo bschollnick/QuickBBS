@@ -67,6 +67,7 @@ def download_optimization_middleware(get_response: Callable[[HttpRequest], HttpR
     if asyncio.iscoroutinefunction(get_response):
         # Async version
         async def middleware(request: HttpRequest) -> HttpResponse:
+            """Route /download_file/ requests directly to the view; pass others through."""
             # Check if this is a download endpoint
             match = DOWNLOAD_URL_PATTERN.match(request.path)
 
@@ -82,6 +83,7 @@ def download_optimization_middleware(get_response: Callable[[HttpRequest], HttpR
     else:
         # Sync version (shouldn't be used in ASGI, but provide for compatibility)
         def middleware(request: HttpRequest) -> HttpResponse:
+            """Pass all requests through the normal chain (sync fallback — no bypass)."""
             # Check if this is a download endpoint
             match = DOWNLOAD_URL_PATTERN.match(request.path)
 

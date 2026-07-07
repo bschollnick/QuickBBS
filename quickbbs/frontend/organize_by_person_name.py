@@ -1,57 +1,32 @@
+from __future__ import annotations
+
 import os
 import re
 import shutil
 from pathlib import Path
 
+# Pre-compiled regex patterns for name extraction
+_PREFIX_RE = re.compile(
+    r"^(Miss|Mr|Mrs|Ms|Dr|Classic|Young|Cute|Happy|Gorgeous|Goddess|English\s+actress|Indian\s+Bollywood\s+Actress|Favourite\s+redhead|singer|beautiful)\s+",
+    re.IGNORECASE,
+)
+_AGE_YEARS_OLD_RE = re.compile(r"\b\d{1,2}\s+year[s]?-old\b", re.IGNORECASE)
+_AGE_AT_RE = re.compile(r"\bat\s+\d{1,2}\b", re.IGNORECASE)
+_AGE_TURNS_RE = re.compile(r"\bTurns?\s+\d{1,2}\s+(Today|today)!?\b", re.IGNORECASE)
+_AGE_IS_RE = re.compile(r"\bis\s+\d{1,2}\b", re.IGNORECASE)
+_YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
+_IN_FROM_YEAR_RE = re.compile(r"\b(in|from)\s+(19|20)\d{2}\b", re.IGNORECASE)
+_LAST_YEAR_RE = re.compile(r"\blast\s+year\s+\((19|20)\d{2}\)", re.IGNORECASE)
+_BIRTHDAY_RE = re.compile(r"^Happy\s+(Birthday|30th\s+Birthday|birthday)\s+(to\s+)?", re.IGNORECASE)
+_UNIVERSE_RE = re.compile(r"^Universe\s+", re.IGNORECASE)
+_QUOTED_NAME_RE = re.compile(r"^'([^']+)'$")
+_MULTI_SPACE_RE = re.compile(r"\s+")
+_UNSAFE_CHARS_RE = re.compile(r'[<>:"/\\|?*]')
 
-def extract_person_name(filename):
-    """
-    Extract person's name from filename.
-    Handles various patterns including descriptive text, ages, dates, and group photos.
-    """
-    # Remove file extension
-    name_part = os.path.splitext(filename)[0]
-
-    # Handle HTML entities
-    name_part = name_part.replace("&amp;", "&")
-
-    # For group photos, take the first name mentioned
-    if "," in name_part or " & " in name_part or " and " in name_part:
-        # Split on various separators and take the first name
-        for separator in [",", " & ", " and "]:
-            if separator in name_part:
-                name_part = name_part.split(separator)[0].strip()
-                break
-
-    # Remove common prefixes
-    name_part = re.sub(
-        r"^(Miss|Mr|Mrs|Ms|Dr|Classic|Young|Cute|Happy|Gorgeous|Goddess|English\s+actress|Indian\s+Bollywood\s+Actress|Favourite\s+redhead|singer|beautiful)\s+",
-        "",
-        name_part,
-        flags=re.IGNORECASE,
-    )
-
-    # Remove age patterns like "46 year-old", "at 45", "Turns 50 Today", etc.
-    name_part = re.sub(r"\b\d{1,2}\s+year[s]?-old\b", "", name_part, flags=re.IGNORECASE)
-    name_part = re.sub(r"\bat\s+\d{1,2}\b", "", name_part, flags=re.IGNORECASE)
-    name_part = re.sub(r"\bTurns?\s+\d{1,2}\s+(Today|today)!?\b", "", name_part, flags=re.IGNORECASE)
-    name_part = re.sub(r"\bis\s+\d{1,2}\b", "", name_part, flags=re.IGNORECASE)
-
-    # Remove years and dates
-    name_part = re.sub(r"\b(19|20)\d{2}\b", "", name_part)  # Remove years
-    name_part = re.sub(r"\b(in|from)\s+(19|20)\d{2}\b", "", name_part, flags=re.IGNORECASE)
-    name_part = re.sub(r"\blast\s+year\s+\((19|20)\d{2}\)", "", name_part, flags=re.IGNORECASE)
-
-    # Remove birthday wishes and similar phrases
-    name_part = re.sub(
-        r"^Happy\s+(Birthday|30th\s+Birthday|birthday)\s+(to\s+)?",
-        "",
-        name_part,
-        flags=re.IGNORECASE,
-    )
-
-    # Remove descriptive phrases and terms
-    descriptive_patterns = [
+# Pre-compiled descriptive patterns
+_DESCRIPTIVE_PATTERNS = [
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in [
         r"\b(VS|Victoria\'s\s+Secret)\s+model\b",
         r"\bone\s+of\s+Canada\'s\s+top\s+female\s+chess\s+players\.?\b",
         r"\bfrom\s+Ash\s+vs\s+Evil\s+Dead\b",
@@ -84,24 +59,70 @@ def extract_person_name(filename):
         r"\blooking\s+adorable\b",
         r"\blooking\s+over\s+her\s+shoulder.*\b",
         r"\bwith\s+No\s+flashy\s+photography.*\b",
-        r"\b\[.*\]\b",  # Remove text in square brackets
-        r"\b\(.*\)\b",  # Remove text in parentheses
-        r"\.+$",  # Remove trailing dots
-        r"\?.*$",  # Remove question marks and everything after
-        r"!.*$",  # Remove exclamation marks and everything after (but not birthday ones handled above)
+        r"\b\[.*\]\b",
+        r"\b\(.*\)\b",
+        r"\.+$",
+        r"\?.*$",
+        r"!.*$",
     ]
+]
 
-    for pattern in descriptive_patterns:
-        name_part = re.sub(pattern, "", name_part, flags=re.IGNORECASE)
+
+def extract_person_name(filename: str) -> str:
+    """
+    Extract person's name from filename.
+
+    Handles various patterns including descriptive text, ages, dates, and group photos.
+
+    Args:
+        filename: Original filename
+
+    Returns:
+        Extracted person name
+    """
+    # Remove file extension
+    name_part = os.path.splitext(filename)[0]
+
+    # Handle HTML entities
+    name_part = name_part.replace("&amp;", "&")
+
+    # For group photos, take the first name mentioned
+    if "," in name_part or " & " in name_part or " and " in name_part:
+        # Split on various separators and take the first name
+        for separator in [",", " & ", " and "]:
+            if separator in name_part:
+                name_part = name_part.split(separator)[0].strip()
+                break
+
+    # Remove common prefixes
+    name_part = _PREFIX_RE.sub("", name_part)
+
+    # Remove age patterns like "46 year-old", "at 45", "Turns 50 Today", etc.
+    name_part = _AGE_YEARS_OLD_RE.sub("", name_part)
+    name_part = _AGE_AT_RE.sub("", name_part)
+    name_part = _AGE_TURNS_RE.sub("", name_part)
+    name_part = _AGE_IS_RE.sub("", name_part)
+
+    # Remove years and dates
+    name_part = _YEAR_RE.sub("", name_part)
+    name_part = _IN_FROM_YEAR_RE.sub("", name_part)
+    name_part = _LAST_YEAR_RE.sub("", name_part)
+
+    # Remove birthday wishes and similar phrases
+    name_part = _BIRTHDAY_RE.sub("", name_part)
+
+    # Remove descriptive phrases and terms
+    for pattern in _DESCRIPTIVE_PATTERNS:
+        name_part = pattern.sub("", name_part)
 
     # Remove "Universe" prefix (for Miss Universe entries)
-    name_part = re.sub(r"^Universe\s+", "", name_part, flags=re.IGNORECASE)
+    name_part = _UNIVERSE_RE.sub("", name_part)
 
     # Remove single quotes around names
-    name_part = re.sub(r"^'([^']+)'$", r"\1", name_part)
+    name_part = _QUOTED_NAME_RE.sub(r"\1", name_part)
 
     # Clean up extra spaces and special characters
-    name_part = re.sub(r"\s+", " ", name_part)  # Multiple spaces to single space
+    name_part = _MULTI_SPACE_RE.sub(" ", name_part)
     name_part = name_part.strip(" .,!?-_")
 
     # Handle special cases where name might be empty after cleaning
@@ -112,16 +133,23 @@ def extract_person_name(filename):
     return name_part
 
 
-def create_safe_directory_name(name):
+def create_safe_directory_name(name: str) -> str:
     """
     Create a safe directory name from person's name.
+
     Replace spaces with underscores and remove/replace problematic characters.
+
+    Args:
+        name: Person's name
+
+    Returns:
+        Safe directory name
     """
     # Replace spaces with underscores
     safe_name = name.replace(" ", "_")
 
     # Replace problematic characters with underscores
-    safe_name = re.sub(r'[<>:"/\\|?*]', "_", safe_name)
+    safe_name = _UNSAFE_CHARS_RE.sub("_", safe_name)
 
     # Remove leading/trailing dots and underscores
     safe_name = safe_name.strip("._").split("—")[0].rstrip("_").rstrip("_")
@@ -179,7 +207,7 @@ def organize_files(source_directory, create_subdirs=True):
             try:
                 shutil.move(str(file_path), str(target_file))
                 print(f"Moved '{filename}' to '{dir_name}/' directory")
-            except Exception as e:
+            except (OSError, shutil.Error) as e:
                 print(f"Error moving '{filename}': {e}")
 
     # Print organization summary

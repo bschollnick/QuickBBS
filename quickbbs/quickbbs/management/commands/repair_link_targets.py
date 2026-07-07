@@ -31,6 +31,11 @@ class Command(BaseCommand):
     help = "Re-resolve alias/link virtual_directory targets and report broken links"
 
     def add_arguments(self, parser) -> None:
+        """Register the --dry-run option.
+
+        Args:
+            parser: The argparse parser supplied by Django.
+        """
         parser.add_argument(
             "--dry-run",
             action="store_true",
@@ -38,6 +43,16 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
+        """Re-resolve all link targets, report results, and list out-of-tree directories.
+
+        Clears the alias resolution cache first so stale resolutions from
+        before a mapping change are recomputed. With --dry-run, repoints are
+        reported but not saved.
+
+        Args:
+            *args: Unused positional arguments from Django.
+            **options: Parsed command-line options.
+        """
         dry_run: bool = options["dry_run"]
         prefix = "[dry-run] " if dry_run else ""
 

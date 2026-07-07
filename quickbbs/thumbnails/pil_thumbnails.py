@@ -50,6 +50,17 @@ class ImageBackend(AbstractBackend):
 
     Provides image thumbnail generation using the PIL/Pillow library,
     supporting multiple output formats and sizes.
+
+    Example:
+        >>> backend = ImageBackend()
+        >>> thumbs = backend.process_from_file(
+        ...     "/albums/photos/cover.jpg",
+        ...     sizes={"small": (200, 200), "medium": (740, 740)},
+        ...     output_format="JPEG",
+        ...     quality=85,
+        ... )
+        >>> sorted(thumbs)
+        ['medium', 'small']
     """
 
     __slots__ = ()
@@ -62,15 +73,20 @@ class ImageBackend(AbstractBackend):
         quality: int,
     ) -> dict[str, bytes]:
         """
-        Process image file and generate thumbnails.
+        Process an image file and generate thumbnails.
 
-        :Args:
-            file_path: Path to the image file
-            sizes: Dictionary mapping size names to (width, height) tuples
-            output_format: Output format (JPEG, PNG, WEBP)
-            quality: Image quality (1-100)
+        Args:
+            file_path: Path to the image file.
+            sizes: Dictionary mapping size names to (width, height) tuples.
+            output_format: Output format (JPEG, PNG, WEBP).
+            quality: Image quality (1-100).
 
-        :return: Dictionary mapping size names to thumbnail bytes
+        Returns:
+            Dictionary mapping size names to thumbnail bytes.
+
+        Raises:
+            FileNotFoundError: If the image file does not exist.
+            PIL.UnidentifiedImageError: If the file cannot be decoded as an image.
         """
         with Image.open(file_path) as img:
             return self._process_pil_image(img, sizes, output_format, quality)
@@ -83,15 +99,19 @@ class ImageBackend(AbstractBackend):
         quality: int,
     ) -> dict[str, bytes]:
         """
-        Process image from memory and generate thumbnails.
+        Process an image from memory and generate thumbnails.
 
-        :Args:
-            image_bytes: Image data as bytes
-            sizes: Dictionary mapping size names to (width, height) tuples
-            output_format: Output format (JPEG, PNG, WEBP)
-            quality: Image quality (1-100)
+        Args:
+            image_bytes: Image data as bytes.
+            sizes: Dictionary mapping size names to (width, height) tuples.
+            output_format: Output format (JPEG, PNG, WEBP).
+            quality: Image quality (1-100).
 
-        :return: Dictionary mapping size names to thumbnail bytes
+        Returns:
+            Dictionary mapping size names to thumbnail bytes.
+
+        Raises:
+            PIL.UnidentifiedImageError: If the bytes cannot be decoded as an image.
         """
         with Image.open(io.BytesIO(image_bytes)) as img:
             return self._process_pil_image(img, sizes, output_format, quality)
@@ -104,18 +124,20 @@ class ImageBackend(AbstractBackend):
         quality: int,
     ) -> dict[str, bytes]:
         """
-        Process PIL Image object and generate thumbnails.
+        Process a PIL Image object and generate thumbnails.
 
         MEMORY SAFETY: Creates a copy of the input image for processing.
         The copy is properly cleaned up after thumbnail generation.
 
-        :Args:
-            pil_image: PIL Image object to process
-            sizes: Dictionary mapping size names to (width, height) tuples
-            output_format: Output format (JPEG, PNG, WEBP)
-            quality: Image quality (1-100)
+        Args:
+            pil_image: PIL Image object to process. The caller retains
+                ownership; this method works on a copy.
+            sizes: Dictionary mapping size names to (width, height) tuples.
+            output_format: Output format (JPEG, PNG, WEBP).
+            quality: Image quality (1-100).
 
-        :return: Dictionary mapping size names to thumbnail bytes
+        Returns:
+            Dictionary mapping size names to thumbnail bytes.
         """
         img_copy = pil_image.copy()
         try:
@@ -139,23 +161,25 @@ class ImageBackend(AbstractBackend):
         quality: int,
     ) -> dict[str, bytes]:
         """
-        Internal method to process PIL image and generate thumbnails.
+        Process a PIL image and generate thumbnails in every requested size.
 
-        Handles color space conversion, EXIF orientation, and creates
-        thumbnails in multiple sizes with appropriate compression.
+        Handles color space conversion and EXIF orientation, then generates
+        the sizes largest-first by progressive downsampling (each smaller
+        thumbnail is resized from the previous one, not from the original).
 
         MEMORY SAFETY: Properly manages PIL Image lifecycle to prevent leaks.
         - Does NOT take ownership of the input img parameter (caller must close it)
         - Closes all intermediate images created during processing
         - Uses explicit cleanup to prevent accumulation
 
-        :Args:
-            img: PIL Image object to process (caller retains ownership)
-            sizes: Dictionary mapping size names to (width, height) tuples
-            output_format: Output format (JPEG, PNG, WEBP)
-            quality: Image quality (1-100)
+        Args:
+            img: PIL Image object to process (caller retains ownership).
+            sizes: Dictionary mapping size names to (width, height) tuples.
+            output_format: Output format (JPEG, PNG, WEBP).
+            quality: Image quality (1-100). Ignored for PNG.
 
-        :return: Dictionary mapping size names to thumbnail bytes
+        Returns:
+            Dictionary mapping size names to thumbnail bytes.
         """
         results = {}
         original_img = img  # Keep reference to caller's image (never close this)

@@ -25,6 +25,8 @@ class Owners(models.Model):
     fileindex: "models.OneToOneRel[FileIndex]"  # type: ignore[valid-type]  # From FileIndex.ownership
 
     class Meta:
+        """Model metadata: admin display names."""
+
         verbose_name = "Ownership"
         verbose_name_plural = "Ownership"
 
@@ -45,6 +47,10 @@ class Favorites(models.Model):
 # - ThumbnailFiles constants: See thumbnails/models.py (THUMBNAILFILES_PR_*)
 
 
+from .cache_registry import (  # noqa: E402  # pylint: disable=wrong-import-position
+    distinct_files_cache,
+)
+
 # These imports must come after the class definitions above because .directoryindex,
 # .cache_registry, and .fileindex all import from this module, creating a cyclic
 # dependency that would cause an ImportError if placed at the top of the file.
@@ -53,7 +59,6 @@ from .directoryindex import (  # noqa: E402  # pylint: disable=wrong-import-posi
     directoryindex_cache,
     get_view_url_cache,
 )
-from .cache_registry import distinct_files_cache  # noqa: E402  # pylint: disable=wrong-import-position
 
 # Import and re-export main models (allows: from quickbbs.models import DirectoryIndex, FileIndex)
 from .fileindex import (  # noqa: E402  # pylint: disable=wrong-import-position

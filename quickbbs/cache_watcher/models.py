@@ -197,6 +197,7 @@ class WatchdogManager:
     __slots__ = ("restart_timer", "lock", "monitor_path", "event_handler", "is_running")
 
     def __init__(self) -> None:
+        """Initialize the manager with no timer or handler running yet."""
         self.restart_timer = None
         # MUST be threading.Lock (see class docstring for why)
         self.lock = threading.Lock()
@@ -409,6 +410,7 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
     """
 
     def __init__(self) -> None:
+        """Initialize the event handler with no pending timer."""
         super().__init__()
         self.event_timer = None
         # MUST be threading.Lock (see class docstring for why)
@@ -686,6 +688,8 @@ class fs_Cache_Tracking(models.Model):
     )
 
     class Meta:
+        """Model metadata: composite index on (directory, invalidated) for cache-state lookups."""
+
         indexes = [
             models.Index(fields=["directory", "invalidated"]),
         ]
@@ -694,7 +698,8 @@ class fs_Cache_Tracking(models.Model):
     def clear_all_records() -> int:
         """Mark all records as invalidated.
 
-        :return: Number of records invalidated
+        Returns:
+            Number of records invalidated.
         """
         try:
             updated_count = fs_Cache_Tracking.objects.all().update(invalidated=True)
@@ -918,11 +923,11 @@ class fs_Cache_Tracking(models.Model):
         Optimized batch version that accepts DirectoryIndex records directly,
         avoiding redundant SHA computation and database lookups.
 
-        :Args:
-            index_dirs: List of DirectoryIndex instances to remove from cache
+        Args:
+            index_dirs: List of DirectoryIndex instances to remove from cache.
 
         Returns:
-            True if any entries were invalidated, False otherwise
+            True if any entries were invalidated, False otherwise.
         """
         if not index_dirs:
             return False
@@ -1131,8 +1136,11 @@ class fs_Cache_Tracking(models.Model):
         DEPRECATED: Use remove_multiple_from_cache_indexdirs() instead to avoid redundant
         SHA computation and database lookups.
 
-        :param dir_names: List of directory paths to remove from cache
-        :return: True if any entries were invalidated, False otherwise
+        Args:
+            dir_names: List of directory paths to remove from cache.
+
+        Returns:
+            True if any entries were invalidated, False otherwise.
         """
         warnings.warn(
             "remove_multiple_from_cache(dir_names: list[str]) is deprecated. " "Use remove_multiple_from_cache_indexdirs(index_dirs) instead.",
@@ -1229,8 +1237,8 @@ class fs_Cache_Tracking(models.Model):
         removed from the LRU cache to prevent stale is_cached checks. The cache
         key is the directory's SHA256 hash.
 
-        :Args:
-            directories: List of DirectoryIndex objects that were invalidated
+        Args:
+            directories: List of DirectoryIndex objects that were invalidated.
         """
         try:
             # pylint: disable=import-outside-toplevel
@@ -1279,6 +1287,8 @@ class CacheStatisticsTracking(models.Model):
     last_reset_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
+        """Model metadata: maps this model to the cache_statistics_tracking table."""
+
         db_table = "cache_statistics_tracking"
 
     def __str__(self) -> str:

@@ -1,11 +1,14 @@
+"""Django admin configuration for the filetypes app."""
+
 from django.contrib import admin
 
-# Register your models here.
 from filetypes.models import filetypes
 
 
 @admin.register(filetypes)
 class AdminFiletypes(admin.ModelAdmin):
+    """Admin interface for the filetypes registry (extension flags and icons)."""
+
     fields = (
         "fileext",
         "icon_filename",

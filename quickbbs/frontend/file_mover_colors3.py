@@ -145,10 +145,12 @@ def get_color(filename: str | os.PathLike) -> int:
 
     Uses np.frombuffer() for zero-copy parsing of the 32-byte FinderInfo struct.
 
-    :Args:
-        filename: Path to the file to check
+    Args:
+        filename: Path to the file to check.
 
-    :return: Color code integer (0 = none, 1-7 = colors)
+    Returns:
+        Color code integer (0 = none, 1-7 = colors). Returns 0 when the file
+        has no FinderInfo attribute or cannot be read.
     """
     try:
         attrs = xattr.xattr(filename)
@@ -167,10 +169,10 @@ def copy_with_metadata(src: str, dst: str, move: bool = False) -> None:
     - Permissions and timestamps (via shutil.copy2)
     - Extended attributes (xattrs) - critical for macOS aliases
 
-    :Args:
-        src: Source file path
-        dst: Destination file path
-        move: If True, move the file (copy + delete source); if False, copy only
+    Args:
+        src: Source file path.
+        dst: Destination file path.
+        move: If True, move the file (copy + delete source); if False, copy only.
     """
     # Copy file + basic metadata (timestamps, permissions)
     shutil.copy2(src, dst)
@@ -199,14 +201,15 @@ def process_folder(
 ) -> bool:
     """Process files in a folder, copying/moving only those with color labels.
 
-    :Args:
-        src_dir: Source directory path
-        dst_dir: Destination directory path
-        files: List of filenames to process
-        config: Processing configuration (operation, max_count, existing_files cache)
-        stats: Statistics tracker to update in place
+    Args:
+        src_dir: Source directory path.
+        dst_dir: Destination directory path.
+        files: List of filenames to process.
+        config: Processing configuration (operation, max_count, existing_files cache).
+        stats: Statistics tracker to update in place.
 
-    :return: True if processing should continue, False if max_count reached
+    Returns:
+        True if processing should continue, False if max_count was reached.
     """
     for file_ in files:
         stats.total_files_scanned += 1

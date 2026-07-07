@@ -7,7 +7,6 @@ All functions are synchronous. Async callers should wrap with sync_to_async().
 """
 
 import logging
-import os.path
 from urllib.parse import quote
 
 # Third-party imports
@@ -15,7 +14,6 @@ from cachetools import cached
 from django.conf import settings
 
 # First-party imports
-from quickbbs.common import get_file_sha  # noqa: F401  (re-exported for backward compat)
 from quickbbs.MonitoredCache import create_cache
 
 logger = logging.getLogger(__name__)
@@ -36,14 +34,18 @@ _ALBUMS_PATH_LOWER = settings.ALBUMS_PATH.lower()
 
 def ensures_endswith(string_to_check: str, value: str) -> str:
     """
-    Ensure string ends with specified value, adding it if not present.
+    Ensure a string ends with the specified value, adding it if not present.
 
-    :Args:
-        string_to_check: The source string to process
-        value: The suffix to ensure is at the end
+    Args:
+        string_to_check: The source string to process.
+        value: The suffix to ensure is at the end.
 
     Returns:
-        The string with suffix guaranteed at the end
+        The string with the suffix guaranteed at the end.
+
+    Example:
+        >>> ensures_endswith("/albums/cats", "/")
+        '/albums/cats/'
     """
     return string_to_check if string_to_check.endswith(value) else string_to_check + value
 
@@ -81,13 +83,20 @@ def convert_to_webpath(full_path: str, directory: str | None = None) -> str:
 @cached(breadcrumbs_cache)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
 def return_breadcrumbs(uri_path="") -> list[dict[str, str]]:
     """
-    Return the breadcrumbs for uri_path
+    Return the breadcrumb trail for a URI path.
 
-    :Args:
-        uri_path: The URI to break down into breadcrumbs
+    Args:
+        uri_path: The URI to break down into breadcrumbs.
 
     Returns:
-        List of dictionaries with 'name' and 'url' keys for each breadcrumb level
+        List of dictionaries with 'name' and 'url' keys, one per path level,
+        with each 'url' being the cumulative (percent-encoded) path.
+
+    Example:
+        >>> return_breadcrumbs("/albums/cats/kittens")
+        [{'name': 'albums', 'url': '/albums'},
+         {'name': 'cats', 'url': '/albums/cats'},
+         {'name': 'kittens', 'url': '/albums/cats/kittens'}]
     """
     # Extract path components (direct split, no urlsplit needed for paths)
     parts = [p for p in uri_path.split("/") if p]

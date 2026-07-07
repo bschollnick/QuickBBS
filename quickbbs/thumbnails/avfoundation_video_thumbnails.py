@@ -4,6 +4,7 @@
 
 import traceback
 from pathlib import Path
+from typing import Any
 
 from PIL import Image
 
@@ -37,12 +38,32 @@ class AVFoundationVideoBackend(AbstractBackend):
 
     Uses macOS native AVFoundation framework to extract frames from video files
     and processes them using Core Image for GPU-accelerated thumbnail generation.
+
+    Note: AVFoundation only decodes formats with macOS codecs (MP4/MOV/M4V
+    etc.); WMV, FLV, and MPEG-1 raise VideoProcessingError ("No video tracks
+    found in file").
+
+    Example:
+        >>> backend = AVFoundationVideoBackend()
+        >>> thumbs = backend.process_from_file(
+        ...     "/albums/clips/sample.mp4",
+        ...     sizes={"small": (200, 200)},
+        ...     output_format="JPEG",
+        ...     quality=85,
+        ... )
+        >>> sorted(thumbs)
+        ['duration', 'format', 'small']
     """
 
     def __init__(self):
-        """Initialize AVFoundation video backend.
+        """Initialize the AVFoundation video backend.
 
-        :raises ImportError: If AVFoundation is not available (non-macOS)
+        Sets the AppKit activation policy to prohibited (prevents a dock icon
+        from appearing) and caches a CoreImageBackend instance for frame
+        processing.
+
+        Raises:
+            ImportError: If AVFoundation is not available (non-macOS).
         """
         if not AVFOUNDATION_AVAILABLE:
             raise ImportError("AVFoundation not available. This backend requires macOS with pyobjc-framework-avfoundation.")
@@ -69,17 +90,26 @@ class AVFoundationVideoBackend(AbstractBackend):
         output_format: str,
         quality: int,
     ) -> dict[str, bytes]:
-        """Process video file and generate thumbnails using AVFoundation.
+        """Process a video file and generate thumbnails using AVFoundation.
 
-        :Args:
-            file_path: Path to video file
-            sizes: Dictionary mapping size names to (width, height) tuples
-            output_format: Output format (JPEG, PNG, WEBP)
-            quality: Image quality (1-100)
+        Extracts a frame at half the video's duration and resizes it to each
+        requested size via the GPU-accelerated Core Image backend.
 
-        :return: Dictionary with 'duration', 'format', and size-keyed thumbnail bytes
-        :raises FileNotFoundError: If video file doesn't exist
-        :raises VideoProcessingError: If video processing fails
+        Args:
+            file_path: Path to the video file.
+            sizes: Dictionary mapping size names to (width, height) tuples.
+            output_format: Output format (JPEG, PNG, WEBP).
+            quality: Image quality (1-100).
+
+        Returns:
+            Dictionary with 'duration' (float seconds), 'format' (the output
+            format string), and one entry per size name mapping to the
+            thumbnail bytes.
+
+        Raises:
+            FileNotFoundError: If the video file does not exist.
+            VideoProcessingError: If the asset cannot be loaded, has no video
+                tracks (e.g. unsupported codec), or frame extraction fails.
         """
         # Wrap entire operation in autorelease pool to drain AVFoundation objects
         with autorelease_pool():
@@ -116,18 +146,19 @@ class AVFoundationVideoBackend(AbstractBackend):
         output_format: str,
         quality: int,
     ) -> dict[str, bytes]:
-        """Process image from memory and generate thumbnails.
+        """Process an image from memory and generate thumbnails.
 
-        Note: This delegates to Core Image backend as AVFoundation
+        Note: This delegates to the Core Image backend as AVFoundation
         works with video files, not image data.
 
-        :Args:
-            image_bytes: Image data as bytes
-            sizes: Dictionary mapping size names to (width, height) tuples
-            output_format: Output format (JPEG, PNG, WEBP)
-            quality: Image quality (1-100)
+        Args:
+            image_bytes: Image data as bytes.
+            sizes: Dictionary mapping size names to (width, height) tuples.
+            output_format: Output format (JPEG, PNG, WEBP).
+            quality: Image quality (1-100).
 
-        :return: Dictionary mapping size names to thumbnail bytes
+        Returns:
+            Dictionary mapping size names to thumbnail bytes.
         """
         return self._image_backend.process_from_memory(image_bytes, sizes, output_format, quality)
 
@@ -138,30 +169,38 @@ class AVFoundationVideoBackend(AbstractBackend):
         output_format: str,
         quality: int,
     ) -> dict[str, bytes]:
-        """Process PIL Image object and generate thumbnails.
+        """Process a PIL Image object and generate thumbnails.
 
-        Note: This delegates to Core Image backend.
+        Note: This delegates to the Core Image backend.
 
-        :Args:
-            pil_image: PIL Image object to process
-            sizes: Dictionary mapping size names to (width, height) tuples
-            output_format: Output format (JPEG, PNG, WEBP)
-            quality: Image quality (1-100)
+        Args:
+            pil_image: PIL Image object to process.
+            sizes: Dictionary mapping size names to (width, height) tuples.
+            output_format: Output format (JPEG, PNG, WEBP).
+            quality: Image quality (1-100).
 
-        :return: Dictionary mapping size names to thumbnail bytes
+        Returns:
+            Dictionary mapping size names to thumbnail bytes.
         """
         return self._image_backend.process_data(pil_image, sizes, output_format, quality)
 
 
 def _extract_frame_as_ciimage(video_path: str, time_offset: float) -> "CIImage":
-    """Extract a single frame from video as CIImage using AVFoundation.
+    """Extract a single frame from a video as a CIImage using AVFoundation.
 
-    :Args:
-        video_path: Path to the input video file
-        time_offset: Time position in seconds to capture thumbnail
+    Applies the preferred track transform (rotation) and clean aperture mode
+    before extracting the frame.
 
-    :return: CIImage object of the video frame
-    :raises VideoProcessingError: If frame extraction fails
+    Args:
+        video_path: Path to the input video file.
+        time_offset: Time position in seconds to capture the frame.
+
+    Returns:
+        CIImage object of the video frame.
+
+    Raises:
+        VideoProcessingError: If the asset cannot be loaded or frame
+            extraction fails.
     """
     # No inner autorelease pool — caller (process_from_file) has an outer pool
     # that correctly scopes the returned CIImage's lifetime.
@@ -219,14 +258,21 @@ def _extract_frame_as_ciimage(video_path: str, time_offset: float) -> "CIImage":
         asset = None
 
 
-def _get_video_info(video_path: str) -> dict[str, any]:
+def _get_video_info(video_path: str) -> dict[str, Any]:
     """Get basic information about a video file using AVFoundation.
 
-    :Args:
-        video_path: Path to the video file
+    Args:
+        video_path: Path to the video file.
 
-    :return: Dictionary containing video metadata (duration, width, height, fps, codec, format)
-    :raises VideoProcessingError: If video info extraction fails
+    Returns:
+        Dictionary with keys 'duration' (float seconds), 'width', 'height'
+        (ints), 'fps' (float), 'codec' (format description string), and
+        'format' (always the literal string 'video' — AVFoundation does not
+        expose the container format).
+
+    Raises:
+        VideoProcessingError: If the asset cannot be loaded or contains no
+            video tracks (e.g. WMV/FLV, which macOS has no decoder for).
     """
     # Wrap in autorelease pool to drain AVFoundation objects
     with autorelease_pool():

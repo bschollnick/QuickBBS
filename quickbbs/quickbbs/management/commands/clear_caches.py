@@ -11,9 +11,8 @@ from __future__ import annotations
 
 import importlib
 
-from django.core.management.base import BaseCommand
-
 from cachetools import LRUCache
+from django.core.management.base import BaseCommand
 
 
 def _load_all_caches() -> list[tuple[str, LRUCache]]:
@@ -23,7 +22,9 @@ def _load_all_caches() -> list[tuple[str, LRUCache]]:
     Returns:
         List of (label, cache) tuples for every cache that could be imported.
     """
-    from quickbbs.tasks import _MONITORED_CACHE_LOCATIONS  # pylint: disable=import-outside-toplevel
+    from quickbbs.tasks import (
+        _MONITORED_CACHE_LOCATIONS,  # pylint: disable=import-outside-toplevel
+    )
 
     results = []
     for module_path, attr_name, class_name in _MONITORED_CACHE_LOCATIONS:
@@ -48,6 +49,11 @@ class Command(BaseCommand):
     help = "Clear in-process LRU caches (webpaths, breadcrumbs, layout_manager, etc.)"
 
     def add_arguments(self, parser):
+        """Register --cache (name filter) and --list options.
+
+        Args:
+            parser: The argparse parser supplied by Django.
+        """
         parser.add_argument(
             "--cache",
             nargs="+",
@@ -61,6 +67,15 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        """List caches (--list) or clear all/matching in-process LRU caches.
+
+        Note: this clears the caches of THIS process only — a running web
+        server or taskrunner keeps its own in-process caches.
+
+        Args:
+            *args: Unused positional arguments from Django.
+            **options: Parsed command-line options.
+        """
         caches = _load_all_caches()
 
         if options["list"]:

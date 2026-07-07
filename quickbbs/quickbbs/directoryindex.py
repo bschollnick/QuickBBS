@@ -98,7 +98,22 @@ DIRECTORYINDEX_SR_PARENT = ("parent_directory",)
 
 class DirectoryIndex(models.Model):
     """
-    The master index for Directory / Folders in the Filesystem for the gallery.
+    The master index for directories/folders in the gallery filesystem.
+
+    One row per directory under the albums root, keyed by the normalized
+    fully qualified pathname (`fqpndirectory`, unique) and its SHA256
+    (`dir_fqpn_sha256`, unique — the identifier used in URLs). Rows form a
+    tree via the self-referential `parent_directory` foreign key, and
+    `thumbnail` points at the FileIndex record serving as the cover image.
+
+    Example:
+        >>> success, directory = DirectoryIndex.add_directory(
+        ...     "/volumes/gallery/albums/cats/"
+        ... )
+        >>> success
+        True
+        >>> directory.fqpndirectory
+        '/volumes/gallery/albums/cats/'
     """
 
     _albums_prefix = None
@@ -106,14 +121,14 @@ class DirectoryIndex(models.Model):
 
     @classmethod
     def get_albums_prefix(cls) -> str:
-        """Cache the albums path prefix for optimization"""
+        """Return the lowercased albums path prefix (cached at class level)."""
         if cls._albums_prefix is None:
             cls._albums_prefix = settings.ALBUMS_PATH.lower() + r"/albums/"
         return cls._albums_prefix
 
     @classmethod
     def get_albums_root(cls) -> str:
-        """Cache the albums root path for optimization"""
+        """Return the normalized albums root path (cached at class level)."""
         if cls._albums_root is None:
             cls._albums_root = normalize_fqpn(os.path.join(settings.ALBUMS_PATH, "albums"))
         return cls._albums_root
@@ -173,6 +188,8 @@ class DirectoryIndex(models.Model):
     Virtual_FileIndex: "RelatedManager[FileIndex]"
 
     class Meta:
+        """Model metadata: composite indexes for parent/SHA lookups and the trigram search index."""
+
         db_table = "quickbbs_directoryindex"
         verbose_name = "Master Directory Index"
         verbose_name_plural = "Master Directory Index"
@@ -1150,12 +1167,14 @@ class DirectoryIndex(models.Model):
         Performance Optimization:
         Accepts precomputed SHA256 hashes to enable batch parallel computation.
 
-        :Args:
-            fs_file_names: Dictionary mapping filenames to DirEntry objects
-            precomputed_shas: Optional dict mapping file paths to (file_sha256, unique_sha256) tuples
+        Args:
+            fs_file_names: Dictionary mapping filenames to DirEntry objects.
+            precomputed_shas: Optional dict mapping file paths to
+                (file_sha256, unique_sha256) tuples.
 
         Returns:
-            List of new FileIndex records to create
+            List of unsaved FileIndex instances for the caller to bulk_create.
+            Archive files and entries that fail processing are skipped.
         """
         # Deferred: .fileindex imports from .directoryindex at module level (genuine cycle)
         # pylint: disable-next=import-outside-toplevel
@@ -1213,8 +1232,9 @@ class DirectoryIndex(models.Model):
         - Safe for WSGI (Gunicorn) and ASGI (Uvicorn/Hypercorn)
         - No thread pool usage = no connection leakage
 
-        :Args:
-            fs_entries: Dictionary mapping entry names to DirEntry objects
+        Args:
+            fs_entries: Dictionary mapping title-cased entry names to
+                DirEntry objects.
         """
         # Deferred: cache_watcher.models imports back into directoryindex (genuine cycle)
         # pylint: disable-next=import-outside-toplevel
@@ -1328,9 +1348,10 @@ class DirectoryIndex(models.Model):
         - All DB operations safe for WSGI/ASGI
         - Transactions handled in _execute_batch_operations
 
-        :Args:
-            fs_entries: Dictionary mapping entry names to DirEntry objects
-            bulk_size: Size of batches for bulk operations (updates/creates)
+        Args:
+            fs_entries: Dictionary mapping title-cased entry names to
+                DirEntry objects.
+            bulk_size: Size of batches for bulk operations (updates/creates).
         """
         # Inline import to avoid circular dependency: .fileindex → .models → .directoryindex
         # pylint: disable-next=import-outside-toplevel
@@ -1481,11 +1502,17 @@ def update_database_from_disk(directory_record: "DirectoryIndex") -> "DirectoryI
     This is a sync function — all operations are direct Django ORM calls.
     Wrap with sync_to_async() when calling from async contexts.
 
-    :Args:
-        directory_record: DirectoryIndex record for the directory to synchronize
+    Args:
+        directory_record: DirectoryIndex record for the directory to synchronize.
 
     Returns:
-        The directory_record on success, None on early exit (cached or missing)
+        The directory_record on success, None on early exit (already cached,
+        deleted concurrently, or missing from the filesystem).
+
+    Example:
+        >>> success, directory = DirectoryIndex.search_for_directory_by_sha(sha)
+        >>> if success and not directory.is_cached:
+        ...     update_database_from_disk(directory)
     """
     # Deferred: cache_watcher.models imports back into directoryindex (genuine cycle)
     # pylint: disable-next=import-outside-toplevel

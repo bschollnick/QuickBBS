@@ -32,7 +32,8 @@ class cache_startup(AppConfig):
         - Werkzeug runserver_plus: Uses WERKZEUG_RUN_MAIN env var
         - Gunicorn/Uvicorn/Hypercorn: Uses file lock to ensure single startup
 
-        :return: None
+        Returns:
+            None
         """
         import cache_watcher.models
 

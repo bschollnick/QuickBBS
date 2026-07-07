@@ -1,3 +1,5 @@
+"""Django admin configuration for the thumbnails app."""
+
 import io
 import zipfile
 
@@ -9,6 +11,8 @@ from thumbnails.models import ThumbnailFiles
 
 @admin.register(ThumbnailFiles)
 class AdminThumbnail_Files(admin.ModelAdmin):
+    """Admin interface for ThumbnailFiles with blob previews and ZIP download."""
+
     readonly_fields = (
         "id",
         "sthumb",
@@ -44,12 +48,12 @@ class AdminThumbnail_Files(admin.ModelAdmin):
         for the selected ThumbnailFiles records. Files are named using the format:
         <sha256_hash>_<size>.jpg
 
-        :Args:
-            request: Django HttpRequest object
-            queryset: QuerySet of selected ThumbnailFiles records
+        Args:
+            request: Django HttpRequest object.
+            queryset: QuerySet of selected ThumbnailFiles records.
 
-        :Returns:
-            HttpResponse with ZIP file attachment
+        Returns:
+            HttpResponse with the ZIP file as an attachment.
         """
         # Create in-memory ZIP file
         zip_buffer = io.BytesIO()
@@ -87,18 +91,21 @@ class AdminThumbnail_Files(admin.ModelAdmin):
     download_thumbnails.short_description = "Download selected thumbnails as ZIP"
 
     def sthumb(self, obj):
+        """Return the first 25 bytes of the small thumbnail blob for list display."""
         if obj.small_thumb is not None:
             return obj.small_thumb[0:25]
         else:
             return "None"
 
     def mthumb(self, obj):
+        """Return the first 25 bytes of the medium thumbnail blob for list display."""
         if obj.medium_thumb is not None:
             return obj.medium_thumb[0:25]
         else:
             return "None"
 
     def lthumb(self, obj):
+        """Return the first 25 bytes of the large thumbnail blob for list display."""
         if obj.large_thumb is not None:
             return obj.large_thumb[0:25]
         else:

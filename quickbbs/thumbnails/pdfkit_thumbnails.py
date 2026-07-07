@@ -31,12 +31,27 @@ class PDFKitBackend(AbstractBackend):
     Uses macOS native PDFKit framework to render PDF pages, then processes
     them using Core Image for GPU-accelerated thumbnail generation.
     Significantly faster than PyMuPDF and fully GPU-accelerated.
+
+    Example:
+        >>> backend = PDFKitBackend()
+        >>> thumbs = backend.process_from_file(
+        ...     "/albums/docs/manual.pdf",
+        ...     sizes={"small": (200, 200)},
+        ...     output_format="JPEG",
+        ...     quality=85,
+        ... )
+        >>> sorted(thumbs)
+        ['format', 'small']
     """
 
     def __init__(self):
-        """Initialize PDFKit backend.
+        """Initialize the PDFKit backend.
 
-        :raises ImportError: If PDFKit is not available (non-macOS)
+        Sets the AppKit activation policy to prohibited (prevents a dock icon
+        from appearing) and caches a CoreImageBackend instance for rendering.
+
+        Raises:
+            ImportError: If PDFKit is not available (non-macOS).
         """
         if not PDFKIT_AVAILABLE:
             raise ImportError("PDFKit not available. This backend requires macOS with pyobjc-framework-quartz.")
@@ -59,17 +74,19 @@ class PDFKitBackend(AbstractBackend):
     @staticmethod
     @lru_cache(maxsize=500)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
     def _calculate_optimal_scale(page_width: float, page_height: float, target_width: int, target_height: int) -> float:
-        """Calculate optimal scale level to render PDF at target size.
+        """Calculate the optimal scale to render a PDF page at a target size.
 
         Cached to avoid redundant calculations for similar page dimensions.
 
-        :Args:
-            page_width: PDF page width in points
-            page_height: PDF page height in points
-            target_width: Target width in pixels
-            target_height: Target height in pixels
+        Args:
+            page_width: PDF page width in points.
+            page_height: PDF page height in points.
+            target_width: Target width in pixels.
+            target_height: Target height in pixels.
 
-        :return: Optimal scale factor with 10% quality buffer
+        Returns:
+            Scale factor that fits the page within the target bounds, with a
+            10% buffer for quality.
         """
         # Calculate scale for each dimension (fit within target bounds)
         scale_x = target_width / page_width
@@ -79,15 +96,20 @@ class PDFKitBackend(AbstractBackend):
         return min(scale_x, scale_y) * 1.1
 
     def _render_pdf_page_to_ciimage(self, pdf_doc: "PDFDocument", page_num: int, target_size: tuple[int, int]) -> "CIImage":
-        """Render a PDF page to CIImage using PDFKit.
+        """Render a PDF page to a CIImage using PDFKit.
 
-        :Args:
-            pdf_doc: PDFKit PDFDocument object
-            page_num: Page number (0-indexed)
-            target_size: Target size (width, height) for rendering
+        Args:
+            pdf_doc: PDFKit PDFDocument object.
+            page_num: Page number (0-indexed).
+            target_size: Target (width, height) for rendering; the page is
+                rendered at the optimal scale for this size.
 
-        :return: CIImage of the rendered page
-        :raises PDFProcessingError: If page rendering fails
+        Returns:
+            CIImage of the rendered page.
+
+        Raises:
+            PDFProcessingError: If the page cannot be fetched, rendered, or
+                converted to a CIImage.
         """
         # No inner autorelease pool — callers (process_from_file, process_from_memory)
         # have outer pools. An inner pool here would drain tiff_data that the
@@ -138,17 +160,22 @@ class PDFKitBackend(AbstractBackend):
         output_format: str,
         quality: int,
     ) -> dict[str, bytes]:
-        """Process a PDF file and generate thumbnails.
+        """Process a PDF file and generate thumbnails of its first page.
 
-        :Args:
-            file_path: Path to PDF file
-            sizes: Dictionary of size names to (width, height) tuples
-            output_format: Output format (JPEG, PNG, WEBP)
-            quality: Image quality (1-100)
+        Args:
+            file_path: Path to the PDF file.
+            sizes: Dictionary of size names to (width, height) tuples.
+            output_format: Output format (JPEG, PNG, WEBP).
+            quality: Image quality (1-100).
 
-        :return: Dictionary with 'format' key and size-keyed thumbnail bytes
-        :raises FileNotFoundError: If PDF file doesn't exist
-        :raises PDFProcessingError: If PDF processing fails
+        Returns:
+            Dictionary with a 'format' key (the output format string) and one
+            entry per size name mapping to the thumbnail bytes.
+
+        Raises:
+            FileNotFoundError: If the PDF file does not exist.
+            PDFProcessingError: If the document cannot be loaded, has no
+                pages, or page rendering fails.
         """
         # Wrap entire operation in autorelease pool to drain PDFKit objects
         with autorelease_pool():
@@ -202,15 +229,21 @@ class PDFKitBackend(AbstractBackend):
     ) -> dict[str, bytes]:
         """Process PDF bytes and generate thumbnails.
 
-        :Args:
-            pdf_bytes: PDF file as bytes
-            sizes: Dictionary of size names to (width, height) tuples
-            output_format: Output format (JPEG, PNG, WEBP)
-            quality: Image quality (1-100)
-            page_num: Page number to use for thumbnail (0-indexed, default: 0)
+        Args:
+            pdf_bytes: PDF file as bytes.
+            sizes: Dictionary of size names to (width, height) tuples.
+            output_format: Output format (JPEG, PNG, WEBP).
+            quality: Image quality (1-100).
+            page_num: Page number to use for the thumbnail (0-indexed,
+                default 0). Falls back to page 0 if out of range.
 
-        :return: Dictionary with 'format' key and size-keyed thumbnail bytes
-        :raises PDFProcessingError: If PDF processing fails
+        Returns:
+            Dictionary with a 'format' key (the output format string) and one
+            entry per size name mapping to the thumbnail bytes.
+
+        Raises:
+            PDFProcessingError: If the document cannot be loaded, has no
+                pages, or page rendering fails.
         """
         # Wrap entire operation in autorelease pool to drain PDFKit objects
         with autorelease_pool():
@@ -252,13 +285,15 @@ class PDFKitBackend(AbstractBackend):
     def process_data(self, pil_image, sizes, output_format, quality):
         """Process a PIL Image and generate thumbnails.
 
-        :Args:
-            pil_image: PIL Image object
-            sizes: Dictionary of size names to (width, height) tuples
-            output_format: Output format (JPEG, PNG, WEBP)
-            quality: Image quality (1-100)
+        Args:
+            pil_image: PIL Image object.
+            sizes: Dictionary of size names to (width, height) tuples.
+            output_format: Output format (JPEG, PNG, WEBP).
+            quality: Image quality (1-100).
 
-        :raises NotImplementedError: PDF processing from PIL Image is not supported
+        Raises:
+            NotImplementedError: Always — PDF processing from a PIL Image is
+                not supported.
         """
         raise NotImplementedError("PDF processing from PIL Image is not implemented.")
 

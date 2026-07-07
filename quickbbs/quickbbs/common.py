@@ -85,8 +85,18 @@ def get_dir_sha(fqpn_directory: str) -> str:
     """
     Return the SHA256 hash of the normalized directory path.
 
-        fqpn_directory: Fully qualified pathname of the directory
-    Returns: SHA256 hash of the normalized directory path as hexdigest string
+    The path is normalized with normalize_fqpn() first, so different
+    spellings of the same directory hash identically.
+
+    Args:
+        fqpn_directory: Fully qualified pathname of the directory.
+
+    Returns:
+        SHA256 hash of the normalized directory path as a hexdigest string.
+
+    Example:
+        >>> get_dir_sha("/Volumes/gallery/albums/Cats")
+        'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
     """
     fqpn_directory = normalize_fqpn(fqpn_directory)
     return hashlib.sha256(fqpn_directory.encode("utf-8")).hexdigest()
@@ -95,13 +105,21 @@ def get_dir_sha(fqpn_directory: str) -> str:
 @cached(normalized_paths_cache)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
 def normalize_fqpn(fqpn_directory: str) -> str:
     """
-    Normalize the directory structure fully qualified pathname.
+    Normalize a fully qualified directory pathname.
 
-    Converts path to lowercase, resolves to absolute path, and ensures
-    trailing separator.
+    Resolves the path to an absolute path (following symlinks), lowercases
+    it, strips whitespace, and ensures a trailing separator. All path
+    comparisons and hashes in QuickBBS use this canonical form.
 
-        fqpn_directory: Directory path to normalize
-    Returns: Normalized directory path with trailing separator
+    Args:
+        fqpn_directory: Directory path to normalize.
+
+    Returns:
+        Normalized directory path with a trailing separator.
+
+    Example:
+        >>> normalize_fqpn("/Volumes/Gallery/Albums/Cats")
+        '/volumes/gallery/albums/cats/'
     """
     # Use cached property of Path object if possible
     fqpn = str(pathlib.Path(fqpn_directory).resolve()).lower().strip()
@@ -225,12 +243,14 @@ def _batch_compute_file_shas(file_paths: list[str], max_workers: int | None = No
     The blocking ThreadPoolExecutor calls will run in a thread pool via
     sync_to_async, preventing event loop blocking.
 
-    :Args:
-        file_paths: List of fully qualified file paths to hash
-        max_workers: Ignored (kept for backward compatibility)
+    Args:
+        file_paths: List of fully qualified file paths to hash.
+        max_workers: Ignored (kept for backward compatibility).
 
     Returns:
-        Dictionary mapping file paths to (file_sha256, unique_sha256) tuples
+        Dictionary mapping each file path to its (file_sha256, unique_sha256)
+        tuple; (None, None) for files that could not be read. Batches smaller
+        than settings.SHA256_PARALLEL_THRESHOLD are hashed sequentially.
     """
     # max_workers is kept for backward compatibility but ignored
     _ = max_workers

@@ -1,10 +1,13 @@
 # Register your models here.
-from cache_watcher.models import CacheStatisticsTracking, fs_Cache_Tracking
 from django.contrib import admin
+
+from cache_watcher.models import CacheStatisticsTracking, fs_Cache_Tracking
 
 
 @admin.register(fs_Cache_Tracking)
 class Cache_dir_tracking_Index(admin.ModelAdmin):
+    """Admin interface for per-directory filesystem cache invalidation state."""
+
     list_display = ("get_directory_path", "invalidated", "get_directory_sha", "lastscan")
     fields = ("directory", "invalidated", "lastscan", "get_directory_sha", "get_directory_path")
     search_fields = ["directory__fqpndirectory", "directory__dir_fqpn_sha256"]

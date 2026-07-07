@@ -145,19 +145,29 @@ class SizedFileWrapper:
     __slots__ = ("_f", "size")
 
     def __init__(self, file_handle, size: int) -> None:
+        """Wrap an open file handle and record its size.
+
+        Args:
+            file_handle: Open binary file object to delegate to.
+            size: OS-reported file size in bytes.
+        """
         self._f = file_handle
         self.size = size
 
     def read(self, *args):
+        """Delegate read() to the wrapped file handle."""
         return self._f.read(*args)
 
     def seek(self, *args):
+        """Delegate seek() to the wrapped file handle."""
         return self._f.seek(*args)
 
     def tell(self):
+        """Delegate tell() to the wrapped file handle."""
         return self._f.tell()
 
     def close(self):
+        """Delegate close() to the wrapped file handle."""
         return self._f.close()
 
     def __iter__(self):

@@ -45,7 +45,18 @@ _get_video_info_impl = None  # pylint: disable=invalid-name
 
 
 def _get_video_info(path: str) -> dict:
-    """Get video metadata. Lazily imports the appropriate backend on first call."""
+    """Get video metadata. Lazily imports the appropriate backend on first call.
+
+    Args:
+        path: Fully qualified path to the video file.
+
+    Returns:
+        Dictionary containing video metadata (duration, width, height, fps,
+        codec, format).
+
+    Raises:
+        MediaProcessingError: If neither backend can extract metadata from the file.
+    """
     global _get_video_info_impl
     if _get_video_info_impl is None:
         if platform.system() == "Darwin":
@@ -68,7 +79,22 @@ def _get_video_info(path: str) -> dict:
             )
 
             _get_video_info_impl = _ffmpeg_get_video_info
-    return _get_video_info_impl(path)
+    try:
+        return _get_video_info_impl(path)
+    except MediaProcessingError:
+        # AVFoundation has no decoder for some containers/codecs (e.g. WMV,
+        # FLV, MPEG-1) and reports "No video tracks found" for them. Retry
+        # with the ffmpeg probe, which supports those formats. If the resolved
+        # backend already IS the ffmpeg probe, there is nothing to fall back
+        # to — re-raise for the caller to log.
+        # pylint: disable-next=import-outside-toplevel
+        from thumbnails.video_thumbnails import (
+            _get_video_info as _ffmpeg_get_video_info,
+        )
+
+        if _get_video_info_impl is _ffmpeg_get_video_info:
+            raise
+        return _ffmpeg_get_video_info(path)
 
 
 # Cyclic import: .models imports from .fileindex, so this must come after the
@@ -966,11 +992,13 @@ class FileIndex(models.Model):
     def get_thumbnail_url(self, size: str | None = None) -> str:
         """Generate the URL for the thumbnail of the current item.
 
-        :Args:
-            size: Thumbnail size name (e.g., 'small', 'medium', 'large'). Defaults to 'small'.
+        Args:
+            size: Thumbnail size name ('small', 'medium', or 'large').
+                Invalid or None values fall back to 'small'.
 
         Returns:
-            URL string for this item's thumbnail
+            URL string for this item's thumbnail. Link files delegate to
+            their virtual_directory's thumbnail URL.
         """
         if size not in settings.IMAGE_SIZE and size is not None:
             size = None
@@ -1000,11 +1028,13 @@ class FileIndex(models.Model):
         ASYNC-SAFE: File I/O only (entry object already loaded from DB).
         For async contexts, wrap with: await asyncio.to_thread(entry.get_content_html, webpath)
 
-        :Args:
-            _webpath: Web path for constructing file path (unused, kept for API compatibility)
+        Args:
+            _webpath: Web path for constructing file path (unused, kept for
+                API compatibility).
 
         Returns:
-            Processed HTML content or empty string
+            Rendered HTML for text/markdown/HTML files, or an empty string
+            for all other file types.
         """
         if not (self.filetype.is_text or self.filetype.is_markdown or self.filetype.is_html):
             return ""
@@ -1122,14 +1152,18 @@ class FileIndex(models.Model):
         When precomputed_sha is provided, skips individual SHA256 calculation.
         Accepts pre-computed fs_stat to avoid redundant filesystem syscalls.
 
-        :Args:
-            fs_entry: Path object for filesystem entry (DirEntry with cached stat)
-            home_directory: DirectoryIndex object for the parent directory
-            fs_stat: Optional pre-computed stat result from fs_entry.stat()
-            precomputed_sha: Optional precomputed (file_sha256, unique_sha256) tuple
+        Args:
+            fs_entry: Path object for filesystem entry (DirEntry with cached stat).
+            home_directory: DirectoryIndex object for the parent directory.
+            fs_stat: Optional pre-computed stat result from fs_entry.stat().
+            precomputed_sha: Optional precomputed (file_sha256, unique_sha256) tuple.
 
         Returns:
-            This record if changes detected, None otherwise
+            This record (with fields modified in memory, unsaved) if changes
+            were detected, None otherwise.
+
+        Raises:
+            TypeError: If fs_stat is neither None nor a stat result.
         """
         try:
             # Use pre-computed stat if provided, otherwise call stat()
@@ -1269,11 +1303,14 @@ class FileIndex(models.Model):
         ASYNC-SAFE: Pure file I/O, no Django ORM operations.
         For async contexts, wrap with: await asyncio.to_thread(file.process_text_content, is_markdown)
 
-        :Args:
-            is_markdown: Whether to process as markdown (True) or HTML (False)
+        Args:
+            is_markdown: If True, render the content through markdown2;
+                if False, return the raw content with newlines converted
+                to <br> tags.
 
         Returns:
-            Processed HTML content or error message
+            Rendered HTML content, or an HTML error message when the file is
+            too large (settings.MAX_TEXT_FILE_DISPLAY_SIZE) or unreadable.
         """
         max_text_file_size = settings.MAX_TEXT_FILE_DISPLAY_SIZE
 
@@ -1379,6 +1416,8 @@ class FileIndex(models.Model):
         return str(resolved_url.path()).strip().lower()
 
     class Meta:
+        """Model metadata: SHA/name/filetype lookup indexes, partial indexes for unlinked thumbnails and pending deletes, and the trigram search index."""
+
         verbose_name = "Master Files Index"
         verbose_name_plural = "Master Files Index"
         # Index set pruned 2026-07-04 against pg_stat_user_indexes evidence

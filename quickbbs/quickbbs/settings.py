@@ -23,7 +23,7 @@ from dbtasks import Periodic
 from django_htmx.jinja import django_htmx_script, htmx_script
 
 from quickbbs import __version__ as QUICKBBS_VERSION
-from quickbbs.quickbbs_settings import *  # intentional: re-exports all settings constants to this module
+from quickbbs.quickbbs_settings import *  # pylint: disable=wildcard-import,unused-wildcard-import  # intentional: re-exports all settings constants to this module
 
 #
 #   Debug, enables the debugging mode
@@ -132,7 +132,7 @@ AUTORELOAD_IGNORE_PATHS = [
 # Note: ALLOWED_HOSTS, INTERNAL_IPS, SECRET_KEY become module-level names that
 # Django reads directly as settings attributes — the import IS the assignment.
 try:
-    from quickbbs.secrets import (
+    from quickbbs.secrets import (  # pylint: disable=unused-import
         ALLOWED_HOSTS,
         DATABASE_HOST,
         DATABASE_NAME,
@@ -501,7 +501,13 @@ DJANGO_ICONS = {
 }
 
 
-def show_toolbar(request):
+def show_toolbar(request) -> bool:
+    """Return True when the debug toolbar should render (DEBUG_TOOLBAR enabled).
+
+    Used as SHOW_TOOLBAR_CALLBACK so the toolbar ignores INTERNAL_IPS and
+    follows the DEBUG_TOOLBAR setting alone. The request argument is required
+    by the callback signature but unused.
+    """
     return DEBUG_TOOLBAR is True
 
 

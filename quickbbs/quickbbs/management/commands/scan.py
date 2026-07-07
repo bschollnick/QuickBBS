@@ -590,6 +590,16 @@ class Command(BaseCommand):
     help = "Perform a Directory Validation/Integrity Scan"
 
     def add_arguments(self, parser):
+        """Register the scan operation flags and their shared options.
+
+        Operations (combinable): --verify_directories, --verify_files,
+        --add_directories, --add_files, --add_thumbnails, --verify_thumbnails.
+        Shared options: --max_count (record limit), --start (path filter;
+        not supported for thumbnail operations).
+
+        Args:
+            parser: The argparse parser supplied by Django.
+        """
         parser.add_argument(
             "--verify_directories",
             action="store_true",
@@ -649,6 +659,21 @@ class Command(BaseCommand):
         # )
 
     def handle(self, *args, **options):
+        """Run the requested scan operations in a fixed order.
+
+        Deletes delete_pending FileIndex records first, validates --start
+        (must be an existing directory under the albums root), then runs each
+        requested operation: verify_directories, verify_files,
+        add_directories, add_files, add_thumbnails, verify_thumbnails.
+
+        Args:
+            *args: Unused positional arguments from Django.
+            **options: Parsed command-line options.
+
+        Raises:
+            CommandError: If --start is outside the albums root, missing,
+                or not a directory.
+        """
         # Clean up stale records before any scan operation
         deleted_count, _ = FileIndex.objects.filter(delete_pending=True).delete()
         if deleted_count:

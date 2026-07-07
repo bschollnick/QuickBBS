@@ -1,3 +1,5 @@
+"""PyMuPDF (fitz) backend for cross-platform PDF thumbnail generation."""
+
 from functools import lru_cache
 
 import fitz  # PyMuPDF
@@ -17,29 +19,42 @@ class PDFBackend(AbstractBackend):
     Uses PyMuPDF (fitz) to render PDF pages as images, then processes
     them using the PIL backend for thumbnail generation.
     Includes optimization for zoom calculation caching and backend reuse.
+
+    Example:
+        >>> backend = PDFBackend()
+        >>> thumbs = backend.process_from_file(
+        ...     "/albums/docs/manual.pdf",
+        ...     sizes={"small": (200, 200)},
+        ...     output_format="JPEG",
+        ...     quality=85,
+        ... )
+        >>> sorted(thumbs)
+        ['format', 'small']
     """
 
     __slots__ = ("_image_backend",)
 
     def __init__(self):
-        # Cache ImageBackend instance for reuse
+        """Initialize the backend with a cached ImageBackend for PIL processing."""
         self._image_backend = ImageBackend()
 
     @staticmethod
     @lru_cache(maxsize=500)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
     def _calculate_optimal_zoom(page_width: float, page_height: float, target_width: int, target_height: int) -> float:
         """
-        Calculate optimal zoom level to render PDF slightly larger than target size.
+        Calculate the optimal zoom to render a PDF page slightly larger than target size.
+
         Cached to avoid redundant calculations for similar page dimensions.
 
         Args:
-            page_width: PDF page width
-            page_height: PDF page height
-            target_width: Target width
-            target_height: Target height
+            page_width: PDF page width in points.
+            page_height: PDF page height in points.
+            target_width: Target width in pixels.
+            target_height: Target height in pixels.
 
         Returns:
-            Optimal zoom factor with 10% quality buffer
+            Zoom factor that fits the page within the target bounds, with a
+            10% buffer for quality.
         """
         # Calculate zoom for each dimension (fit within target bounds)
         zoom_x = target_width / page_width
@@ -56,18 +71,22 @@ class PDFBackend(AbstractBackend):
         quality: int,
     ) -> dict[str, bytes]:
         """
-        Render a PDF page to thumbnails.
+        Render a PDF page to thumbnails in every requested size.
 
-        ASYNC-SAFE: Pure computation with no DB/IO operations
+        Renders once at the optimal zoom for the largest size, then resizes
+        via the PIL backend.
+
+        ASYNC-SAFE: Pure computation with no DB/IO operations.
 
         Args:
-            page: PyMuPDF page object
-            sizes: Dictionary of size names to (width, height) tuples
-            output_format: Output format (JPEG, PNG, WEBP)
-            quality: Image quality (1-100)
+            page: PyMuPDF page object.
+            sizes: Dictionary of size names to (width, height) tuples.
+            output_format: Output format (JPEG, PNG, WEBP).
+            quality: Image quality (1-100).
 
         Returns:
-            Dictionary with 'format' key and size-keyed thumbnail bytes
+            Dictionary with a 'format' key (the output format string) and one
+            entry per size name mapping to the thumbnail bytes.
         """
         # Calculate optimal zoom for largest requested size using cached method
         largest_size = max(sizes.values(), key=lambda s: s[0] * s[1])
@@ -103,16 +122,21 @@ class PDFBackend(AbstractBackend):
         quality: int,
     ) -> dict[str, bytes]:
         """
-        Process a PDF file and generate thumbnails.
+        Process a PDF file and generate thumbnails of its first page.
 
         Args:
-            file_path: Path to PDF file
-            sizes: Dictionary of size names to (width, height) tuples
-            output_format: Output format (JPEG, PNG, WEBP)
-            quality: Image quality (1-100)
+            file_path: Path to the PDF file.
+            sizes: Dictionary of size names to (width, height) tuples.
+            output_format: Output format (JPEG, PNG, WEBP).
+            quality: Image quality (1-100).
 
         Returns:
-            Dictionary with 'format' key and size-keyed thumbnail bytes
+            Dictionary with a 'format' key (the output format string) and one
+            entry per size name mapping to the thumbnail bytes.
+
+        Raises:
+            Exception: Wrapping the underlying fitz/PIL error if the PDF
+                cannot be opened or rendered.
         """
         page_num = 0
         try:
@@ -144,14 +168,20 @@ class PDFBackend(AbstractBackend):
         Process PDF bytes and generate thumbnails.
 
         Args:
-            pdf_bytes: PDF file as bytes
-            sizes: Dictionary of size names to (width, height) tuples
-            output_format: Output format (JPEG, PNG, WEBP)
-            quality: Image quality (1-100)
-            page_num: Page number to use for thumbnail (0-indexed, default: 0)
+            pdf_bytes: PDF file as bytes.
+            sizes: Dictionary of size names to (width, height) tuples.
+            output_format: Output format (JPEG, PNG, WEBP).
+            quality: Image quality (1-100).
+            page_num: Page number to use for the thumbnail (0-indexed,
+                default 0). Falls back to page 0 if out of range.
 
         Returns:
-            Dictionary with 'format' key and size-keyed thumbnail bytes
+            Dictionary with a 'format' key (the output format string) and one
+            entry per size name mapping to the thumbnail bytes.
+
+        Raises:
+            Exception: Wrapping the underlying fitz/PIL error if the PDF
+                cannot be opened or rendered.
         """
         try:
             pdf_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -181,13 +211,14 @@ class PDFBackend(AbstractBackend):
         Process a PIL Image and generate thumbnails.
 
         Args:
-            pil_image: PIL Image object
-            sizes: Dictionary of size names to (width, height) tuples
-            output_format: Output format (JPEG, PNG, WEBP)
-            quality: Image quality (1-100)
+            pil_image: PIL Image object.
+            sizes: Dictionary of size names to (width, height) tuples.
+            output_format: Output format (JPEG, PNG, WEBP).
+            quality: Image quality (1-100).
 
         Raises:
-            NotImplementedError: PDF processing from PIL Image is not supported
+            NotImplementedError: Always — PDF processing from a PIL Image is
+                not supported.
         """
         raise NotImplementedError("PDF processing from PIL Image is not implemented.")
 

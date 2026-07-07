@@ -20,7 +20,7 @@ class AbstractBackend(ABC):
         output_format: str,
         quality: int,
     ) -> dict[str, bytes]:
-        """Process an file and generate multiple thumbnails."""
+        """Process a media file from disk and generate multiple thumbnails."""
 
     @abstractmethod
     def process_from_memory(

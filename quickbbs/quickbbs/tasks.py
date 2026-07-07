@@ -145,10 +145,12 @@ def generate_missing_thumbnails(
     if not sha256_list:
         return results
 
-    # resolve_backend_name resolves "auto" exactly as image generation will,
-    # so the log shows whether the macOS-accelerated frontend is in use.
+    # resolve_backend_name resolves "auto" exactly as still-image generation
+    # will, so the log shows whether the macOS-accelerated frontend is in use.
+    # Videos and PDFs are dispatched to their own backends per file, so this
+    # line names only the image backend regardless of the batch's contents.
     logger.info(
-        "Processing %d thumbnails (image backend: %s, macintosh optimizations %s)",
+        "Processing %d thumbnails (still-image backend: %s; videos/PDFs use their own backends; macintosh optimizations %s)",
         len(sha256_list),
         resolve_backend_name("auto", settings.IMAGE_SIZE),
         "enabled" if settings.MACINTOSH_OPTIMIZATIONS else "disabled",

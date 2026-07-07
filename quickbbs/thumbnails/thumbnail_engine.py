@@ -74,7 +74,7 @@ def _check_core_image_available() -> bool:
     global _core_image_available
     if _core_image_available is None:
         try:
-            from .core_image_thumbnails import (  # noqa: F401  # imported to verify availability via try/except; not used directly
+            from .core_image_thumbnails import (  # noqa: F401  # pylint: disable=unused-import  # imported to verify availability via try/except; not used directly
                 CoreImageBackend,
             )
 
@@ -130,9 +130,20 @@ class FastImageProcessor:
 
     def __init__(self, image_sizes: dict[str, tuple[int, int]], backend: BackendType = "auto"):
         """
+        Initialize the processor and resolve (or reuse) its backend instance.
+
         Args:
-            image_sizes: dict mapping size names to (width, height) tuples
-            backend: Backend to use ("image", "coreimage", "auto")
+            image_sizes: Dict mapping size names to (width, height) tuples.
+            backend: Backend selector — one of "image", "coreimage", "auto"
+                (still images), "video", "corevideo" (videos), or "pdf",
+                "pymupdf", "pdfkit" (PDFs). The "auto"/"corevideo"/"pdf"
+                selectors pick the macOS-accelerated backend when available
+                and permitted, falling back to the cross-platform one.
+
+        Raises:
+            UnsupportedFormatError: If the backend selector is not recognised.
+            ImportError: If an explicitly requested macOS backend is
+                unavailable on this system.
         """
         self.image_sizes = image_sizes
         self.backend_type = backend.lower()
@@ -337,14 +348,16 @@ def clear_backend_caches(force_gc: bool = True) -> dict[str, int | float]:
     CIContext instances accumulate GPU resources. Clearing caches forces
     recreation of these instances, releasing GPU memory.
 
-    :Args:
-        force_gc: If True, run garbage collection after clearing caches
+    Args:
+        force_gc: If True, run garbage collection after clearing caches.
 
-    :return: Dictionary with cache statistics:
+    Returns:
+        Dictionary with cache statistics:
         - processors_cleared: Number of processor instances cleared
         - backends_cleared: Number of backend instances cleared
         - gc_objects_collected: Number of objects collected by GC
-        - memory_freed_mb: Estimated memory freed (if available)
+        - memory_freed_mb: Estimated memory freed (may be negative due to
+          OS caching; 0 when force_gc is False)
 
     Example:
         >>> # After batch thumbnail generation
@@ -400,7 +413,8 @@ def get_cache_stats() -> dict[str, int]:
     Useful for monitoring cache growth and determining when to call
     clear_backend_caches().
 
-    :return: Dictionary with current cache statistics:
+    Returns:
+        Dictionary with current cache statistics:
         - processor_cache_size: Number of cached processors
         - backend_cache_size: Number of cached backends
         - total_cached_instances: Combined total
@@ -425,7 +439,34 @@ def create_thumbnails_from_path(
     quality: int = 85,
     backend: BackendType = "auto",
 ) -> dict[str, bytes]:
-    """Create thumbnails from file path with processor caching."""
+    """Create thumbnails from a file path with processor caching.
+
+    Main entry point for thumbnail generation. The processor (and its
+    backend instance) is cached per (sizes, backend) configuration.
+
+    Args:
+        file_path: Path to the source media file (image, video, or PDF —
+            must match the chosen backend).
+        sizes: Dictionary mapping size names to (width, height) tuples.
+        output: Output format (JPEG, PNG, WEBP).
+        quality: Image quality (1-100).
+        backend: Backend selector; see FastImageProcessor for valid values.
+
+    Returns:
+        Dictionary mapping size names to thumbnail bytes. Video and PDF
+        backends also include 'format' (and videos 'duration') keys.
+
+    Example:
+        >>> thumbs = create_thumbnails_from_path(
+        ...     "/albums/photos/cover.jpg",
+        ...     settings.IMAGE_SIZE,
+        ...     output="JPEG",
+        ...     quality=85,
+        ...     backend="auto",
+        ... )
+        >>> len(thumbs["small"]) > 0
+        True
+    """
     proc = _get_cached_processor(sizes, backend)
     return proc.process_image_file(file_path, output, quality)
 
@@ -437,7 +478,18 @@ def create_thumbnails_from_pil(
     quality: int = 85,
     backend: BackendType = "auto",
 ) -> dict[str, bytes]:
-    """Create thumbnails from PIL Image with processor caching."""
+    """Create thumbnails from a PIL Image with processor caching.
+
+    Args:
+        pil_image: PIL Image object to process.
+        sizes: Dictionary mapping size names to (width, height) tuples.
+        output: Output format (JPEG, PNG, WEBP).
+        quality: Image quality (1-100).
+        backend: Backend selector; see FastImageProcessor for valid values.
+
+    Returns:
+        Dictionary mapping size names to thumbnail bytes.
+    """
     proc = _get_cached_processor(sizes, backend)
     return proc.process_pil_image(pil_image, output, quality)
 
@@ -449,7 +501,18 @@ def create_thumbnails_from_bytes(
     quality: int = 85,
     backend: BackendType = "auto",
 ) -> dict[str, bytes]:
-    """Create thumbnails from image bytes with processor caching."""
+    """Create thumbnails from in-memory image bytes with processor caching.
+
+    Args:
+        image_bytes: Raw image (or PDF, per backend) data as bytes.
+        sizes: Dictionary mapping size names to (width, height) tuples.
+        output: Output format (JPEG, PNG, WEBP).
+        quality: Image quality (1-100).
+        backend: Backend selector; see FastImageProcessor for valid values.
+
+    Returns:
+        Dictionary mapping size names to thumbnail bytes.
+    """
     proc = _get_cached_processor(sizes, backend)
     return proc.process_image_bytes(image_bytes, output, quality)
 

@@ -5,11 +5,24 @@ from mimetypes import guess_type
 from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import DatabaseError, OperationalError
+
 from filetypes.models import filetypes
 
 
 class Command(BaseCommand):
+    """Seed or refresh the filetypes table from the extension lists in settings."""
+
+    help = "Add, refresh, and revise the FileType table from settings extension lists"
+
     def refresh_filetypes(self):
+        """Upsert one filetypes row per extension defined in settings.
+
+        Builds entries from the settings lists (MOVIE_FILE_TYPES,
+        GRAPHIC_FILE_TYPES, AUDIO/ARCHIVE/HTML/TEXT/MARKDOWN/LINK lists,
+        plus special .link/.pdf/.epub/.dir/.none entries) and applies each
+        via update_or_create keyed on fileext. Fields not present in an
+        entry's defaults are left untouched on existing rows.
+        """
         # Build list of filetype entries
         filetype_entries = []
 
@@ -219,6 +232,11 @@ class Command(BaseCommand):
             )
 
     def add_arguments(self, parser):
+        """Register the --refresh-filetypes flag (informational; refresh always runs).
+
+        Args:
+            parser: The argparse parser supplied by Django.
+        """
         parser.add_argument(
             "--refresh-filetypes",
             action="store_true",
@@ -226,6 +244,12 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        """Run the refresh, exiting with status 1 on database errors.
+
+        Args:
+            *args: Unused positional arguments from Django.
+            **options: Parsed command-line options (unused).
+        """
         try:
             print("Starting to refresh all filetypes")
             self.refresh_filetypes()

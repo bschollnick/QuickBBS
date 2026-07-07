@@ -109,9 +109,28 @@ def autorelease_pool():
 
 
 class CoreImageBackend(AbstractBackend):
-    """Core Image backend for Apple Silicon GPU acceleration with memory management."""
+    """Core Image backend for Apple Silicon GPU acceleration with memory management.
+
+    Example:
+        >>> backend = CoreImageBackend()
+        >>> thumbs = backend.process_from_file(
+        ...     "/albums/photos/cover.jpg",
+        ...     sizes={"small": (200, 200)},
+        ...     output_format="JPEG",
+        ...     quality=85,
+        ... )
+        >>> list(thumbs)
+        ['small']
+    """
 
     def __init__(self):
+        """Initialize the Core Image backend with a fork-safe Metal command queue.
+
+        Raises:
+            ImportError: If Core Image (pyobjc) or a Metal GPU device is not
+                available, or the Metal command queue cannot be created (e.g.
+                in a forked child with a stale device).
+        """
         if not CORE_IMAGE_AVAILABLE:
             raise ImportError("Core Image not available. This backend requires macOS with pyobjc.")
 
@@ -164,15 +183,20 @@ class CoreImageBackend(AbstractBackend):
         quality: int,
     ) -> dict[str, bytes]:
         """
-        Process image file and generate thumbnails using Core Image.
+        Process an image file and generate thumbnails using Core Image.
 
-        :Args:
-            file_path: Path to the image file
-            sizes: Dictionary mapping size names to (width, height) tuples
-            output_format: Output format (JPEG, PNG, WEBP)
-            quality: Image quality (1-100)
+        Args:
+            file_path: Path to the image file.
+            sizes: Dictionary mapping size names to (width, height) tuples.
+            output_format: Output format (JPEG, PNG, WEBP).
+            quality: Image quality (1-100).
 
-        :return: Dictionary mapping size names to thumbnail bytes
+        Returns:
+            Dictionary mapping size names to thumbnail bytes.
+
+        Raises:
+            MediaProcessingError: If the file cannot be loaded as a CIImage
+                or has an unusable extent.
         """
         # Wrap entire operation in autorelease pool to drain Objective-C objects
         with autorelease_pool():
@@ -193,15 +217,20 @@ class CoreImageBackend(AbstractBackend):
         quality: int,
     ) -> dict[str, bytes]:
         """
-        Process image from memory and generate thumbnails using Core Image.
+        Process an image from memory and generate thumbnails using Core Image.
 
-        :Args:
-            image_bytes: Image data as bytes
-            sizes: Dictionary mapping size names to (width, height) tuples
-            output_format: Output format (JPEG, PNG, WEBP)
-            quality: Image quality (1-100)
+        Args:
+            image_bytes: Image data as bytes.
+            sizes: Dictionary mapping size names to (width, height) tuples.
+            output_format: Output format (JPEG, PNG, WEBP).
+            quality: Image quality (1-100).
 
-        :return: Dictionary mapping size names to thumbnail bytes
+        Returns:
+            Dictionary mapping size names to thumbnail bytes.
+
+        Raises:
+            MediaProcessingError: If the bytes cannot be decoded as a CIImage
+                or the image has an unusable extent.
         """
         # Wrap entire operation in autorelease pool to drain Objective-C objects
         with autorelease_pool():
@@ -222,15 +251,19 @@ class CoreImageBackend(AbstractBackend):
         quality: int,
     ) -> dict[str, bytes]:
         """
-        Process PIL Image object and generate thumbnails using Core Image.
+        Process a PIL Image object and generate thumbnails using Core Image.
 
-        :Args:
-            pil_image: PIL Image object to process
-            sizes: Dictionary mapping size names to (width, height) tuples
-            output_format: Output format (JPEG, PNG, WEBP)
-            quality: Image quality (1-100)
+        Converts the image to RGB, applies EXIF orientation, re-encodes it as
+        PNG in memory, and hands the bytes to process_from_memory.
 
-        :return: Dictionary mapping size names to thumbnail bytes
+        Args:
+            pil_image: PIL Image object to process.
+            sizes: Dictionary mapping size names to (width, height) tuples.
+            output_format: Output format (JPEG, PNG, WEBP).
+            quality: Image quality (1-100).
+
+        Returns:
+            Dictionary mapping size names to thumbnail bytes.
         """
         # Wrap entire operation in autorelease pool to drain Objective-C objects
         with autorelease_pool():
@@ -258,15 +291,22 @@ class CoreImageBackend(AbstractBackend):
         quality: int,
     ) -> dict[str, bytes]:
         """
-        Process Core Image and generate thumbnails in multiple sizes.
+        Process a CIImage and generate thumbnails in multiple sizes.
 
-        :Args:
-            ci_image: Core Image CIImage object
-            sizes: Dictionary mapping size names to (width, height) tuples
-            output_format: Output format (JPEG, PNG, WEBP)
-            quality: Image quality (1-100)
+        Scales with the GPU-accelerated Lanczos filter, largest size first,
+        draining an autorelease pool after each size.
 
-        :return: Dictionary mapping size names to thumbnail bytes
+        Args:
+            ci_image: Core Image CIImage object.
+            sizes: Dictionary mapping size names to (width, height) tuples.
+            output_format: Output format (JPEG, PNG, WEBP).
+            quality: Image quality (1-100).
+
+        Returns:
+            Dictionary mapping size names to thumbnail bytes.
+
+        Raises:
+            MediaProcessingError: If the image extent is zero-sized or infinite.
         """
         results = {}
 
