@@ -4,15 +4,14 @@
 
     {% include 'components/title_display.jinja' %}
 
-    <div class="filetype-content-container" width="98%">
+    <div class="filetype-content-container">
         <div>
                 {% if filetype.is_html or filetype.is_text or filetype.is_markdown %}
                 <div class="has-text-left filetype-bg item-text-frame" id="text_frame">
-                    <p class="has-text-left" id="text_frame" defer>
+                    <p class="has-text-left">
                         {{ html|safe }}
                     </p>
-                {% endif %}
-                {% if filetype.is_image or filetype.is_dir or filetype.is_link or filetype.is_archive %}
+                {% elif filetype.is_image or filetype.is_dir or filetype.is_link or filetype.is_archive %}
                 <div class="thumbnail filetype-bg" id="thumbnail_frame">
                     <div class="has-text-centered">
                         <figure class="image">
@@ -34,16 +33,17 @@
                             </a>
                         </figure>
                     </div>
-
                 {% elif filetype.is_movie %}
                 <div class="thumbnail filetype-bg" id="movie_frame">
                     <div class="has-text-centered">
-                        <video class="responsive-video" controls poster="{{ thumbnail_uri }}" preload="metadata">
-                            <source src="{{ download_uri }}" type="video/mp4" />
-                          Your browser does not support the video tag.
+                        <video class="responsive-video" controls playsinline
+                               poster="{{ thumbnail_uri }}" preload="metadata"
+                               src="{{ download_uri }}">
+                            Your browser does not support the video tag.
                         </video>
-
                     </div>
+                {% else %}
+                <div class="thumbnail filetype-bg" id="thumbnail_frame">
                 {% endif %}
                     <div class="columns is-multiline item-columns">
                         <div class="column is-one-half item-column-half">
@@ -54,9 +54,8 @@
                             <span class="is-size-7"><span class="has-text-weight-bold" id="file_size_head">File Size: </span></span>
                             <span class="is-size-7">{{ filesize }}</span>
                         </div>
-                </div> <!--- Thumbnail --->
-            </div>
-        </div>
+                    </div>
+                </div> <!--- item frame (text_frame / thumbnail_frame / movie_frame) --->
         </div>
     </div>
 </div>

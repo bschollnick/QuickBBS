@@ -339,12 +339,14 @@
                 this.spinner.hide();
                 this.lazyLoader.refresh();
                 this.nativeLazyLoader.refresh();
+                this.reloadVideos();
             });
 
-            document.addEventListener("htmx:beforeSwap", () => {
+            document.addEventListener("htmx:beforeSwap", (evt) => {
                 // Clean up timers before content swap
                 this.lazyLoader.cleanup();
                 this.nativeLazyLoader.cleanup();
+                this.teardownVideos(evt.detail.target);
             });
 
             // Regular link clicks (non-HTMX)
@@ -383,6 +385,8 @@
                 this.spinner.forceHide();
                 // Reload lazy images when HTMX restores from history
                 this.lazyLoader.handleBFCache();
+                // History snapshots contain stale <video> markup; re-kick playback
+                this.reloadVideos();
             });
 
             // Additional safety net - check for stuck spinners periodically
@@ -470,6 +474,27 @@
                         console.warn('Title update script error:', e);
                     }
                 }
+            });
+        }
+
+        teardownVideos(container) {
+            // Release media decoder/network resources held by videos that are
+            // about to be swapped out. Without this, browsers (Safari especially)
+            // keep the old pipeline alive and the next inline video can fail to play.
+            const scope = container || document;
+            scope.querySelectorAll("video").forEach((video) => {
+                video.pause();
+                video.removeAttribute("src");
+                video.querySelectorAll("source").forEach((source) => source.remove());
+                video.load();
+            });
+        }
+
+        reloadVideos() {
+            // Videos inserted via innerHTML (HTMX swaps / history restores) are not
+            // reliably (re)loaded by WebKit; an explicit load() kicks them.
+            document.querySelectorAll("video[src]").forEach((video) => {
+                video.load();
             });
         }
 
