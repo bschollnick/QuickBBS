@@ -614,6 +614,102 @@ class DirectoryIndex(models.Model):
         sha_256 = get_dir_sha(fqpn_directory)
         return DirectoryIndex.search_for_directory_by_sha(sha_256)
 
+    @classmethod
+    def find_by_physical_path(cls, physical_path: str) -> "DirectoryIndex | None":
+        """
+        Locate the gallery directory for a physical (drive-level) path.
+
+        Translate an alias/bookmark target on a masters volume to its gallery
+        equivalent under the albums root. Resolution order:
+
+        1. Path already under the albums root — direct lookup.
+        2. settings.ALIAS_MAPPING override — longest matching prefix, anchored
+           at a path-component boundary. A matching prefix is authoritative:
+           when the translated directory is missing on disk the target is
+           reported as a missing gallery copy rather than falling through to
+           suffix matching.
+        3. Longest-suffix match against existing gallery DirectoryIndex rows,
+           requiring at least two trailing path components. A bare basename
+           match is never trusted — validated against all 474 production
+           aliases (2026-07-07), every single-component "unique" match linked
+           the wrong directory when the real gallery copy was missing.
+
+        Each candidate is also tried with spaces replaced by underscores (the
+        legacy copier renames "asfa 14.17" to "asfa_14.17" in the gallery).
+
+        Args:
+            physical_path: Resolved alias target (any volume mount path)
+
+        Returns:
+            The matching DirectoryIndex record, or None when the target is
+            ambiguous, unmapped, or has no gallery copy (details are logged).
+        """
+        path = normalize_fqpn(physical_path)
+        albums_root = cls.get_albums_root()
+
+        if path.startswith(albums_root):
+            for candidate in dict.fromkeys((path, path.replace(" ", "_"))):
+                found, record = cls.search_for_directory(candidate)
+                if found:
+                    return record
+            logger.warning("Alias target %s is under the albums root but has no DirectoryIndex row", path)
+            return None
+
+        # Explicit override table. Longest prefix first so overlapping keys
+        # (e.g. ".../masters" and ".../masters/hyp-collective") resolve
+        # deterministically. normalize_fqpn() appends a trailing separator,
+        # which anchors the startswith() at a path-component boundary —
+        # "/volumes/x/videos_old" cannot match a "/volumes/x/videos" key.
+        for prefix in sorted(settings.ALIAS_MAPPING, key=len, reverse=True):
+            prefix_norm = normalize_fqpn(prefix)
+            if not path.startswith(prefix_norm):
+                continue
+            mapped = normalize_fqpn(os.path.join(settings.ALIAS_MAPPING[prefix], path[len(prefix_norm) :]))
+            for candidate in dict.fromkeys((mapped, mapped.replace(" ", "_"))):
+                found, record = cls.search_for_directory(candidate)
+                if found:
+                    return record
+                if os.path.isdir(candidate):
+                    success, record = cls.add_directory(candidate)
+                    if success:
+                        return record
+            logger.warning(
+                "Gallery copy missing: alias target %s maps to %s, which does not exist on disk",
+                path,
+                mapped,
+            )
+            return None
+
+        # Suffix matching: the database already knows every gallery directory,
+        # so match the target's trailing path components against it, longest
+        # suffix first. Stops at two components — never a bare basename.
+        components = [part for part in path.split(os.sep) if part]
+        for start in range(len(components) - 1):
+            suffix = os.sep + os.sep.join(components[start:]) + os.sep
+            for candidate in dict.fromkeys((suffix, suffix.replace(" ", "_"))):
+                matches = list(
+                    cls.objects.filter(
+                        fqpndirectory__startswith=albums_root,
+                        fqpndirectory__endswith=candidate,
+                        delete_pending=False,
+                    )[:2]
+                )
+                if len(matches) == 1:
+                    return matches[0]
+                if len(matches) > 1:
+                    logger.warning(
+                        "Ambiguous alias target %s — suffix %s matches multiple gallery directories: %s",
+                        path,
+                        candidate,
+                        ", ".join(match.fqpndirectory for match in matches),
+                    )
+                    return None
+        logger.warning(
+            "No gallery match for alias target %s — gallery copy missing or not yet scanned",
+            path,
+        )
+        return None
+
     @staticmethod
     def return_by_sha256_list(
         sha256_list: list[str], sort: int, select_related: list[str], prefetch_related: list[str]

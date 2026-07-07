@@ -807,7 +807,15 @@ class FileIndex(models.Model):
                     redirect_path = normalize_fqpn(redirect_path)
 
             elif filetype.fileext == ".alias":
-                redirect_path = FileIndex.resolve_macos_alias(str(fs_entry))
+                raw_target = FileIndex.resolve_macos_alias(str(fs_entry))
+                # Physical → gallery translation returns the DirectoryIndex
+                # directly (or None with the reason logged). Bypasses the
+                # shared lookup below so an unmapped drive path can never
+                # create an out-of-tree DirectoryIndex row.
+                virtual_dir = DirectoryIndex.find_by_physical_path(raw_target)
+                if virtual_dir is None:
+                    logger.warning("Skipping alias with unresolvable target: %s → %s", filename, raw_target)
+                return virtual_dir
 
             # Common resolution logic (once)
             if redirect_path:
@@ -825,6 +833,25 @@ class FileIndex(models.Model):
         except ValueError as e:
             logger.error("Error processing link file %s: %s", filename, e)
             return None
+
+    def virtual_directory_needs_repair(self) -> bool:
+        """
+        Return True when this link file's virtual_directory needs re-resolution.
+
+        True when virtual_directory is unset, or when it points outside the
+        albums tree — a stale row created before the target's physical-path
+        translation existed.
+
+        Returns:
+            True if the link target should be re-resolved
+        """
+        if self.virtual_directory is None:
+            return True
+        # Deferred: .directoryindex imports FileIndex at module level (genuine cycle)
+        # pylint: disable-next=import-outside-toplevel
+        from .directoryindex import DirectoryIndex
+
+        return not self.virtual_directory.fqpndirectory.startswith(DirectoryIndex.get_albums_root())
 
     @staticmethod
     def is_animated_gif(fs_entry: Path) -> bool:
@@ -1122,12 +1149,16 @@ class FileIndex(models.Model):
 
             # Use filetype.fileext instead of parsing Path object (avoids object creation overhead)
             fext = filetype.fileext if filetype else ""
-            if fext and fext != ".none":  # Only process files with valid extensions
+            if filetype and fext and fext != ".none":  # Only process files with valid extensions
 
-                # Fix broken link files - process virtual_directory if missing
-                if filetype.is_link and self.virtual_directory is None:
+                # Fix broken link files - re-resolve when virtual_directory is
+                # missing OR points outside the albums tree (stale rows created
+                # before the target's translation existed). Self-heals on the
+                # next rescan. The virtual_directory access lazy-loads one row,
+                # but only for link files — rare enough to be acceptable.
+                if filetype.is_link and self.virtual_directory_needs_repair():
                     virtual_dir = FileIndex.process_link_file(fs_entry, filetype, self.name)
-                    if virtual_dir is not None:
+                    if virtual_dir is not None and virtual_dir.pk != self.virtual_directory_id:
                         self.virtual_directory = virtual_dir
                         update_needed = True
 
@@ -1280,16 +1311,17 @@ class FileIndex(models.Model):
     @classmethod
     def resolve_macos_alias(cls, alias_path: str) -> str:
         """
-        Resolve a macOS alias file to its target path.
+        Resolve a macOS alias file to its raw target path.
 
-        Uses macOS Foundation framework to resolve alias files and applies
-        path mappings from settings.ALIAS_MAPPING.
+        Uses the macOS Foundation framework to resolve the alias bookmark.
+        The result is the physical (drive-level) target; translate it to a
+        gallery directory with DirectoryIndex.find_by_physical_path().
 
-        :Args:
+        Args:
             alias_path: Path to the macOS alias file
 
         Returns:
-            Resolved path to the target file/directory
+            Raw resolved target path (lowercased)
 
         Raises:
             ValueError: If bookmark data cannot be created or resolved
@@ -1305,17 +1337,21 @@ class FileIndex(models.Model):
     @staticmethod
     def _resolve_alias_uncached(path: str) -> str:
         """
-        Resolve a macOS alias to its target path without caching.
+        Resolve a macOS alias to its raw target path without caching.
+
+        Returns the bookmark's physical target (typically a masters-volume
+        path) with no gallery translation applied — callers pass the result
+        to DirectoryIndex.find_by_physical_path() for that.
 
         Foundation imports are deferred to preserve lazy-loading behaviour —
         the framework is only available on macOS and should not be imported
         at module load time.
 
-        :Args:
+        Args:
             path: Path to the macOS alias file
 
         Returns:
-            Resolved path to the target file/directory
+            Raw resolved target path (lowercased), no trailing separator
 
         Raises:
             ValueError: If bookmark data cannot be created or resolved
@@ -1340,32 +1376,7 @@ class FileIndex(models.Model):
         if error:
             raise ValueError(f"Error resolving bookmark data: {error}")
 
-        resolved_url = str(resolved_url.path()).strip().lower()
-        # album_path = f"{settings.ALBUMS_PATH}{os.sep}albums{os.sep}"
-        for disk_path, replacement_path in settings.ALIAS_MAPPING.items():
-            if resolved_url.startswith(disk_path.lower()):
-                resolved_url = resolved_url.replace(disk_path.lower(), replacement_path.lower()) + os.sep
-                break
-
-        # The copier is set to transform spaces to underscores.  We can safely disable that now, but
-        # that legacy means that there would be tremendous pain in duplication of data.  So for now,
-        # we will just check if the resolved path exists, and if not, we will try replacing spaces with underscores.
-        # If that works, then we will return that modified path instead.  Otherwise, we return the original resolved path.
-        #
-        # Note: the existence checks assume all media is already mounted (see the
-        # WithoutMounting resolution option above) — alias targets never live on
-        # volumes that need mounting, so a missing path means the file is really
-        # gone (or renamed by the copier), not that a volume is offline.
-
-        if resolved_url:
-            if os.path.exists(resolved_url):
-                return resolved_url
-            # resolved_url is known missing here — try the legacy underscored name
-            candidate = resolved_url.replace(" ", "_")
-            if os.path.exists(candidate):
-                return candidate
-
-        return resolved_url
+        return str(resolved_url.path()).strip().lower()
 
     class Meta:
         verbose_name = "Master Files Index"

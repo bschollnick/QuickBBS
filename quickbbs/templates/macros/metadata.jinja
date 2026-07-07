@@ -88,7 +88,7 @@
     {% endif %}
 
     {% if item.size and not item.filetype.is_movie and not item.filetype.is_dir %}
-        {{ show_icon_text('far fa-ruler', naturalsize(item.size, gnu=True)) }}
+        {{ show_icon_text('fas fa-ruler', naturalsize(item.size, gnu=True)) }}
     {% endif %}
 
     {% if item.filetype.is_movie %}

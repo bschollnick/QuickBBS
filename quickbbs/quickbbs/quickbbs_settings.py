@@ -105,9 +105,13 @@ MAC_OPTIMIZATION_WHITECHECK = False
 # real photo thumbnails are typically 3-15KB+.
 SMALL_THUMBNAIL_SAFEGUARD_SIZE = 2500
 
-# Path alias mapping for resolving alternative volume mount points
-# Keys are lowercase source paths, values are the canonical paths they map to
-# Used by normalize_fqpn() to redirect legacy or alternate mount locations
+# Optional overrides for translating macOS alias targets (physical masters-volume
+# paths) to gallery paths, applied by DirectoryIndex.find_by_physical_path().
+# Keys are lowercase volume-path prefixes; matching is longest-prefix-first and
+# anchored at path-component boundaries, so key order does not matter.
+# Unmapped volumes fall back to suffix matching against the DirectoryIndex table,
+# so a new masters drive usually needs no entry here — add one only when a
+# target is ambiguous or its gallery layout differs structurally.
 ALIAS_MAPPING = {
     r"/volumes/masters/masters/hyp-collective": r"/volumes/Support-8tb/gallery/quickbbs/albums/hentai_idea/hyp-collective",
     r"/volumes/masters/masters": r"/volumes/Support-8tb/gallery/quickbbs/albums/hentai_idea",

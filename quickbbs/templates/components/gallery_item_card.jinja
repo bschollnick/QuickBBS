@@ -83,7 +83,7 @@
 
         {% if item.size and not item.filetype.is_movie and not item.filetype.is_dir %}
             <div class="metadata-item">
-                <i class="far fa-ruler"></i>
+                <i class="fas fa-ruler"></i>
                 <span>{{ naturalsize(item.size, gnu=True) }}</span>
             </div>
         {% endif %}
