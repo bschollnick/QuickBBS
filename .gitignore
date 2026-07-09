@@ -58,6 +58,17 @@ db.sqlite3
 .DS_Store
 quickbbs/db.sqlite3-journal
 # benchmarks/
+# Large binary test/benchmark fixtures — regenerable, never commit (stripped from history 2026-07-09)
+benchmarks/verificationfiles/
+quickbbs/benchmarks/verificationfiles/
+quickbbs/thumbnails/benchmarks/*.png
+quickbbs/thumbnails/benchmarks/*.jpg
+quickbbs/thumbnails/benchmarks/*.mp4
+quickbbs/thumbnails/benchmarks/*.pdf
+quickbbs/frontend/test.rar
+quickbbs/frontend/test.zip
+quickbbs/frontend/test-a.pdf
+chromewebdata_*.report.html
 benchmark_results/
 test_output/
 quickbbs/logfile
