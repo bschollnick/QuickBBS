@@ -393,10 +393,10 @@ Version 3.95 focuses on comprehensive template system optimization using Jinja2 
 
 ---
 
-## Version 3.99 (March 21, 2026)
-**Technology**: Django 6.0, HTMX, Background Tasks, Passkey Authentication
+## Version 4.00 (July 9, 2026)
+**Technology**: Django 6.0, HTMX, Background Tasks, Passkey Authentication, PostgreSQL
 
-Version 3.99 is a major pre-release milestone on the march to v4, introducing passkey authentication, background task infrastructure via django-dbtasks, significant performance optimizations, and improved settings architecture.
+Version 4.00 is a major release marking the culmination of the "march to v4" effort — introducing passkey authentication, a new background task infrastructure via `django-dbtasks`, a re-engineered alias resolution/translation system, and significant query performance optimizations across `FileIndex` and `DirectoryIndex`.
 
 ### Major Enhancements:
 
@@ -410,41 +410,53 @@ Version 3.99 is a major pre-release milestone on the march to v4, introducing pa
 - **Daily Cleanup**: Added scheduled daily cleanup of stale background task jobs
 - **Updated Documentation**: Expanded user documentation for django-dbtasks task management
 
-**Performance & Optimization:**
-- **HTMX & Web Optimizations**: Multiple HTMX improvements including better fragment caching control for the search gallery view
+**Alias Resolution & Link Repair:**
+- **Re-engineered Alias Translation**: Overhauled alias resolution logic in `DirectoryIndex` and `FileIndex` for more robust path matching
+- **New Management Command**: Added `repair_link_targets` command to detect and fix broken alias/link targets
+- **Ruler Icon Fix**: Fixed ruler icon display regression in gallery view
+
+**Performance & Query Optimization:**
+- **FileIndex/DirectoryIndex Query Optimizations**: Multiple rounds of query optimization to reduce database round-trips and improve list/detail view performance
+- **Macintosh Optimizations**: Re-enabled and tuned macOS-specific thumbnail/rendering optimizations after further testing
+- **Page Offset Fix**: Fixed a page offset error in `managers.py`
+- **HTMX & Web Optimizations**: Multiple HTMX improvements, including better fragment caching control for the search gallery view
 - **Y-Axis Crop Fix**: Fixed Y-axis cropping behavior in the item view for correct image display
+
+**Item View Fixes:**
+- **Movie Reload Fix**: Fixed an issue where videos in `view_item` would improperly reload
+- **Template Structure Fix**: Fixed unbalanced `<div>` tags in `view_item` templates
+- **Portrait Mode Fix**: Fixed portrait mode display issue on iPad
+- **HTMX Title Refresh**: Fixed a regression where page titles were not refreshing correctly under HTMX navigation
 
 **Settings & Configuration:**
 - **Settings Consolidation**: Reorganized constants into `quickbbs_settings.py` for centralized project configuration
 - **User-Customizable Cache Settings**: Moved cache settings to `quickbbs_settings.py` to allow end-user customization without modifying core files
+- **Dependency Updates**: Updated `pyproject.toml` dependencies
+
+**Utility Enhancements:**
+- **file_mover_colors3 Mirror Mode**: New `--mirror` flag that, after the normal forward copy, removes any files or directories in the target with no corresponding entry in the source
+  - Mirror mode is **off by default** — normal copy/move behavior is unchanged unless `--mirror` is explicitly passed
+  - Orphaned files are deleted; orphaned directories are removed only if empty (uses `os.rmdir()` for safety)
+  - Summary output includes counts of mirror-removed files and directories when non-zero
+  - Normalization consistency: mirror cleanup uses the same path normalization (whitespace strip, spaces→underscores, title case) as the forward copy
+- **Mirror Exclude Command**: Added support for excluding paths from mirror mode cleanup
 
 **macOS Thumbnail Engine:**
-- **macOS GPU Optimizations Disabled**: macOS Core Image optimizations remain disabled due to unresolved memory leaks during thumbnail generation; stability takes priority over performance
-- **Awaiting Pillow 12.2**: Monitoring Pillow 12.2 release for new functionality expected to bridge the performance gap between PIL and macOS Core Image thumbnail generation
+- **macOS GPU Optimizations Re-enabled for Testing**: After further tuning, macOS Core Image optimizations were re-enabled for testing (previously disabled due to interminent thumbnail corruption)
 
 **Code Quality & Cleanup:**
+- **Docstring Revision**: Reviewed and revised docstrings across the codebase for accuracy and consistency
 - **Exception Handling**: Improved exception specificity in thumbnail generation — eliminated broad bare `except` clauses
 - **Template & API Cleanup**: Updated Ninja/HTMX/HTML templates; deprecated `web.py` and removed `quickbbs_optimized` from incorrect directory
 - **Function Renaming**: Renamed `sync_database_disk` → `update_database_from_disk` for clarity (sync vs async semantics)
-- **Here Be Dragons Warning**: Added explicit warning section in documentation for high-risk areas of the codebase
+- **Red/Green Testing**: Added test-driven refactoring passes as part of the march toward v4
+- **Here Be Dragons Warning**: Added explicit warning section in quickbbs_settings for high-risk settings that can be customized, *but may have adverse effects*.
+- **Formatting**: Minor formatting changes to align with updated Black formatting rules
 
 **Bug Fixes:**
 - **New Folder Discovery**: Fixed edge case where completely new directories were not always being added during web-based discovery
 - **Duplicate Caching**: Fixed `show duplicates` caching issue in the item view
 - **Search View Caching**: Fixed search view being inadvertently cached due to HTMX settings
-
----
-
-## Version 4.0 (April 28, 2026)
-
-### Utility Enhancements:
-
-**file_mover_colors3 Mirror Mode:**
-- **`--mirror` flag**: New command-line option that, after the normal forward copy, removes any files or directories in the target that have no corresponding entry in the source
-- Mirror mode is **off by default** — normal copy/move behavior is unchanged unless `--mirror` is explicitly passed
-- Orphaned files are deleted; orphaned directories are removed only if empty (uses `os.rmdir()` for safety)
-- Summary output includes counts of mirror-removed files and directories when non-zero
-- Normalization consistency: mirror cleanup uses the same path normalization (whitespace strip, spaces→underscores, title case) as the forward copy, so target paths are correctly matched back to their source counterparts
 
 ---
 
@@ -462,5 +474,5 @@ Version 3.99 is a major pre-release milestone on the march to v4, introducing pa
 | v3.85   | November 3, 2025    | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI |
 | v3.90   | November 15, 2025   | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI |
 | v3.95   | December 2025       | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI + Macro Templates |
-| v3.99   | March 21, 2026      | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI + django-dbtasks  |
+| v4.00   | July 9, 2026        | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI + django-dbtasks  |
 

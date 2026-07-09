@@ -11,12 +11,14 @@ A high-performance Django-based gallery and file browser application with hybrid
 * **Real-time Monitoring** - Watchdog-based file system monitoring for automatic cache invalidation
 * **Responsive Design** - Multiple thumbnail sizes for desktop and mobile
 * **Search & Browse** - File and directory search with metadata indexing
+* **Background Task Worker** - Thumbnail generation and maintenance run outside the web request cycle
+* **Passkey Login** - Optional passwordless (WebAuthn) authentication
 
 ## Quick Start
 
 ### Prerequisites
 - Python 3.12-3.14
-- Django 4.1 or higher (currently using 6.0a1)
+- Django 6.0 or higher (currently using 6.0.6 — the built-in task framework requires Django 6)
 - PostgreSQL (currently used - testing would be needed for other database engines) 
 ### Installation
 
@@ -29,7 +31,7 @@ poetry install
 cd quickbbs
 python manage.py migrate
 python manage.py createcachetable
-python manage.py refresh-filetypes
+python manage.py refresh_filetypes
 # Run development server
 python manage.py runserver 0.0.0.0:8888
 
@@ -45,18 +47,20 @@ python manage.py taskrunner -w 3
 
 ```bash
 # Refresh file type definitions in database
-python manage.py refresh-filetypes
+python manage.py refresh_filetypes
 ```
-* **refresh-filetypes**  - updates the Filetypes table in the database, this controls various aspects of the importation, and display of the files (e.g. Background color, creation of thumbnails, etc.)
+* **refresh_filetypes**  - updates the Filetypes table in the database, this controls various aspects of the importation, and display of the files (e.g. Background color, creation of thumbnails, etc.)
 
 ##### Scan & Verify commands
 ```bash
 # Scan command - File system integrity and maintenance
 python manage.py scan --verify_directories    # Verify existing directories in database
 python manage.py scan --verify_files          # Verify existing files in database
+python manage.py scan --verify_thumbnails     # Detect & invalidate corrupted thumbnails
 ```
 * **verify_directories** - Verifies that the directories in the database still exist in the file system, if they do not, remove them from the table.
 * **verify_files** - Verifies that the files in the database still exist in the file system.  Each file is validated to exist in all of the directories that it was last seen in (based off of SHA-256)
+* **verify_thumbnails** - Scans all thumbnails for corrupted (all-white) images, invalidates them, and marks their directories for regeneration.
 
 #### Scan & Add
 
@@ -82,6 +86,30 @@ python manage.py scan --add_directories --add_files  # Add directories and files
 
 All of the **add_XXXXX**  commands have an option of "**--max_count**".  This allows you to limit the maximum number of files, directories, or thumbnails to be created in one pass.  For example, you could set a `cron` task to run batches of 1000 every hour or so by using **--max_count**.
 
+The directory and file operations (`--verify_directories`, `--verify_files`, `--add_directories`, `--add_files`) also accept "**--start**", which limits the operation to a starting directory path within the albums tree.  The thumbnail operations do not support `--start` (thumbnails are content-addressed rather than path-based).
+
+#### Links & Aliases
+
+```bash
+# Re-resolve alias/link targets and report broken links
+python manage.py repair_link_targets --dry-run   # Report only, change nothing
+python manage.py repair_link_targets             # Repair mismatched link targets
+```
+* **repair_link_targets** - Re-runs alias/link resolution for every `.link`/`.alias` file in the database, re-points any whose stored target no longer matches, and reports links whose targets cannot be resolved.  Use `--dry-run` first to preview the changes.  See [Links & Aliases](Links%20%26%20Aliases.md) for how link resolution works.
+
+#### Cache Maintenance
+
+```bash
+# Clear the in-memory (LRU) caches
+python manage.py clear_caches                 # Clear all in-process caches
+python manage.py clear_caches --list          # List known caches and their sizes
+python manage.py clear_caches --only webpaths # Clear only matching caches
+
+# Mark all directories as needing a rescan
+python manage.py clear_cache
+```
+* **clear_caches** - Clears the in-process LRU caches (web paths, breadcrumbs, gallery layouts, etc.).  Useful after changing settings that affect cached results.
+* **clear_cache** - Marks every directory in the file system cache as invalidated, forcing a rescan of each directory the next time it is viewed.
 
 ---
 ## Running & Configuring Web Servers
@@ -164,7 +192,7 @@ When that directory is next accessed (via the web) the cached data will be detec
 - **Books**: `.epub` (embedded thumbnail support)
 
 **Links**
-- **Shortcuts**: `.link`, `.alias`
+- **Shortcuts**: `.link`, `.alias` — see [Links & Aliases](Links%20%26%20Aliases.md) for how these resolve and how to repair broken links
 
 
 ## Database Schema
@@ -180,8 +208,8 @@ The database is broken into individual applications to aid in the upgrade and mo
 			- **PDF** - Uses PyMuPDF to render the first page of the PDF into a PIL image and is converted into a thumbnail.
 			- **PIL / PILLOW** - Uses PILLOW to convert image formats into a thumbnail
 			- **video** - converts a variety of video formats into thumbnails (takes a frame from ½ through the video, converts it to a PIL image, and then into a thumbnail)
-		- ~~**v3.75 -** In addition native mac OS support for Core Image, PDFKit, and AVFoundation means that when run under mac OS the thumbnail engine will use those native libraries to optimize the performance of the thumbnail engine.~~
-			- There appears to be a memory leak in the Mac OS optimized code.  So while the plugins do still exist, they have been temporarily disabled.  This memory leak seems to be in the GPU side not releasing the memory, and not in the python based code.  
+		- **v3.75 -** In addition native mac OS support for Core Image, PDFKit, and AVFoundation means that when run under mac OS the thumbnail engine will use those native libraries to optimize the performance of the thumbnail engine.
+			- These optimizations were temporarily disabled in v3.95 due to a suspected GPU-side memory leak.  As of **v4.00**, they have been re-tuned and re-enabled for testing.
 	- Cache_Watcher: 
 		- **fs_Cache_Tracking**: The Database table used to store the cache status for the directories in the file system
 		- It also contains the Caching engine for the File System that monitors for file system changes (using WatchDog) 
@@ -250,7 +278,7 @@ The database is broken into individual applications to aid in the upgrade and mo
 
 **Key Components**:
 - **`settings.py`**: Main Django configuration with database caching and security settings
-- **`quickbbs_settings.py`**: Application-specific configuration (paths, image sizes, file mappings)
+- **`quickbbs_settings.py`**: Application-specific configuration (paths, image sizes, file mappings).  As of v4.00, user-tunable settings — including the in-memory cache sizes and the `ALIAS_MAPPING` override table — live here so they can be customized without touching core files.  Note the **"Here Be Dragons"** section: those settings are customizable but can have adverse effects if set incorrectly.
 - **`models.py`**: Shared database models for FileIndex and DirectoryIndex
 - **`tasks.py`**: Background tasks (thumbnail generation, daily cleanup)
 - **URL Configuration**: Centralized routing for all application endpoints
@@ -332,11 +360,12 @@ The application automatically selects templates based on request type:
 
 - **Optional Login**: Controlled via `QUICKBBS_REQUIRE_LOGIN` setting
 - **Django Allauth**: Integrated authentication system at `/accounts/`
+- **Passkeys (v4.00+)**: Passwordless login via WebAuthn passkeys is supported.  Users can register a passkey and manage recovery codes from their account pages at `/accounts/`.
 - **Admin Interface**: Django admin at `/Admin/` (Grappelli-enhanced)
 
 ## Technology Stack
 
-- **Backend**: Django 4.1+ (currently using 6.0a1), Python 3.12-3.14
+- **Backend**: Django 6.0+ (currently using 6.0.6), Python 3.12-3.14
 - **Database**: PostgreSQL with binary blob storage (currently used - testing needed for other engines). Optimized for Django & PostgreSQL features (binary blobs, partial indexes), but compatible with any Django ORM-compliant database.
 - **Frontend**: HTMX for dynamic interactions, Jinja2 templates
 - **File Monitoring**: Watchdog library
@@ -351,6 +380,7 @@ The application automatically selects templates based on request type:
 - ✅ **v3.85 Release** - Database performance optimizations, composite indexes, virtual directory bug fixes
 - ✅ **v3.90 Release** - Model renaming and code organization (FileIndex, DirectoryIndex)
 - ✅ **v3.95 Release** - Template system optimization with Jinja2 macros, CSS extraction, component architecture
+- ✅ **v4.00 Release** - Passkey authentication, django-dbtasks background task infrastructure, re-engineered alias/link resolution, query performance optimizations
 - 🔄 **Active Development** - Enhanced search capabilities, UI improvements, continued performance optimization
 
 [Detailed Version History](Version%20History.md)

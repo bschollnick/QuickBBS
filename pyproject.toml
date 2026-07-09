@@ -1,6 +1,6 @@
 [project]
 name = "QuickBBS"
-version = "3.99.0"
+version = "4.0.0"
 authors = [
   { name="Benjamin Schollnick", email="Benjamin@schollnick.net" },
 ]
@@ -44,7 +44,7 @@ django_settings_module = "quickbbs.settings"
 
 [tool.poetry]
 name = "QuickBBS"
-version = "3.99.0"
+version = "4.0.0"
 description = "Gallery & File Browser"
 
 [tool.poetry.group.dev.dependencies]

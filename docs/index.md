@@ -13,9 +13,11 @@ A high-performance Django-based gallery and file browser application with hybrid
 * **Search & Browse** - File and directory search with metadata indexing
 * **Modern Template System** - Jinja2 macros with component architecture for maintainable, efficient templates
 * **Progressive Web App** - HTMX-powered dynamic updates without full page reloads
+* **Background Task Worker** - Thumbnail generation and maintenance run outside the web request cycle via django-dbtasks
+* **Passkey Login** - Optional passwordless (WebAuthn) authentication
 
 ## Current Version
 
-**Version 3.95** (December 2025) - Template system optimization with Jinja2 macros, CSS extraction, and component architecture
+**Version 4.00** (July 2026) - Passkey authentication, django-dbtasks background task infrastructure, re-engineered alias/link resolution, and major query performance optimizations
 
 For more information, please see the complete documentation in the DOCS directory.
