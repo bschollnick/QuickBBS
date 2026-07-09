@@ -35,13 +35,37 @@
 
 .level-item.is-breadcrumb {
     flex: 1 1 auto;
-    min-width: 0;
+    max-width: 75%;
+    min-width: 200px;
+    margin-left: 1rem;
+    margin-right: 1rem;
     justify-content: center;
     overflow: hidden;
 }
 
 .level-item.is-breadcrumb .breadcrumb {
+    width: 100%;
     max-width: 100%;
+}
+
+/* Responsive breadcrumb sizing */
+@media screen and (max-width: 768px) {
+    .level-item.is-breadcrumb {
+        max-width: 100%;
+        min-width: 150px;
+        margin-left: 0.5rem;
+        margin-right: 0.5rem;
+    }
+}
+
+@media screen and (min-width: 769px) and (max-width: 1024px) {
+    .level-item.is-breadcrumb {
+        max-width: 60%;
+    }
+}
+
+.gallery-container .level {
+    gap: 0.5rem;
 }
 
 .level-item.is-breadcrumb .breadcrumb ul {

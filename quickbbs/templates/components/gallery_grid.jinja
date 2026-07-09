@@ -31,57 +31,9 @@
 
 {% set show_directory_nav = show_directory_nav|default(True) %}
 
-<style>
-/* Dynamic thumbnail size CSS variables */
-:root {
-    --thumbnail-small-width: {{small_width}}px;
-    --thumbnail-small-height: {{small_height}}px;
-}
-
-/* Flexible breadcrumb navigation layout - Override Bulma's level-item flex: none */
-.level-item.is-breadcrumb {
-    flex: 1 1 auto !important;
-    max-width: 75%;
-    min-width: 200px;
-    margin-left: 1rem !important;
-    margin-right: 1rem !important;
-    justify-content: center;
-}
-
-/* Ensure breadcrumb itself stays centered and doesn't overflow */
-.level-item.is-breadcrumb .breadcrumb {
-    width: 100%;
-    max-width: 100%;
-}
-
-/* Responsive breadcrumb sizing */
-@media screen and (max-width: 768px) {
-    .level-item.is-breadcrumb {
-        max-width: 100%;
-        min-width: 150px;
-        margin-left: 0.5rem !important;
-        margin-right: 0.5rem !important;
-    }
-}
-
-@media screen and (min-width: 769px) and (max-width: 1024px) {
-    .level-item.is-breadcrumb {
-        max-width: 60%;
-    }
-}
-
-/* Ensure level navigation maintains proper spacing */
-.gallery-container .level {
-    gap: 0.5rem;
-}
-
-.gallery-container .level-left,
-.gallery-container .level-right {
-    flex-shrink: 0 !important;
-}
-</style>
-
-<div class="gallery-container">
+{# Static layout rules live in resources/css/gallery-grid.css — only the
+   per-request thumbnail dimensions are set here, inherited by descendants. #}
+<div class="gallery-container" style="--thumbnail-small-width: {{ small_width }}px; --thumbnail-small-height: {{ small_height }}px;">
     <!-- Navigation Header using Bulma Level -->
     {% with
         sort_param = '?sort=' ~ sort,
@@ -117,7 +69,7 @@
     {% endwith %}
 
     <!-- Gallery Grid -->
-    {% cache 120 "gallery_grid" webpath current_page sort searchtext|default('') %}
+    {% cache 120 "gallery_grid" webpath current_page sort searchtext|default('') show_duplicates|default(False) %}
     <div class="gallery-grid">
         {%- for item in items_to_display -%}
             {{ show_gallery_item_card(item, loop.index, sort, fromtimestamp) }}

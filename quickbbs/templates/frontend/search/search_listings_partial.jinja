@@ -1,7 +1,7 @@
 <!-- Search Listings Partial - HTMX Content Only -->
 <title>Search: {{ searchtext }} — {{ gallery_name }}</title>
 <div class="partial-container" hx-history="false">
-{% include 'frontend/search/search_listings_menu.jinja' %}
+{% include 'components/navbar.jinja' %}
 
 {# Build pagination URLs with searchtext parameter #}
 {% set up_url = originator %}

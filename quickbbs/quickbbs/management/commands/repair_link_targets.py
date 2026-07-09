@@ -24,6 +24,8 @@ from django.db.models import Count, Q
 from quickbbs.directoryindex import DirectoryIndex
 from quickbbs.fileindex import FileIndex
 
+BULK_UPDATE_BATCH_SIZE = 250
+
 
 class Command(BaseCommand):
     """Re-resolve every link file's virtual_directory against current rules."""
@@ -96,6 +98,7 @@ class Command(BaseCommand):
         unchanged = 0
         unresolvable: list[str] = []
         missing_files: list[str] = []
+        to_update: list[FileIndex] = []
 
         for link in links.iterator():
             if link.home_directory is None:
@@ -123,7 +126,10 @@ class Command(BaseCommand):
             self.stdout.write(f"{prefix}repoint {link_path}\n    {old}\n    → {virtual_dir.fqpndirectory}")
             if not dry_run:
                 link.virtual_directory = virtual_dir
-                link.save(update_fields=["virtual_directory"])
+                to_update.append(link)
+
+        if to_update:
+            FileIndex.objects.bulk_update(to_update, ["virtual_directory"], batch_size=BULK_UPDATE_BATCH_SIZE)
 
         return repointed, unchanged, unresolvable, missing_files
 

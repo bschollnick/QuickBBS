@@ -24,10 +24,10 @@ from django.http import HttpResponseBadRequest
 
 from frontend.utilities import (
     convert_to_webpath,
+    get_sort_param,
     return_breadcrumbs,
 )
 from quickbbs.cache_registry import layout_manager_cache
-from quickbbs.common import SORT_MATRIX
 from quickbbs.directoryindex import get_ordered_sibling_dirs
 from quickbbs.fileindex import FILEINDEX_SR_FILETYPE_HOME_VIRTUAL
 from quickbbs.models import FileIndex
@@ -158,12 +158,7 @@ async def async_build_context_info(request: WSGIRequest, unique_file_sha256: str
     Returns: Dictionary containing context data or HttpResponseBadRequest on error
     """
     # Extract and validate sort order before calling cached function
-    try:
-        sort_order_value = int(request.GET.get("sort", 0)) if request else 0
-    except (ValueError, TypeError):
-        sort_order_value = 0
-    if sort_order_value not in SORT_MATRIX:
-        sort_order_value = 0
+    sort_order_value = get_sort_param(request)
 
     return await sync_to_async(build_context_info)(
         unique_file_sha256=unique_file_sha256,

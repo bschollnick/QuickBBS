@@ -207,14 +207,25 @@ def sanitize_filename_for_http(filename: str) -> str:
     """
     Sanitize filename for safe use in Content-Disposition headers.
 
-    Removes control characters and characters that could cause header injection.
-    This is a simplified version - for full implementation see quickbbs.fileindex.
+    Removes control characters and characters that could cause header injection
+    or filename confusion. This prevents:
+    - HTTP header injection (via newlines, semicolons)
+    - Filename truncation (via angle brackets)
+    - Control character exploits
 
     Args:
-        filename: Original filename
+        filename: Original filename from filesystem
 
     Returns:
         Sanitized filename safe for HTTP headers
+
+    Example:
+        >>> sanitize_filename_for_http("test.pdf")
+        'test.pdf'
+        >>> sanitize_filename_for_http("file;evil.exe")
+        'file_evil.exe'
+        >>> sanitize_filename_for_http("<script>alert(1)</script>.txt")
+        'scriptalert(1)script.txt'
     """
     # Use translate() - faster than regex for character removal/replacement
     filename = filename.translate(_SANITIZE_TABLE).strip()

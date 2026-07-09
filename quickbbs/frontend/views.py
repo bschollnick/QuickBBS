@@ -40,6 +40,7 @@ from frontend.managers import (
 from frontend.utilities import (
     convert_to_webpath,
     ensures_endswith,
+    get_sort_param,
     return_breadcrumbs,
 )
 from quickbbs.common import SORT_MATRIX, get_dir_sha, normalize_fqpn
@@ -128,26 +129,6 @@ def get_page_param(request: WSGIRequest) -> int:
         return max(1, int(raw_value))
     except (ValueError, TypeError):
         return 1
-
-
-def get_sort_param(request: WSGIRequest) -> int:
-    """
-    Get and validate sort parameter from query string.
-
-    Valid values are defined by SORT_MATRIX keys.
-
-    Args:
-        request: Django request object
-
-    Returns:
-        Sort parameter (validated against SORT_MATRIX), defaults to 0 if invalid
-    """
-    try:
-        sort_value = int(request.GET.get("sort", str(settings.DEFAULT_SORT_ORDER)))
-        # Use existing SORT_MATRIX keys - no need to duplicate valid values
-        return sort_value if sort_value in SORT_MATRIX else settings.DEFAULT_SORT_ORDER
-    except (ValueError, TypeError):
-        return settings.DEFAULT_SORT_ORDER
 
 
 def _create_base_context(request: WSGIRequest) -> dict:

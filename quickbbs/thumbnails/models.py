@@ -321,241 +321,310 @@ class ThumbnailFiles(models.Model):
             if not created and ThumbnailFiles.objects.filter(pk=thumbnail.pk, small_thumb__isnull=False).exists():
                 return thumbnail
 
-            # Get a FileIndex record for file path (prefer prefetched)
-            index_data_item = thumbnail.FileIndex.first()
-            if index_data_item is None:
+            index_data_item = ThumbnailFiles._resolve_index_item_for_sha(thumbnail, file_sha256, select_related_fileindex, created, has_unlinked)
+
+            return ThumbnailFiles._generate_and_store_blobs(thumbnail, index_data_item, file_sha256, suppress_save)
+
+    @staticmethod
+    def _resolve_index_item_for_sha(
+        thumbnail: "ThumbnailFiles",
+        file_sha256: str,
+        select_related_fileindex: list[str] | tuple[str, ...],
+        created: bool,
+        has_unlinked: bool,
+    ) -> "FileIndexModel":
+        """
+        Resolve the FileIndex record backing a thumbnail, repairing orphaned links.
+
+        Args:
+            thumbnail: The ThumbnailFiles record being resolved
+            file_sha256: The sha256 hash of the file
+            select_related_fileindex: Related fields to select_related for FileIndex
+            created: Whether the ThumbnailFiles record was just created
+            has_unlinked: Whether link_to_thumbnail() already linked FileIndex records this call
+
+        Returns:
+            The resolved FileIndex record
+
+        Raises:
+            OrphanedThumbnail: When the ThumbnailFiles record exists but no FileIndex
+                records are found for the given SHA256.
+            ValueError: When FileIndex records exist but could not be linked, or when
+                no FileIndex can be resolved after a successful link.
+        """
+        from quickbbs.models import (
+            FileIndex,  # inline: circular import (fileindex.py → thumbnails.models)
+        )
+
+        # Get a FileIndex record for file path (prefer prefetched)
+        index_data_item = thumbnail.FileIndex.first()
+        if index_data_item is None:
+            index_data_item = FileIndex.objects.select_related(*select_related_fileindex).filter(file_sha256=file_sha256).first()
+
+        # CRITICAL: Handle orphaned ThumbnailFiles by linking to matching FileIndex records
+        # This can happen if thumbnail was created but linking failed, or from data migration issues
+        if index_data_item is None:
+            # No linked FileIndex - attempt to link any FileIndex records with this SHA256.
+            # link_to_thumbnail returns updated_count=0 when nothing was linked (no records exist
+            # or all are already linked elsewhere), so no separate count()/exists() query needed.
+            has_unlinked_fix, updated_count_fix = FileIndex.link_to_thumbnail(file_sha256, thumbnail)
+            if updated_count_fix > 0:
+                logger.warning(
+                    "Orphaned ThumbnailFiles %s: linked %d FileIndex records for SHA256 %s...",
+                    thumbnail.id,
+                    updated_count_fix,
+                    file_sha256[:16],
+                )
+                # Successfully linked - now fetch one for processing
                 index_data_item = FileIndex.objects.select_related(*select_related_fileindex).filter(file_sha256=file_sha256).first()
+                # Update has_unlinked to trigger save
+                has_unlinked = True
+            elif FileIndex.objects.filter(file_sha256=file_sha256).exists():
+                # Records exist but couldn't be linked (already linked elsewhere?)
+                logger.error(
+                    "Orphaned ThumbnailFiles %s: FileIndex records exist for SHA256 %s but could not be linked",
+                    thumbnail.id,
+                    file_sha256[:16],
+                )
+                raise ValueError(f"Cannot link orphaned ThumbnailFiles {thumbnail.id} to FileIndex records")
+            else:
+                # No FileIndex exists for this SHA256 - truly orphaned record.
+                # Raise OrphanedThumbnail so the caller can delete it and skip.
+                raise OrphanedThumbnail(thumbnail, file_sha256)
 
-            # CRITICAL: Handle orphaned ThumbnailFiles by linking to matching FileIndex records
-            # This can happen if thumbnail was created but linking failed, or from data migration issues
+            # If still no FileIndex after linking attempt, raise error
             if index_data_item is None:
-                # No linked FileIndex - attempt to link any FileIndex records with this SHA256.
-                # link_to_thumbnail returns updated_count=0 when nothing was linked (no records exist
-                # or all are already linked elsewhere), so no separate count()/exists() query needed.
-                has_unlinked_fix, updated_count_fix = FileIndex.link_to_thumbnail(file_sha256, thumbnail)
-                if updated_count_fix > 0:
-                    logger.warning(
-                        "Orphaned ThumbnailFiles %s: linked %d FileIndex records for SHA256 %s...",
-                        thumbnail.id,
-                        updated_count_fix,
-                        file_sha256[:16],
+                raise ValueError(f"Orphaned ThumbnailFiles {thumbnail.id}: Failed to get FileIndex after linking")
+
+        if created or has_unlinked:
+            if not created:  # If not newly created, save the thumbnail to update it
+                # The blob columns are deferred, so Django excludes them
+                # from this save — only the loaded (non-blob) fields are
+                # written.
+                thumbnail.save()
+
+            # Clear prefetch cache since we just updated the links
+            # This ensures thumbnail.FileIndex.all() returns fresh data
+            # Use has_unlinked instead of updated_count to handle race conditions
+            # (if another process linked records between check and update, updated_count=0 but cache is stale)
+            if has_unlinked and hasattr(thumbnail, "_prefetched_objects_cache"):
+                thumbnail._prefetched_objects_cache.clear()
+
+        # File I/O operations (inside transaction to maintain lock during generation)
+        # CRITICAL: Check for orphaned FileIndex records (home_directory is None)
+        # This can happen when a directory is deleted but FileIndex records remain
+        if index_data_item.home_directory is None:
+            # Orphaned FileIndex — its parent directory no longer exists.
+            # Raise so the caller can delete the ThumbnailFiles record and
+            # skip processing; it will be regenerated if the file returns.
+            raise OrphanedFileIndex(thumbnail, index_data_item.id, file_sha256)
+
+        return index_data_item
+
+    @staticmethod
+    def _generate_and_store_blobs(
+        thumbnail: "ThumbnailFiles",
+        index_data_item: "FileIndexModel",
+        file_sha256: str,
+        suppress_save: bool,
+    ) -> "ThumbnailFiles":
+        """
+        Generate thumbnail blobs for a resolved FileIndex record and store them.
+
+        Dispatches to the appropriate backend (image/movie/PDF), applies the
+        GPU-corruption safeguard, and marks the file generic on any failure.
+
+        Args:
+            thumbnail: The ThumbnailFiles record to populate
+            index_data_item: The resolved FileIndex record to generate a thumbnail for
+            file_sha256: The sha256 hash of the file
+            suppress_save: If True, do not save the thumbnail after creation
+
+        Returns:
+            The thumbnail record, populated with blobs on success or unchanged
+            (marked generic) on failure.
+        """
+        from quickbbs.models import (
+            FileIndex,  # inline: circular import (fileindex.py → thumbnails.models)
+        )
+
+        # If already marked as generic, check if parent directory has been invalidated
+        # If parent is invalidated (rescanned), retry thumbnail creation
+        # If parent is NOT invalidated, skip creation (use filetype thumbnail)
+        if index_data_item.is_generic_icon:
+            # Check if parent directory has been invalidated/rescanned
+            # home_directory is guaranteed non-None here: _resolve_index_item_for_sha
+            # raises OrphanedFileIndex before returning otherwise.
+            assert index_data_item.home_directory is not None
+            try:
+                parent_invalidated = index_data_item.home_directory.Cache_Watcher.invalidated
+            except ObjectDoesNotExist:
+                parent_invalidated = False
+
+            if not parent_invalidated:
+                # Parent not rescanned, skip thumbnail creation
+                # send_thumbnail() will return the filetype thumbnail
+                return thumbnail
+            # Parent was rescanned, continue to retry thumbnail creation below
+
+        filename = index_data_item.full_filepathname
+        filetype = index_data_item.filetype
+
+        # CRITICAL: Skip alias/link files entirely
+        # Alias files (.link, etc.) should NEVER have thumbnails generated
+        # They should not be marked as generic_icon, just return empty thumbnail
+        if filetype and filetype.is_link:
+            # Return thumbnail without generating anything
+            # The view layer will handle displaying link icons appropriately
+            return thumbnail
+
+        # Try to create thumbnails, but mark as generic on any failure
+        thumbnails = None  # Initialize to prevent UnboundLocalError
+        try:
+            if filetype.is_image:
+                # "auto" resolves to CoreImage only when settings.MACINTOSH_OPTIMIZATIONS
+                # is True (and the platform supports it); otherwise PIL.
+                thumbnails = create_thumbnails_from_path(
+                    filename,
+                    settings.IMAGE_SIZE,
+                    output="JPEG",
+                    quality=settings.PIL_IMAGE_QUALITY,
+                    backend="auto",
+                )
+
+                # Validate thumbnail is not empty
+                if not thumbnails or not thumbnails.get("small"):
+                    raise ThumbnailGenerationError(
+                        f"Image thumbnail creation returned empty result for {index_data_item.name}",
+                        filename=index_data_item.name,
                     )
-                    # Successfully linked - now fetch one for processing
-                    index_data_item = FileIndex.objects.select_related(*select_related_fileindex).filter(file_sha256=file_sha256).first()
-                    # Update has_unlinked to trigger save
-                    has_unlinked = True
-                elif FileIndex.objects.filter(file_sha256=file_sha256).exists():
-                    # Records exist but couldn't be linked (already linked elsewhere?)
-                    logger.error(
-                        "Orphaned ThumbnailFiles %s: FileIndex records exist for SHA256 %s but could not be linked",
-                        thumbnail.id,
-                        file_sha256[:16],
+
+            elif filetype.is_movie:
+                # "corevideo" resolves to AVFoundation only when
+                # settings.MACINTOSH_OPTIMIZATIONS is True; otherwise FFmpeg.
+                thumbnails = create_thumbnails_from_path(
+                    filename,
+                    settings.IMAGE_SIZE,
+                    output="JPEG",
+                    quality=settings.PIL_IMAGE_QUALITY,
+                    backend="corevideo",
+                )
+                # Validate result
+                if not thumbnails or not thumbnails.get("small"):
+                    raise ThumbnailGenerationError(
+                        f"Video thumbnail creation returned empty result for {index_data_item.name}",
+                        filename=index_data_item.name,
                     )
-                    raise ValueError(f"Cannot link orphaned ThumbnailFiles {thumbnail.id} to FileIndex records")
-                else:
-                    # No FileIndex exists for this SHA256 - truly orphaned record.
-                    # Raise OrphanedThumbnail so the caller can delete it and skip.
-                    raise OrphanedThumbnail(thumbnail, file_sha256)
 
-                # If still no FileIndex after linking attempt, raise error
-                if index_data_item is None:
-                    raise ValueError(f"Orphaned ThumbnailFiles {thumbnail.id}: Failed to get FileIndex after linking")
+            elif filetype.is_pdf:
+                # "pdf" resolves to PDFKit only when settings.MACINTOSH_OPTIMIZATIONS
+                # is True (and the platform supports it); otherwise PyMuPDF.
+                thumbnails = create_thumbnails_from_path(
+                    filename,
+                    settings.IMAGE_SIZE,
+                    output="JPEG",
+                    quality=settings.PIL_IMAGE_QUALITY,
+                    backend="pdf",
+                )
+                # Validate result
+                if not thumbnails or not thumbnails.get("small"):
+                    raise ThumbnailGenerationError(
+                        f"PDF thumbnail creation returned empty result for {index_data_item.name}",
+                        filename=index_data_item.name,
+                    )
+            else:
+                # File type doesn't support custom thumbnails (text, archives, etc.)
+                # Mark ALL files with this SHA256 as generic (not just one)
+                # Use FileIndex classmethod to ensure layout cache is cleared
+                # print(
+                #     f"File type {filetype.fileext} doesn't support custom thumbnails, "
+                #     f"marking all instances as generic: {index_data_item.name}"
+                # )
+                FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
 
-            if created or has_unlinked:
-                if not created:  # If not newly created, save the thumbnail to update it
-                    # The blob columns are deferred, so Django excludes them
-                    # from this save — only the loaded (non-blob) fields are
-                    # written.
-                    thumbnail.save()
-
-                # Clear prefetch cache since we just updated the links
-                # This ensures thumbnail.FileIndex.all() returns fresh data
-                # Use has_unlinked instead of updated_count to handle race conditions
-                # (if another process linked records between check and update, updated_count=0 but cache is stale)
-                if has_unlinked and hasattr(thumbnail, "_prefetched_objects_cache"):
-                    thumbnail._prefetched_objects_cache.clear()
-
-            # File I/O operations (inside transaction to maintain lock during generation)
-            # CRITICAL: Check for orphaned FileIndex records (home_directory is None)
-            # This can happen when a directory is deleted but FileIndex records remain
-            if index_data_item.home_directory is None:
-                # Orphaned FileIndex — its parent directory no longer exists.
-                # Raise so the caller can delete the ThumbnailFiles record and
-                # skip processing; it will be regenerated if the file returns.
-                raise OrphanedFileIndex(thumbnail, index_data_item.id, file_sha256)
-
-            # If already marked as generic, check if parent directory has been invalidated
-            # If parent is invalidated (rescanned), retry thumbnail creation
-            # If parent is NOT invalidated, skip creation (use filetype thumbnail)
-            if index_data_item.is_generic_icon:
-                # Check if parent directory has been invalidated/rescanned
-                try:
-                    parent_invalidated = index_data_item.home_directory.Cache_Watcher.invalidated
-                except ObjectDoesNotExist:
-                    parent_invalidated = False
-
-                if not parent_invalidated:
-                    # Parent not rescanned, skip thumbnail creation
-                    # send_thumbnail() will return the filetype thumbnail
-                    return thumbnail
-                # Parent was rescanned, continue to retry thumbnail creation below
-
-            filename = index_data_item.full_filepathname
-            filetype = index_data_item.filetype
-
-            # CRITICAL: Skip alias/link files entirely
-            # Alias files (.link, etc.) should NEVER have thumbnails generated
-            # They should not be marked as generic_icon, just return empty thumbnail
-            if filetype and filetype.is_link:
-                # Return thumbnail without generating anything
-                # The view layer will handle displaying link icons appropriately
                 return thumbnail
 
-            # Try to create thumbnails, but mark as generic on any failure
-            thumbnails = None  # Initialize to prevent UnboundLocalError
-            try:
+            # Creation-time GPU-corruption safeguard (opt-in). A suspiciously
+            # small, entirely white small-thumb is regenerated ONCE with the
+            # explicit cross-platform backend; the retry result is used
+            # unconditionally — genuinely all-white content (e.g. blank PDF
+            # pages) is legitimate and must not loop.
+            if settings.MAC_OPTIMIZATION_WHITECHECK and _is_suspect_all_white(thumbnails["small"]):
+                fallback_backend: BackendType
                 if filetype.is_image:
-                    # "auto" resolves to CoreImage only when settings.MACINTOSH_OPTIMIZATIONS
-                    # is True (and the platform supports it); otherwise PIL.
-                    thumbnails = create_thumbnails_from_path(
-                        filename,
-                        settings.IMAGE_SIZE,
-                        output="JPEG",
-                        quality=settings.PIL_IMAGE_QUALITY,
-                        backend="auto",
-                    )
-
-                    # Validate thumbnail is not empty
-                    if not thumbnails or not thumbnails.get("small"):
-                        raise ThumbnailGenerationError(
-                            f"Image thumbnail creation returned empty result for {index_data_item.name}",
-                            filename=index_data_item.name,
-                        )
-
+                    fallback_backend = "image"
                 elif filetype.is_movie:
-                    # "corevideo" resolves to AVFoundation only when
-                    # settings.MACINTOSH_OPTIMIZATIONS is True; otherwise FFmpeg.
-                    thumbnails = create_thumbnails_from_path(
-                        filename,
-                        settings.IMAGE_SIZE,
-                        output="JPEG",
-                        quality=settings.PIL_IMAGE_QUALITY,
-                        backend="corevideo",
-                    )
-                    # Validate result
-                    if not thumbnails or not thumbnails.get("small"):
-                        raise ThumbnailGenerationError(
-                            f"Video thumbnail creation returned empty result for {index_data_item.name}",
-                            filename=index_data_item.name,
-                        )
-
-                elif filetype.is_pdf:
-                    # "pdf" resolves to PDFKit only when settings.MACINTOSH_OPTIMIZATIONS
-                    # is True (and the platform supports it); otherwise PyMuPDF.
-                    thumbnails = create_thumbnails_from_path(
-                        filename,
-                        settings.IMAGE_SIZE,
-                        output="JPEG",
-                        quality=settings.PIL_IMAGE_QUALITY,
-                        backend="pdf",
-                    )
-                    # Validate result
-                    if not thumbnails or not thumbnails.get("small"):
-                        raise ThumbnailGenerationError(
-                            f"PDF thumbnail creation returned empty result for {index_data_item.name}",
-                            filename=index_data_item.name,
-                        )
+                    fallback_backend = "video"
                 else:
-                    # File type doesn't support custom thumbnails (text, archives, etc.)
-                    # Mark ALL files with this SHA256 as generic (not just one)
-                    # Use FileIndex classmethod to ensure layout cache is cleared
-                    # print(
-                    #     f"File type {filetype.fileext} doesn't support custom thumbnails, "
-                    #     f"marking all instances as generic: {index_data_item.name}"
-                    # )
-                    FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
-
-                    return thumbnail
-
-                # Creation-time GPU-corruption safeguard (opt-in). A suspiciously
-                # small, entirely white small-thumb is regenerated ONCE with the
-                # explicit cross-platform backend; the retry result is used
-                # unconditionally — genuinely all-white content (e.g. blank PDF
-                # pages) is legitimate and must not loop.
-                if settings.MAC_OPTIMIZATION_WHITECHECK and _is_suspect_all_white(thumbnails["small"]):
-                    fallback_backend: BackendType
-                    if filetype.is_image:
-                        fallback_backend = "image"
-                    elif filetype.is_movie:
-                        fallback_backend = "video"
-                    else:
-                        fallback_backend = "pymupdf"
-                    white_defect_msg = (
-                        f"All-white thumbnail detected for {index_data_item.name} "
-                        f"(sha256={file_sha256}) — regenerating with backend '{fallback_backend}'"
-                    )
-                    logger.warning("%s", white_defect_msg)
-                    print(white_defect_msg)
-                    thumbnails = create_thumbnails_from_path(
-                        filename,
-                        settings.IMAGE_SIZE,
-                        output="JPEG",
-                        quality=settings.PIL_IMAGE_QUALITY,
-                        backend=fallback_backend,
-                    )
-
-                thumbnail.small_thumb = thumbnails["small"]
-                thumbnail.medium_thumb = thumbnails["medium"]
-                thumbnail.large_thumb = thumbnails["large"]
-
-                if not suppress_save:
-                    thumbnail.save(update_fields=["small_thumb", "medium_thumb", "large_thumb"])
-
-                # If this was a retry (file was marked generic), turn off generic flag
-                # on success for ALL instances
-                # Use FileIndex classmethod to ensure layout cache is cleared
-                if index_data_item.is_generic_icon:
-                    # print(f"Thumbnail creation succeeded on retry for {index_data_item.name}, " f"turning off generic flag for all instances")
-                    FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=False, clear_cache=True)
-
-            except FileNotFoundError as e:
-                # File was moved or deleted — mark this specific FileIndex as delete_pending
-                # rather than marking ALL files with this SHA256 as generic.
-                # Other FileIndex records with the same SHA256 may still exist at valid paths.
-                logger.warning("File not found for %s: %s", index_data_item.name, e)
-                index_data_item.delete_pending = True
-                index_data_item.save(update_fields=["delete_pending"])
-
-                # Clear layout cache so gallery view reflects the removed file
-                if index_data_item.home_directory_id:
-                    clear_layout_cache_for_directories({index_data_item.home_directory_id})
-
-            except MediaProcessingError as e:
-                # File exists but the media backend could not decode it (corrupt,
-                # wrong format, no frame data, etc.). Covers images, videos, and PDFs.
-                # Log at WARNING (not ERROR) since this is a data issue, not a code issue.
-                logger.warning(
-                    "Unreadable media file, marking as generic icon: %s (%s)",
-                    filename,
-                    e,
+                    fallback_backend = "pymupdf"
+                white_defect_msg = (
+                    f"All-white thumbnail detected for {index_data_item.name} "
+                    f"(sha256={file_sha256}) — regenerating with backend '{fallback_backend}'"
                 )
-                if not index_data_item.is_generic_icon:
-                    FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
+                logger.warning("%s", white_defect_msg)
+                print(white_defect_msg)
+                thumbnails = create_thumbnails_from_path(
+                    filename,
+                    settings.IMAGE_SIZE,
+                    output="JPEG",
+                    quality=settings.PIL_IMAGE_QUALITY,
+                    backend=fallback_backend,
+                )
 
-            # TODO: narrow to (OSError, RuntimeError, ValueError) once thumbnail backend
-            # exception types are fully catalogued across PIL/PyMuPDF/ffmpeg
-            except Exception as e:
-                # Any error during thumbnail creation - mark ALL files with this SHA256 as generic
-                # Use FileIndex classmethod to ensure layout cache is cleared
-                logger.exception("Thumbnail creation failed for %s: %s", index_data_item.name, e)
-                if not index_data_item.is_generic_icon:
-                    FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
+            thumbnail.small_thumb = thumbnails["small"]
+            thumbnail.medium_thumb = thumbnails["medium"]
+            thumbnail.large_thumb = thumbnails["large"]
 
-            return thumbnail
+            if not suppress_save:
+                thumbnail.save(update_fields=["small_thumb", "medium_thumb", "large_thumb"])
+
+            # If this was a retry (file was marked generic), turn off generic flag
+            # on success for ALL instances
+            # Use FileIndex classmethod to ensure layout cache is cleared
+            if index_data_item.is_generic_icon:
+                # print(f"Thumbnail creation succeeded on retry for {index_data_item.name}, " f"turning off generic flag for all instances")
+                FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=False, clear_cache=True)
+
+        except FileNotFoundError as e:
+            # File was moved or deleted — mark this specific FileIndex as delete_pending
+            # rather than marking ALL files with this SHA256 as generic.
+            # Other FileIndex records with the same SHA256 may still exist at valid paths.
+            logger.warning("File not found for %s: %s", index_data_item.name, e)
+            index_data_item.delete_pending = True
+            index_data_item.save(update_fields=["delete_pending"])
+
+            # Clear layout cache so gallery view reflects the removed file
+            if index_data_item.home_directory_id:
+                clear_layout_cache_for_directories({index_data_item.home_directory_id})
+
+        except MediaProcessingError as e:
+            # File exists but the media backend could not decode it (corrupt,
+            # wrong format, no frame data, etc.). Covers images, videos, and PDFs.
+            # Log at WARNING (not ERROR) since this is a data issue, not a code issue.
+            logger.warning(
+                "Unreadable media file, marking as generic icon: %s (%s)",
+                filename,
+                e,
+            )
+            if not index_data_item.is_generic_icon:
+                FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
+
+        # TODO: narrow to (OSError, RuntimeError, ValueError) once thumbnail backend
+        # exception types are fully catalogued across PIL/PyMuPDF/ffmpeg
+        except Exception as e:
+            # Any error during thumbnail creation - mark ALL files with this SHA256 as generic
+            # Use FileIndex classmethod to ensure layout cache is cleared
+            logger.exception("Thumbnail creation failed for %s: %s", index_data_item.name, e)
+            if not index_data_item.is_generic_icon:
+                FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
+
+        return thumbnail
 
     def number_of_indexdata_references(self) -> int:
         """
         Return the number of FileIndex references for this thumbnail.
+
+        Benchmark-only — no production callers as of 2026-07-06.
 
         Returns:
             Count of FileIndex objects referencing this thumbnail

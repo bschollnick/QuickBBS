@@ -9,6 +9,7 @@ from django.http import HttpRequest
 
 from cache_watcher.models import fs_Cache_Tracking
 from quickbbs.models import DirectoryIndex, Favorites, FileIndex, Owners
+from thumbnails.models import ThumbnailFiles
 
 
 @admin.register(FileIndex)
@@ -175,7 +176,7 @@ class AdminMasterDirs(admin.ModelAdmin):
         """
         Force rebuild thumbnails for all files in the selected directories.
 
-        This action clears all thumbnail data (sets to b"") for files in the selected
+        This action clears all thumbnail data (sets to NULL) for files in the selected
         directories, forcing them to be regenerated on next access. Also marks the
         directories as invalidated in the cache system.
 
@@ -186,24 +187,25 @@ class AdminMasterDirs(admin.ModelAdmin):
         Returns:
             None - displays success message to user
         """
-        total_files = 0
-        total_thumbnails_cleared = 0
         directories_invalidated = 0
+        directory_count = queryset.count()
 
         with transaction.atomic():
+            # ThumbnailFiles is content-addressed (shared by sha256 across
+            # FileIndex rows via the new_ftnail FK), so clear each distinct
+            # thumbnail row once via a single UPDATE instead of looping
+            # over every FileIndex row and re-saving shared thumbnails
+            # redundantly.
+            files_in_dirs = FileIndex.objects.filter(home_directory__in=queryset, delete_pending=False)
+            total_files = files_in_dirs.count()
+            thumb_ids = files_in_dirs.exclude(new_ftnail__isnull=True).values_list("new_ftnail_id", flat=True).distinct()
+            total_thumbnails_cleared = ThumbnailFiles.objects.filter(id__in=thumb_ids).update(
+                small_thumb=None,
+                medium_thumb=None,
+                large_thumb=None,
+            )
+
             for directory in queryset:
-                # Get all files in this directory using the FileIndex_entries reverse relationship
-                files = directory.FileIndex_entries.select_related("new_ftnail").filter(delete_pending=False)
-                total_files += files.count()
-
-                # Clear thumbnails for each file
-                for file_obj in files:
-                    if file_obj.new_ftnail:
-                        # Clear the thumbnail data
-                        file_obj.new_ftnail.invalidate_thumb()
-                        file_obj.new_ftnail.save(update_fields=["small_thumb", "medium_thumb", "large_thumb"])
-                        total_thumbnails_cleared += 1
-
                 # Mark the directory as invalidated in the cache system
                 # This ensures the directory will be rescanned and thumbnails regenerated
                 fs_Cache_Tracking.objects.update_or_create(
@@ -220,8 +222,8 @@ class AdminMasterDirs(admin.ModelAdmin):
 
         self.message_user(
             request,
-            f"Cleared thumbnails for {total_thumbnails_cleared} files across {queryset.count()} "
-            f"director{'y' if queryset.count() == 1 else 'ies'} (total files: {total_files}). "
+            f"Cleared thumbnails for {total_thumbnails_cleared} files across {directory_count} "
+            f"director{'y' if directory_count == 1 else 'ies'} (total files: {total_files}). "
             f"Invalidated {directories_invalidated} director{'y' if directories_invalidated == 1 else 'ies'} in cache.",
         )
 

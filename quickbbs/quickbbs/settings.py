@@ -488,10 +488,18 @@ TASKS = {
             "periodic": {
                 "quickbbs.tasks.daily_cleanup_finished_jobs": Periodic("0 0 * * *"),
                 "quickbbs.tasks.weekly_vacuum_check": Periodic("0 6 * * 0"),
+                "quickbbs.tasks.check_ssl_cert_expiry": Periodic("0 6 * * *"),
             },
         },
     },
 }
+
+# SSL certificate file to monitor for upcoming expiration (see
+# quickbbs.tasks.check_ssl_cert_expiry). All start_*.sh scripts point at the
+# same certs/ directory, so a single path covers every server variant.
+# Set to None to disable the expiration check entirely.
+SSL_CERT_PATH = os.path.join(BASE_DIR, "..", "certs", "quickbbs_cert.pem")
+SSL_CERT_WARN_DAYS = 30
 
 # Settings for django-icons
 DJANGO_ICONS = {

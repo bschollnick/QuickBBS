@@ -7,6 +7,7 @@ All functions are synchronous. Async callers should wrap with sync_to_async().
 """
 
 import logging
+from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 # Third-party imports
@@ -14,13 +15,18 @@ from cachetools import cached
 from django.conf import settings
 
 # First-party imports
+from quickbbs.common import SORT_MATRIX
 from quickbbs.MonitoredCache import create_cache
+
+if TYPE_CHECKING:
+    from django.core.handlers.wsgi import WSGIRequest
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "convert_to_webpath",
     "ensures_endswith",
+    "get_sort_param",
     "return_breadcrumbs",
 ]
 
@@ -30,6 +36,29 @@ breadcrumbs_cache = create_cache(settings.BREADCRUMBS_CACHE_SIZE, "breadcrumbs",
 
 # Pre-computed constant for webpath conversion (settings don't change at runtime)
 _ALBUMS_PATH_LOWER = settings.ALBUMS_PATH.lower()
+
+
+def get_sort_param(request: "WSGIRequest | None") -> int:
+    """
+    Get and validate sort parameter from query string.
+
+    Valid values are defined by SORT_MATRIX keys.
+
+    Args:
+        request: Django request object, or None (defaults to DEFAULT_SORT_ORDER)
+
+    Returns:
+        Sort parameter (validated against SORT_MATRIX), defaults to
+        settings.DEFAULT_SORT_ORDER if request is None or the value is invalid
+    """
+    if request is None:
+        return settings.DEFAULT_SORT_ORDER
+    try:
+        sort_value = int(request.GET.get("sort", str(settings.DEFAULT_SORT_ORDER)))
+        # Use existing SORT_MATRIX keys - no need to duplicate valid values
+        return sort_value if sort_value in SORT_MATRIX else settings.DEFAULT_SORT_ORDER
+    except (ValueError, TypeError):
+        return settings.DEFAULT_SORT_ORDER
 
 
 def ensures_endswith(string_to_check: str, value: str) -> str:

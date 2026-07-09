@@ -525,6 +525,9 @@ class DirectoryIndex(models.Model):
     def get_file_counts(self) -> int:
         """
         Return the number of files that are in the database for the current directory
+
+        Benchmark-only — no production callers as of 2026-07-06.
+
         Returns: Integer - Number of files in the database for the directory
         """
         return self.FileIndex_entries.filter(delete_pending=False).count()
@@ -546,6 +549,14 @@ class DirectoryIndex(models.Model):
     def get_count_breakdown(self) -> dict[str, int]:
         """
         Return the count of items in the directory, broken down by filetype.
+
+        Benchmark-only — no production callers as of 2026-07-06. If ever
+        promoted to production, rewrite as a single
+        `values("filetype__fileext").annotate(Count("id"))` GROUP BY instead
+        of the current one-`Count(filter=...)`-per-filetype aggregate, which
+        emits a FILTER clause for every known filetype whether present in the
+        directory or not.
+
         Returns: dictionary, where the key is the filetype (e.g. "dir", "jpg", "mp4"),
         and the value is the number of items of that filetype.
         A special "all_files" key is used to store the # of all items in the directory (except

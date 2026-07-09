@@ -70,7 +70,8 @@
                class="gallery-item-link">
                 <img src="{{ item.get_thumbnail_url() }}"
                      alt="{{ item.name }}"
-                     class="thumbnail thumbnail-image gallery-item">
+                     class="thumbnail thumbnail-image gallery-item"
+                     {% if index > 8 %}loading="lazy" decoding="async" data-lazy-timeout="5000"{% endif %}>
             </a>
         </figure>
         <!-- External Link -->

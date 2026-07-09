@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from datetime import timedelta
 
+from cryptography import x509
+from cryptography.hazmat.backends import default_backend
 from dbtasks.models import ScheduledTask
 from django.conf import settings
 from django.db import connection
@@ -300,6 +303,108 @@ def weekly_vacuum_check() -> list[dict]:
         len(candidates),
     )
     return candidates
+
+
+def get_ssl_cert_status(cert_path: str | None = None) -> dict | None:
+    """Return expiration status for the configured SSL certificate.
+
+    Reads the certificate's notAfter date via the cryptography package.
+    A missing or unparsable certificate is reported as an entry with an
+    error message rather than raising.
+
+    Args:
+        cert_path: Path to a PEM certificate file to check. Defaults to
+            settings.SSL_CERT_PATH.
+
+    Returns:
+        Dict with path, exists, days_left, expired, not_valid_after, and
+        error (None unless the certificate could not be read); or None if
+        no certificate path is configured (check disabled).
+    """
+    if cert_path is None:
+        cert_path = settings.SSL_CERT_PATH
+
+    if cert_path is None:
+        return None
+
+    now = timezone.now()
+    entry = {
+        "path": cert_path,
+        "exists": False,
+        "days_left": None,
+        "expired": None,
+        "not_valid_after": None,
+        "error": None,
+    }
+    if not os.path.isfile(cert_path):
+        entry["error"] = "File not found"
+        return entry
+
+    entry["exists"] = True
+    try:
+        with open(cert_path, "rb") as cert_file:
+            cert = x509.load_pem_x509_certificate(cert_file.read(), default_backend())
+        not_valid_after = cert.not_valid_after_utc
+        entry["not_valid_after"] = not_valid_after.isoformat()
+        entry["days_left"] = (not_valid_after - now).days
+        entry["expired"] = not_valid_after <= now
+    except (OSError, ValueError) as exc:
+        entry["error"] = str(exc)
+
+    return entry
+
+
+@task()
+def check_ssl_cert_expiry() -> dict | None:
+    """Log a warning if the SSL certificate is expired or expiring soon.
+
+    Checks settings.SSL_CERT_PATH via get_ssl_cert_status() and logs an
+    error for an expired certificate or a warning for one expiring within
+    settings.SSL_CERT_WARN_DAYS days. A missing/unreadable certificate file
+    is also logged as a warning so a misconfigured path doesn't fail
+    silently. The check is disabled entirely when SSL_CERT_PATH is None.
+
+    Registered as a periodic task via TASKS settings (runs daily at 6am).
+
+    Returns:
+        The status dict from get_ssl_cert_status() when the certificate is
+        expired, expiring soon, or unreadable; None when healthy or when
+        the check is disabled.
+    """
+    warn_days = settings.SSL_CERT_WARN_DAYS
+    status = get_ssl_cert_status()
+
+    if status is None:
+        logger.debug("SSL certificate check disabled (SSL_CERT_PATH is None)")
+        return None
+
+    if status["error"] is not None:
+        logger.warning("SSL certificate check failed for %s: %s", status["path"], status["error"])
+        return status
+
+    if status["expired"]:
+        logger.error(
+            "SSL certificate EXPIRED: %s (expired on %s)",
+            status["path"],
+            status["not_valid_after"],
+        )
+        return status
+
+    if status["days_left"] <= warn_days:
+        logger.warning(
+            "SSL certificate expiring soon: %s — %d day(s) left (expires %s)",
+            status["path"],
+            status["days_left"],
+            status["not_valid_after"],
+        )
+        return status
+
+    logger.info(
+        "SSL certificate healthy: %s — %d day(s) left",
+        status["path"],
+        status["days_left"],
+    )
+    return None
 
 
 @task()

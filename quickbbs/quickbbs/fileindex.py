@@ -25,6 +25,7 @@ from django.http import FileResponse, Http404
 from django.urls import reverse
 
 from filetypes.models import filetypes
+from frontend.serve_up import sanitize_filename_for_http
 from quickbbs.common import (
     SORT_MATRIX,
     get_file_sha,
@@ -111,53 +112,6 @@ if TYPE_CHECKING:
     from django.db.models.fields.related_descriptors import RelatedManager
 
     from .directoryindex import DirectoryIndex
-
-
-# =============================================================================
-# FILENAME SANITIZATION FOR HTTP HEADERS
-# =============================================================================
-
-# Translation table for sanitizing filenames - faster than regex
-# Removes: control chars (0x00-0x1F, 0x7F), angle brackets (<>)
-# Replaces: semicolon with underscore (header parameter separator)
-_SANITIZE_TABLE = str.maketrans(
-    {
-        ";": "_",  # Replace semicolon with underscore
-        "<": None,  # Remove angle brackets
-        ">": None,
-        "\x7f": None,  # Remove DEL character
-        **{chr(i): None for i in range(0x20)},  # Remove control chars 0x00-0x1F
-    }
-)
-
-
-def sanitize_filename_for_http(filename: str) -> str:
-    """
-    Sanitize filename for safe use in Content-Disposition headers.
-
-    Removes control characters and characters that could cause header injection
-    or filename confusion. This prevents:
-    - HTTP header injection (via newlines, semicolons)
-    - Filename truncation (via angle brackets)
-    - Control character exploits
-
-    Args:
-        filename: Original filename from filesystem
-
-    Returns:
-        Sanitized filename safe for HTTP headers
-
-    Example:
-        >>> sanitize_filename_for_http("test.pdf")
-        'test.pdf'
-        >>> sanitize_filename_for_http("file;evil.exe")
-        'file_evil.exe'
-        >>> sanitize_filename_for_http("<script>alert(1)</script>.txt")
-        'scriptalert(1)script.txt'
-    """
-    # Use translate() - faster than regex for character removal/replacement
-    filename = filename.translate(_SANITIZE_TABLE).strip()
-    return filename or "download.bin"
 
 
 # =============================================================================
@@ -317,6 +271,9 @@ class FileIndex(models.Model):
     def return_identical_files_count(sha: str) -> int:
         """
         Return the number of identical files in the database
+
+        Benchmark-only — no production callers as of 2026-07-06.
+
         Returns: Integer - Number of identical files
         """
         return FileIndex.objects.filter(file_sha256=sha).count()
@@ -357,6 +314,8 @@ class FileIndex(models.Model):
     def get_identical_file_entries_by_sha(sha: str) -> "QuerySet[dict[str, Any]]":
         """
         Get file entries for identical files based on SHA256 hash
+
+        Benchmark-only — no production callers as of 2026-07-06.
 
         Args:
             sha: The SHA256 hash of the file to search for
@@ -487,6 +446,11 @@ class FileIndex(models.Model):
         # Get directory IDs BEFORE update (same pattern as link_to_thumbnail)
         directory_ids = set()
         if clear_cache:
+            # DUPLICATE: this "collect distinct home_directory IDs before update"
+            # line is intentionally duplicated in link_to_thumbnail() below (with
+            # an added new_ftnail__isnull=True filter). Keep both in sync if the
+            # collection logic changes — not extracted to a helper since each is
+            # a single line with a different filter.
             directory_ids = set(cls.objects.filter(file_sha256=file_sha256).values_list("home_directory", flat=True).distinct())
             # Remove None values
             directory_ids.discard(None)
@@ -526,6 +490,11 @@ class FileIndex(models.Model):
 
         # Get affected directories BEFORE updating for cache clearing
         # This also determines if there are any unlinked records (replaces separate .exists() query)
+        # DUPLICATE: this "collect distinct home_directory IDs before update"
+        # line is intentionally duplicated in set_generic_icon_for_sha() above
+        # (without the new_ftnail__isnull=True filter). Keep both in sync if
+        # the collection logic changes — not extracted to a helper since each
+        # is a single line with a different filter.
         affected_dirs = list(cls.objects.filter(file_sha256=file_sha256, new_ftnail__isnull=True).values_list("home_directory", flat=True).distinct())
         has_unlinked = bool(affected_dirs)
 
