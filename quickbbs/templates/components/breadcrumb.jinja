@@ -7,6 +7,5 @@
   ASGI/WSGI Compatible: Django cache framework handles both contexts.
 #}
 {% from 'macros/breadcrumb.jinja' import show_breadcrumb_nav %}
-{% cache 300 "breadcrumb" webpath gallery_name %}
+{# TEMP: {% cache %} wrapper disabled for breadcrumb/title layout work. #}
 {{ show_breadcrumb_nav(breadcrumbs, gallery_name)|safe }}
-{% endcache %}

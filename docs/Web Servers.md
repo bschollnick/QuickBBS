@@ -16,6 +16,13 @@ python manage.py runserver 0.0.0.0:8888
 python manage.py runserver_plus --cert-file cert.pem 0.0.0.0:8888
 ```
 
+**Quick Start (HTTPS, HTTP/1.1 only):**
+```bash
+cd quickbbs
+./start_django_http1.sh
+```
+Wraps `runserver_plus` with certificate paths expected under `../certs/`. See the script header for the `openssl` command to generate self-signed certificates.
+
 **Pros:** Quick setup, auto-reload on code changes
 **Cons:** Not for production, single-threaded, limited performance
 
@@ -107,6 +114,13 @@ gunicorn quickbbs.asgi:application \
 ### Uvicorn (ASGI - Production) ⭐ RECOMMENDED FOR HTTP/1.1
 
 Uvicorn is a lightning-fast ASGI server with async support. **NOTE: Uvicorn does NOT support HTTP/2.** For HTTP/2 support, use Hypercorn instead.
+
+**Quick Start (HTTPS, HTTP/1.1 only):**
+```bash
+cd quickbbs
+./start_uvicorn_http2.sh
+```
+Despite the filename, this script serves HTTP/1.1 only (Uvicorn cannot negotiate HTTP/2) — it expects certificates under `../certs/`. Use `./start_hypercorn_http2.sh` if you need HTTP/2.
 
 **Manual Commands:**
 
@@ -441,16 +455,16 @@ cd quickbbs
 ./start_task_worker.sh
 ```
 
-This runs 3 concurrent worker threads (configurable via `NUMBER_OF_WORKERS` in the script).
+This runs 4 concurrent worker threads (configurable via `NUMBER_OF_WORKERS` in the script).
 
 **Manual Command:**
 ```bash
 cd quickbbs
-python manage.py taskrunner -w 3
+python manage.py taskrunner -w 4
 ```
 
 **Options:**
-- `-w WORKERS` — Number of concurrent worker threads (default: 11, script uses 3)
+- `-w WORKERS` — Number of concurrent worker threads (default: `max(1, cpu_count - 1)`; the script hardcodes 4 via `NUMBER_OF_WORKERS`)
 - `--no-periodic` — Disable periodic tasks (e.g., run workers dedicated to on-demand tasks only)
 - `--backend BACKEND` — Use a specific task backend (default: `default`)
 

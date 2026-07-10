@@ -3,7 +3,8 @@
 QuickBBS can display "shortcut" entries in a gallery that point at another directory in the gallery tree.  Two file types are supported:
 
 * **`.link` files** — A simple QuickBBS-native shortcut file.
-* **`.alias` files** — Standard macOS Finder aliases (macOS only).  Create one in the Finder (File → Make Alias, or ⌘L) and drop it into a gallery directory.
+* **`.alias` files** — Standard macOS Finder aliases (macOS only).  Create one in the Finder (File → Make Alias, or ⌘L) and drop it into a gallery directory.  
+    * While aliases normally do not need a file extension, to be recognized by QuickBBS, the alias file **MUST** have an .alias file extension.  e.g. `Link_to_other_directory.alias`.
 
 When a link or alias resolves successfully, it appears in the gallery as a virtual directory: it gets a thumbnail, and clicking it navigates to the target directory.
 

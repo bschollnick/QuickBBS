@@ -10,8 +10,8 @@ This directory contains Locust-based benchmarking tools for testing QuickBBS dow
 # Make sure the QuickBBS server is running
 python manage.py runserver 0.0.0.0:8888
 
-# In another terminal, run the benchmark (from quickbbs/ directory)
-cd quickbbs
+# In another terminal, run the benchmark (from quickbbs/benchmarks/ directory)
+cd quickbbs/benchmarks
 python run_download_benchmark.py
 ```
 
@@ -299,6 +299,34 @@ Error: Connection refused
 ```bash
 cd quickbbs && python manage.py runserver 0.0.0.0:8888
 ```
+
+## Alternative: `hey`-Based Benchmarking
+
+For a lighter-weight comparison across QuickBBS versions, `benchmarks/run_hey.sh`
+wraps [`hey`](https://github.com/rakyll/hey) (a Go-based HTTP load generator) to
+benchmark the same four fixed test-download URLs used elsewhere in this suite, and
+writes a labelled, human-readable log to `benchmarks/logs/`. `benchmarks/hey_compare.py`
+parses two such logs (a baseline and a candidate) and reports the per-metric delta
+and percent change for each run.
+
+```bash
+cd quickbbs/benchmarks
+
+# Run a hey benchmark; tag the log with a version label
+LABEL=v4.1 ./run_hey.sh
+
+# Override request count / concurrency (defaults: N=200, C=100)
+N=200 C=100 ./run_hey.sh
+
+# Compare two hey logs (or auto-pick the two newest logs in logs/)
+python hey_compare.py logs/hey-v4.0-*.log logs/hey-v4.1-*.log
+python hey_compare.py
+```
+
+**Requirements:** `hey` must be installed and on `PATH`. The target host/port
+(`https://nerv.local:8888` by default) and test URLs are hardcoded in `run_hey.sh` —
+edit the script's `BASE` and `TESTS` array to point at your own server and SHA256
+identifiers.
 
 ### Request Count Varies
 

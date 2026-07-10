@@ -33,19 +33,39 @@
     flex-shrink: 0;
 }
 
-.level-item.is-breadcrumb {
+.level .level-item.is-breadcrumb {
+    display: flex;
     flex: 1 1 auto;
     max-width: 75%;
     min-width: 200px;
     margin-left: 1rem;
     margin-right: 1rem;
+    flex-direction: column !important;
     justify-content: center;
+    align-items: center;
     overflow: hidden;
 }
 
+/* Breadcrumb trail sits on its own row, above the title. */
 .level-item.is-breadcrumb .breadcrumb {
     width: 100%;
     max-width: 100%;
+    margin-bottom: 0;
+}
+
+/* Current gallery/directory title - its own paragraph below the breadcrumb
+   trail. Uses ~90% of the center column and wraps long filenames (including
+   unbreakable tokens). Bold, one step above the normal body size. */
+.level-item.is-breadcrumb .gallery-title {
+    width: 90%;
+    max-width: 90%;
+    margin: 0.1rem auto 0;
+    text-align: center;
+    font-size: 0.9rem;
+    font-weight: 700;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 /* Responsive breadcrumb sizing */

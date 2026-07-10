@@ -3,6 +3,7 @@ Serve Resources, and Static documents from Django
 """
 
 import io
+import logging
 import os
 import os.path
 
@@ -13,6 +14,8 @@ from django.http import FileResponse, Http404, StreamingHttpResponse
 # TODO: Examine django-sage-streaming as a replacement for RangedFileResponse
 # https://github.com/sageteamorg/django-sage-streaming
 from ranged_fileresponse import RangedFileResponse
+
+logger = logging.getLogger()
 
 RANGE_CHUNK_SIZE = 65536  # 64 KB per async read
 
@@ -234,7 +237,14 @@ def sanitize_filename_for_http(filename: str) -> str:
 
 def _locate_static_or_resource_file(pathstr: str) -> str | None:
     """
-    Locate file in static or resources directories.
+    Locate file in resources or static directories.
+
+    Checks RESOURCES_PATH first so that custom assets always win: resources/
+    is the single source of truth for custom files, static/ holds only
+    Django/third-party assets. If the same relative path exists in both
+    directories, the static/ copy is stale (e.g. an old collectstatic
+    artifact) and a warning is emitted, since it previously shadowed the
+    resources/ copy.
 
     ASYNC-SAFE: Pure function with filesystem checks only
 
@@ -244,15 +254,22 @@ def _locate_static_or_resource_file(pathstr: str) -> str | None:
     Returns:
         Absolute path to file if found, None otherwise
     """
-    # Check static directory first
-    static_file = os.path.join(settings.STATIC_ROOT, pathstr)
-    if os.path.exists(static_file) and os.path.isfile(static_file):
-        return static_file
-
-    # Check resources directory second
+    # Check resources directory first - custom assets take priority
     resource_file = os.path.join(settings.RESOURCES_PATH, pathstr)
-    if os.path.exists(resource_file) and os.path.isfile(resource_file):
+    static_file = os.path.join(settings.STATIC_ROOT, pathstr)
+    if os.path.isfile(resource_file):
+        if os.path.isfile(static_file):
+            message = (
+                f"Duplicate asset: '{pathstr}' exists in both resources/ and static/. "
+                f"Serving {resource_file}; delete the stale copy {static_file}"
+            )
+            logger.warning(message)
+            print(f"WARNING: {message}")
         return resource_file
+
+    # Check static directory second
+    if os.path.isfile(static_file):
+        return static_file
 
     return None
 
