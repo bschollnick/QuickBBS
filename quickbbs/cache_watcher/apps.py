@@ -1,3 +1,5 @@
+"""Django AppConfig for cache_watcher: single-instance watchdog startup logic."""
+
 import atexit
 import fcntl
 import logging
@@ -24,8 +26,7 @@ class cache_startup(AppConfig):
         """
         Initialize cache watcher when Django app is ready.
 
-        Sets up the Cache_Storage singleton and starts the watchdog manager for
-        filesystem monitoring.
+        Starts the watchdog manager for filesystem monitoring.
 
         Handles multiple server environments:
         - Django runserver (dev): Uses RUN_MAIN env var
@@ -35,9 +36,10 @@ class cache_startup(AppConfig):
         Returns:
             None
         """
-        import cache_watcher.models
-
-        cache_watcher.models.Cache_Storage = cache_watcher.models.fs_Cache_Tracking()
+        # Deferred import: models cannot be imported at module level of apps.py
+        # (the app registry is not ready yet); the watchdog_manager singleton
+        # lives in cache_watcher.models.
+        import cache_watcher.models  # pylint: disable=import-outside-toplevel
 
         # Determine whether this process should start the watchdog.
         #

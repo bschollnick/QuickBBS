@@ -24,11 +24,9 @@ import time
 
 from cachetools.keys import hashkey
 from django.conf import settings
-from django.core.exceptions import ObjectDoesNotExist
 from django.core.management.base import BaseCommand, CommandError
 from django.db import close_old_connections, transaction
 
-from cache_watcher.models import Cache_Storage, fs_Cache_Tracking
 from quickbbs.common import normalize_fqpn
 from quickbbs.directoryindex import directoryindex_cache, update_database_from_disk
 from quickbbs.management.commands.add_directories import add_directories
@@ -49,57 +47,38 @@ BULK_UPDATE_BATCH_SIZE = 250
 def _process_directory_verification_chunk(
     directory_pks: list[int],
     deleted_count: int,
-    cache_added_count: int,
-) -> tuple[int, int]:
+) -> int:
     """
     Process a chunk of directories for verification.
+
+    A "directory missing its cache entry" state no longer exists — the
+    invalidation flag lives on DirectoryIndex itself — so this now only
+    removes directories that are gone from the filesystem.
 
     Args:
         directory_pks: List of DirectoryIndex primary keys to process
         deleted_count: Current count of deleted directories
-        cache_added_count: Current count of cache entries added
 
     Returns:
-        Tuple of (updated deleted_count, updated cache_added_count)
+        Updated deleted_count
     """
-    # Fetch full directory objects for this chunk with related data
-    directories = list(DirectoryIndex.objects.select_related("Cache_Watcher").filter(pk__in=directory_pks).order_by("fqpndirectory"))
+    # Fetch full directory objects for this chunk
+    directories = list(DirectoryIndex.objects.filter(pk__in=directory_pks).order_by("fqpndirectory"))
 
     missing_dirs = []
-    needs_cache_entry = []
 
     for directory in directories:
         if not os.path.exists(directory.fqpndirectory):
             print(f"Directory: {directory.fqpndirectory} does not exist")
             missing_dirs.append(directory)
-        else:
-            # Check if directory exists in fs_Cache_Tracking using 1-to-1 relationship
-            try:
-                _ = directory.Cache_Watcher
-            except ObjectDoesNotExist:
-                needs_cache_entry.append(directory)
 
     # Bulk-remove cache entries and delete missing directories in one pass each
     if missing_dirs:
-        Cache_Storage.remove_multiple_from_cache_indexdirs(missing_dirs)
+        DirectoryIndex.invalidate_caches(missing_dirs)
         DirectoryIndex.objects.filter(pk__in=[d.pk for d in missing_dirs]).delete()
         deleted_count += len(missing_dirs)
 
-    # Bulk-create missing cache entries using upsert (same pattern as verify_thumbnails)
-    if needs_cache_entry:
-        now = time.time()
-        fs_Cache_Tracking.objects.bulk_create(
-            [fs_Cache_Tracking(directory=d, invalidated=True, lastscan=now) for d in needs_cache_entry],
-            update_conflicts=True,
-            update_fields=["invalidated", "lastscan"],
-            unique_fields=["directory"],
-        )
-        prev_cache_added = cache_added_count
-        cache_added_count += len(needs_cache_entry)
-        if cache_added_count // 500 > prev_cache_added // 500:
-            print(f"Added {cache_added_count} directories to fs_Cache_Tracking so far")
-
-    return deleted_count, cache_added_count
+    return deleted_count
 
 
 def verify_directories(start_path: str | None = None, max_count: int = 0):
@@ -164,14 +143,13 @@ def verify_directories(start_path: str | None = None, max_count: int = 0):
     print("Starting Scan")
     processed_count = 0
     deleted_count = 0
-    cache_added_count = 0
     scan_start = time.time()
 
     # Process in chunks
     for i in range(0, len(all_pks), BULK_UPDATE_BATCH_SIZE):
         chunk_pks = all_pks[i : i + BULK_UPDATE_BATCH_SIZE]
 
-        deleted_count, cache_added_count = _process_directory_verification_chunk(chunk_pks, deleted_count, cache_added_count)
+        deleted_count = _process_directory_verification_chunk(chunk_pks, deleted_count)
 
         processed_count += len(chunk_pks)
 
@@ -186,7 +164,7 @@ def verify_directories(start_path: str | None = None, max_count: int = 0):
 
     end_count = DirectoryIndex.objects.count()
     print("-" * 30)
-    print(f"Verification complete: Deleted {deleted_count} directories, added {cache_added_count} cache entries")
+    print(f"Verification complete: Deleted {deleted_count} directories")
     print(f"Starting Count: {start_count}, Ending Count: {end_count}, Difference: {start_count - end_count}")
 
     # Check for unlinked parents
@@ -230,7 +208,6 @@ def verify_directories(start_path: str | None = None, max_count: int = 0):
     print(f"  Total time: {total_time:.1f} seconds")
     print(f"  Directories processed: {processed_count}")
     print(f"  Directories deleted: {deleted_count}")
-    print(f"  Cache entries added: {cache_added_count}")
     print("=" * 60)
 
 
@@ -250,12 +227,10 @@ def _process_verify_files_chunk(
     Returns:
         Updated processed_count
     """
-    directories = list(
-        DirectoryIndex.objects.select_related("Cache_Watcher", "parent_directory").filter(pk__in=directory_pks).order_by("fqpndirectory")
-    )
+    directories = list(DirectoryIndex.objects.select_related("parent_directory").filter(pk__in=directory_pks).order_by("fqpndirectory"))
 
     # Batch-invalidate all directories in the chunk before rescanning
-    Cache_Storage.remove_multiple_from_cache_indexdirs(directories)
+    DirectoryIndex.invalidate_caches(directories)
 
     for directory in directories:
         update_database_from_disk(directory)
@@ -516,7 +491,7 @@ def verify_thumbnails(max_count: int = 0):
 
         # Process in chunks using bulk operations instead of per-directory queries.
         # Each chunk does 2 SQL statements (1 bulk UPDATE for thumbnails, 1 bulk
-        # upsert for cache tracking) instead of 2N individual queries.
+        # UPDATE for the invalidation flags) instead of 2N individual queries.
         for i in range(0, len(dir_ids_list), BULK_UPDATE_BATCH_SIZE):
             chunk_ids = dir_ids_list[i : i + BULK_UPDATE_BATCH_SIZE]
 
@@ -534,22 +509,10 @@ def verify_thumbnails(max_count: int = 0):
                     is_generic_icon=False,
                 )
 
-                # Batch 2: Upsert cache tracking records — mark all as invalidated.
-                # Uses bulk_create with update_conflicts to handle both INSERT (new
-                # directories) and UPDATE (existing entries) in one statement.
-                cache_records = [
-                    fs_Cache_Tracking(
-                        directory=directory,
-                        invalidated=True,
-                        lastscan=now,
-                    )
-                    for directory in directories
-                ]
-                fs_Cache_Tracking.objects.bulk_create(
-                    cache_records,
-                    update_conflicts=True,
-                    update_fields=["invalidated", "lastscan"],
-                    unique_fields=["directory"],
+                # Batch 2: Mark all as invalidated in one UPDATE.
+                DirectoryIndex.objects.filter(pk__in=chunk_ids).update(
+                    cache_invalidated=True,
+                    cache_lastscan=now,
                 )
 
             # Evict stale entries from the in-process LRU cache.
@@ -613,7 +576,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--add_directories",
             action="store_true",
-            help="Walk albums directory and add any missing directories to DirectoryIndex and fs_Cache_Tracking",
+            help="Walk albums directory and add any missing directories to DirectoryIndex (marked invalidated for rescan)",
         )
         parser.add_argument(
             "--add_files",

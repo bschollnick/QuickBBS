@@ -82,8 +82,6 @@ CORE_IMAGE_QUALITY = 55  # Quality for Core Image thumbnail generation (macOS)
 # CoreImage (images), AVFoundation (videos), PDFKit (PDFs).
 # When False, the cross-platform backends are used instead (PIL, FFmpeg, PyMuPDF).
 # Default False pending the GPU memory investigation documented in
-# claude_docs/macintosh_optimizations_memory.md (16GB kernel_task accumulation
-# during full rebuilds).
 # NOTE: backend instances are cached per-process on first use — changing this
 # setting requires restarting the web server and taskrunner.
 MACINTOSH_OPTIMIZATIONS = True

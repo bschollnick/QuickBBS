@@ -1,11 +1,12 @@
-# from cache.models import Cache_Storage
+"""Management command that marks every directory's scan cache invalidated."""
+
 from django.core.management.base import BaseCommand
 
-from cache_watcher.models import fs_Cache_Tracking
+from quickbbs.models import DirectoryIndex
 
 
 class Command(BaseCommand):
-    """Mark every fs_Cache_Tracking record as invalidated, forcing a rescan of all directories."""
+    """Mark every DirectoryIndex record as cache-invalidated, forcing a rescan of all directories."""
 
     help = "Clear the Filesystem Cache (mark all directories invalidated)"
 
@@ -31,4 +32,4 @@ class Command(BaseCommand):
         Example:
             $ manage.py clear_cache
         """
-        fs_Cache_Tracking.clear_all_records()
+        DirectoryIndex.invalidate_all_caches()

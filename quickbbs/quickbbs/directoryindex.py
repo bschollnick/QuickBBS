@@ -16,8 +16,7 @@ from cachetools import cached
 from cachetools.keys import hashkey
 from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
-from django.core.exceptions import ObjectDoesNotExist
-from django.db import close_old_connections, models, transaction
+from django.db import DatabaseError, close_old_connections, models, transaction
 from django.db.models import Case, Count, Q, Value, When
 from django.db.models.query import QuerySet
 from django.urls import reverse
@@ -52,6 +51,7 @@ get_view_url_cache = create_cache(settings.GET_VIEW_URL_CACHE_SIZE, "get_view_ur
 # Must come after module-level cache creation above to avoid a cyclic import.
 from quickbbs.cache_registry import (  # noqa: E402  # pylint: disable=wrong-import-position
     all_files_shas_cache,
+    clear_layout_cache_for_directories,
     dir_counts_cache,
     distinct_files_cache,
     sibling_dirs_cache,
@@ -59,8 +59,6 @@ from quickbbs.cache_registry import (  # noqa: E402  # pylint: disable=wrong-imp
 
 if TYPE_CHECKING:
     from django.db.models.fields.related_descriptors import RelatedManager
-
-    from cache_watcher.models import fs_Cache_Tracking
 
     from .fileindex import FileIndex
 
@@ -77,23 +75,46 @@ from .fileindex import (  # noqa: E402  # pylint: disable=wrong-import-position
 # NOTE: Using tuples (not lists) so they can be used as cache keys (hashable)
 # =============================================================================
 
-# Full - gallery with navigation
-DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT = ("filetype", "thumbnail", "Cache_Watcher", "parent_directory")
-
-# For thumbnail view (no navigation needed)
-DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE = ("filetype", "thumbnail", "Cache_Watcher")
-
 # For directory listing display
 DIRECTORYINDEX_SR_FILETYPE_THUMB = ("filetype", "thumbnail")
 
-# For directory listing with navigation
+# Full - gallery with navigation
 DIRECTORYINDEX_SR_FILETYPE_THUMB_PARENT = ("filetype", "thumbnail", "parent_directory")
-
-# For management commands
-DIRECTORYINDEX_SR_CACHE = ("Cache_Watcher",)
 
 # For parent navigation only
 DIRECTORYINDEX_SR_PARENT = ("parent_directory",)
+
+
+def _clear_directoryindex_cache(directories: list["DirectoryIndex"]) -> None:
+    """
+    Clear directoryindex_cache entries for invalidated directories.
+
+    When directories are invalidated, their cached DirectoryIndex objects must
+    be removed from the LRU cache to prevent stale is_cached checks — the
+    cached instances hold a cache_invalidated snapshot that goes stale the
+    moment the invalidation UPDATE lands. The cache key is the directory's
+    SHA256 hash; cached values are (found, DirectoryIndex) tuples, so any
+    still-cached record is refreshed so held references see the new state.
+
+    Args:
+        directories: List of DirectoryIndex objects that were invalidated.
+    """
+    try:
+        cleared_count = 0
+        for directory in directories:
+            if directory and directory.dir_fqpn_sha256:
+                cached_obj = directoryindex_cache.pop(hashkey(directory.dir_fqpn_sha256), None)
+                if cached_obj is not None:
+                    _, dir_record = cached_obj
+                    if dir_record is not None:
+                        # Refresh so any remaining reference sees updated invalidation state
+                        dir_record.refresh_from_db()
+                    cleared_count += 1
+
+        logger.debug("Cleared %d DirectoryIndex cache entries for %d directories", cleared_count, len(directories))
+
+    except (KeyError, AttributeError) as e:
+        logger.error("Error clearing DirectoryIndex cache for directories: %s", e)
 
 
 class DirectoryIndex(models.Model):
@@ -155,6 +176,12 @@ class DirectoryIndex(models.Model):
     # parent_directory filter), so they carry no index (pg_stat, 2026-07-04).
     lastscan = models.FloatField(default=None)  # Stored as Unix TimeStamp (ms)
     lastmod = models.FloatField(default=None)  # Stored as Unix TimeStamp (ms)
+    # Cache-watcher scan tracking (merged from cache_watcher.fs_Cache_Tracking,
+    # see claude_docs/plans/Directory_index_overhaul.md). No index on either field:
+    # every access path reaches the row via dir_fqpn_sha256 (unique index) or pk,
+    # and keeping them unindexed makes watcher-driven UPDATEs HOT-eligible.
+    cache_invalidated = models.BooleanField(default=True)  # True = needs rescan
+    cache_lastscan = models.FloatField(default=0)  # Unix timestamp of last scan/invalidation write
     # db_index=False: name_sort is only used in ORDER BY after a parent filter.
     name_sort = NaturalSortField(for_field="fqpndirectory", max_length=384, default="", db_index=False)
     is_generic_icon = models.BooleanField(default=False)  # File is to be ignored
@@ -178,8 +205,6 @@ class DirectoryIndex(models.Model):
         default=None,
     )
     # Reverse relationships
-    # From fs_Cache_Tracking.directory (reverse OneToOne resolves to the instance)
-    Cache_Watcher: "fs_Cache_Tracking"
     # From DirectoryIndex.parent_directory (self-referential)
     parent_dir: "RelatedManager[DirectoryIndex]"
     # From FileIndex.home_directory
@@ -214,8 +239,9 @@ class DirectoryIndex(models.Model):
         Returns:
             Tuple of (success, record). success is True whenever a record was
             created, updated, or found already up to date; (False, None) is
-            returned only when the directory does not exist on the filesystem
-            (stat failure).
+            returned when the directory does not exist on the filesystem
+            (stat failure) or lies outside the albums root (rejected — no
+            row is ever created for out-of-tree paths).
         """
         # Normalize once and compute SHA once
         fqpn_directory = normalize_fqpn(fqpn_directory)
@@ -226,33 +252,39 @@ class DirectoryIndex(models.Model):
         albums_root_lower = DirectoryIndex.get_albums_root().lower()
         is_in_albums = fqpn_lower.startswith(albums_root_lower)
 
+        # DirectoryIndex only indexes the albums tree. Out-of-tree paths
+        # (masters volumes, traversal escapes) are rejected outright — this
+        # is the single chokepoint every creation path funnels through
+        # (sync_subdirectories, watchdog placeholders, web discovery,
+        # .link processing, management commands).
+        if not is_in_albums:
+            logger.warning("Rejected add_directory outside albums root: %s", fqpn_directory)
+            return (False, None)
+
         # Determine parent directory link
-        if is_in_albums:
-            # Check if this IS the albums root directory - it has no parent
-            if fqpn_lower == albums_root_lower:
-                parent_dir_link = None
-            else:
-                # Regular subdirectory - find or create parent
-                parent_dir = normalize_fqpn(str(Path(fqpn_directory).parent))
-
-                if parent_dir.lower().startswith(albums_root_lower):
-                    # Recursively add/update parent to ensure proper parent_directory chain
-                    # This fixes both missing parents AND parents with NULL parent_directory
-                    parent_sha = get_dir_sha(parent_dir)
-                    found, _ = DirectoryIndex.search_for_directory_by_sha(parent_sha)
-
-                    if not found:
-                        logger.info("Creating parent directory: %s", parent_dir)
-
-                    # Always call add_directory to ensure parent has correct parent_directory link.
-                    # The fast path makes this a no-write cache read when the parent is already
-                    # correct; update_or_create handles new records and repairs.
-                    _, parent_dir_link = DirectoryIndex.add_directory(parent_dir)
-                else:
-                    # Parent is outside albums path, don't link it
-                    parent_dir_link = None
-        else:
+        # Check if this IS the albums root directory - it has no parent
+        if fqpn_lower == albums_root_lower:
             parent_dir_link = None
+        else:
+            # Regular subdirectory - find or create parent
+            parent_dir = normalize_fqpn(str(Path(fqpn_directory).parent))
+
+            if parent_dir.lower().startswith(albums_root_lower):
+                # Recursively add/update parent to ensure proper parent_directory chain
+                # This fixes both missing parents AND parents with NULL parent_directory
+                parent_sha = get_dir_sha(parent_dir)
+                found, _ = DirectoryIndex.search_for_directory_by_sha(parent_sha)
+
+                if not found:
+                    logger.info("Creating parent directory: %s", parent_dir)
+
+                # Always call add_directory to ensure parent has correct parent_directory link.
+                # The fast path makes this a no-write cache read when the parent is already
+                # correct; update_or_create handles new records and repairs.
+                _, parent_dir_link = DirectoryIndex.add_directory(parent_dir)
+            else:
+                # Parent is outside albums path, don't link it
+                parent_dir_link = None
 
         # Use single stat call for both exists check and mtime
         try:
@@ -269,8 +301,8 @@ class DirectoryIndex(models.Model):
         # assumed) so records with a NULL/incorrect parent link still fall
         # through to update_or_create for repair.
         # search_for_directory_by_sha reads through directoryindex_cache;
-        # its entry is invalidated by Cache_Storage whenever a scan touches
-        # this directory, so a cached lastmod is trustworthy here.
+        # its entry is popped by the invalidation methods below whenever a
+        # scan touches this directory, so a cached lastmod is trustworthy here.
         found, existing = DirectoryIndex.search_for_directory_by_sha(dir_sha256)
         if (
             found
@@ -381,18 +413,191 @@ class DirectoryIndex(models.Model):
     @property
     def is_cached(self) -> bool:
         """
-        Check if this directory has a valid cache entry.
+        Check if this directory's scan cache is valid.
 
-        Uses the 1-to-1 relationship to fs_Cache_Tracking (Cache_Watcher)
-        to efficiently determine cache status without additional queries.
+        Reads the cache_invalidated field directly — no relation or extra
+        query involved. A freshly created row defaults to
+        cache_invalidated=True, so a never-scanned directory reports False.
 
         Returns:
             True if directory is cached and not invalidated, False otherwise
         """
+        return not self.cache_invalidated
+
+    def mark_scanned(self) -> None:
+        """
+        Record a completed scan: mark this directory's cache entry valid.
+
+        Writes cache_invalidated=False with a fresh cache_lastscan timestamp
+        via a pk-targeted UPDATE (no model save, no index maintenance), keeps
+        the in-memory instance in sync, and pops the directoryindex_cache
+        entry so the next lookup sees the fresh row.
+        """
+        scan_time = time.time()
+        DirectoryIndex.objects.filter(pk=self.pk).update(cache_invalidated=False, cache_lastscan=scan_time)
+        self.cache_invalidated = False
+        self.cache_lastscan = scan_time
+        directoryindex_cache.pop(hashkey(self.dir_fqpn_sha256), None)
+        logger.debug("Marked directory scanned: %s", self.fqpndirectory)
+
+    @staticmethod
+    def cache_valid_for_sha(sha256: str) -> bool:
+        """Check if a directory's scan cache is valid, by SHA256.
+
+        Args:
+            sha256: The SHA256 hash of the directory's fully qualified pathname
+
+        Returns:
+            True if the directory exists and is not invalidated, False otherwise
+        """
         try:
-            return not self.Cache_Watcher.invalidated
-        except ObjectDoesNotExist:
+            return DirectoryIndex.objects.filter(dir_fqpn_sha256=sha256, cache_invalidated=False).exists()
+        except DatabaseError as e:
+            logger.error("Error checking SHA existence in cache: %s", e)
             return False
+
+    def invalidate_cache(self) -> bool:
+        """Invalidate this directory's scan cache (single-directory path).
+
+        Same sequence as the former Cache_Storage.remove_from_cache_indexdirs:
+        invalidate the thumbnail, flip the invalidation flag, pop the
+        directoryindex_cache entry (refreshing this instance so held
+        references see the new state), then clear the layout caches.
+
+        Returns:
+            True if successfully invalidated, False otherwise
+        """
+        try:
+            self.invalidate_thumb()
+
+            DirectoryIndex.objects.filter(pk=self.pk).update(cache_invalidated=True, cache_lastscan=time.time())
+
+            directoryindex_cache.pop(hashkey(self.dir_fqpn_sha256), None)
+            # Refresh so any held reference sees the updated invalidated state
+            self.refresh_from_db()
+
+            clear_layout_cache_for_directories({self.pk})
+
+            logger.debug("Removed cache entry for: %s", self.fqpndirectory)
+            return True
+
+        except (DatabaseError, AttributeError) as e:
+            logger.error("Error removing directory from cache: %s", e)
+            return False
+
+    @staticmethod
+    def invalidate_cache_by_sha(sha256: str) -> bool:
+        """Invalidate a directory's scan cache by SHA256.
+
+        Args:
+            sha256: The SHA256 hash of the directory's fully qualified pathname
+
+        Returns:
+            True if successfully invalidated, False otherwise
+        """
+        try:
+            found, directory = DirectoryIndex.search_for_directory_by_sha(sha256)
+
+            if not found or directory is None:
+                logger.warning("Cannot remove cache for SHA %s - DirectoryIndex not found", sha256)
+                return False
+
+            return directory.invalidate_cache()
+
+        except (DatabaseError, AttributeError) as e:
+            logger.error("Error removing SHA %s from cache: %s", sha256, e)
+            return False
+
+    @staticmethod
+    def invalidate_caches(index_dirs: list["DirectoryIndex"]) -> bool:
+        """Invalidate the scan cache for multiple directories (batch path).
+
+        Extracts the SHA256s and delegates to _invalidate_by_shas, which also
+        expands to parent directories and clears the layout and
+        directoryindex_cache entries for every affected row.
+
+        Args:
+            index_dirs: List of DirectoryIndex instances to invalidate.
+
+        Returns:
+            True if any entries were invalidated, False otherwise.
+        """
+        if not index_dirs:
+            return False
+
+        sha_list = [d.dir_fqpn_sha256 for d in index_dirs if d and d.dir_fqpn_sha256]
+
+        if not sha_list:
+            return False
+
+        logger.info("Removing %d directories from cache (object-based)", len(sha_list))
+
+        update_count = DirectoryIndex._invalidate_by_shas(sha_list)
+
+        if update_count > 0:
+            logger.info("Successfully invalidated %d cache entries (object-based)", update_count)
+
+        return update_count > 0
+
+    @staticmethod
+    def _invalidate_by_shas(sha_list: list[str]) -> int:
+        """Perform bulk cache invalidation for a list of SHA256 hashes.
+
+        Expands the SHA list to include all parent directories, marks every
+        matching row invalidated in one UPDATE, then clears the layout and
+        directoryindex_cache entries for all affected directories (including
+        parents) — without the pops, cached parent objects would keep
+        reporting is_cached=True until LRU eviction and never rescan.
+
+        Args:
+            sha_list: List of directory SHA256 hashes to invalidate
+
+        Returns:
+            Number of rows marked invalidated
+        """
+        # Collect all parent directories using efficient batch query approach
+        all_dirs_to_invalidate = DirectoryIndex.get_all_parent_shas(sha_list, DIRECTORYINDEX_SR_PARENT)
+
+        with transaction.atomic():
+            # Load pk + SHA for every affected row — needed below for the two
+            # cache-clear passes. Evaluate ONCE to avoid a double query.
+            index_dirs_list = list(DirectoryIndex.objects.filter(dir_fqpn_sha256__in=all_dirs_to_invalidate).only("dir_fqpn_sha256", "id"))
+
+            # Extract SHAs from already-loaded objects (no additional query)
+            found_shas = {d.dir_fqpn_sha256 for d in index_dirs_list}
+
+            # One set-based UPDATE — a DirectoryIndex row that exists is by
+            # definition trackable, so no missing-entry create pass is needed.
+            current_time = time.time()
+            update_count = DirectoryIndex.objects.filter(dir_fqpn_sha256__in=found_shas).update(cache_invalidated=True, cache_lastscan=current_time)
+
+        # Clear layout and DirectoryIndex LRU caches for ALL invalidated
+        # directories — including parents.
+        clear_layout_cache_for_directories({d.pk for d in index_dirs_list})
+        _clear_directoryindex_cache(index_dirs_list)
+
+        return update_count
+
+    @staticmethod
+    def invalidate_all_caches() -> int:
+        """Mark every directory's scan cache invalidated, forcing full rescans.
+
+        Also clears directoryindex_cache wholesale so stale cached instances
+        can't keep reporting is_cached=True until LRU eviction. cache_lastscan
+        is deliberately left untouched (matching the former
+        fs_Cache_Tracking.clear_all_records behavior).
+
+        Returns:
+            Number of records invalidated.
+        """
+        try:
+            updated_count = DirectoryIndex.objects.all().update(cache_invalidated=True)
+            logger.info("Invalidated %d cache records", updated_count)
+            directoryindex_cache.clear()
+            return updated_count
+        except DatabaseError as e:
+            logger.error("Error clearing all cache records: %s", e)
+            return 0
 
     @staticmethod
     def get_all_parent_shas(sha_list: list[str], select_related: list[str]) -> set[str]:
@@ -474,15 +679,11 @@ class DirectoryIndex(models.Model):
         Returns:
             None
         """
-        # Deferred: cache_watcher.models imports back into directoryindex (genuine cycle)
-        # pylint: disable-next=import-outside-toplevel
-        from cache_watcher.models import Cache_Storage
-
         if not index_dir:
             return
 
         # Use optimized cache removal
-        Cache_Storage.remove_from_cache_indexdirs(index_dir)
+        index_dir.invalidate_cache()
 
         if not cache_only:
             # Delete the directory record (cascades to related records)
@@ -501,12 +702,8 @@ class DirectoryIndex(models.Model):
         Returns:
             None
         """
-        # Deferred: cache_watcher.models imports back into directoryindex (genuine cycle)
-        # pylint: disable-next=import-outside-toplevel
-        from cache_watcher.models import Cache_Storage
-
         dir_sha256 = get_dir_sha(normalize_fqpn(fqpn_directory))
-        Cache_Storage.remove_from_cache_sha(dir_sha256)
+        DirectoryIndex.invalidate_cache_by_sha(dir_sha256)
         if not cache_only:
             DirectoryIndex.objects.filter(dir_fqpn_sha256=dir_sha256).delete()
 
@@ -591,7 +788,7 @@ class DirectoryIndex(models.Model):
         directory as missing until LRU eviction.
 
         Always loads the full set of relations needed by gallery views
-        (DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT). Cache_watcher and
+        (DIRECTORYINDEX_SR_FILETYPE_THUMB_PARENT). Cache_watcher and
         management command callers receive a richer object than strictly needed,
         but over-fetching on a cache miss is cheaper than fragmenting the cache
         across multiple select_related variants — which would require iterating
@@ -610,7 +807,7 @@ class DirectoryIndex(models.Model):
         if cached_val is not None:
             return cached_val
         try:
-            record = DirectoryIndex.objects.select_related(*DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT).get(
+            record = DirectoryIndex.objects.select_related(*DIRECTORYINDEX_SR_FILETYPE_THUMB_PARENT).get(
                 dir_fqpn_sha256=sha_256,
                 delete_pending=False,
             )
@@ -630,7 +827,7 @@ class DirectoryIndex(models.Model):
         which IS cached. Do NOT add @cached decorator here as it creates duplicate cache
         entries (one by path, one by SHA) that become inconsistent during invalidation.
 
-        Always loads DIRECTORYINDEX_SR_FILETYPE_THUMB_CACHE_PARENT relations via the
+        Always loads DIRECTORYINDEX_SR_FILETYPE_THUMB_PARENT relations via the
         delegate. Callers that previously passed select_related/prefetch_related should
         drop those arguments — the full relation set is always fetched.
 
@@ -1247,11 +1444,6 @@ class DirectoryIndex(models.Model):
             fs_entries: Dictionary mapping title-cased entry names to
                 DirEntry objects.
         """
-        # Deferred: cache_watcher.models imports back into directoryindex (genuine cycle)
-        # pylint: disable-next=import-outside-toplevel
-        from cache_watcher.models import Cache_Storage
-
-        logger.info("Synchronizing directories...")
         current_path = normalize_fqpn(self.fqpndirectory)
 
         # Get all database directories efficiently - use lightweight query for path comparison
@@ -1294,9 +1486,9 @@ class DirectoryIndex(models.Model):
                 except (OSError, IOError) as e:
                     logger.error("Error checking directory %s: %s", db_dir_entry.fqpndirectory, e)
 
-        logger.info("Directories to update: %d", len(updated_records))
 
         if updated_records:
+            logger.info("Directories to update: %d", len(updated_records))
             with transaction.atomic():
                 # Acquire row-level locks before bulk_update to prevent concurrent modifications.
                 # The queryset is evaluated (list()) to execute the SELECT FOR UPDATE, but the
@@ -1309,7 +1501,7 @@ class DirectoryIndex(models.Model):
                 # directory, then one bulk cache invalidation (which also clears the
                 # layout and DirectoryIndex LRU caches, including parents).
                 DirectoryIndex.objects.filter(id__in=update_ids).update(thumbnail=None, is_generic_icon=False)
-                Cache_Storage.remove_multiple_from_cache_indexdirs(updated_records)
+                DirectoryIndex.invalidate_caches(updated_records)
             logger.info("Processing %d directory updates", len(updated_records))
 
         # Create new directories BEFORE deleting old ones to prevent foreign key violations
@@ -1325,7 +1517,7 @@ class DirectoryIndex(models.Model):
                 for dir_to_create in new_dirs:
                     DirectoryIndex.add_directory(fqpn_directory=dir_to_create)
             # Clear cache for parent directory (self) to show new subdirectories in web view
-            Cache_Storage.remove_from_cache_indexdirs(self)
+            self.invalidate_cache()
 
         # Delete directories that no longer exist in filesystem
         deleted_dirs = db_dirs - fs_dirs
@@ -1333,7 +1525,7 @@ class DirectoryIndex(models.Model):
             logger.info("Directories to delete: %d", len(deleted_dirs))
             with transaction.atomic():
                 all_dirs_queryset.filter(fqpndirectory__in=deleted_dirs).delete()
-                Cache_Storage.remove_from_cache_indexdirs(self)
+                self.invalidate_cache()
 
     def sync_files(self, fs_entries: dict, bulk_size: int) -> None:
         """
@@ -1525,11 +1717,16 @@ def update_database_from_disk(directory_record: "DirectoryIndex") -> "DirectoryI
         >>> if success and not directory.is_cached:
         ...     update_database_from_disk(directory)
     """
-    # Deferred: cache_watcher.models imports back into directoryindex (genuine cycle)
-    # pylint: disable-next=import-outside-toplevel
-    from cache_watcher.models import Cache_Storage
-
     dirpath = directory_record.fqpndirectory
+
+    # Never sync a record that lies outside the albums root: legacy
+    # out-of-tree rows (pre-2026-07 alias system) would otherwise spawn
+    # more out-of-tree DirectoryIndex/FileIndex rows for their on-disk
+    # children via sync_subdirectories/sync_files.
+    if not dirpath.lower().startswith(DirectoryIndex.get_albums_root().lower()):
+        logger.warning("Refusing to sync out-of-tree directory record (pk=%s): %s", directory_record.pk, dirpath)
+        return None
+
     logger.debug("Starting sync of directory: %s", dirpath)
     start_time = time.perf_counter()
     # Use simplified batch sizing
@@ -1541,9 +1738,8 @@ def update_database_from_disk(directory_record: "DirectoryIndex") -> "DirectoryI
         logger.debug("Directory %s is already cached, skipping sync.", dirpath)
         return None
 
-    # Reload from DB before doing work: the watchdog may have invalidated the
-    # Cache_Watcher relation between when this object was loaded and now.
-    # This also clears all cached reverse OneToOne relations.
+    # Reload from DB before doing work: the watchdog may have flipped
+    # cache_invalidated between when this object was loaded and now.
     try:
         directory_record.refresh_from_db()
     except DirectoryIndex.DoesNotExist:
@@ -1572,7 +1768,7 @@ def update_database_from_disk(directory_record: "DirectoryIndex") -> "DirectoryI
     directory_record.sync_files(fs_entries, bulk_size)
 
     # Cache the result using the directory record
-    Cache_Storage.add_from_indexdirs(directory_record)
+    directory_record.mark_scanned()
     logger.info("Cached directory: %s", dirpath)
     logger.debug("Elapsed time (sync database from disk): %.4fs", time.perf_counter() - start_time)
 

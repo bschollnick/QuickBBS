@@ -452,14 +452,14 @@ class ThumbnailFiles(models.Model):
         # If parent is invalidated (rescanned), retry thumbnail creation
         # If parent is NOT invalidated, skip creation (use filetype thumbnail)
         if index_data_item.is_generic_icon:
-            # Check if parent directory has been invalidated/rescanned
+            # Check if parent directory has been invalidated/rescanned.
             # home_directory is guaranteed non-None here: _resolve_index_item_for_sha
             # raises OrphanedFileIndex before returning otherwise.
+            # A never-scanned directory reads cache_invalidated=True (field
+            # default), so generic-icon files in it get a retry — deliberate
+            # behavior change from the old missing-tracking-row=False reading.
             assert index_data_item.home_directory is not None
-            try:
-                parent_invalidated = index_data_item.home_directory.Cache_Watcher.invalidated
-            except ObjectDoesNotExist:
-                parent_invalidated = False
+            parent_invalidated = index_data_item.home_directory.cache_invalidated
 
             if not parent_invalidated:
                 # Parent not rescanned, skip thumbnail creation

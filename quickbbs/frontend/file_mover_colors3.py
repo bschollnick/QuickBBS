@@ -36,7 +36,6 @@ import time
 from collections.abc import Generator
 from pathlib import Path
 
-import numpy as np
 import xattr
 from colorama import Fore, Style, init
 
@@ -131,19 +130,24 @@ class ProcessingStats:
             print(f"\nPerformance: {scan_rate:.1f} files/second")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ProcessingConfig:
     """Configuration for a file processing run."""
 
     operation: str
     max_count: int | None
-    existing_files: dict[str, set[str]]
+    # Per-destination-dir cache: casefolded sanitized filename -> size on disk
+    existing_files: dict[str, dict[str, int]]
+    # Mirror mode only: casefolded expected target paths, filled during the copy
+    # scan for every color-labeled source file (copied, skipped, or failed).
+    # None when not mirroring.
+    expected_paths: set[str] | None = None
 
 
 def get_color(filename: str | os.PathLike) -> int:
     """Get macOS Finder color label code for a file.
 
-    Uses np.frombuffer() for zero-copy parsing of the 32-byte FinderInfo struct.
+    The color label lives in bits 1-3 of byte 9 of the 32-byte FinderInfo struct.
 
     Args:
         filename: Path to the file to check.
@@ -155,8 +159,7 @@ def get_color(filename: str | os.PathLike) -> int:
     try:
         attrs = xattr.xattr(filename)
         finder_attrs = attrs["com.apple.FinderInfo"]
-        flags = np.frombuffer(finder_attrs, dtype=np.uint8)
-        return int(flags[9] >> 1 & 7)
+        return (finder_attrs[9] >> 1) & 7
     except (KeyError, OSError, IndexError):
         return 0
 
@@ -192,6 +195,68 @@ def copy_with_metadata(src: str, dst: str, move: bool = False) -> None:
         os.remove(src)
 
 
+def scan_existing_files(dst_dir: str) -> dict[str, int]:
+    """Scan a destination directory and build its existence cache.
+
+    Args:
+        dst_dir: Destination directory path to scan.
+
+    Returns:
+        Dict mapping casefolded sanitized filename to its size on disk. Empty
+        when the directory does not exist or cannot be read.
+    """
+    cache: dict[str, int] = {}
+    if not os.path.exists(dst_dir):
+        return cache
+    try:
+        for existing_file in os.listdir(dst_dir):
+            # Normalize the same way we do for source files; casefold the
+            # key so on-disk casing differences don't defeat the lookup
+            normalized = existing_file.strip()
+            sanitized = normalized.translate(FILENAME_TRANS)
+            try:
+                size = os.path.getsize(os.path.join(dst_dir, existing_file))
+            except OSError:
+                continue
+            cache[sanitized.casefold()] = size
+    except OSError:
+        pass  # Empty cache for inaccessible directories
+    return cache
+
+
+def handle_existing_target(src_file: str, existing_size: int, operation: str, stats: ProcessingStats) -> bool:
+    """Decide whether an already-present target file lets us skip this source file.
+
+    A target entry only counts as existing when its size matches the source; a
+    mismatch (e.g. an interrupted copy) returns False so the caller re-copies.
+    In move mode, a matching target finishes the move by removing the source.
+
+    Args:
+        src_file: Source file path.
+        existing_size: Size of the target file with the same normalized name.
+        operation: "copy" or "move".
+        stats: Statistics tracker updated in place.
+
+    Returns:
+        True if the file was handled as already-existing and should be skipped.
+    """
+    try:
+        src_size = os.path.getsize(src_file)
+    except OSError:
+        src_size = -1
+    if src_size != existing_size:
+        return False
+    stats.files_skipped_existing += 1
+    if operation == "move":
+        # Target already has this file - finish the move by removing source
+        try:
+            os.remove(src_file)
+        except OSError as e:
+            print(f"Error removing source {src_file}: {e}")
+            stats.errors_encountered += 1
+    return True
+
+
 def process_folder(
     src_dir: str,
     dst_dir: str,
@@ -200,6 +265,16 @@ def process_folder(
     stats: ProcessingStats,
 ) -> bool:
     """Process files in a folder, copying/moving only those with color labels.
+
+    A file is skipped as "existing" only when the target holds a file with the
+    same normalized name AND the same size; a size mismatch (e.g. from an
+    interrupted copy) triggers a re-copy. In move mode, a skipped-existing file
+    still has its source removed so the move completes.
+
+    In mirror mode (config.expected_paths is not None), every color-labeled file
+    is recorded in config.expected_paths — whether it was copied, skipped as
+    existing, or failed to copy — so mirror_cleanup() never removes a target
+    file whose labeled source was seen during this scan.
 
     Args:
         src_dir: Source directory path.
@@ -250,23 +325,20 @@ def process_folder(
         normalized_filename = file_.strip()
         dst_filename = normalized_filename.translate(FILENAME_TRANS)
 
+        # Record as expected for mirror cleanup - before the skip/copy logic so
+        # skipped and failed-copy files still count as expected
+        if config.expected_paths is not None:
+            config.expected_paths.add(os.path.join(dst_dir, dst_filename).casefold())
+
         # Lazy-load directory contents on first access
         if dst_dir not in config.existing_files:
-            # First time seeing this destination directory - scan it now
-            config.existing_files[dst_dir] = set()
-            if os.path.exists(dst_dir):
-                try:
-                    for existing_file in os.listdir(dst_dir):
-                        # Normalize the same way we do for source files
-                        normalized = existing_file.strip()
-                        sanitized = normalized.translate(FILENAME_TRANS)
-                        config.existing_files[dst_dir].add(sanitized)
-                except OSError:
-                    pass  # Empty cache for inaccessible directories
+            config.existing_files[dst_dir] = scan_existing_files(dst_dir)
 
-        # Check directory-specific index
-        if dst_filename in config.existing_files[dst_dir]:
-            stats.files_skipped_existing += 1
+        # Check directory-specific index: same name AND same size counts as existing.
+        # A size mismatch (e.g. an interrupted copy) falls through and re-copies.
+        cache_key = dst_filename.casefold()
+        existing_size = config.existing_files[dst_dir].get(cache_key)
+        if existing_size is not None and handle_existing_target(src_file, existing_size, config.operation, stats):
             continue
 
         # Ensure destination directory exists (only when we have files with color labels)
@@ -277,13 +349,34 @@ def process_folder(
         # Perform file operation
         try:
             copy_with_metadata(src_file, dst_file, move=config.operation == "move")
-            config.existing_files[dst_dir].add(dst_filename)
+            config.existing_files[dst_dir][cache_key] = os.path.getsize(dst_file)
             stats.files_actually_processed += 1
         except (OSError, shutil.Error) as e:
             print(f"Error processing {src_file}: {e}")
             stats.errors_encountered += 1
 
     return True  # Continue processing
+
+
+def normalized_target_dir(root_target_dir: Path, rel: Path) -> Path:
+    """Return the normalized target directory for a source-relative path.
+
+    Applies the normalization rules to the relative components only — each part
+    has whitespace stripped, spaces converted to underscores, and title case
+    applied — while root_target_dir is left completely untouched. This is the
+    single source of truth for target path construction: all target paths flow
+    through directory_generator(), so the copy phase and the mirror expected
+    set (built alongside it in process_folder()) can never diverge.
+
+    Args:
+        root_target_dir: Resolved destination root Path (never modified).
+        rel: Source directory path relative to the source root.
+
+    Returns:
+        The normalized destination directory Path.
+    """
+    normalized_parts = [p for p in (part.strip().replace(" ", "_").title() for part in rel.parts) if p]
+    return root_target_dir.joinpath(*normalized_parts) if normalized_parts else root_target_dir
 
 
 def directory_generator(
@@ -317,81 +410,34 @@ def directory_generator(
         if not files:
             continue
         rel = Path(src_dir).relative_to(root_src_dir)
-        dst_dir = (root_target_dir / rel).resolve()
-        parts = dst_dir.parts
-        normalized_parts = [parts[0]] + [p for p in (part.strip().replace(" ", "_").title() for part in parts[1:]) if p]
-        dst_dir = Path(*normalized_parts) if len(normalized_parts) > 1 else Path(normalized_parts[0])
+        dst_dir = normalized_target_dir(root_target_dir, rel)
         yield (src_dir, str(dst_dir), files)
 
 
-def build_expected_target_paths(
-    root_src_dir: Path,
-    root_target_dir: Path,
-    exclude_fragments: list[str] | None = None,
-) -> set[Path]:
-    """Build the set of all paths that should exist in the target after a mirror copy.
-
-    Walks the source tree and computes the normalized target path for every source
-    file and directory using the same normalization as directory_generator(). Also
-    adds all ancestor directories so intermediate dirs are not flagged as orphans.
-    Excluded source directories (and their descendants) are omitted entirely.
-
-    Args:
-        root_src_dir: Resolved source root Path.
-        root_target_dir: Resolved destination root Path.
-        exclude_fragments: Pre-lowercased directory name fragments to skip. Excluded
-            source directories produce no expected target entries.
-
-    Returns:
-        Set of Path objects for every file, dir, and ancestor dir expected in target.
-    """
-    frags = exclude_fragments or []
-    expected: set[Path] = set()
-
-    for src_dir, subdirs, files in os.walk(root_src_dir, topdown=True):
-        if frags:
-            subdirs[:] = [d for d in subdirs if not is_excluded_dir(d, frags)]
-        src_path = Path(src_dir)
-        rel = src_path.relative_to(root_src_dir)
-
-        # Normalize only the relative portion — apply title-case/underscore to rel parts only,
-        # keeping root_target_dir untouched so system path components aren't mangled.
-        normalized_rel_parts = [p for p in (part.strip().replace(" ", "_").title() for part in rel.parts) if p]
-        dst_dir = root_target_dir.joinpath(*normalized_rel_parts) if normalized_rel_parts else root_target_dir
-
-        # Add this dir and all its ancestors up to (not including) root_target_dir
-        ancestor = dst_dir
-        while ancestor != root_target_dir:
-            expected.add(ancestor)
-            ancestor = ancestor.parent
-            if ancestor == ancestor.parent:
-                break  # safety: stop at filesystem root
-
-        # Add expected target path for each file
-        for file_ in files:
-            normalized_filename = file_.strip()
-            dst_filename = normalized_filename.translate(FILENAME_TRANS)
-            expected.add(dst_dir / dst_filename)
-
-    return expected
-
-
 def mirror_cleanup(
-    root_src_dir: Path,
     root_target_dir: Path,
+    expected: set[str],
     stats: ProcessingStats,
     exclude_fragments: list[str] | None = None,
 ) -> None:
-    """Remove files and directories in the target that have no counterpart in the source.
+    """Remove target files and directories with no color-labeled counterpart in the source.
 
-    Walks the target tree bottom-up so files are removed before their parent
-    directories are evaluated. Uses os.rmdir() for directories so only truly
-    empty (and orphaned) dirs are removed. Target directories whose path contains
-    an excluded fragment are skipped entirely and left untouched.
+    The expected set is built by process_folder() during the copy scan, so the
+    source tree is only walked once per run. Walks the target tree bottom-up so
+    files are removed before their parent directories are evaluated. Directories
+    are removed with os.rmdir(), which only succeeds on empty dirs — any dir
+    still holding an expected file (or an excluded subtree) survives, so no
+    separate directory bookkeeping is needed. Target directories whose path
+    (relative to the target root) contains an excluded fragment are skipped
+    entirely and left untouched. Path membership tests are casefolded so on-disk
+    casing can never mark a legitimately-copied file as an orphan, and symlinks
+    are never resolved, so removing an orphaned symlink removes the link itself,
+    not its target.
 
     Args:
-        root_src_dir: Resolved source root Path.
         root_target_dir: Resolved destination root Path.
+        expected: Casefolded target paths of every color-labeled source file
+            seen during the copy scan (from ProcessingConfig.expected_paths).
         stats: Statistics tracker updated in place.
         exclude_fragments: Pre-lowercased directory name fragments. Target dirs
             matching any fragment (and all their contents) are preserved as-is.
@@ -401,21 +447,26 @@ def mirror_cleanup(
         return
 
     print(f"{Fore.YELLOW}Mirror cleanup: checking target for orphaned files...{Style.RESET_ALL}")
-    expected = build_expected_target_paths(root_src_dir, root_target_dir, frags)
 
     for target_dir, _, files in os.walk(root_target_dir, topdown=False):
-        target_dir_path = Path(target_dir).resolve()
+        target_dir_path = Path(target_dir)
 
-        # Preserve excluded target subtrees — skip if any path component matches a fragment.
-        # topdown=False queues all dirs before yielding, so pruning dirs[:] has no effect;
-        # the per-dir check here covers all descendants because child paths share the fragment.
-        if frags and any(is_excluded_dir(part, frags) for part in target_dir_path.parts):
+        # Preserve excluded target subtrees — skip if any path component below the
+        # target root matches a fragment. Matching against the relative parts keeps
+        # fragments from accidentally hitting the root path itself (e.g. --exclude
+        # Reddit vs a target root ending in "Disharmonica-reddit").
+        # topdown=False queues all dirs before yielding, so pruning dirs[:] has no
+        # effect; the per-dir check covers all descendants because child paths
+        # share the fragment.
+        rel_parts = target_dir_path.relative_to(root_target_dir).parts
+        if frags and any(is_excluded_dir(part, frags) for part in rel_parts):
             continue
 
-        # Remove orphaned files
+        # Remove orphaned files. No resolve() here: resolving follows symlinks, and
+        # os.remove() would then delete the link's target — possibly outside the tree.
         for file_ in files:
-            file_path = (target_dir_path / file_).resolve()
-            if file_path not in expected:
+            file_path = target_dir_path / file_
+            if str(file_path).casefold() not in expected:
                 try:
                     os.remove(file_path)
                     print(f"  {Fore.RED}Removed file:{Style.RESET_ALL} {file_path}")
@@ -424,17 +475,17 @@ def mirror_cleanup(
                     print(f"  Error removing {file_path}: {e}")
                     stats.errors_encountered += 1
 
-        # Remove orphaned directories (only if empty after file removals)
+        # Remove orphaned directories: rmdir only succeeds on empty dirs, so any
+        # dir still holding expected files or an excluded subtree survives
         if target_dir_path == root_target_dir:
             continue
-        if target_dir_path not in expected:
-            try:
-                os.rmdir(target_dir_path)
-                print(f"  {Fore.RED}Removed dir: {Style.RESET_ALL} {target_dir_path}")
-                stats.mirror_dirs_removed += 1
-            except OSError:
-                # Dir is not empty or not accessible — leave it
-                pass
+        try:
+            os.rmdir(target_dir_path)
+            print(f"  {Fore.RED}Removed dir: {Style.RESET_ALL} {target_dir_path}")
+            stats.mirror_dirs_removed += 1
+        except OSError:
+            # Dir is not empty or not accessible — leave it
+            pass
 
 
 def main(args: argparse.Namespace) -> None:
@@ -472,11 +523,13 @@ def main(args: argparse.Namespace) -> None:
         operation=args.operation,
         max_count=args.max_count,
         existing_files={},
+        expected_paths=set() if args.mirror else None,
     )
 
     print("Processing directories...")
 
     # Process directories sequentially (no threading - simpler and prevents race conditions)
+    scan_complete = True
     for src_dir, dst_dir, files in directory_generator(root_src_dir, root_target_dir, exclude_fragments):
         try:
             if not process_folder(src_dir, dst_dir, files, config, stats):
@@ -484,12 +537,22 @@ def main(args: argparse.Namespace) -> None:
         except OSError as e:
             print(f"Error processing {src_dir}: {e}")
             stats.errors_encountered += 1
+            # This directory's files never entered expected_paths - mirror
+            # cleanup would wrongly delete their targets
+            scan_complete = False
 
     # Print newline after progress indicator
     print()
 
     if args.mirror:
-        mirror_cleanup(root_src_dir, root_target_dir, stats, exclude_fragments)
+        if stats.max_count_reached or not scan_complete:
+            print(
+                f"{Fore.YELLOW}Mirror cleanup skipped: source scan incomplete "
+                f"(max-count reached or directory errors) - cleanup from a partial "
+                f"scan could delete valid target files{Style.RESET_ALL}"
+            )
+        else:
+            mirror_cleanup(root_target_dir, config.expected_paths or set(), stats, exclude_fragments)
 
     stats.stop_timing()
     stats.print_summary()
@@ -517,7 +580,7 @@ if __name__ == "__main__":
         "--mirror",
         action="store_true",
         default=False,
-        help="Mirror mode: remove files/dirs in target that do not exist in source",
+        help="Mirror mode: remove target files/dirs with no color-labeled source counterpart",
     )
     parser.add_argument(
         "--exclude",

@@ -51,9 +51,7 @@ def _process_directory_chunk(
     Returns:
         Tuple of (updated processed_count, reached_max_count flag)
     """
-    directories = list(
-        DirectoryIndex.objects.select_related("Cache_Watcher", "parent_directory").filter(pk__in=directory_pks).order_by("fqpndirectory")
-    )
+    directories = list(DirectoryIndex.objects.select_related("parent_directory").filter(pk__in=directory_pks).order_by("fqpndirectory"))
 
     for directory in directories:
         try:

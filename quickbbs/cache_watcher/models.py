@@ -7,7 +7,11 @@ affected cache entries to ensure data consistency.
 Key Components:
     - WatchdogManager: Manages the watchdog process with automatic restarts every 4 hours
     - CacheFileMonitorEventHandler: Batches filesystem events for efficient processing
-    - fs_Cache_Tracking: Database model for tracking cache invalidation state
+    - CacheStatisticsTracking: Database model for cache hit/miss statistic snapshots
+
+Invalidation state itself lives on DirectoryIndex (cache_invalidated /
+cache_lastscan fields); the handlers here call DirectoryIndex.invalidate_caches()
+to flip it.
 
 The system buffers events for 5 seconds before processing to handle bulk operations efficiently.
 
@@ -27,27 +31,20 @@ import os
 import pathlib
 import threading
 import time
-import warnings
-from typing import Any, cast
+from typing import Any
 
 from asgiref.sync import async_to_sync, sync_to_async
 from django.conf import settings
-from django.db import close_old_connections, models, transaction
+from django.db import close_old_connections, models
 from django.db.utils import DatabaseError
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 
 from cache_watcher.watchdogmon import watchdog
 from quickbbs.common import get_dir_sha
+from quickbbs.models import DirectoryIndex
 
 # Configure logging
 logger = logging.getLogger(__name__)
-
-# Module-level singleton, assigned an fs_Cache_Tracking() instance by
-# CacheWatcherConfig.ready() (cache_watcher/apps.py) before any caller runs.
-# cast: declared as the instance type (not Optional) so the ~10 call sites
-# across modules don't each need a None guard for a state that only exists
-# during app startup.
-Cache_Storage: "fs_Cache_Tracking" = cast("fs_Cache_Tracking", None)
 
 
 class LockFreeEventBuffer:
@@ -249,9 +246,9 @@ class WatchdogManager:
                     self.event_handler = None
                     self.is_running = False
                     logger.info("Watchdog stopped")
-                except (
-                    Exception
-                ) as e:  # TODO: narrow to watchdog library's specific exception types once they are documented (RuntimeError, OSError, threading errors)
+                # TODO: narrow to watchdog library's specific exception types
+                # once they are documented (RuntimeError, OSError, threading errors)
+                except Exception as e:
                     logger.error("Error stopping watchdog: %s", e)
 
     def shutdown(self) -> None:
@@ -271,9 +268,9 @@ class WatchdogManager:
                     self.event_handler = None
                     self.is_running = False
                     logger.info("Watchdog completely shut down")
-                except (
-                    Exception
-                ) as e:  # TODO: narrow to watchdog library's specific exception types once they are documented (RuntimeError, OSError, threading errors)
+                # TODO: narrow to watchdog library's specific exception types
+                # once they are documented (RuntimeError, OSError, threading errors)
+                except Exception as e:
                     logger.error("Error stopping watchdog: %s", e)
 
     def _process_pending_events(self) -> None:
@@ -302,18 +299,13 @@ class WatchdogManager:
             if paths_to_process:
                 logger.info("Processing %d unique directory changes before restart", len(paths_to_process))
 
-                # Import here to avoid circular dependency
-                from quickbbs.models import (
-                    DirectoryIndex,  # pylint: disable=import-outside-toplevel
-                )
-
                 # Convert paths to SHAs and batch query for DirectoryIndex objects
                 sha_list = [get_dir_sha(path) for path in paths_to_process]
                 index_dirs = list(DirectoryIndex.objects.filter(dir_fqpn_sha256__in=sha_list).only("dir_fqpn_sha256", "id", "fqpndirectory"))
 
                 if index_dirs:
                     # Process cache invalidation
-                    Cache_Storage.remove_multiple_from_cache_indexdirs(index_dirs)
+                    DirectoryIndex.invalidate_caches(index_dirs)
                     logger.info("Successfully processed pending events before restart")
 
                 # Explicitly delete large objects to free memory
@@ -528,11 +520,6 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
             if paths_to_process:
                 logger.info("[Gen %d] Processing %d buffered directory changes", expected_generation, len(paths_to_process))
 
-                # Optimize: Convert paths to SHAs once, then batch query for DirectoryIndex objects
-                from quickbbs.models import (
-                    DirectoryIndex,  # pylint: disable=import-outside-toplevel
-                )
-
                 # Convert paths to SHAs and build path->SHA mapping for reverse lookup
                 path_to_sha = {path: get_dir_sha(path) for path in paths_to_process}
                 sha_list = list(path_to_sha.values())
@@ -548,7 +535,7 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
                         async_to_sync(self._remove_from_cache_indexdirs_async)(index_dirs)
                     except RuntimeError:
                         # Fallback to direct call if not in async context
-                        Cache_Storage.remove_multiple_from_cache_indexdirs(index_dirs)
+                        DirectoryIndex.invalidate_caches(index_dirs)
 
                 # NEW: Handle paths that don't exist in DirectoryIndex
                 found_shas = {d.dir_fqpn_sha256 for d in index_dirs}
@@ -570,7 +557,9 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
                             verified_paths[:5],  # Log first 5 for debugging
                         )
 
-                        # Create placeholder DirectoryIndex entries using add_directory
+                        # Create placeholder DirectoryIndex entries using add_directory.
+                        # New rows are born cache_invalidated=True by field default,
+                        # so no separate tracking write is needed.
                         created_dirs = []
                         parent_dirs_to_invalidate = []
 
@@ -588,20 +577,9 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
                                 if dir_obj.parent_directory:
                                     parent_dirs_to_invalidate.append(dir_obj.parent_directory)
 
-                        # Create invalidated fs_Cache_Tracking entries for new directories
                         if created_dirs:
-                            with transaction.atomic():
-                                for dir_obj in created_dirs:
-                                    fs_Cache_Tracking.objects.update_or_create(
-                                        directory=dir_obj,
-                                        defaults={
-                                            "invalidated": True,
-                                            "lastscan": time.time(),
-                                        },
-                                    )
-
                             logger.info(
-                                "[Gen %d] Created %d fs_Cache_Tracking entries for new directories",
+                                "[Gen %d] Created %d DirectoryIndex placeholders (born invalidated)",
                                 expected_generation,
                                 len(created_dirs),
                             )
@@ -620,7 +598,7 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
                                 try:
                                     async_to_sync(self._remove_from_cache_indexdirs_async)(unique_parents)
                                 except RuntimeError:
-                                    Cache_Storage.remove_multiple_from_cache_indexdirs(unique_parents)
+                                    DirectoryIndex.invalidate_caches(unique_parents)
 
         except (RuntimeError, DatabaseError, OSError, AttributeError) as e:
             logger.error("Error processing buffered events: %s", e)
@@ -640,631 +618,13 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
             # gc.collect()
 
     async def _remove_from_cache_indexdirs_async(self, index_dirs: list[Any]) -> None:
-        """Async wrapper for cache removal to support ASGI mode.
+        """Async wrapper for cache invalidation to support ASGI mode.
 
         Args:
-            index_dirs: List of DirectoryIndex objects to remove from cache
+            index_dirs: List of DirectoryIndex objects to invalidate
         """
         # Run the synchronous database operation in a thread pool
-        await sync_to_async(Cache_Storage.remove_multiple_from_cache_indexdirs)(index_dirs)
-
-    async def _remove_from_cache_async(self, paths: list[str]) -> None:
-        """Async wrapper for cache removal to support ASGI mode.
-
-        DEPRECATED: Use _remove_from_cache_indexdirs_async instead.
-
-        Args:
-            paths: List of directory paths to remove from cache
-        """
-        # Run the synchronous database operation in a thread pool
-        await sync_to_async(Cache_Storage.remove_multiple_from_cache)(paths)
-
-
-class fs_Cache_Tracking(models.Model):
-    """
-    Cache_Storage table is used to signify that a directory has been scanned and is up to date.
-
-    The directory relationship is the single source of truth - all directory information
-    (SHA256, path) should be accessed through the OneToOne relationship to DirectoryIndex.
-    """
-
-    # Stored as Unix TimeStamp (ms)
-    lastscan = models.FloatField(default=0, blank=True)
-    # No standalone index: every real query pairs invalidated with directory,
-    # served by the (directory, invalidated) composite in Meta.indexes.
-    invalidated = models.BooleanField(default=False)
-
-    # OneToOne relationship to DirectoryIndex using dir_fqpn_sha256
-    # This is the ONLY source of directory information (SHA256 and path)
-    directory = models.OneToOneField(
-        "quickbbs.DirectoryIndex",
-        on_delete=models.CASCADE,  # Changed from SET_NULL - cache entries should be deleted if directory is deleted
-        to_field="dir_fqpn_sha256",
-        db_column="directory_data",
-        related_name="Cache_Watcher",
-        unique=True,  # Enforce uniqueness at DB level
-        null=True,  # Temporarily nullable for migration, will be removed after data migration
-        blank=True,
-    )
-
-    class Meta:
-        """Model metadata: composite index on (directory, invalidated) for cache-state lookups."""
-
-        indexes = [
-            models.Index(fields=["directory", "invalidated"]),
-        ]
-
-    @staticmethod
-    def clear_all_records() -> int:
-        """Mark all records as invalidated.
-
-        Returns:
-            Number of records invalidated.
-        """
-        try:
-            updated_count = fs_Cache_Tracking.objects.all().update(invalidated=True)
-            logger.info("Invalidated %d cache records", updated_count)
-            return updated_count
-        except DatabaseError as e:
-            logger.error("Error clearing all cache records: %s", e)
-            return 0
-
-    @staticmethod
-    def delete_orphaned_entries() -> int:
-        """
-        Delete cache entries that have null directory reference.
-
-        With the new model design where directory is a required FK with CASCADE delete,
-        orphaned entries shouldn't exist. This method handles legacy data cleanup where
-        cache entries may exist without corresponding directory records.
-
-        Returns:
-            Number of entries deleted
-        """
-        try:
-            deleted_count, _ = fs_Cache_Tracking.objects.filter(directory__isnull=True).delete()
-            if deleted_count > 0:
-                logger.info("Deleted %d orphaned cache entries", deleted_count)
-            return deleted_count
-        except DatabaseError as e:
-            logger.error("Error deleting orphaned cache entries: %s", e)
-            return 0
-
-    @staticmethod
-    def _validate_index_dir(index_dir: Any) -> bool:
-        """Validate that an DirectoryIndex object has required attributes.
-
-        Args:
-            index_dir: The DirectoryIndex instance to validate
-
-        Returns:
-            True if valid, False otherwise
-        """
-        return bool(index_dir and hasattr(index_dir, "dir_fqpn_sha256") and index_dir.dir_fqpn_sha256)
-
-    def add_from_indexdirs(self, index_dir: Any) -> "fs_Cache_Tracking | None":
-        """Add or update a directory in the cache using an DirectoryIndex record.
-
-        Args:
-            index_dir: The DirectoryIndex instance containing directory information
-
-        Returns:
-            The cache tracking entry or None if error occurred
-        """
-        # Validate the DirectoryIndex record
-        if not self._validate_index_dir(index_dir):
-            logger.warning("Attempted to add invalid DirectoryIndex record to cache - rejected")
-            return None
-
-        try:
-            scan_time = time.time()
-
-            defaults = {
-                "lastscan": scan_time,
-                "invalidated": False,
-            }
-
-            entry, created = fs_Cache_Tracking.objects.update_or_create(
-                directory=index_dir,
-                defaults=defaults,
-            )
-            action = "Created" if created else "Updated"
-            logger.debug("%s cache entry for: %s", action, index_dir.fqpndirectory)
-            return entry
-
-        except DatabaseError as e:
-            logger.error("Error adding DirectoryIndex record to cache: %s", e)
-            return None
-
-    def add_to_cache(self, dir_path: str) -> "fs_Cache_Tracking" | None:
-        """Add or update a directory in the cache.
-
-        DEPRECATED: Use add_from_indexdirs() instead to avoid redundant SHA computation
-        and database lookups.
-
-        Args:
-            dir_path: The fully qualified pathname of the directory
-
-        Returns:
-            The cache tracking entry or None if error occurred
-        """
-        warnings.warn(
-            "add_to_cache(dir_path: str) is deprecated. Use add_from_indexdirs(index_dir) instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
-        # Reject empty directory names
-        if not dir_path or not dir_path.strip():
-            logger.warning("Attempted to add empty directory path to cache - rejected")
-            return None
-
-        try:
-            # Import inside function to avoid circular dependency
-            from quickbbs.models import (
-                DirectoryIndex,  # pylint: disable=import-outside-toplevel
-            )
-
-            dir_sha = get_dir_sha(dir_path)
-            scan_time = time.time()
-
-            # Fetch the DirectoryIndex instance by dir_sha using optimized cached lookup
-            found, index_dir = DirectoryIndex.search_for_directory_by_sha(dir_sha)
-            if not found:
-                logger.warning("Cannot add cache entry for %s - DirectoryIndex entry not found", dir_path)
-                return None
-
-            defaults = {
-                "lastscan": scan_time,
-                "invalidated": False,
-            }
-
-            entry, created = fs_Cache_Tracking.objects.update_or_create(
-                directory=index_dir,
-                defaults=defaults,
-            )
-            action = "Created" if created else "Updated"
-            logger.debug("%s cache entry for: %s", action, dir_path)
-            return entry
-
-        except DatabaseError as e:
-            logger.error("Error adding %s to cache: %s", dir_path, e)
-            return None
-
-    def sha_exists_in_cache(self, sha256: str) -> bool:
-        """Check if a directory SHA exists in cache and is not invalidated.
-
-        Args:
-            sha256: The SHA256 hash of the directory
-
-        Returns:
-            True if SHA exists and is not invalidated, False otherwise
-        """
-        try:
-            return fs_Cache_Tracking.objects.filter(directory__dir_fqpn_sha256=sha256, invalidated=False).exists()
-        except DatabaseError as e:
-            logger.error("Error checking SHA existence in cache: %s", e)
-            return False
-
-    def remove_from_cache_indexdirs(self, index_dir: Any) -> bool:
-        """Remove a directory from cache using an DirectoryIndex record.
-
-        Optimized version that accepts an DirectoryIndex record directly,
-        avoiding redundant database lookups when the record is already available.
-
-        Args:
-            index_dir: The DirectoryIndex instance to remove from cache
-
-        Returns:
-            True if successfully removed, False otherwise
-        """
-        try:
-            if not self._validate_index_dir(index_dir):
-                logger.warning("Invalid DirectoryIndex record provided to remove_from_cache_indexdirs")
-                return False
-
-            # Invalidate thumbnail
-            index_dir.invalidate_thumb()
-
-            # Update cache entry using optimized helper method
-            self._invalidate_cache_entry_indexdirs(index_dir)
-
-            # Clear layout cache
-            self._clear_layout_cache_bulk([index_dir])
-
-            logger.debug("Removed cache entry for: %s", index_dir.fqpndirectory)
-            return True
-
-        except (DatabaseError, AttributeError) as e:
-            logger.error("Error removing directory from cache: %s", e)
-            return False
-
-    def remove_from_cache_sha(self, sha256: str) -> bool:
-        """Remove a directory from cache by SHA256.
-
-        Args:
-            sha256: The SHA256 hash of the directory
-
-        Returns:
-            True if successfully removed, False otherwise
-        """
-        try:
-            # Import inside function to avoid circular dependency
-            from quickbbs.models import (
-                DirectoryIndex,  # pylint: disable=import-outside-toplevel
-            )
-
-            # Single optimized lookup with prefetched relationships
-            found, directory = DirectoryIndex.search_for_directory_by_sha(sha256)
-
-            if not found:
-                logger.warning("Cannot remove cache for SHA %s - DirectoryIndex not found", sha256)
-                return False
-
-            # Invalidate thumbnail
-            directory.invalidate_thumb()
-
-            # Update cache entry using optimized helper method (no additional lookup)
-            self._invalidate_cache_entry_indexdirs(directory)
-
-            # Clear layout cache
-            self._clear_layout_cache_bulk([directory])
-
-            logger.debug("Removed cache entry for SHA: %s", sha256)
-            return True
-
-        except (DatabaseError, AttributeError) as e:
-            logger.error("Error removing SHA %s from cache: %s", sha256, e)
-            return False
-
-    def remove_multiple_from_cache_indexdirs(self, index_dirs: list[Any]) -> bool:
-        """Remove multiple directories from cache using DirectoryIndex objects.
-
-        Optimized batch version that accepts DirectoryIndex records directly,
-        avoiding redundant SHA computation and database lookups.
-
-        Args:
-            index_dirs: List of DirectoryIndex instances to remove from cache.
-
-        Returns:
-            True if any entries were invalidated, False otherwise.
-        """
-        if not index_dirs:
-            return False
-
-        # Extract SHA256 hashes directly from objects (no normalization needed!)
-        sha_list = [d.dir_fqpn_sha256 for d in index_dirs if self._validate_index_dir(d)]
-
-        if not sha_list:
-            return False
-
-        logger.info("Removing %d directories from cache (object-based)", len(sha_list))
-
-        # Perform bulk invalidation — also clears layout/DirectoryIndex LRU
-        # caches for all affected directories (including parents).
-        update_count = self._bulk_invalidate_by_shas(sha_list)
-
-        if update_count > 0:
-            logger.info("Successfully invalidated %d cache entries (object-based)", update_count)
-
-        return update_count > 0
-
-    def remove_from_cache_name(self, dir_path: str) -> bool:
-        """Remove a directory from cache by path.
-
-        DEPRECATED: Use remove_from_cache_indexdirs() instead to avoid redundant SHA
-        computation and database lookups.
-
-        Args:
-            dir_path: The fully qualified pathname of the directory
-
-        Returns:
-            True if successfully removed, False otherwise
-        """
-        warnings.warn(
-            "remove_from_cache_name(dir_path: str) is deprecated. Use remove_from_cache_indexdirs(index_dir) instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
-        try:
-            sha256 = get_dir_sha(dir_path)
-            return self.remove_from_cache_sha(sha256)
-        except (OSError, DatabaseError, AttributeError) as e:
-            logger.error("Error removing %s from cache: %s", dir_path, e)
-            return False
-
-    def _invalidate_cache_entry_indexdirs(self, index_dir: Any) -> "fs_Cache_Tracking" | None:
-        """Set a cache entry to invalidated status using an DirectoryIndex record.
-
-        Optimized version that accepts an DirectoryIndex record directly,
-        avoiding redundant database lookups.
-
-        Args:
-            index_dir: The DirectoryIndex instance
-
-        Returns:
-            The updated or created fs_Cache_Tracking entry, or None if invalid
-        """
-        if not self._validate_index_dir(index_dir):
-            logger.warning("Invalid DirectoryIndex record provided to _invalidate_cache_entry_indexdirs")
-            return None
-
-        entry, _ = fs_Cache_Tracking.objects.update_or_create(
-            directory=index_dir,
-            defaults={
-                "invalidated": True,
-                "lastscan": time.time(),
-            },
-        )
-
-        # Clear LRU cache to prevent stale DirectoryIndex data
-        # This ensures next access will fetch fresh data with updated invalidation status
-        from cachetools.keys import hashkey  # pylint: disable=import-outside-toplevel
-
-        from quickbbs.directoryindex import (
-            directoryindex_cache,  # pylint: disable=import-outside-toplevel
-        )
-
-        directoryindex_cache.pop(hashkey(index_dir.dir_fqpn_sha256), None)
-
-        # Refresh so any held reference sees the updated invalidated state
-        index_dir.refresh_from_db()
-
-        return entry
-
-    def _invalidate_cache_entry(self, sha256: str) -> "fs_Cache_Tracking" | None:
-        """Set a cache entry to invalidated status with current timestamp.
-
-        Args:
-            sha256: The SHA256 hash of the directory
-
-        Returns:
-            The updated or created fs_Cache_Tracking entry, or None if sha256 is empty or DirectoryIndex not found
-        """
-        # Reject empty SHA256 values
-        if not sha256 or not sha256.strip():
-            logger.warning("Attempted to invalidate cache with empty SHA256 - rejected")
-            return None
-
-        # Import inside function to avoid circular dependency
-        from quickbbs.models import (
-            DirectoryIndex,  # pylint: disable=import-outside-toplevel
-        )
-
-        # Fetch the DirectoryIndex instance by dir_sha using optimized cached lookup
-        found, index_dir = DirectoryIndex.search_for_directory_by_sha(sha256)
-        if not found:
-            logger.warning("Cannot invalidate cache for SHA %s - DirectoryIndex entry not found", sha256)
-            return None
-
-        entry, _ = fs_Cache_Tracking.objects.update_or_create(
-            directory=index_dir,
-            defaults={
-                "invalidated": True,
-                "lastscan": time.time(),
-            },
-        )
-
-        # Clear LRU cache to prevent stale DirectoryIndex data
-        from cachetools.keys import hashkey  # pylint: disable=import-outside-toplevel
-
-        from quickbbs.directoryindex import (
-            directoryindex_cache,  # pylint: disable=import-outside-toplevel
-        )
-
-        directoryindex_cache.pop(hashkey(sha256), None)
-
-        # Refresh so any held reference sees the updated invalidated state
-        index_dir.refresh_from_db()
-
-        return entry
-
-    def _bulk_invalidate_by_shas(self, sha_list: list[str]) -> int:
-        """Perform bulk cache invalidation for a list of SHA256 hashes.
-
-        This is the common logic shared by remove_multiple_from_cache_indexdirs()
-        and remove_multiple_from_cache().
-
-        Args:
-            sha_list: List of directory SHA256 hashes to invalidate
-
-        Returns:
-            Number of cache entries invalidated
-        """
-        # Import inside function to avoid circular dependency
-        from quickbbs.directoryindex import DIRECTORYINDEX_SR_PARENT
-        from quickbbs.models import (
-            DirectoryIndex,  # pylint: disable=import-outside-toplevel
-        )
-
-        # Collect all parent directories using efficient batch query approach
-        all_dirs_to_invalidate = DirectoryIndex.get_all_parent_shas(sha_list, DIRECTORYINDEX_SR_PARENT)
-
-        # Update cache entries using bulk operations
-        with transaction.atomic():
-            # Get all DirectoryIndex records and capture their SHAs
-            # Use .only() to load minimal fields, reducing memory footprint
-            # Evaluate queryset ONCE and cache results to avoid double query
-            index_dirs_list = list(DirectoryIndex.objects.filter(dir_fqpn_sha256__in=all_dirs_to_invalidate).only("dir_fqpn_sha256", "id"))
-
-            # Extract SHAs from already-loaded objects (no additional query)
-            found_shas = {d.dir_fqpn_sha256 for d in index_dirs_list}
-
-            # Bulk update existing cache entries
-            current_time = time.time()
-            update_count = fs_Cache_Tracking.objects.filter(directory__dir_fqpn_sha256__in=found_shas).update(invalidated=True, lastscan=current_time)
-
-            # Find SHAs that don't have cache entries (set difference)
-            existing_cache_shas = set(
-                fs_Cache_Tracking.objects.filter(directory__dir_fqpn_sha256__in=found_shas).values_list("directory__dir_fqpn_sha256", flat=True)
-            )
-            missing_shas = found_shas - existing_cache_shas
-
-            # Bulk create missing cache entries
-            if missing_shas:
-                # Reuse already-loaded objects (no additional query)
-                sha_to_indexdir = {d.dir_fqpn_sha256: d for d in index_dirs_list}
-                new_entries = [fs_Cache_Tracking(directory=sha_to_indexdir[sha], invalidated=True, lastscan=current_time) for sha in missing_shas]
-                fs_Cache_Tracking.objects.bulk_create(new_entries)
-                update_count += len(new_entries)
-                # Explicitly delete large objects to free memory
-                del sha_to_indexdir
-                del new_entries
-
-            # Explicitly delete large objects to free memory
-            # (index_dirs_list is kept — needed below for LRU cache clearing)
-            del all_dirs_to_invalidate
-            del found_shas
-            del existing_cache_shas
-            del missing_shas
-
-        # Clear layout and DirectoryIndex LRU caches for ALL invalidated
-        # directories — including parents. The DB rows above are marked
-        # invalidated for parents too; without clearing their LRU entries,
-        # cached parent objects keep reporting is_cached=True (via the
-        # select_related Cache_Watcher relation) and the parents never
-        # rescan until LRU eviction.
-        self._clear_layout_cache_bulk(index_dirs_list)
-        self._clear_directoryindex_cache_bulk(index_dirs_list)
-
-        return update_count
-
-    def remove_multiple_from_cache(self, dir_names: list[str]) -> bool:
-        """Remove multiple directories from cache in a single transaction.
-
-        DEPRECATED: Use remove_multiple_from_cache_indexdirs() instead to avoid redundant
-        SHA computation and database lookups.
-
-        Args:
-            dir_names: List of directory paths to remove from cache.
-
-        Returns:
-            True if any entries were invalidated, False otherwise.
-        """
-        warnings.warn(
-            "remove_multiple_from_cache(dir_names: list[str]) is deprecated. " "Use remove_multiple_from_cache_indexdirs(index_dirs) instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
-        if not dir_names:
-            return False
-
-        # Import inside function to avoid circular dependency
-        from quickbbs.models import (
-            DirectoryIndex,  # pylint: disable=import-outside-toplevel
-        )
-
-        # Convert all directory names to SHA256 hashes (deduplicate first for efficiency)
-        # Compute SHA→path mapping ONCE, then extract SHAs to avoid duplicate computation
-        sha_to_path = {get_dir_sha(path): path for path in set(dir_names)}
-        sha_list = list(sha_to_path.keys())
-
-        if not sha_list:
-            return False
-
-        logger.info("Removing %d directories from cache", len(sha_list))
-
-        # Get affected directories (only load fields needed for cache clearing)
-        fqpn_by_dir_sha = {
-            d.dir_fqpn_sha256: d for d in DirectoryIndex.objects.filter(dir_fqpn_sha256__in=sha_list).only("dir_fqpn_sha256", "id", "fqpndirectory")
-        }
-
-        # Check for missing DirectoryIndex entries and create them
-        missing_shas = set(sha_list) - set(fqpn_by_dir_sha.keys())
-        if missing_shas:
-            logger.info("Creating %d missing DirectoryIndex entries", len(missing_shas))
-            for missing_sha in missing_shas:
-                dir_path = sha_to_path.get(missing_sha)
-                if dir_path:
-                    try:
-                        _, new_dir = DirectoryIndex.add_directory(dir_path)
-                        # Only add to dict if new_dir is valid and has required attributes
-                        if new_dir is not None and hasattr(new_dir, "pk") and new_dir.pk is not None:
-                            fqpn_by_dir_sha[missing_sha] = new_dir
-                            logger.debug("Created DirectoryIndex entry for %s", dir_path)
-                        else:
-                            logger.warning("DirectoryIndex.add_directory returned invalid object for %s", dir_path)
-                    except (DatabaseError, OSError) as e:
-                        logger.error("Failed to create DirectoryIndex entry for %s: %s", dir_path, e)
-
-        # Perform bulk invalidation — also clears layout/DirectoryIndex LRU
-        # caches for all affected directories (including parents).
-        update_count = self._bulk_invalidate_by_shas(sha_list)
-
-        if update_count > 0:
-            logger.info("Successfully invalidated %d cache entries", update_count)
-
-        return update_count > 0
-
-    def _clear_layout_cache_bulk(self, directories: list[Any]) -> None:
-        """
-        Clear layout cache for multiple directories efficiently.
-
-        Uses shared clear_layout_cache_for_directories() function to avoid code duplication.
-        Clears ALL sort orderings (0, 1, 2) for each directory.
-
-        Args:
-            directories: List of DirectoryIndex objects to clear cache for
-
-        Performance:
-            Old: 3N database queries + P cache deletions (N=dirs, P=pages)
-            New: 0 database queries + K cache scans (K=cache size ~500)
-        """
-        if not directories:
-            return
-
-        try:
-            # Import inside function to avoid circular dependency
-            from quickbbs.cache_registry import (  # pylint: disable=import-outside-toplevel
-                clear_layout_cache_for_directories,
-            )
-
-            # Use shared cache clearing function - extract PKs from directory objects
-            directory_ids = {d.pk for d in directories if d and hasattr(d, "pk") and d.pk}
-            cleared_count = clear_layout_cache_for_directories(directory_ids)
-            logger.debug("Cleared %d layout cache entries for %d directories", cleared_count, len(directory_ids))
-
-        except (KeyError, ImportError, AttributeError) as e:
-            logger.error("Error clearing layout cache for directories: %s", e)
-
-    def _clear_directoryindex_cache_bulk(self, directories: list[Any]) -> None:
-        """
-        Clear DirectoryIndex LRU cache for invalidated directories.
-
-        When directories are invalidated, their cached DirectoryIndex objects must be
-        removed from the LRU cache to prevent stale is_cached checks. The cache
-        key is the directory's SHA256 hash.
-
-        Args:
-            directories: List of DirectoryIndex objects that were invalidated.
-        """
-        try:
-            # pylint: disable=import-outside-toplevel
-            from cachetools.keys import hashkey
-
-            from quickbbs.directoryindex import directoryindex_cache
-
-            # Extract SHA256s and directly delete from cache
-            cleared_count = 0
-            for directory in directories:
-                if directory and hasattr(directory, "dir_fqpn_sha256"):
-                    sha = directory.dir_fqpn_sha256
-                    # Get the cached object before removing it
-                    cached_obj = directoryindex_cache.pop(hashkey(sha), None)
-                    if cached_obj is not None:
-                        # Cache stores (found: bool, record: DirectoryIndex | None) tuples
-                        _, dir_record = cached_obj
-                        if dir_record is not None:
-                            # Refresh so any remaining reference sees updated invalidation state
-                            dir_record.refresh_from_db()
-                        cleared_count += 1
-
-            logger.debug("Cleared %d DirectoryIndex cache entries for %d directories", cleared_count, len(directories))
-
-        except (KeyError, ImportError, AttributeError) as e:
-            logger.error("Error clearing DirectoryIndex cache for directories: %s", e)
+        await sync_to_async(DirectoryIndex.invalidate_caches)(index_dirs)
 
 
 class CacheStatisticsTracking(models.Model):

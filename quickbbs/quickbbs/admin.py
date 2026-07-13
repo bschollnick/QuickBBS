@@ -7,7 +7,6 @@ from django.db import transaction
 from django.db.models.query import QuerySet
 from django.http import HttpRequest
 
-from cache_watcher.models import fs_Cache_Tracking
 from quickbbs.models import DirectoryIndex, Favorites, FileIndex, Owners
 from thumbnails.models import ThumbnailFiles
 
@@ -156,6 +155,8 @@ class AdminMasterDirs(admin.ModelAdmin):
         # "dirname_sha256",
         "fqpndirectory",
         "is_generic_icon",
+        "cache_invalidated",
+        "cache_lastscan",
         "filetype",
         "delete_pending",
     )
@@ -187,7 +188,6 @@ class AdminMasterDirs(admin.ModelAdmin):
         Returns:
             None - displays success message to user
         """
-        directories_invalidated = 0
         directory_count = queryset.count()
 
         with transaction.atomic():
@@ -205,18 +205,12 @@ class AdminMasterDirs(admin.ModelAdmin):
                 large_thumb=None,
             )
 
-            for directory in queryset:
-                # Mark the directory as invalidated in the cache system
-                # This ensures the directory will be rescanned and thumbnails regenerated
-                fs_Cache_Tracking.objects.update_or_create(
-                    directory=directory,
-                    defaults={
-                        "invalidated": True,
-                        "lastscan": time.time(),
-                    },
-                )
-                directories_invalidated += 1
+            # Mark the directories as invalidated in the cache system with one
+            # UPDATE — this ensures they will be rescanned and thumbnails
+            # regenerated.
+            directories_invalidated = queryset.update(cache_invalidated=True, cache_lastscan=time.time())
 
+            for directory in queryset:
                 # Invalidate the directory's thumbnail as well
                 directory.invalidate_thumb()
 

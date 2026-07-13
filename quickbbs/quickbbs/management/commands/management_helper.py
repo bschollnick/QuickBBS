@@ -9,17 +9,15 @@ from __future__ import annotations
 
 import time
 
-from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import Count
 
-from cache_watcher.models import Cache_Storage, fs_Cache_Tracking
 from quickbbs.common import normalize_fqpn
-from quickbbs.models import FileIndex, DirectoryIndex
+from quickbbs.models import DirectoryIndex, FileIndex
 
 
 def invalidate_empty_directories(start_path: str | None = None, verbose: bool = True) -> int:
     """
-    Invalidate directories with 0 files in fs_Cache_Tracking.
+    Mark directories with 0 files as cache-invalidated.
 
     Uses Count annotation on FileIndex_entries (reverse FK from FileIndex.home_directory)
     to efficiently identify empty directories without requiring separate FileIndex queries.
@@ -33,17 +31,15 @@ def invalidate_empty_directories(start_path: str | None = None, verbose: bool = 
     """
     # Query directories with 0 FileIndex_entries using Count annotation
     # FileIndex_entries is the reverse relationship from FileIndex.home_directory
-    empty_directories_query = (
-        DirectoryIndex.objects.annotate(file_count=Count("FileIndex_entries")).filter(file_count=0).select_related("Cache_Watcher")
-    )
+    empty_directories_query = DirectoryIndex.objects.annotate(file_count=Count("FileIndex_entries")).filter(file_count=0)
 
     # Filter to start_path if specified
     if start_path:
         normalized_start = normalize_fqpn(start_path)
         empty_directories_query = empty_directories_query.filter(fqpndirectory__startswith=normalized_start)
 
-    empty_directories = list(empty_directories_query)
-    empty_count = len(empty_directories)
+    empty_pks = list(empty_directories_query.values_list("pk", flat=True))
+    empty_count = len(empty_pks)
 
     if empty_count == 0:
         if verbose:
@@ -54,20 +50,7 @@ def invalidate_empty_directories(start_path: str | None = None, verbose: bool = 
         print(f"Found {empty_count} empty directories to invalidate")
 
     now = time.time()
-    entries_to_update = []
-    for directory in empty_directories:
-        try:
-            watcher = directory.Cache_Watcher
-            watcher.invalidated = True
-            watcher.lastscan = now
-            entries_to_update.append(watcher)
-        except ObjectDoesNotExist:
-            pass
-
-    if entries_to_update:
-        fs_Cache_Tracking.objects.bulk_update(entries_to_update, fields=["invalidated", "lastscan"], batch_size=250)
-
-    invalidated_count = len(entries_to_update)
+    invalidated_count = DirectoryIndex.objects.filter(pk__in=empty_pks).update(cache_invalidated=True, cache_lastscan=now)
 
     if verbose:
         print(f"Invalidated {invalidated_count} empty directories in cache")
@@ -120,10 +103,10 @@ def invalidate_directories_with_null_sha256(start_path: str | None = None, verbo
         print(f"Found {invalidated_count} directories containing files without SHA256")
 
     if directories_to_invalidate:
-        Cache_Storage.remove_multiple_from_cache_indexdirs(directories_to_invalidate)
+        DirectoryIndex.invalidate_caches(directories_to_invalidate)
 
     if verbose:
-        print(f"Invalidated {invalidated_count} directories in fs_Cache_Tracking")
+        print(f"Invalidated {invalidated_count} directories")
         print("-" * 60)
 
     return invalidated_count
@@ -174,10 +157,10 @@ def invalidate_directories_with_null_virtual_directory(start_path: str | None = 
         print(f"Found {invalidated_count} directories containing link files without virtual_directory")
 
     if directories_to_invalidate:
-        Cache_Storage.remove_multiple_from_cache_indexdirs(directories_to_invalidate)
+        DirectoryIndex.invalidate_caches(directories_to_invalidate)
 
     if verbose:
-        print(f"Invalidated {invalidated_count} directories in fs_Cache_Tracking")
+        print(f"Invalidated {invalidated_count} directories")
         print("-" * 60)
 
     return invalidated_count

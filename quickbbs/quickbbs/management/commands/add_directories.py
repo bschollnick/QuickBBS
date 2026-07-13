@@ -1,9 +1,9 @@
 """
 Function to add missing directories from filesystem to database.
 
-This module walks the albums directory and adds any missing directories to both
-DirectoryIndex and fs_Cache_Tracking tables. Directories added to fs_Cache_Tracking
-are marked as invalidated to ensure they are scanned when accessed via the web.
+This module walks the albums directory and adds any missing directories to
+DirectoryIndex. Added directories are marked cache_invalidated to ensure they
+are scanned when accessed via the web.
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ import time
 from django.conf import settings
 from django.db import close_old_connections
 
-from cache_watcher.models import fs_Cache_Tracking
 from quickbbs.common import normalize_fqpn
 from quickbbs.models import DirectoryIndex
 
@@ -28,21 +27,20 @@ BULK_UPDATE_BATCH_SIZE = 250
 FS_SCAN_BATCH_SIZE = 500
 
 
-def _flush_cache_invalidations(cache_pks: list[int]) -> None:
+def _flush_cache_invalidations(dir_pks: list[int]) -> None:
     """
-    Mark a batch of fs_Cache_Tracking rows as invalidated with a single UPDATE.
+    Mark a batch of DirectoryIndex rows as cache-invalidated with a single UPDATE.
 
     Args:
-        cache_pks: Primary keys of fs_Cache_Tracking rows to mark as invalidated
+        dir_pks: Primary keys of DirectoryIndex rows to mark as invalidated
     """
-    if not cache_pks:
+    if not dir_pks:
         return
-    fs_Cache_Tracking.objects.filter(pk__in=cache_pks).update(invalidated=True)
+    DirectoryIndex.objects.filter(pk__in=dir_pks).update(cache_invalidated=True)
 
 
 def _process_missing_directories(
     missing_paths: list[str],
-    cache_instance: fs_Cache_Tracking,
     added_count: int,
     max_count: int,
     start_time: float,
@@ -50,16 +48,12 @@ def _process_missing_directories(
     """
     Process a list of missing directory paths, adding them to the database.
 
-    Adds each path to DirectoryIndex via add_directory(), then creates an
-    fs_Cache_Tracking entry via add_from_indexdirs(). Cache entries are
-    collected and marked invalidated in a single UPDATE per batch.
-
-    Only increments added_count when both the DirectoryIndex record and its
-    cache entry are successfully created.
+    Adds each path to DirectoryIndex via add_directory(), records the scan via
+    mark_scanned(), then marks the batch invalidated in a single UPDATE so the
+    directories are rescanned when accessed via the web.
 
     Args:
         missing_paths: List of normalized directory paths to add
-        cache_instance: fs_Cache_Tracking instance used to call add_from_indexdirs()
         added_count: Current count of successfully added directories
         max_count: Maximum number of directories to add (0 = unlimited)
         start_time: Start time for rate calculations
@@ -67,26 +61,21 @@ def _process_missing_directories(
     Returns:
         Tuple of (updated added_count, reached_max_count flag)
     """
-    pending_cache_pks: list[int] = []
+    pending_dir_pks: list[int] = []
 
     for normalized_root in missing_paths:
         try:
             _, dir_record = DirectoryIndex.add_directory(normalized_root)
 
             if dir_record:
-                cache_entry = cache_instance.add_from_indexdirs(dir_record)
-
-                if cache_entry:
-                    pending_cache_pks.append(cache_entry.pk)
-                    added_count += 1
-                else:
-                    # Cache entry creation failed — log but still count the dir record
-                    logger.warning("add_from_indexdirs returned None for %s", normalized_root)
+                dir_record.mark_scanned()
+                pending_dir_pks.append(dir_record.pk)
+                added_count += 1
 
                 # Flush invalidations when batch is full
-                if len(pending_cache_pks) >= BULK_UPDATE_BATCH_SIZE:
-                    _flush_cache_invalidations(pending_cache_pks)
-                    pending_cache_pks = []
+                if len(pending_dir_pks) >= BULK_UPDATE_BATCH_SIZE:
+                    _flush_cache_invalidations(pending_dir_pks)
+                    pending_dir_pks = []
 
                 # Progress indicator
                 if added_count % 100 == 0:
@@ -98,14 +87,14 @@ def _process_missing_directories(
                 # Check if we've hit the max_count limit
                 if 0 < max_count <= added_count:
                     print(f"Reached max_count limit of {max_count}")
-                    _flush_cache_invalidations(pending_cache_pks)
+                    _flush_cache_invalidations(pending_dir_pks)
                     return added_count, True
 
         except Exception:  # pylint: disable=broad-exception-caught
             logger.exception("Error adding directory %s", normalized_root)
             continue
 
-    _flush_cache_invalidations(pending_cache_pks)
+    _flush_cache_invalidations(pending_dir_pks)
     return added_count, False
 
 
@@ -113,8 +102,7 @@ def add_directories(max_count: int = 0, start_path: str | None = None) -> None:
     """
     Walk the albums directory and add any missing directories to the database.
 
-    Adds directories to both DirectoryIndex and fs_Cache_Tracking tables.
-    Directories are marked as invalidated in fs_Cache_Tracking to ensure
+    Adds directories to DirectoryIndex, marked cache_invalidated to ensure
     they will be scanned when accessed via the web interface.
 
     Uses batch existence checks for performance: collects paths in batches and
@@ -147,9 +135,6 @@ def add_directories(max_count: int = 0, start_path: str | None = None) -> None:
     batch_paths: list[str] = []
     added_count = 0
     scanned_count = 0
-    # fs_Cache_Tracking() is intentionally unsaved — add_from_indexdirs() uses only the
-    # passed dir_record, not self state, so no DB identity is needed on the caller.
-    cache_instance = fs_Cache_Tracking()
     start_time = time.time()
     reached_max = False
 
@@ -171,7 +156,7 @@ def add_directories(max_count: int = 0, start_path: str | None = None) -> None:
             missing_paths = [p for p in batch_paths if p not in existing_paths]
 
             if missing_paths:
-                added_count, reached_max = _process_missing_directories(missing_paths, cache_instance, added_count, max_count, start_time)
+                added_count, reached_max = _process_missing_directories(missing_paths, added_count, max_count, start_time)
 
             batch_paths = []
 
@@ -181,7 +166,7 @@ def add_directories(max_count: int = 0, start_path: str | None = None) -> None:
         missing_paths = [p for p in batch_paths if p not in existing_paths]
 
         if missing_paths:
-            added_count, _ = _process_missing_directories(missing_paths, cache_instance, added_count, max_count, start_time)
+            added_count, _ = _process_missing_directories(missing_paths, added_count, max_count, start_time)
 
     close_old_connections()
 

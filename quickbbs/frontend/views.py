@@ -30,7 +30,6 @@ from django.shortcuts import render
 from django.views.decorators.vary import vary_on_headers
 from django_htmx.middleware import HtmxDetails
 
-from cache_watcher.models import Cache_Storage
 from frontend.managers import (
     _get_files_needing_thumbnails,
     async_build_context_info,
@@ -622,6 +621,14 @@ def _find_directory(paths: dict) -> DirectoryIndex:
         # Normalize path once and compute SHA (DirectoryIndex methods will do this again,
         # but we need dirpath for logging and validation)
         dirpath = normalize_fqpn(paths["album_viewing"])
+
+        # normalize_fqpn resolves ".." segments and follows symlinks, so a
+        # crafted URL (or a symlink inside albums) can escape the albums
+        # root. Reject escaped paths before any database work.
+        if not dirpath.lower().startswith(DirectoryIndex.get_albums_root().lower()):
+            logger.warning("Rejected gallery path outside albums root: %s (from %s)", dirpath, paths["album_viewing"])
+            raise DirectoryInvalidError(f"Invalid path specified: {paths['album_viewing']}")
+
         dir_sha = get_dir_sha(dirpath)
 
         # Search for directory in database (uses optimized prefetches)
@@ -645,7 +652,7 @@ def _find_directory(paths: dict) -> DirectoryIndex:
             # the web — clear the parent's cache so its listing shows the new
             # subdirectory.
             if directory.parent_directory:
-                Cache_Storage.remove_from_cache_indexdirs(directory.parent_directory)
+                directory.parent_directory.invalidate_cache()
 
             # Reload with optimized prefetches for view rendering
             # add_directory uses update_or_create without prefetch_related
@@ -665,15 +672,15 @@ def _find_directory(paths: dict) -> DirectoryIndex:
             logger.info("Directory exists in DB but not on filesystem: %s", dirpath)
             # Invalidate cache and mark as deleted
             if directory.parent_directory:
-                Cache_Storage.remove_from_cache_indexdirs(index_dir=directory.parent_directory)
-            Cache_Storage.remove_from_cache_indexdirs(index_dir=directory)
+                directory.parent_directory.invalidate_cache()
+            directory.invalidate_cache()
             update_database_from_disk(directory)
             raise DirectoryNotFoundError(f"Gallery not found on filesystem: {dirpath}")
 
         logger.info("Viewing: %s", dirpath)
         return directory
 
-    except DirectoryNotFoundError:
+    except (DirectoryNotFoundError, DirectoryInvalidError):
         # Re-raise our custom exceptions
         raise
     except Exception as e:
