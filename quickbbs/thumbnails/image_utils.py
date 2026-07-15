@@ -123,10 +123,12 @@ def image_to_pil(fspath: str | bytes, mem: bool = False) -> Image.Image | None:
         try:
             source_image = Image.open(fspath)
         except OSError:
-            print(f"Unable to load source file - {fspath}")
+            print(f"Unable to load source file - {fspath!r}")
     else:
-        try:  # fs_path is a byte stream
-            source_image = Image.open(BytesIO(fspath))
+        # mem is True: fspath holds the raw image bytes.
+        image_bytes = fspath if isinstance(fspath, bytes) else fspath.encode()
+        try:  # fspath is a byte stream
+            source_image = Image.open(BytesIO(image_bytes))
         except OSError:
             print("IOError")
             # log.debug("PIL was unable to identify as an image file")

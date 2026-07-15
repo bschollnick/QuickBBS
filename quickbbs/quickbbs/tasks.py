@@ -127,12 +127,17 @@ def generate_missing_thumbnails(
     # Pre-filter: skip SHA256s that already have valid thumbnails.
     # Avoids acquiring advisory locks and running get_or_create for
     # thumbnails that already exist (common on rescans/retries).
-    existing_shas = set(
-        ThumbnailFiles.objects.filter(
+    # sha256_hash is a nullable field, but rows with NULL can never match
+    # sha256_hash__in=<real hashes>; guard the None case so existing_shas is
+    # a set[str] (the comprehension key at results below requires str).
+    existing_shas = {
+        sha
+        for sha in ThumbnailFiles.objects.filter(
             sha256_hash__in=sha256_list,
             small_thumb__isnull=False,
         ).values_list("sha256_hash", flat=True)
-    )
+        if sha is not None
+    }
 
     if existing_shas:
         logger.info(

@@ -16,14 +16,14 @@ from django.core.exceptions import SynchronousOnlyOperation
 from django.db import DatabaseError, models
 
 if TYPE_CHECKING:
-    from django.db.models.manager import RelatedManager
+    from django.db.models.fields.related_descriptors import RelatedManager
 
     from quickbbs.models import DirectoryIndex, FileIndex
 
-FILETYPE_DATA = {}
+FILETYPE_DATA: dict[str, "filetypes"] = {}
 
 # Single in-memory cache for the full filetypes table dict (loaded once at startup)
-_filetypes_dict: dict | None = None
+_filetypes_dict: dict[str, "filetypes"] | None = None
 
 
 class filetypes(models.Model):
@@ -206,7 +206,7 @@ class filetypes(models.Model):
         ]
 
 
-def get_ftype_dict() -> dict:
+def get_ftype_dict() -> dict[str, "filetypes"]:
     """
     Return filetypes information from database as a dictionary.
 
@@ -238,7 +238,7 @@ def return_identifier(ext: str) -> str:
     return ext
 
 
-def load_filetypes(force: bool = False) -> dict:
+def load_filetypes(force: bool = False) -> dict[str, "filetypes"]:
     """
     Load file type data from the database into the global FILETYPE_DATA cache.
 

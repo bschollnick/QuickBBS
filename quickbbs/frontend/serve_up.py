@@ -235,6 +235,30 @@ def sanitize_filename_for_http(filename: str) -> str:
     return filename or "download.bin"
 
 
+def _safe_join(base: str, pathstr: str) -> str | None:
+    """
+    Join a user-supplied relative path onto a trusted base directory safely.
+
+    Resolves symlinks and ".." segments in the candidate path and confirms the
+    result still lives under ``base``. Returns None if the path would escape the
+    base directory, preventing path-traversal / arbitrary-file-read attacks.
+
+    ASYNC-SAFE: Pure function with filesystem checks only (realpath stats only).
+
+    Args:
+        base: Trusted base directory the result must stay within.
+        pathstr: Untrusted relative path from the request URL.
+
+    Returns:
+        Absolute path within ``base`` if safe, None if it would escape.
+    """
+    base_real = os.path.realpath(base)
+    candidate = os.path.realpath(os.path.join(base_real, pathstr))
+    if candidate != base_real and not candidate.startswith(base_real + os.sep):
+        return None
+    return candidate
+
+
 def _locate_static_or_resource_file(pathstr: str) -> str | None:
     """
     Locate file in resources or static directories.
@@ -254,11 +278,15 @@ def _locate_static_or_resource_file(pathstr: str) -> str | None:
     Returns:
         Absolute path to file if found, None otherwise
     """
-    # Check resources directory first - custom assets take priority
-    resource_file = os.path.join(settings.RESOURCES_PATH, pathstr)
-    static_file = os.path.join(settings.STATIC_ROOT, pathstr)
-    if os.path.isfile(resource_file):
-        if os.path.isfile(static_file):
+    # SECURITY: pathstr is user-controlled and arrives via a <path:> URL converter
+    # that permits ".." and "/". Django does not collapse ".." segments, so a
+    # request sent with encoded/raw ".." (e.g. curl --path-as-is) would otherwise
+    # let os.path.join escape the intended roots and read arbitrary files. Resolve
+    # each candidate and confirm it stays under its base directory before serving.
+    resource_file = _safe_join(settings.RESOURCES_PATH, pathstr)
+    static_file = _safe_join(settings.STATIC_ROOT, pathstr)
+    if resource_file and os.path.isfile(resource_file):
+        if static_file and os.path.isfile(static_file):
             message = (
                 f"Duplicate asset: '{pathstr}' exists in both resources/ and static/. "
                 f"Serving {resource_file}; delete the stale copy {static_file}"
@@ -268,7 +296,7 @@ def _locate_static_or_resource_file(pathstr: str) -> str | None:
         return resource_file
 
     # Check static directory second
-    if os.path.isfile(static_file):
+    if static_file and os.path.isfile(static_file):
         return static_file
 
     return None

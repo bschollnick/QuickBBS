@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from thumbnails.models import ThumbnailFiles
+
 
 class ThumbnailGenerationError(Exception):
     """Raised when thumbnail generation fails for a known, recoverable reason.
@@ -68,10 +73,10 @@ class OrphanedThumbnail(Exception):
         sha256: The SHA256 hash of the orphaned record.
     """
 
-    def __init__(self, thumbnail: object, sha256: str) -> None:
+    def __init__(self, thumbnail: ThumbnailFiles, sha256: str) -> None:
         self.thumbnail = thumbnail
         self.sha256 = sha256
-        super().__init__(f"Orphaned ThumbnailFiles {thumbnail.id}: No FileIndex records found for SHA256 {sha256}")  # type: ignore[union-attr]
+        super().__init__(f"Orphaned ThumbnailFiles {thumbnail.id}: No FileIndex records found for SHA256 {sha256}")
 
 
 class OrphanedFileIndex(Exception):
@@ -87,7 +92,7 @@ class OrphanedFileIndex(Exception):
         sha256: The SHA256 hash of the record.
     """
 
-    def __init__(self, thumbnail: object, file_index_id: int, sha256: str) -> None:
+    def __init__(self, thumbnail: ThumbnailFiles, file_index_id: int, sha256: str) -> None:
         self.thumbnail = thumbnail
         self.file_index_id = file_index_id
         self.sha256 = sha256

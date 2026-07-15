@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote, unquote
@@ -600,7 +601,7 @@ class DirectoryIndex(models.Model):
             return 0
 
     @staticmethod
-    def get_all_parent_shas(sha_list: list[str], select_related: list[str]) -> set[str]:
+    def get_all_parent_shas(sha_list: Sequence[str], select_related: Sequence[str]) -> set[str]:
         """
         Get all parent directory SHAs using optimized batch queries.
 
@@ -608,8 +609,8 @@ class DirectoryIndex(models.Model):
         instead of recursive CTE, but still much more efficient than N*M approach.
 
         Args:
-            sha_list: List of directory SHA256 hashes to find parents for
-            select_related: List of related fields to select (required)
+            sha_list: Sequence of directory SHA256 hashes to find parents for
+            select_related: Sequence of related fields to select (required)
 
         Returns:
             Set containing all input SHAs plus all ancestor SHAs
@@ -1485,7 +1486,6 @@ class DirectoryIndex(models.Model):
                         updated_records.append(db_dir_entry)
                 except (OSError, IOError) as e:
                     logger.error("Error checking directory %s: %s", db_dir_entry.fqpndirectory, e)
-
 
         if updated_records:
             logger.info("Directories to update: %d", len(updated_records))

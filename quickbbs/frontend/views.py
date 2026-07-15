@@ -409,7 +409,10 @@ def _get_paginated_search_results(
         items_per_page: Number of items per page
 
     Returns:
-        Tuple of (directory_sha_list, file_sha_list, total_count)
+        Tuple of (directory_sha_list, file_sha_list, total_count). The SHAs
+        correspond to ``page`` clamped into the valid 1..total_pages range, so
+        an out-of-range page request returns the last page's items rather than
+        an empty slice.
     """
     # Pass empty prefetch tuples and skip annotations — we only need SHA values
     # here for pagination, so the sliced query stays a plain filtered scan.
@@ -419,6 +422,13 @@ def _get_paginated_search_results(
     dirs_count = dirs_qs.count()
     files_count = files_qs.count()
     total = dirs_count + files_count
+
+    # Clamp the requested page to the valid range BEFORE slicing. Otherwise an
+    # out-of-range page (e.g. ?page=999 on a 3-page result) produces an
+    # out-of-bounds slice and renders an empty page while the pagination bar
+    # still shows a valid page number. Mirrors layout_manager's internal clamp.
+    total_pages = max(1, math.ceil(total / items_per_page))
+    page = max(1, min(page, total_pages))
 
     bounds = calculate_page_bounds(page, items_per_page, dirs_count)
 

@@ -141,8 +141,10 @@ def add_thumbnails(max_count: int = 0) -> None:
         & (Q(filetype__is_image=True) | Q(filetype__is_pdf=True) | Q(filetype__is_movie=True))
     )
 
-    # Get list of SHA256 values (may have duplicates for files with same content)
-    sha256_list = list(files_without_records.values_list("file_sha256", flat=True))
+    # Get list of SHA256 values (may have duplicates for files with same content).
+    # file_sha256 is nullable; a NULL SHA can't be turned into a thumbnail record,
+    # so drop None to keep the list str-only for the bulk helpers below.
+    sha256_list = [sha for sha in files_without_records.values_list("file_sha256", flat=True) if sha is not None]
     total_files = len(sha256_list)
 
     # Get unique SHA256s for bulk_create
@@ -200,13 +202,19 @@ def add_thumbnails(max_count: int = 0) -> None:
     # Collect all candidate SHA256s, then use set logic to split into two groups:
     # - non_generic_shas: at least one linked FileIndex is not marked generic → attempt generation
     # - generic_shas: every linked FileIndex is marked generic → still enqueue (worker will handle gracefully)
-    all_shas = set(empty_thumbnails_qs.values_list("sha256_hash", flat=True))
+    # sha256_hash / file_sha256 are nullable fields; a NULL SHA is meaningless
+    # for thumbnail generation, so drop None here to keep these sets str-only.
+    all_shas = {sha for sha in empty_thumbnails_qs.values_list("sha256_hash", flat=True) if sha is not None}
 
     if not all_shas:
         print("All thumbnails are already generated")
         return
 
-    non_generic_shas = set(FileIndex.objects.filter(file_sha256__in=all_shas, is_generic_icon=False).values_list("file_sha256", flat=True).distinct())
+    non_generic_shas = {
+        sha
+        for sha in FileIndex.objects.filter(file_sha256__in=all_shas, is_generic_icon=False).values_list("file_sha256", flat=True).distinct()
+        if sha is not None
+    }
     generic_shas = all_shas - non_generic_shas
 
     if max_count > 0:
@@ -225,10 +233,10 @@ def add_thumbnails(max_count: int = 0) -> None:
     enqueued = 0
     task_count = 0
 
-    for batch in batched(total_shas, BULK_UPDATE_BATCH_SIZE):
-        batch_size = len(batch)
+    for sha_batch in batched(total_shas, BULK_UPDATE_BATCH_SIZE):
+        batch_size = len(sha_batch)
         generate_missing_thumbnails.using(priority=0).enqueue(
-            files_needing_thumbnails=list(batch),
+            files_needing_thumbnails=list(sha_batch),
             batch_size=batch_size,
         )
         enqueued += batch_size

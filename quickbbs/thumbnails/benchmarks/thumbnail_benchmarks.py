@@ -28,18 +28,22 @@ BENCHMARKS_DIR = Path(__file__).parent
 THUMBNAILS_DIR = BENCHMARKS_DIR.parent
 sys.path.insert(0, str(THUMBNAILS_DIR.parent))
 
+from quickbbs.quickbbs_settings import CORE_IMAGE_QUALITY, PIL_IMAGE_QUALITY
+
 # pylint: disable=wrong-import-position
 from thumbnails.thumbnail_engine import (
-    AVFOUNDATION_AVAILABLE,
-    PDFKIT_AVAILABLE,
+    BackendType,
+    _check_avfoundation_available,
     _check_core_image_available,
+    _check_pdfkit_available,
     create_thumbnails_from_path,
 )
-from quickbbs.quickbbs_settings import CORE_IMAGE_QUALITY, PIL_IMAGE_QUALITY
 
 # pylint: enable=wrong-import-position
 
 CORE_IMAGE_AVAILABLE = _check_core_image_available()
+AVFOUNDATION_AVAILABLE = _check_avfoundation_available()
+PDFKIT_AVAILABLE = _check_pdfkit_available()
 
 # ============================================================================
 # Configuration
@@ -173,7 +177,7 @@ def save_thumbnails(thumbnails: dict[str, bytes], prefix: str, iteration: int) -
 # ============================================================================
 
 
-def benchmark_backend(backend_name: str, backend_type: str, test_file: str, iterations: int, quality: int) -> tuple[float, list[float]]:
+def benchmark_backend(backend_name: str, backend_type: BackendType, test_file: str, iterations: int, quality: int) -> tuple[float, list[float]]:
     """
     Benchmark a specific thumbnail generation backend.
 

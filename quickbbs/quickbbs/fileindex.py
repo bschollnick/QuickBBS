@@ -9,11 +9,10 @@ import os
 import platform
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote
 
 from asgiref.sync import sync_to_async
-from cachetools import cached
 from cachetools.keys import hashkey
 from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
@@ -368,6 +367,7 @@ class FileIndex(models.Model):
         cached_val = fileindex_cache.get(key)
         if cached_val is not None:
             return cached_val
+        result: FileIndex | None
         try:
             if unique:
                 result = FileIndex.objects.select_related(*select_related).get(unique_sha256=sha_value, delete_pending=False)
@@ -380,30 +380,40 @@ class FileIndex(models.Model):
             fileindex_cache[key] = result
         return result
 
-    @cached(fileindex_download_cache)
     @staticmethod
-    def get_by_sha256_for_download(sha_value: str, unique: bool, select_related: list[str]) -> FileIndex | None:
+    def get_by_sha256_for_download(sha_value: str, unique: bool, select_related: list[str] | tuple[str, ...]) -> FileIndex | None:
         """
         Return the FileIndex object by SHA256 optimized for file downloads.
 
         Uses select_related for forward FKs and .only() to fetch minimal fields
         for maximum performance with high concurrency.
 
+        Results are cached, but None (not found) is never cached — a missing
+        record may be created shortly after (e.g. during thumbnail generation)
+        and a cached None would mask it until eviction. Caching is done manually
+        (rather than via @cached) so the key is built from tuple(select_related):
+        the default @cached key function folds the select_related argument in
+        verbatim, which raises TypeError when a caller passes a list.
+
         Args:
             sha_value: The SHA256 of the FileIndex object
             unique: If True, search by unique_sha256, otherwise by file_sha256
-            select_related: List of related fields to select (required)
+            select_related: Related fields to select (required)
 
         Returns: FileIndex object or None if not found
         """
         if select_related is None:
             raise ValueError("select_related parameter is required")
+        key = hashkey(sha_value, unique, tuple(select_related))
+        cached_val = fileindex_download_cache.get(key)
+        if cached_val is not None:
+            return cached_val
+        # Determine which SHA field to filter on
+        filter_field = "unique_sha256" if unique else "file_sha256"
+        result: FileIndex | None
         try:
-            # Determine which SHA field to filter on
-            filter_field = "unique_sha256" if unique else "file_sha256"
-
             # Only fetch fields needed for download
-            return (
+            result = (
                 FileIndex.objects.select_related(*select_related)
                 .only(
                     "name",
@@ -414,7 +424,10 @@ class FileIndex(models.Model):
                 .get(**{filter_field: sha_value, "delete_pending": False})
             )
         except FileIndex.DoesNotExist:
-            return None
+            result = None
+        if result is not None:
+            fileindex_download_cache[key] = result
+        return result
 
     @classmethod
     def set_generic_icon_for_sha(cls, file_sha256: str, is_generic: bool, clear_cache: bool = True) -> int:
@@ -575,8 +588,11 @@ class FileIndex(models.Model):
                 logger.error("Error getting file stats for %s: %s", fs_entry, e)
                 return None
 
-            # Handle link files
-            filetype = record["filetype"]
+            # Handle link files. record is a dict[str, Any]-style mapping, but
+            # record["filetype"] is always a filetypes instance (set from
+            # return_filetype above); cast so the checker sees the model
+            # attributes (is_link/is_image).
+            filetype = cast("filetypes", record["filetype"])
             if filetype.is_link:
                 # Calculate SHA256 for link files (required for virtual_directory resolution)
                 record["file_sha256"], record["unique_sha256"] = get_file_sha(str(fs_entry))
@@ -585,7 +601,7 @@ class FileIndex(models.Model):
                     return None
 
                 # Process link file and get virtual_directory
-                virtual_dir = cls.process_link_file(fs_entry, filetype, record["name"])
+                virtual_dir = cls.process_link_file(fs_entry, filetype, cast("str", record["name"]))
                 if virtual_dir is None:
                     return None  # Don't add to database - will retry on next scan
 
