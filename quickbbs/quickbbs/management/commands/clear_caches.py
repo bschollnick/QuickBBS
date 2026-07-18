@@ -15,18 +15,21 @@ from cachetools import LRUCache
 from django.core.management.base import BaseCommand
 
 
-def _load_all_caches() -> list[tuple[str, LRUCache]]:
+def _load_all_caches() -> list[tuple[str, LRUCache | Exception]]:
     """
     Load all caches registered in tasks._MONITORED_CACHE_LOCATIONS.
 
     Returns:
-        List of (label, cache) tuples for every cache that could be imported.
+        List of (label, value) tuples for every registered location. `value`
+        is the LRUCache instance when it could be imported, or the raised
+        ImportError/AttributeError when it could not (callers check
+        isinstance(value, Exception) to distinguish the two).
     """
     from quickbbs.tasks import (
         _MONITORED_CACHE_LOCATIONS,  # pylint: disable=import-outside-toplevel
     )
 
-    results = []
+    results: list[tuple[str, LRUCache | Exception]] = []
     for module_path, attr_name, class_name in _MONITORED_CACHE_LOCATIONS:
         label = f"{module_path}.{attr_name}"
         try:

@@ -1417,7 +1417,7 @@ class DirectoryIndex(models.Model):
 
         return records_to_create
 
-    def sync_subdirectories(self, fs_entries: dict) -> None:
+    def sync_subdirectories(self, fs_entries: dict) -> bool:
         """
         Synchronize my subdirectories with filesystem entries.
 
@@ -1444,6 +1444,10 @@ class DirectoryIndex(models.Model):
         Args:
             fs_entries: Dictionary mapping title-cased entry names to
                 DirEntry objects.
+
+        Returns:
+            True if any subdirectory was updated, added, or deleted;
+            False if the database already matched the filesystem.
         """
         current_path = normalize_fqpn(self.fqpndirectory)
 
@@ -1527,7 +1531,9 @@ class DirectoryIndex(models.Model):
                 all_dirs_queryset.filter(fqpndirectory__in=deleted_dirs).delete()
                 self.invalidate_cache()
 
-    def sync_files(self, fs_entries: dict, bulk_size: int) -> None:
+        return bool(updated_records or new_dirs or deleted_dirs)
+
+    def sync_files(self, fs_entries: dict, bulk_size: int) -> bool:
         """
         Synchronize my files with filesystem entries.
 
@@ -1555,6 +1561,10 @@ class DirectoryIndex(models.Model):
             fs_entries: Dictionary mapping title-cased entry names to
                 DirEntry objects.
             bulk_size: Size of batches for bulk operations (updates/creates).
+
+        Returns:
+            True if any file was updated, created, or deleted; False if the
+            database already matched the filesystem.
         """
         # Inline import to avoid circular dependency: .fileindex → .models → .directoryindex
         # pylint: disable-next=import-outside-toplevel
@@ -1656,6 +1666,8 @@ class DirectoryIndex(models.Model):
 
         # Execute batch operations with transactions
         FileIndex.bulk_sync(records_to_update, records_to_create, files_to_delete_ids, bulk_size)
+
+        return bool(records_to_update or records_to_create or files_to_delete_ids)
 
 
 # The lambda is required (not key=hashkey): it rebinds keyword-argument calls
@@ -1763,13 +1775,17 @@ def update_database_from_disk(directory_record: "DirectoryIndex") -> "DirectoryI
         directory_record.handle_missing()
         return None
 
-    # Direct sync calls — no boundary crossings needed
-    directory_record.sync_subdirectories(fs_entries)
-    directory_record.sync_files(fs_entries, bulk_size)
+    # Direct sync calls — no boundary crossings needed.
+    # Evaluate both (avoid short-circuit) so files still sync when
+    # subdirectories already changed.
+    dirs_changed = directory_record.sync_subdirectories(fs_entries)
+    files_changed = directory_record.sync_files(fs_entries, bulk_size)
 
     # Cache the result using the directory record
     directory_record.mark_scanned()
-    logger.info("Cached directory: %s", dirpath)
+    # Only log when a change was actually applied — an unchanged rescan is noise.
+    if dirs_changed or files_changed:
+        logger.info("Cached directory: %s", dirpath)
     logger.debug("Elapsed time (sync database from disk): %.4fs", time.perf_counter() - start_time)
 
     # Close connections that have exceeded CONN_MAX_AGE (may have gone stale during sync)
