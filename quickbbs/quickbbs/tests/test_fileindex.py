@@ -30,37 +30,35 @@ Real files used (read-only):
 from __future__ import annotations
 
 import os
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
 
 import pytest
 from django.conf import settings
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from filetypes.models import filetypes
 from quickbbs.common import get_file_sha, normalize_fqpn
 from quickbbs.fileindex import (
-    FileIndex,
     FILEINDEX_SR_FILETYPE,
     FILEINDEX_SR_FILETYPE_HOME,
+    FileIndex,
     sanitize_filename_for_http,
 )
 from quickbbs.models import DirectoryIndex
-
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 
-VERIFICATION_SUITE = normalize_fqpn(
-    os.path.join(settings.ALBUMS_PATH, "albums", "verification_suite")
-)
+VERIFICATION_SUITE = normalize_fqpn(os.path.join(settings.ALBUMS_PATH, "albums", "verification_suite"))
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _get_ft(fileext: str) -> filetypes:
     """Return filetypes object for a given extension."""
@@ -98,6 +96,7 @@ def _make_fileindex(directory: DirectoryIndex, name: str, file_sha: str, unique_
 # ===========================================================================
 # sanitize_filename_for_http — pure function, no DB needed
 # ===========================================================================
+
 
 class TestSanitizeFilenameForHttp(TestCase):
     """Unit tests for sanitize_filename_for_http."""
@@ -151,6 +150,7 @@ class TestSanitizeFilenameForHttp(TestCase):
 # ===========================================================================
 # FileIndex.from_filesystem — reads real verification_suite files
 # ===========================================================================
+
 
 @pytest.mark.django_db
 class TestFromFilesystem(TestCase):
@@ -311,6 +311,7 @@ class TestFromFilesystem(TestCase):
     def test_lastscan_populated(self):
         """lastscan is set to a recent timestamp."""
         import time
+
         before = time.time() - 1
         path = self._vs_path("LICENCE.TXT")
         result = FileIndex.from_filesystem(path, directory_id=self.dir_obj)
@@ -328,6 +329,7 @@ class TestFromFilesystem(TestCase):
 # ===========================================================================
 # FileIndex.return_identical_files_count
 # ===========================================================================
+
 
 @pytest.mark.django_db
 class TestReturnIdenticalFilesCount(TestCase):
@@ -367,6 +369,7 @@ class TestReturnIdenticalFilesCount(TestCase):
 # ===========================================================================
 # FileIndex.return_list_all_identical_files_by_sha
 # ===========================================================================
+
 
 @pytest.mark.django_db
 class TestReturnListAllIdenticalFilesBySha(TestCase):
@@ -409,6 +412,7 @@ class TestReturnListAllIdenticalFilesBySha(TestCase):
 # FileIndex.get_identical_file_entries_by_sha
 # ===========================================================================
 
+
 @pytest.mark.django_db
 class TestGetIdenticalFileEntriesBySha(TestCase):
     """Tests for FileIndex.get_identical_file_entries_by_sha."""
@@ -446,6 +450,7 @@ class TestGetIdenticalFileEntriesBySha(TestCase):
 # ===========================================================================
 # FileIndex.find_files_without_sha
 # ===========================================================================
+
 
 @pytest.mark.django_db
 class TestFindFilesWithoutSha(TestCase):
@@ -531,6 +536,7 @@ class TestFindFilesWithoutSha(TestCase):
 # FileIndex.set_generic_icon_for_sha
 # ===========================================================================
 
+
 @pytest.mark.django_db
 class TestSetGenericIconForSha(TestCase):
     """Tests for FileIndex.set_generic_icon_for_sha."""
@@ -562,10 +568,7 @@ class TestSetGenericIconForSha(TestCase):
 
     def test_updates_all_files_with_sha(self):
         """Updates all records sharing the SHA, not just one."""
-        recs = [
-            _make_fileindex(self.dir_obj, f"f{i}.txt", self.sha, _sha(f"u{i}"), self.ft)
-            for i in range(3)
-        ]
+        recs = [_make_fileindex(self.dir_obj, f"f{i}.txt", self.sha, _sha(f"u{i}"), self.ft) for i in range(3)]
         count = FileIndex.set_generic_icon_for_sha(self.sha, is_generic=True, clear_cache=False)
         assert count == 3
         for rec in recs:
@@ -589,22 +592,33 @@ class TestSetGenericIconForSha(TestCase):
 # FileIndex.link_to_thumbnail
 # ===========================================================================
 
+
 @pytest.mark.django_db
 class TestLinkToThumbnail(TestCase):
     """Tests for FileIndex.link_to_thumbnail."""
 
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp()
-        _, self.dir_obj = DirectoryIndex.add_directory(self.temp_dir + "/")
+        self.albums_dir = os.path.join(self.temp_dir, "albums")
+        os.makedirs(self.albums_dir, exist_ok=True)
+        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
+        self._settings_override.enable()
+        DirectoryIndex._albums_prefix = None
+        DirectoryIndex._albums_root = None
+        _, self.dir_obj = DirectoryIndex.add_directory(self.albums_dir + "/")
         self.ft = _get_ft(".jpg")
         self.sha = "t" * 64
         # Create a minimal ThumbnailFiles record
         from thumbnails.models import ThumbnailFiles
+
         self.thumbnail = ThumbnailFiles.objects.create(
             sha256_hash=self.sha,
         )
 
     def tearDown(self):
+        self._settings_override.disable()
+        DirectoryIndex._albums_prefix = None
+        DirectoryIndex._albums_root = None
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_links_unlinked_record(self):
@@ -627,10 +641,7 @@ class TestLinkToThumbnail(TestCase):
 
     def test_links_multiple_records(self):
         """All unlinked records sharing the SHA are linked."""
-        recs = [
-            _make_fileindex(self.dir_obj, f"p{i}.jpg", self.sha, _sha(f"u{i}"), self.ft)
-            for i in range(3)
-        ]
+        recs = [_make_fileindex(self.dir_obj, f"p{i}.jpg", self.sha, _sha(f"u{i}"), self.ft) for i in range(3)]
         has_unlinked, count = FileIndex.link_to_thumbnail(self.sha, self.thumbnail)
         assert has_unlinked is True
         assert count == 3
@@ -642,6 +653,7 @@ class TestLinkToThumbnail(TestCase):
 # ===========================================================================
 # FileIndex.get_by_sha256
 # ===========================================================================
+
 
 @pytest.mark.django_db
 class TestGetBySha256(TestCase):
@@ -656,11 +668,13 @@ class TestGetBySha256(TestCase):
         self.rec = _make_fileindex(self.dir_obj, "test.txt", self.file_sha, self.unique_sha, self.ft)
         # Clear fileindex cache between tests
         from quickbbs.fileindex import fileindex_cache
+
         fileindex_cache.clear()
 
     def tearDown(self):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
         from quickbbs.fileindex import fileindex_cache
+
         fileindex_cache.clear()
 
     def test_get_by_unique_sha(self):
@@ -691,6 +705,7 @@ class TestGetBySha256(TestCase):
 # FileIndex.is_animated_gif — pure file I/O, uses verification_suite
 # ===========================================================================
 
+
 class TestIsAnimatedGif(TestCase):
     """Tests for FileIndex.is_animated_gif."""
 
@@ -712,16 +727,26 @@ class TestIsAnimatedGif(TestCase):
 # FileIndex properties — fqpndirectory and full_filepathname
 # ===========================================================================
 
+
 @pytest.mark.django_db
 class TestFileIndexProperties(TestCase):
     """Tests for FileIndex.fqpndirectory and full_filepathname properties."""
 
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp()
-        _, self.dir_obj = DirectoryIndex.add_directory(self.temp_dir + "/")
+        self.albums_dir = os.path.join(self.temp_dir, "albums")
+        os.makedirs(self.albums_dir, exist_ok=True)
+        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
+        self._settings_override.enable()
+        DirectoryIndex._albums_prefix = None
+        DirectoryIndex._albums_root = None
+        _, self.dir_obj = DirectoryIndex.add_directory(self.albums_dir + "/")
         self.ft = _get_ft(".txt")
 
     def tearDown(self):
+        self._settings_override.disable()
+        DirectoryIndex._albums_prefix = None
+        DirectoryIndex._albums_root = None
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_fqpndirectory_matches_directory(self):

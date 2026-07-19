@@ -28,7 +28,7 @@ import tempfile
 import pytest
 from django.db import connection
 from django.db.models.query import QuerySet
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
 from filetypes.models import filetypes
@@ -36,10 +36,10 @@ from quickbbs.directoryindex import DIRECTORYINDEX_SR_PARENT
 from quickbbs.fileindex import FILEINDEX_SR_FILETYPE
 from quickbbs.models import DirectoryIndex, FileIndex
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_fs_dirs(*paths: str) -> None:
     """Create filesystem directories so add_directory() succeeds."""
@@ -84,6 +84,7 @@ def _create_fileindex(directory: DirectoryIndex, name: str, file_sha: str, uniqu
 # 1. get_all_parent_shas tests
 # ===========================================================================
 
+
 @pytest.mark.django_db
 class TestGetAllParentShasCurrentImpl(TestCase):
     """
@@ -101,13 +102,20 @@ class TestGetAllParentShasCurrentImpl(TestCase):
         root/videos/
         root/videos/2024/
 
-    Parent FK links are wired manually (see _wire_parent) because the temp
-    dirs are outside ALBUMS_PATH and add_directory() won't auto-link them.
+    Parent FK links are wired explicitly (see _wire_parent) so the chain
+    under test is fully controlled by the test, independent of
+    add_directory()'s own linking.
     """
 
     def setUp(self):
+        # ALBUMS_PATH is overridden so add_directory (which rejects paths
+        # outside the albums root) accepts the temp hierarchy.
         self.temp_dir = tempfile.mkdtemp()
-        ap = self.temp_dir  # albums_path shorthand
+        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
+        self._settings_override.enable()
+        DirectoryIndex._albums_prefix = None
+        DirectoryIndex._albums_root = None
+        ap = os.path.join(self.temp_dir, "albums")  # albums_path shorthand
 
         # Create filesystem dirs first (add_directory checks they exist)
         _make_fs_dirs(
@@ -135,6 +143,9 @@ class TestGetAllParentShasCurrentImpl(TestCase):
         _wire_parent(self.videos_2024, self.videos)
 
     def tearDown(self):
+        self._settings_override.disable()
+        DirectoryIndex._albums_prefix = None
+        DirectoryIndex._albums_root = None
         if hasattr(self, "temp_dir") and os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
 
@@ -146,18 +157,14 @@ class TestGetAllParentShasCurrentImpl(TestCase):
 
     def test_root_returns_only_itself(self):
         """Root has no parent; result must be exactly {root_sha}."""
-        result = DirectoryIndex.get_all_parent_shas(
-            [self.root.dir_fqpn_sha256], DIRECTORYINDEX_SR_PARENT
-        )
+        result = DirectoryIndex.get_all_parent_shas([self.root.dir_fqpn_sha256], DIRECTORYINDEX_SR_PARENT)
         self.assertEqual(result, {self.root.dir_fqpn_sha256})
 
     def test_single_leaf_includes_full_chain(self):
         """
         photos/2024/january → should include itself + 2024 + photos + root.
         """
-        result = DirectoryIndex.get_all_parent_shas(
-            [self.photos_jan.dir_fqpn_sha256], DIRECTORYINDEX_SR_PARENT
-        )
+        result = DirectoryIndex.get_all_parent_shas([self.photos_jan.dir_fqpn_sha256], DIRECTORYINDEX_SR_PARENT)
         expected = {
             self.root.dir_fqpn_sha256,
             self.photos.dir_fqpn_sha256,
@@ -214,9 +221,7 @@ class TestGetAllParentShasCurrentImpl(TestCase):
 
     def test_mid_chain_returns_self_and_up(self):
         """photos/2024 (mid-chain) → itself + photos + root, NOT january."""
-        result = DirectoryIndex.get_all_parent_shas(
-            [self.photos_2024.dir_fqpn_sha256], DIRECTORYINDEX_SR_PARENT
-        )
+        result = DirectoryIndex.get_all_parent_shas([self.photos_2024.dir_fqpn_sha256], DIRECTORYINDEX_SR_PARENT)
         expected = {
             self.root.dir_fqpn_sha256,
             self.photos.dir_fqpn_sha256,
@@ -237,9 +242,7 @@ class TestGetAllParentShasCurrentImpl(TestCase):
         Update the assertion at that point.
         """
         with CaptureQueriesContext(connection) as ctx:
-            DirectoryIndex.get_all_parent_shas(
-                [self.photos_jan.dir_fqpn_sha256], DIRECTORYINDEX_SR_PARENT
-            )
+            DirectoryIndex.get_all_parent_shas([self.photos_jan.dir_fqpn_sha256], DIRECTORYINDEX_SR_PARENT)
         self.assertLessEqual(
             len(ctx.captured_queries),
             5,
@@ -250,6 +253,7 @@ class TestGetAllParentShasCurrentImpl(TestCase):
 # ===========================================================================
 # 2. files_in_dir tests
 # ===========================================================================
+
 
 @pytest.mark.django_db
 class TestFilesInDir(TestCase):
@@ -269,10 +273,17 @@ class TestFilesInDir(TestCase):
     """
 
     def setUp(self):
+        # ALBUMS_PATH is overridden so add_directory (which rejects paths
+        # outside the albums root) accepts the temp hierarchy.
         self.temp_dir = tempfile.mkdtemp()
-        _make_fs_dirs(self.temp_dir)
+        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
+        self._settings_override.enable()
+        DirectoryIndex._albums_prefix = None
+        DirectoryIndex._albums_root = None
+        albums_dir = os.path.join(self.temp_dir, "albums")
+        _make_fs_dirs(albums_dir)
 
-        _, self.directory = DirectoryIndex.add_directory(self.temp_dir + "/")
+        _, self.directory = DirectoryIndex.add_directory(albums_dir + "/")
 
         # Cache the filetype lookup — avoids 7 identical DB hits in setUp.
         self._ft_none = filetypes.objects.get(fileext=".none")
@@ -307,14 +318,13 @@ class TestFilesInDir(TestCase):
         self.dup2 = _create_fileindex(self.directory, "dup2.jpg", "d" * 64, "ud2" + "x" * 61, ft)
 
         # Separator-collation test files
-        self.sep_under = _create_fileindex(
-            self.directory, "photo_holiday.jpg", "e" * 64, "ue" * 32, ft
-        )
-        self.sep_dash = _create_fileindex(
-            self.directory, "photo-holiday.jpg", "f" * 64, "uf" * 32, ft
-        )
+        self.sep_under = _create_fileindex(self.directory, "photo_holiday.jpg", "e" * 64, "ue" * 32, ft)
+        self.sep_dash = _create_fileindex(self.directory, "photo-holiday.jpg", "f" * 64, "uf" * 32, ft)
 
     def tearDown(self):
+        self._settings_override.disable()
+        DirectoryIndex._albums_prefix = None
+        DirectoryIndex._albums_root = None
         if hasattr(self, "temp_dir") and os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
 
@@ -394,16 +404,10 @@ class TestFilesInDir(TestCase):
         }
 
         # distinct=False: queryset, filter to non-dup files only
-        qs_result = list(
-            self.directory.files_in_dir(sort=2, distinct=False, select_related=())
-            .filter(file_sha256__in=non_dup_shas)
-        )
+        qs_result = list(self.directory.files_in_dir(sort=2, distinct=False, select_related=()).filter(file_sha256__in=non_dup_shas))
 
         # distinct=True: list, filter to non-dup files only
-        distinct_result = [
-            f for f in self.directory.files_in_dir(sort=2, distinct=True, select_related=())
-            if f.file_sha256 in non_dup_shas
-        ]
+        distinct_result = [f for f in self.directory.files_in_dir(sort=2, distinct=True, select_related=()) if f.file_sha256 in non_dup_shas]
 
         qs_names = [f.name for f in qs_result]
         distinct_names = [f.name for f in distinct_result]
@@ -439,8 +443,7 @@ class TestFilesInDir(TestCase):
         self.assertLess(
             under_pos,
             dash_pos,
-            f"Expected 'photo_holiday.jpg' ({under_pos}) before "
-            f"'photo-holiday.jpg' ({dash_pos}) per PostgreSQL collation",
+            f"Expected 'photo_holiday.jpg' ({under_pos}) before " f"'photo-holiday.jpg' ({dash_pos}) per PostgreSQL collation",
         )
 
     def test_distinct_fields_only_reduces_fields(self):

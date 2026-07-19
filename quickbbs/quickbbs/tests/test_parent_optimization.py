@@ -1,13 +1,13 @@
 """Tests for Option 1 optimizations: parent SHA collection and cache invalidation."""
 
 import os
-import tempfile
 import shutil
-import pytest
-from django.test import TestCase
-from django.core.management import call_command
+import tempfile
 
-from cache_watcher.models import fs_Cache_Tracking
+import pytest
+from django.core.management import call_command
+from django.test import TestCase, override_settings
+
 from quickbbs.directoryindex import DIRECTORYINDEX_SR_PARENT
 from quickbbs.models import DirectoryIndex
 
@@ -18,9 +18,15 @@ class TestGetAllParentShas(TestCase):
 
     def setUp(self):
         """Create a test directory hierarchy."""
-        # Create temporary directory structure for testing
+        # Create temporary directory structure for testing.
+        # ALBUMS_PATH is overridden so add_directory (which rejects paths
+        # outside the albums root) accepts the temp hierarchy.
         self.temp_dir = tempfile.mkdtemp()
         self.albums_path = os.path.join(self.temp_dir, "albums")
+        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
+        self._settings_override.enable()
+        DirectoryIndex._albums_prefix = None
+        DirectoryIndex._albums_root = None
 
         # Create actual filesystem directories
         os.makedirs(os.path.join(self.albums_path, "photos", "2024", "january"), exist_ok=True)
@@ -42,6 +48,9 @@ class TestGetAllParentShas(TestCase):
 
     def tearDown(self):
         """Clean up temporary directories."""
+        self._settings_override.disable()
+        DirectoryIndex._albums_prefix = None
+        DirectoryIndex._albums_root = None
         if hasattr(self, "temp_dir") and os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
 
@@ -95,8 +104,8 @@ class TestGetAllParentShas(TestCase):
 
     def test_get_all_parent_shas_performance(self):
         """Test that it uses fewer queries than the old approach."""
-        from django.test.utils import CaptureQueriesContext
         from django.db import connection
+        from django.test.utils import CaptureQueriesContext
 
         input_shas = [
             self.dirs["photos_jan"].dir_fqpn_sha256,
@@ -138,9 +147,14 @@ class TestRemoveMultipleFromCacheOptimization(TestCase):
 
     def setUp(self):
         """Create test directory hierarchy and cache entries for each test."""
-        # Create temporary directory structure for testing
+        # Create temporary directory structure for testing (ALBUMS_PATH
+        # overridden — see TestGetAllParentShas.setUp).
         self.temp_dir = tempfile.mkdtemp()
         self.albums_path = os.path.join(self.temp_dir, "albums")
+        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
+        self._settings_override.enable()
+        DirectoryIndex._albums_prefix = None
+        DirectoryIndex._albums_root = None
 
         # Create actual filesystem directories
         os.makedirs(os.path.join(self.albums_path, "photos", "2024", "january"), exist_ok=True)
@@ -152,13 +166,15 @@ class TestRemoveMultipleFromCacheOptimization(TestCase):
         _, self.dirs["photos_2024"] = DirectoryIndex.add_directory(os.path.join(self.albums_path, "photos", "2024") + "/")
         _, self.dirs["photos_jan"] = DirectoryIndex.add_directory(os.path.join(self.albums_path, "photos", "2024", "january") + "/")
 
-        # Create cache entries for all directories
-        self.cache_storage = fs_Cache_Tracking()
+        # Mark all directories scanned (cache valid)
         for dir_obj in self.dirs.values():
-            self.cache_storage.add_from_indexdirs(dir_obj)
+            dir_obj.mark_scanned()
 
     def tearDown(self):
         """Clean up temporary directories after each test."""
+        self._settings_override.disable()
+        DirectoryIndex._albums_prefix = None
+        DirectoryIndex._albums_root = None
         if hasattr(self, "temp_dir") and os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
 
@@ -167,21 +183,17 @@ class TestRemoveMultipleFromCacheOptimization(TestCase):
         test_shas = {d.dir_fqpn_sha256 for d in self.dirs.values()}
 
         # Verify all cache entries for our test dirs start as valid
-        initial_count = fs_Cache_Tracking.objects.filter(
-            directory__dir_fqpn_sha256__in=test_shas, invalidated=False
-        ).count()
+        initial_count = DirectoryIndex.objects.filter(dir_fqpn_sha256__in=test_shas, cache_invalidated=False).count()
         assert initial_count == 4
 
         # Invalidate the leaf directory
-        result = self.cache_storage.remove_multiple_from_cache_indexdirs([self.dirs["photos_jan"]])
+        result = DirectoryIndex.invalidate_caches([self.dirs["photos_jan"]])
 
         assert result is True
 
         # Verify at least the target directory is invalidated (scoped to our test dirs)
-        invalidated_dirs = fs_Cache_Tracking.objects.filter(
-            directory__dir_fqpn_sha256__in=test_shas, invalidated=True
-        )
-        invalidated_shas = set(invalidated_dirs.values_list("directory__dir_fqpn_sha256", flat=True))
+        invalidated_dirs = DirectoryIndex.objects.filter(dir_fqpn_sha256__in=test_shas, cache_invalidated=True)
+        invalidated_shas = set(invalidated_dirs.values_list("dir_fqpn_sha256", flat=True))
 
         # Should at minimum invalidate the target directory
         assert self.dirs["photos_jan"].dir_fqpn_sha256 in invalidated_shas
@@ -193,14 +205,14 @@ class TestRemoveMultipleFromCacheOptimization(TestCase):
 
     def test_multiple_paths_optimization(self):
         """Test invalidating multiple paths with shared parents."""
-        from django.test.utils import CaptureQueriesContext
         from django.db import connection
+        from django.test.utils import CaptureQueriesContext
 
         # Create another branch (filesystem directory first)
         videos_path = os.path.join(self.albums_path, "videos")
         os.makedirs(videos_path, exist_ok=True)
         _, videos_dir = DirectoryIndex.add_directory(videos_path + "/")
-        self.cache_storage.add_from_indexdirs(videos_dir)
+        videos_dir.mark_scanned()
 
         # Invalidate both leaf directories
         dirs = [
@@ -209,7 +221,7 @@ class TestRemoveMultipleFromCacheOptimization(TestCase):
         ]
 
         with CaptureQueriesContext(connection) as context:
-            result = self.cache_storage.remove_multiple_from_cache_indexdirs(dirs)
+            result = DirectoryIndex.invalidate_caches(dirs)
 
         # Should be much less than old approach (would be 60+ for 2 deep paths)
         assert len(context.captured_queries) <= 30, f"Expected ≤30 queries, got {len(context.captured_queries)}"
@@ -218,9 +230,7 @@ class TestRemoveMultipleFromCacheOptimization(TestCase):
 
         # Verify all affected directories are invalidated (scoped to our test dirs)
         test_shas = {d.dir_fqpn_sha256 for d in self.dirs.values()} | {videos_dir.dir_fqpn_sha256}
-        invalidated_count = fs_Cache_Tracking.objects.filter(
-            directory__dir_fqpn_sha256__in=test_shas, invalidated=True
-        ).count()
+        invalidated_count = DirectoryIndex.objects.filter(dir_fqpn_sha256__in=test_shas, cache_invalidated=True).count()
         assert invalidated_count >= 2  # At minimum the two specified paths
 
     def test_sha_computation_not_duplicated(self):
@@ -228,16 +238,14 @@ class TestRemoveMultipleFromCacheOptimization(TestCase):
         dirs = [self.dirs["photos_jan"]] * 3  # Duplicate dirs
 
         # The optimization should deduplicate before processing
-        result = self.cache_storage.remove_multiple_from_cache_indexdirs(dirs)
+        result = DirectoryIndex.invalidate_caches(dirs)
 
         assert result is True
 
         # Should only process unique paths once (not 3x)
         # At minimum invalidates the target directory (scoped to our test dirs)
         test_shas = {d.dir_fqpn_sha256 for d in self.dirs.values()}
-        invalidated_count = fs_Cache_Tracking.objects.filter(
-            directory__dir_fqpn_sha256__in=test_shas, invalidated=True
-        ).count()
+        invalidated_count = DirectoryIndex.objects.filter(dir_fqpn_sha256__in=test_shas, cache_invalidated=True).count()
 
         # Should be 1-4 depending on parent links, but definitely not 3-12 (3x the paths)
         assert invalidated_count >= 1
@@ -250,39 +258,40 @@ class TestOptimizationEdgeCases(TestCase):
 
     def test_nonexistent_directory(self):
         """Test handling of empty/invalid directory lists."""
-        cache_storage = fs_Cache_Tracking()
-
         # Try to invalidate with empty list
-        result = cache_storage.remove_multiple_from_cache_indexdirs([])
+        result = DirectoryIndex.invalidate_caches([])
 
         # Should handle gracefully - returns False for empty list
         assert result is False
 
     def test_empty_input(self):
         """Test with empty input list."""
-        cache_storage = fs_Cache_Tracking()
-        result = cache_storage.remove_multiple_from_cache_indexdirs([])
+        result = DirectoryIndex.invalidate_caches([])
         assert result is False
 
     def test_circular_reference_protection(self):
         """Test that circular references don't cause infinite loops."""
         # The max_iterations limit should prevent issues
         # This is a safety test
-        cache_storage = fs_Cache_Tracking()
-
-        # Create a test directory
+        # Create a test directory under a temp albums root (add_directory
+        # rejects paths outside the albums root)
         temp_dir = tempfile.mkdtemp()
-        test_path = os.path.join(temp_dir, "test")
+        test_path = os.path.join(temp_dir, "albums", "test")
         os.makedirs(test_path, exist_ok=True)
 
         try:
-            # Create DirectoryIndex for the test path
-            _, test_dir = DirectoryIndex.add_directory(test_path + "/")
+            with override_settings(ALBUMS_PATH=temp_dir):
+                DirectoryIndex._albums_prefix = None
+                DirectoryIndex._albums_root = None
+                # Create DirectoryIndex for the test path
+                _, test_dir = DirectoryIndex.add_directory(test_path + "/")
 
-            # Even if there was a circular reference, should complete
-            result = cache_storage.remove_multiple_from_cache_indexdirs([test_dir])
+                # Even if there was a circular reference, should complete
+                result = DirectoryIndex.invalidate_caches([test_dir])
 
-            # Should not hang or error
-            assert isinstance(result, bool)
+                # Should not hang or error
+                assert isinstance(result, bool)
         finally:
+            DirectoryIndex._albums_prefix = None
+            DirectoryIndex._albums_root = None
             shutil.rmtree(temp_dir)

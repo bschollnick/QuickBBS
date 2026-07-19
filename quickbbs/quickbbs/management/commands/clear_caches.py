@@ -9,15 +9,15 @@ Usage:
 
 from __future__ import annotations
 
-import importlib
-
 from cachetools import LRUCache
 from django.core.management.base import BaseCommand
+
+from quickbbs.cache_registry import resolve_monitored_caches
 
 
 def _load_all_caches() -> list[tuple[str, LRUCache | Exception]]:
     """
-    Load all caches registered in tasks._MONITORED_CACHE_LOCATIONS.
+    Load all caches registered in the cache registry.
 
     Returns:
         List of (label, value) tuples for every registered location. `value`
@@ -25,25 +25,7 @@ def _load_all_caches() -> list[tuple[str, LRUCache | Exception]]:
         ImportError/AttributeError when it could not (callers check
         isinstance(value, Exception) to distinguish the two).
     """
-    from quickbbs.tasks import (
-        _MONITORED_CACHE_LOCATIONS,  # pylint: disable=import-outside-toplevel
-    )
-
-    results: list[tuple[str, LRUCache | Exception]] = []
-    for module_path, attr_name, class_name in _MONITORED_CACHE_LOCATIONS:
-        label = f"{module_path}.{attr_name}"
-        try:
-            module = importlib.import_module(module_path)
-            if class_name is not None:
-                owner = getattr(module, class_name)
-                cache = getattr(owner, attr_name)
-            else:
-                cache = getattr(module, attr_name)
-            if isinstance(cache, LRUCache):
-                results.append((label, cache))
-        except (ImportError, AttributeError) as exc:
-            results.append((label, exc))
-    return results
+    return [(label, cache) for label, cache in resolve_monitored_caches() if isinstance(cache, (LRUCache, Exception))]
 
 
 class Command(BaseCommand):

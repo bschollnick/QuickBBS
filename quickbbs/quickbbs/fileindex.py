@@ -278,7 +278,7 @@ class FileIndex(models.Model):
         return FileIndex.objects.filter(file_sha256=sha).count()
 
     @staticmethod
-    def return_list_all_identical_files_by_sha(sha: str) -> "QuerySet[FileIndex]":
+    def return_list_all_identical_files_by_sha(sha: str) -> "QuerySet[FileIndex, dict[str, Any]]":
         """
         Return a query of all duplicate files based on file SHA256 hash.
 
@@ -307,10 +307,12 @@ class FileIndex(models.Model):
             .exclude(dupe_count__lt=2)
             .order_by("-dupe_count")
         )
-        return dupes
+        # cast: django-stubs infers an exact TypedDict row type for
+        # .values()/.annotate() which does not unify with dict[str, Any].
+        return cast("QuerySet[FileIndex, dict[str, Any]]", dupes)
 
     @staticmethod
-    def get_identical_file_entries_by_sha(sha: str) -> "QuerySet[dict[str, Any]]":
+    def get_identical_file_entries_by_sha(sha: str) -> "QuerySet[FileIndex, dict[str, Any]]":
         """
         Get file entries for identical files based on SHA256 hash
 
@@ -323,7 +325,12 @@ class FileIndex(models.Model):
             QuerySet with dictionary-like data containing only name and directory
             fields using .values() for identical files
         """
-        return FileIndex.objects.values("name", "home_directory__fqpndirectory").filter(file_sha256=sha)
+        # cast: django-stubs infers an exact TypedDict row type for .values()
+        # which does not unify with dict[str, Any].
+        return cast(
+            "QuerySet[FileIndex, dict[str, Any]]",
+            FileIndex.objects.values("name", "home_directory__fqpndirectory").filter(file_sha256=sha),
+        )
 
     @staticmethod
     def return_by_sha256_list(sha256_list: list[str], sort: int, select_related: list[str]) -> "QuerySet[FileIndex]":
@@ -705,7 +712,10 @@ class FileIndex(models.Model):
                         if has_link_with_vdir:
                             update_fields.append("virtual_directory")
 
-                        cls.objects.bulk_update(
+                        # FileIndex.objects (not cls.objects): chunk is typed
+                        # list[FileIndex], which does not satisfy the manager's
+                        # Iterable[Self] under a subclass-bound cls.
+                        FileIndex.objects.bulk_update(
                             chunk,
                             fields=update_fields,
                             batch_size=bulk_size,
@@ -720,7 +730,8 @@ class FileIndex(models.Model):
                 for i in range(0, len(records_to_create), bulk_size):
                     chunk = records_to_create[i : i + bulk_size]
                     with transaction.atomic():
-                        cls.objects.bulk_create(
+                        # FileIndex.objects (not cls.objects): see bulk_update note above.
+                        FileIndex.objects.bulk_create(
                             chunk,
                             batch_size=bulk_size,
                             ignore_conflicts=True,  # Handle duplicates gracefully
@@ -1137,6 +1148,13 @@ class FileIndex(models.Model):
         When precomputed_sha is provided, skips individual SHA256 calculation.
         Accepts pre-computed fs_stat to avoid redundant filesystem syscalls.
 
+        Known Oversight (SHA staleness):
+        The SHA is only computed when the record has none. If a file's content
+        changes, lastmod/size are refreshed but file_sha256/unique_sha256 keep
+        their original values, so SHA-keyed features (thumbnails, duplicate
+        detection) will not notice edited files. Pinned by
+        test_sync.py::test_modified_file_updated_in_place.
+
         Args:
             fs_entry: Path object for filesystem entry (DirEntry with cached stat).
             home_directory: DirectoryIndex object for the parent directory.
@@ -1184,6 +1202,16 @@ class FileIndex(models.Model):
                 # Use precomputed hash if available, otherwise calculate.
                 # A failed batch hash arrives as (None, None) — treat it the same
                 # as "no precomputed value" so we don't flag a no-op update.
+                #
+                # TODO: Investigate recomputing the SHA when lastmod/size
+                # change (see "Known Oversight" in the docstring). The SHA is
+                # only computed when the record has none — a content change
+                # refreshes lastmod/size below but keeps the stale
+                # file_sha256/unique_sha256, so SHA-keyed features
+                # (thumbnails, duplicate detection) will not notice edited
+                # files. Pinned by
+                # test_sync.py::test_modified_file_updated_in_place — update
+                # that test when this is fixed.
                 if not self.file_sha256:
                     if precomputed_sha and precomputed_sha[0]:
                         self.file_sha256, self.unique_sha256 = precomputed_sha

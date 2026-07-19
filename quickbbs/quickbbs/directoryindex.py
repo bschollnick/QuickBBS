@@ -670,8 +670,15 @@ class DirectoryIndex(models.Model):
         """
         Delete the Directory_Index record and ensure cache cleanup.
 
-        Optimized version that accepts an DirectoryIndex record directly,
+        Optimized version that accepts a DirectoryIndex record directly,
         avoiding redundant database lookups.
+
+        FileIndex records are NOT deleted with the directory: home_directory
+        uses on_delete=SET_NULL, so the directory's files survive as orphans
+        (home_directory=None). This is intentional — files can be referenced
+        from multiple directories, so orphans are a legitimate state. Orphaned
+        rows are cleaned up later via the OrphanedFileIndex path in
+        ThumbnailFiles.get_or_create_thumbnail_record().
 
         Args:
             index_dir: DirectoryIndex instance to delete
@@ -693,8 +700,14 @@ class DirectoryIndex(models.Model):
     @staticmethod
     def delete_directory(fqpn_directory: str, cache_only: bool = False) -> None:
         """
-        Delete the Directory_Index data for the fqpn_directory, and ensure that all
-        FileIndex records are wiped as well.
+        Delete the Directory_Index data for the fqpn_directory.
+
+        FileIndex records are NOT deleted with the directory: home_directory
+        uses on_delete=SET_NULL, so the directory's files survive as orphans
+        (home_directory=None). This is intentional — files can be referenced
+        from multiple directories, so orphans are a legitimate state. Orphaned
+        rows are cleaned up later via the OrphanedFileIndex path in
+        ThumbnailFiles.get_or_create_thumbnail_record().
 
         Args:
             fqpn_directory: text string of fully qualified pathname of the directory

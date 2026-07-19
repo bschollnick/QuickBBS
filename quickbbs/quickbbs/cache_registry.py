@@ -11,6 +11,10 @@ creating circular dependency chains.
 
 from __future__ import annotations
 
+import importlib
+from collections.abc import Set as AbstractSet
+
+from cachetools import LRUCache
 from cachetools.keys import hashkey
 from django.conf import settings
 
@@ -66,11 +70,66 @@ sibling_dirs_cache = create_cache(
 
 
 # ---------------------------------------------------------------------------
+# Cache registry (for stats snapshots, bulk clearing, and cross-process
+# invalidation signaling)
+# ---------------------------------------------------------------------------
+
+# All LRU/TTL caches across the codebase, resolved lazily at call time to
+# avoid circular imports at module load. Each entry is a
+# (module_path, attr_name, class_name) tuple. class_name is None for
+# module-level variables; for class attributes set it to the class name string.
+_MONITORED_CACHE_LOCATIONS: list[tuple[str, str, str | None]] = [
+    ("quickbbs.cache_registry", "distinct_files_cache", None),
+    ("quickbbs.cache_registry", "all_files_shas_cache", None),
+    ("quickbbs.cache_registry", "layout_manager_cache", None),
+    ("quickbbs.cache_registry", "dir_counts_cache", None),
+    ("quickbbs.cache_registry", "sibling_dirs_cache", None),
+    ("quickbbs.directoryindex", "directoryindex_cache", None),
+    ("quickbbs.directoryindex", "get_view_url_cache", None),
+    ("quickbbs.fileindex", "fileindex_cache", None),
+    ("quickbbs.fileindex", "fileindex_download_cache", None),
+    ("frontend.utilities", "webpaths_cache", None),
+    ("frontend.utilities", "breadcrumbs_cache", None),
+    ("quickbbs.common", "normalized_strings_cache", None),
+    ("quickbbs.common", "directory_sha_cache", None),
+    ("quickbbs.common", "normalized_paths_cache", None),
+    ("quickbbs.fileindex", "_encoding_cache", "FileIndex"),
+    ("quickbbs.fileindex", "_alias_cache", "FileIndex"),
+]
+
+
+def resolve_monitored_caches() -> list[tuple[str, LRUCache | Exception]]:
+    """
+    Resolve every cache registered in _MONITORED_CACHE_LOCATIONS.
+
+    Imports each module at call time to avoid circular-import issues at
+    module load. For class-level caches, class_name is used to look up the
+    cache via getattr(getattr(module, class_name), attr_name).
+
+    Returns:
+        List of (label, cache) tuples for resolvable entries, or
+        (label, exception) when the module/attribute could not be loaded.
+        Callers filter by isinstance() for the cache type they need.
+    """
+    results: list[tuple[str, LRUCache | Exception]] = []
+    for module_path, attr_name, class_name in _MONITORED_CACHE_LOCATIONS:
+        label = f"{module_path}.{attr_name}"
+        try:
+            module = importlib.import_module(module_path)
+            owner = getattr(module, class_name) if class_name is not None else module
+            cache = getattr(owner, attr_name)
+            results.append((label, cache))
+        except (ImportError, AttributeError) as exc:
+            results.append((label, exc))
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Cache invalidation
 # ---------------------------------------------------------------------------
 
 
-def clear_layout_cache_for_directories(directory_ids: set[int]) -> int:
+def clear_layout_cache_for_directories(directory_ids: AbstractSet[int | None]) -> int:
     """
     Clear layout_manager_cache, distinct_files_cache, all_files_shas_cache,
     dir_counts_cache, and sibling_dirs_cache entries for one or more
@@ -81,11 +140,13 @@ def clear_layout_cache_for_directories(directory_ids: set[int]) -> int:
     - Management commands after file membership changes (add/delete/move)
 
     Args:
-        directory_ids: Set of directory PKs to clear cache for
+        directory_ids: Set of directory PKs to clear cache for. None values
+            (e.g. from orphaned FileIndex.home_directory) are ignored.
 
     Returns:
         Number of cache entries cleared (combined from all caches)
     """
+    directory_ids = {pk for pk in directory_ids if pk is not None}
     if not directory_ids:
         return 0
 

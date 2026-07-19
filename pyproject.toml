@@ -66,6 +66,33 @@ django-debug-toolbar = "^6.0.0"
 mypy = "^2.0.0"
 django-extensions = "^4.1"
 zensical = "^0.0.37"
+pytest-cov = "^7.1.0"
+
+[tool.coverage.run]
+omit = [
+    "*/migrations/*",
+    "*/benchmarks/*",
+    "*/tests/*",
+    "*/tests.py",
+    "*/SCRIPT_*.py",
+    "quickbbs/conftest.py",
+    "quickbbs/manage.py",
+    "quickbbs/wsgi.py",
+    "quickbbs/quickbbs/wsgi.py",
+    "quickbbs/quickbbs/asgi.py",
+    "quickbbs/quickbbs/settings.py",
+    "quickbbs/quickbbs/quickbbs_settings.py",
+    "quickbbs/quickbbs/secrets.py",
+    "quickbbs/quickbbs/3rd_party_libraries.py",
+    "quickbbs/check_all_file_names.py",
+    "quickbbs/check_sha.py",
+    "quickbbs/conversions.py",
+    "quickbbs/diagnose_sync_issue.py",
+    "quickbbs/find_empty_dirs.py",
+    "quickbbs/instagram_downloader.py",
+    "quickbbs/frontend/file_mover_colors3.py",
+    "quickbbs/frontend/organize_by_person_name.py",
+]
 
 [tool.isort]
 profile = "black"
@@ -81,7 +108,6 @@ django-htmx = "^1.21.0"
 humanize = "^4.11.0"
 django-jinja = "^2.11.0"
 django-grappelli = "^5.0.0"
-djangorestframework = "^3.15.2"
 django-filter = "^25.1"
 django-allauth = "^65.2.0"
 watchdog = "^6.0.0"

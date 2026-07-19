@@ -15,7 +15,10 @@ from django.db import connection
 from django.tasks import TaskResultStatus, task
 from django.utils import timezone
 
-from quickbbs.cache_registry import clear_layout_cache_for_directories
+from quickbbs.cache_registry import (
+    clear_layout_cache_for_directories,
+    resolve_monitored_caches,
+)
 from quickbbs.MonitoredCache import MonitoredLRUCache
 from thumbnails.exceptions import OrphanedFileIndex, OrphanedThumbnail
 from thumbnails.models import THUMBNAILFILES_PR_FILEINDEX_FILETYPE, ThumbnailFiles
@@ -23,69 +26,26 @@ from thumbnails.thumbnail_engine import resolve_backend_name
 
 logger = logging.getLogger(__name__)
 
-# All MonitoredLRUCache instances across the codebase, imported lazily at call
-# time to avoid circular imports at module load. Each entry is a
-# (module_path, variable_name, class_name) tuple. class_name is None for
-# module-level variables; for class attributes set it to the class name string.
-_MONITORED_CACHE_LOCATIONS: list[tuple[str, str, str | None]] = [
-    ("quickbbs.cache_registry", "distinct_files_cache", None),
-    ("quickbbs.cache_registry", "all_files_shas_cache", None),
-    ("quickbbs.cache_registry", "layout_manager_cache", None),
-    ("quickbbs.cache_registry", "dir_counts_cache", None),
-    ("quickbbs.cache_registry", "sibling_dirs_cache", None),
-    ("quickbbs.directoryindex", "directoryindex_cache", None),
-    ("quickbbs.directoryindex", "get_view_url_cache", None),
-    ("quickbbs.fileindex", "fileindex_cache", None),
-    ("quickbbs.fileindex", "fileindex_download_cache", None),
-    ("frontend.utilities", "webpaths_cache", None),
-    ("frontend.utilities", "breadcrumbs_cache", None),
-    ("quickbbs.common", "normalized_strings_cache", None),
-    ("quickbbs.common", "directory_sha_cache", None),
-    ("quickbbs.common", "normalized_paths_cache", None),
-    ("quickbbs.fileindex", "_encoding_cache", "FileIndex"),
-    ("quickbbs.fileindex", "_alias_cache", "FileIndex"),
-]
-
 
 def _collect_monitored_caches() -> list[MonitoredLRUCache]:
     """
-    Return all MonitoredLRUCache instances registered in _MONITORED_CACHE_LOCATIONS.
+    Return all MonitoredLRUCache instances registered in the cache registry.
 
-    Imports each module at call time to avoid circular-import issues at module
-    load. Silently skips any cache that is not a MonitoredLRUCache (i.e. when
-    CACHE_MONITORING is False and create_cache() returned a plain LRUCache).
-    For class-level caches, the class_name field in the tuple is used to look
-    up the cache via ``getattr(getattr(module, class_name), attr_name)``.
+    Silently skips any cache that is not a MonitoredLRUCache (i.e. when
+    CACHE_MONITORING is False and create_cache() returned a plain LRUCache)
+    and logs any entry that failed to resolve.
 
     Returns:
         List of MonitoredLRUCache instances ready for stat collection.
     """
-    import importlib  # pylint: disable=import-outside-toplevel
-
     caches: list[MonitoredLRUCache] = []
-    for module_path, attr_name, class_name in _MONITORED_CACHE_LOCATIONS:
-        try:
-            module = importlib.import_module(module_path)
-            if class_name is not None:
-                owner = getattr(module, class_name)
-                cache = getattr(owner, attr_name)
-            else:
-                cache = getattr(module, attr_name)
-            if isinstance(cache, MonitoredLRUCache):
-                caches.append(cache)
-            else:
-                logger.debug(
-                    "Cache %s.%s is not monitored — skipping snapshot",
-                    module_path,
-                    attr_name,
-                )
-        except (ImportError, AttributeError) as exc:
-            logger.warning(
-                "Could not load cache %s.%s: %s",
-                module_path,
-                attr_name,
-                exc,
-            )
+    for label, cache in resolve_monitored_caches():
+        if isinstance(cache, MonitoredLRUCache):
+            caches.append(cache)
+        elif isinstance(cache, Exception):
+            logger.warning("Could not load cache %s: %s", label, cache)
+        else:
+            logger.debug("Cache %s is not monitored — skipping snapshot", label)
     return caches
 
 

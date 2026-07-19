@@ -29,7 +29,7 @@ from quickbbs.quickbbs_settings import *  # pylint: disable=wildcard-import,unus
 #   Debug, enables the debugging mode
 #
 DEBUG = False
-# DEBUG = not DEBUG
+# DEBUG = True
 print(f"* Debug Mode is {DEBUG}")
 
 #   Django Debug Toolbar, is controlled separately from the debug mode,
@@ -118,13 +118,9 @@ def configure_pil() -> None:
 
 SECURE_SSL_REDIRECT = True
 
-# Demo mode, redirects the database to a different database container, and album path.
-# Useful for demonstrating the software without using your master database.
-#
-ALBUMS_PATH = "/Volumes/Support-8TB/Gallery/quickbbs".lower()
-
+# ALBUMS_PATH is imported from quickbbs_settings.py via the wildcard import above.
 AUTORELOAD_IGNORE_PATHS = [
-    os.path.join(ALBUMS_PATH, "albums"),
+    os.path.join(ALBUMS_PATH, "Albums"),
 ]
 # Add other paths as needed
 
@@ -146,10 +142,9 @@ except ImportError as e:
     raise ImportError("secrets.py not found. Copy secrets.py.example to secrets.py and configure with your credentials.") from e
 
 # ALLOWED_HOSTS is imported from secrets.py
-# Example: ["nerv.local", "localhost", "127.0.0.1", "192.168.1.67"]
 
 # INTERNAL_IPS is imported from secrets.py
-# Example: ["localhost", "127.0.0.1", "nerv.local", "192.168.1.67"]
+
 machine_name = socket.gethostname().lower()
 print(f"* Running on {machine_name}")
 
@@ -195,27 +190,14 @@ CACHES.update(
 
 TEMPLATE_PATH = BASE_DIR / "templates"
 
-# MEDIA_ROOT = os.sep.join((str(BASE_DIR).split(os.sep)[0:-1]))
 MEDIA_ROOT = BASE_DIR.resolve().parent
-# MEDIA_ROOT =
-
-
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/1.9/howto/deployment/checklist/
 
 # SECRET_KEY is imported from secrets.py
 # SECURITY WARNING: keep the secret key used in production secret!
 # Generate a new key with: python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
 
-# SECURITY WARNING: don't run with debug turned on in production!
-
-# session_cookie_expiration = 43200
-# session_logout_timeout = 43200
-
 
 # Application definition
-STATIC_URL = "/static/"
-
 INSTALLED_APPS = []
 INSTALLED_APPS += [
     "grappelli",
@@ -226,7 +208,6 @@ INSTALLED_APPS += [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.postgres",  # GinIndex/TrigramExtension for search trigram indexes
-    "rest_framework",
     "django.contrib.sites",
     "django_jinja",
 ]
@@ -368,12 +349,6 @@ TEMPLATES = [
             },
             "constants": {
                 "app_version": QUICKBBS_VERSION,
-                # "bulma_uri": BULMA_URI,
-                # "fontawesome_uri": FONTAWESOME_URI,
-                # "fontawesome_script_uri": FONTAWESOME_SCRIPT_URI,
-                # "jquery_uri": JQUERY_URI,
-                # "pdf_js_viewer_uri": PDF_JS_VIEWER_URI,
-                # "django_htmx_uri": DJANGO_HTMX_URI,
             },
             "bytecode_cache": {
                 "name": "default",
@@ -444,8 +419,9 @@ AUTH_PASSWORD_VALIDATORS = [
 
 # Internationalization
 LANGUAGE_CODE = "en-us"
+TIME_ZONE = "America/New_York"
 USE_I18N = True
-# USE_TZ = True
+USE_TZ = True
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/1.9/howto/static-files/
@@ -462,9 +438,7 @@ STATIC_ROOT = os.path.join(BASE_DIR, "static")
 # collectstatic now only collects app assets (admin, grappelli, etc.).
 STATICFILES_DIRS: list[str] = []
 
-# STATICFILES_STORAGE = "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"
-# Using default StaticFilesStorage to avoid manifest issues
-# STATICFILES_STORAGE = "django.contrib.staticfiles.storage.StaticFilesStorage"
+# Using default StaticFilesStorage (ManifestStaticFilesStorage caused manifest issues)
 
 ACCOUNT_AUTHENTICATED_LOGIN_REDIRECTS = True
 ACCOUNT_LOGOUT_REDIRECT_URL = "/albums"

@@ -27,14 +27,13 @@ import tempfile
 import pytest
 from django.test import TestCase, override_settings
 
+from quickbbs.common import get_dir_sha, normalize_fqpn
 from quickbbs.directoryindex import (
     DIRECTORYINDEX_SR_FILETYPE_THUMB,
     DIRECTORYINDEX_SR_FILETYPE_THUMB_PARENT,
     DIRECTORYINDEX_SR_PARENT,
     DirectoryIndex,
 )
-from quickbbs.common import get_dir_sha, normalize_fqpn
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -100,10 +99,10 @@ class DirectoryIndexTestBase(TestCase):
 class TestAddDirectory(DirectoryIndexTestBase):
     """Tests for DirectoryIndex.add_directory()."""
 
-    def test_add_new_directory_returns_false_created(self) -> None:
-        """add_directory returns (False, record) for a brand-new directory."""
+    def test_add_new_directory_returns_true_created(self) -> None:
+        """add_directory returns (True, record) for a brand-new directory."""
         found, record = self._add("albums")
-        assert found is False
+        assert found is True
         assert record is not None
         assert record.pk is not None
 
@@ -150,6 +149,59 @@ class TestAddDirectory(DirectoryIndexTestBase):
         path = os.path.join(self.temp_dir, "albums")
         stat_mtime = os.stat(path).st_mtime
         assert record.lastmod == stat_mtime
+
+
+# ===========================================================================
+# Albums-root boundary enforcement
+# ===========================================================================
+
+
+@pytest.mark.django_db
+class TestAlbumsRootEnforcement(DirectoryIndexTestBase):
+    """Out-of-tree paths must never enter DirectoryIndex (see albums_root_enforcement plan)."""
+
+    def _make_out_of_tree(self) -> str:
+        """Create a real directory outside the albums root; return its path."""
+        outside = os.path.join(self.temp_dir, "masters", "videos", "stuff")
+        os.makedirs(outside, exist_ok=True)
+        return outside + os.sep
+
+    def test_add_directory_rejects_out_of_tree_path(self) -> None:
+        """add_directory returns (False, None) for an existing path outside albums."""
+        outside = self._make_out_of_tree()
+        found, record = DirectoryIndex.add_directory(outside)
+        assert found is False
+        assert record is None
+        assert not DirectoryIndex.objects.filter(fqpndirectory=normalize_fqpn(outside)).exists()
+
+    def test_update_database_from_disk_refuses_out_of_tree_record(self) -> None:
+        """A legacy out-of-tree record is not synced (no children created)."""
+        from quickbbs.directoryindex import update_database_from_disk
+
+        outside = self._make_out_of_tree()
+        os.makedirs(os.path.join(outside, "child"), exist_ok=True)
+        # Simulate a legacy row via direct ORM create — add_directory refuses.
+        stale_path = normalize_fqpn(outside)
+        stale = DirectoryIndex.objects.create(
+            fqpndirectory=stale_path,
+            dir_fqpn_sha256=get_dir_sha(stale_path),
+            lastscan=0,
+            lastmod=0,
+        )
+
+        result = update_database_from_disk(stale)
+
+        assert result is None
+        child_path = normalize_fqpn(os.path.join(outside, "child"))
+        assert not DirectoryIndex.objects.filter(fqpndirectory=child_path).exists()
+
+    def test_find_directory_rejects_escaped_path(self) -> None:
+        """_find_directory raises DirectoryInvalidError for a path outside albums."""
+        from frontend.views import DirectoryInvalidError, _find_directory
+
+        outside = self._make_out_of_tree()
+        with pytest.raises(DirectoryInvalidError):
+            _find_directory({"album_viewing": outside})
 
 
 # ===========================================================================
@@ -231,8 +283,8 @@ class TestDirectoryIndexProperties(DirectoryIndexTestBase):
         """numfiles property returns None (template compat stub)."""
         assert self.dir_obj.numfiles is None
 
-    def test_is_cached_false_without_cache_entry(self) -> None:
-        """is_cached returns False when no fs_Cache_Tracking entry exists."""
+    def test_is_cached_false_for_fresh_row(self) -> None:
+        """is_cached returns False for a freshly created row (default cache_invalidated=True)."""
         assert self.dir_obj.is_cached is False
 
 
@@ -372,19 +424,37 @@ class TestGetAllParentShas(DirectoryIndexTestBase):
 
 
 # ===========================================================================
-# Verification suite fixtures — real indexed data under ALBUMS_PATH/albums/
+# Verification suite fixtures — self-contained tree under ALBUMS_PATH/albums/
 # ===========================================================================
 
-# These PKs and SHAs come from the live verification_suite data already indexed
-# in the database. verification_suite/ has exactly 3 subdirectories.
-VSUIT_PK = 131119
-VSUIT_SHA = "3c6aeeebbb0873d83ce5920d9a17983c674fbb7678969517595133d0d9647c59"
-VSUIT_CHILD_PKS = (131120, 131121, 131122)  # benchtests, numbersign_testing # copy, numbersign_testing
-VSUIT_CHILD_SHAS = (
-    "2e8d85fa537e1f9e0a83fc45b77b9b803591e939ae0894f491bf46694ce139f0",
-    "c676433d976bcdbff77e08b394de23ee78e1903f40095dd87c2af93da657811f",
-    "58d8ddd1480744f8a4cc7f17fcf5c649c835a5644816b070642e630d95571e66",
-)
+
+class VerificationSuiteTestBase(DirectoryIndexTestBase):
+    """Builds a "verification_suite" directory with exactly 3 subdirectories.
+
+    Replaces the old approach of depending on hardcoded PKs/SHAs from a
+    developer's live database (see git history) — those rows are not
+    guaranteed to exist in a fresh/CI database. This base class creates the
+    tree itself via add_directory(), matching DirectoryIndexTestBase.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        _make_dirs(
+            self.temp_dir,
+            "albums/verification_suite",
+            "albums/verification_suite/benchtests",
+            "albums/verification_suite/numbersign_testing_copy",
+            "albums/verification_suite/numbersign_testing",
+        )
+        _, self.vsuit_parent = self._add("albums/verification_suite")
+        _, self.vsuit_child_benchtests = self._add("albums/verification_suite/benchtests")
+        _, self.vsuit_child_copy = self._add("albums/verification_suite/numbersign_testing_copy")
+        _, self.vsuit_child_testing = self._add("albums/verification_suite/numbersign_testing")
+        self.vsuit_children = [
+            self.vsuit_child_benchtests,
+            self.vsuit_child_copy,
+            self.vsuit_child_testing,
+        ]
 
 
 # ===========================================================================
@@ -393,16 +463,17 @@ VSUIT_CHILD_SHAS = (
 
 
 @pytest.mark.django_db
-class TestFileDirCounts(TestCase):
+class TestFileDirCounts(VerificationSuiteTestBase):
     """Tests for count and existence methods on DirectoryIndex.
 
-    Uses the real verification_suite directory which has 3 known subdirectories
-    and no FileIndex entries (unscanned).
+    Uses the verification_suite fixture directory which has 3 known
+    subdirectories and no FileIndex entries (unscanned).
     """
 
     def setUp(self) -> None:
-        self.parent = DirectoryIndex.objects.get(pk=VSUIT_PK)
-        self.child = DirectoryIndex.objects.get(pk=VSUIT_CHILD_PKS[0])  # benchtests (leaf)
+        super().setUp()
+        self.parent = self.vsuit_parent
+        self.child = self.vsuit_child_benchtests  # leaf
 
     def test_get_file_counts_empty_directory(self) -> None:
         """get_file_counts returns 0 for a directory with no FileIndex entries."""
@@ -445,15 +516,16 @@ class TestFileDirCounts(TestCase):
 
 
 @pytest.mark.django_db
-class TestDirsInDir(TestCase):
+class TestDirsInDir(VerificationSuiteTestBase):
     """Tests for DirectoryIndex.dirs_in_dir().
 
-    Uses real verification_suite data: parent pk=131119, 3 known children.
+    Uses the verification_suite fixture: parent with 3 known children.
     """
 
     def setUp(self) -> None:
-        self.parent = DirectoryIndex.objects.get(pk=VSUIT_PK)
-        self.child_pks = list(VSUIT_CHILD_PKS)
+        super().setUp()
+        self.parent = self.vsuit_parent
+        self.child_pks = [child.pk for child in self.vsuit_children]
 
     def test_dirs_in_dir_returns_children(self) -> None:
         """dirs_in_dir returns all 3 known child directories."""
@@ -508,17 +580,20 @@ class TestDirsInDir(TestCase):
 
 
 @pytest.mark.django_db
-class TestReturnBySha256List(TestCase):
+class TestReturnBySha256List(VerificationSuiteTestBase):
     """Tests for DirectoryIndex.return_by_sha256_list().
 
-    Uses real verification_suite SHAs already in the database.
+    Uses SHAs from the verification_suite fixture directory tree.
     """
 
     def setUp(self) -> None:
-        self.sha1 = VSUIT_SHA
-        self.sha2 = VSUIT_CHILD_SHAS[0]
-        self.pk1 = VSUIT_PK
-        self.pk2 = VSUIT_CHILD_PKS[0]
+        super().setUp()
+        assert self.vsuit_parent.dir_fqpn_sha256 is not None
+        assert self.vsuit_child_benchtests.dir_fqpn_sha256 is not None
+        self.sha1: str = self.vsuit_parent.dir_fqpn_sha256
+        self.sha2: str = self.vsuit_child_benchtests.dir_fqpn_sha256
+        self.pk1 = self.vsuit_parent.pk
+        self.pk2 = self.vsuit_child_benchtests.pk
 
     def test_returns_matching_directories(self) -> None:
         """return_by_sha256_list returns directories matching the SHA list."""
@@ -591,19 +666,20 @@ class TestUrls(DirectoryIndexTestBase):
 
 
 @pytest.mark.django_db
-class TestGetPrevNextSiblings(TestCase):
+class TestGetPrevNextSiblings(VerificationSuiteTestBase):
     """Tests for DirectoryIndex.get_prev_next_siblings().
 
-    Uses real verification_suite data: parent pk=131119 has 3 known children
-    with proper parent_directory links set.
+    Uses the verification_suite fixture: parent has 3 children with proper
+    parent_directory links set.
     """
 
     def setUp(self) -> None:
+        super().setUp()
         # verification_suite has no parent (its parent is the albums root, not None,
         # but we use the middle child which does have a parent)
-        self.parent = DirectoryIndex.objects.select_related("parent_directory").get(pk=VSUIT_PK)
-        # benchtests is a child of verification_suite — it has a proper parent link
-        self.middle_child = DirectoryIndex.objects.select_related("parent_directory").get(pk=VSUIT_CHILD_PKS[1])
+        self.parent = DirectoryIndex.objects.select_related("parent_directory").get(pk=self.vsuit_parent.pk)
+        # a child of verification_suite — it has a proper parent link
+        self.middle_child = DirectoryIndex.objects.select_related("parent_directory").get(pk=self.vsuit_child_copy.pk)
 
     def test_root_returns_none_none_when_no_parent(self) -> None:
         """A directory with no parent_directory returns (None, None)."""

@@ -1,29 +1,38 @@
 """Tests for Option 3 optimization: bulk layout cache clearing."""
 
 import os
-import tempfile
 import shutil
-import pytest
-from django.test import TestCase
+import tempfile
 
-from cache_watcher.models import fs_Cache_Tracking
+import pytest
+from django.test import TestCase, override_settings
+
 from frontend.managers import layout_manager
-from quickbbs.cache_registry import layout_manager_cache
+from quickbbs.cache_registry import (
+    clear_layout_cache_for_directories,
+    layout_manager_cache,
+)
 from quickbbs.models import DirectoryIndex
 
 
 @pytest.mark.django_db
 class TestBulkLayoutCacheClearing(TestCase):
-    """Test the optimized _clear_layout_cache_bulk method."""
+    """Test bulk layout cache clearing via clear_layout_cache_for_directories."""
 
     def setUp(self):
         """Create test directory hierarchy for each test."""
         # Clear layout cache to ensure test isolation
         layout_manager_cache.clear()
 
-        # Create temporary directory structure for testing
+        # Create temporary directory structure for testing.
+        # ALBUMS_PATH is overridden so add_directory (which rejects paths
+        # outside the albums root) accepts the temp hierarchy.
         self.temp_dir = tempfile.mkdtemp()
         self.albums_path = os.path.join(self.temp_dir, "albums")
+        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
+        self._settings_override.enable()
+        DirectoryIndex._albums_prefix = None
+        DirectoryIndex._albums_root = None
 
         # Create actual filesystem directories
         os.makedirs(os.path.join(self.albums_path, "photos", "2024"), exist_ok=True)
@@ -37,13 +46,15 @@ class TestBulkLayoutCacheClearing(TestCase):
         _, self.dirs["videos"] = DirectoryIndex.add_directory(os.path.join(self.albums_path, "videos") + "/")
         _, self.dirs["videos_2024"] = DirectoryIndex.add_directory(os.path.join(self.albums_path, "videos", "2024") + "/")
 
-        # Create cache entries
-        self.cache_storage = fs_Cache_Tracking()
+        # Mark all directories scanned (cache valid)
         for dir_obj in self.dirs.values():
-            self.cache_storage.add_from_indexdirs(dir_obj)
+            dir_obj.mark_scanned()
 
     def tearDown(self):
         """Clean up temporary directories after each test."""
+        self._settings_override.disable()
+        DirectoryIndex._albums_prefix = None
+        DirectoryIndex._albums_root = None
         if hasattr(self, "temp_dir") and os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
 
@@ -59,7 +70,7 @@ class TestBulkLayoutCacheClearing(TestCase):
         assert initial_cache_size > 0, "Cache should have entries"
 
         # Clear cache for all directories using bulk operation
-        self.cache_storage._clear_layout_cache_bulk(list(self.dirs.values()))
+        clear_layout_cache_for_directories({d.pk for d in self.dirs.values()})
 
         # Verify all relevant entries are removed
         # Cache should be empty or only contain entries for other directories
@@ -80,7 +91,7 @@ class TestBulkLayoutCacheClearing(TestCase):
         assert initial_cache_size >= 6, f"Expected at least 6 entries, found {initial_cache_size}"
 
         # Clear cache for both directories
-        self.cache_storage._clear_layout_cache_bulk([self.dirs["photos"], self.dirs["videos"]])
+        clear_layout_cache_for_directories({self.dirs["photos"].pk, self.dirs["videos"].pk})
 
         # All entries should be cleared
         final_cache_size = len(layout_manager_cache)
@@ -95,7 +106,7 @@ class TestBulkLayoutCacheClearing(TestCase):
         assert initial_cache_size > 0
 
         # Use bulk method with a single-element list
-        self.cache_storage._clear_layout_cache_bulk([self.dirs["photos"]])
+        clear_layout_cache_for_directories({self.dirs["photos"].pk})
 
         # Cache should be cleared
         final_cache_size = len(layout_manager_cache)
@@ -108,16 +119,32 @@ class TestBulkLayoutCacheClearing(TestCase):
         initial_cache_size = len(layout_manager_cache)
 
         # Clear with empty list - should not crash
-        self.cache_storage._clear_layout_cache_bulk([])
+        clear_layout_cache_for_directories(set())
 
         # Cache should be unchanged
         final_cache_size = len(layout_manager_cache)
         assert final_cache_size == initial_cache_size
 
+    def test_bulk_clearing_ignores_none_directory_id(self):
+        """None in directory_ids (orphaned FileIndex.home_directory) is ignored, not a crash."""
+        # Populate cache
+        layout_manager(page_number=1, directory=self.dirs["photos"], sort_ordering=0, show_duplicates=False)
+        initial_cache_size = len(layout_manager_cache)
+        assert initial_cache_size > 0
+
+        # A None alongside a real pk should clear the real entry without raising
+        cleared = clear_layout_cache_for_directories({self.dirs["photos"].pk, None})
+        assert cleared > 0
+        assert len(layout_manager_cache) == 0
+
+        # An all-None set should behave like an empty set: no crash, nothing cleared
+        cleared = clear_layout_cache_for_directories({None})
+        assert cleared == 0
+
     def test_bulk_clearing_performance_no_db_queries(self):
         """Test that bulk clearing does not trigger database queries."""
-        from django.test.utils import CaptureQueriesContext
         from django.db import connection
+        from django.test.utils import CaptureQueriesContext
 
         # Populate cache
         for dir_obj in self.dirs.values():
@@ -125,7 +152,7 @@ class TestBulkLayoutCacheClearing(TestCase):
 
         # Count queries during bulk clear
         with CaptureQueriesContext(connection) as context:
-            self.cache_storage._clear_layout_cache_bulk(list(self.dirs.values()))
+            clear_layout_cache_for_directories({d.pk for d in self.dirs.values()})
 
         # Should use 0 database queries (only cache operations)
         assert len(context.captured_queries) == 0, f"Expected 0 queries, got {len(context.captured_queries)}: {context.captured_queries}"

@@ -103,18 +103,9 @@ MAC_OPTIMIZATION_WHITECHECK = False
 # real photo thumbnails are typically 3-15KB+.
 SMALL_THUMBNAIL_SAFEGUARD_SIZE = 2500
 
-# Optional overrides for translating macOS alias targets (physical masters-volume
-# paths) to gallery paths, applied by DirectoryIndex.find_by_physical_path().
-# Keys are lowercase volume-path prefixes; matching is longest-prefix-first and
-# anchored at path-component boundaries, so key order does not matter.
-# Unmapped volumes fall back to suffix matching against the DirectoryIndex table,
-# so a new masters drive usually needs no entry here — add one only when a
-# target is ambiguous or its gallery layout differs structurally.
-ALIAS_MAPPING = {
-    r"/volumes/masters/masters/hyp-collective": r"/volumes/Support-8tb/gallery/quickbbs/albums/hentai_idea/hyp-collective",
-    r"/volumes/masters/masters": r"/volumes/Support-8tb/gallery/quickbbs/albums/hentai_idea",
-    r"/volumes/f-16tb/masters/videos": r"/volumes/Support-8tb/gallery/quickbbs/albums/hentai_idea/test/videos",
-}
+# ALIAS_MAPPING (macOS alias target -> gallery path overrides) is imported from
+# secrets.py, since the mapped paths are specific to this deployment's drives.
+from quickbbs.secrets import ALIAS_MAPPING  # noqa: E402  # pylint: disable=wrong-import-position,unused-import
 
 
 # Set to True to enable hit/miss tracking on LRU caches for performance analysis

@@ -219,8 +219,16 @@ class TestWhitecheckGate(TestCase):
         from filetypes.models import filetypes
         from quickbbs.models import DirectoryIndex, FileIndex
 
+        # ALBUMS_PATH must cover the temp directory or add_directory rejects it
+        # (albums-root enforcement) and the FileIndex ends up orphaned.
         self.temp_dir = tempfile.mkdtemp()
-        _, self.dir_obj = DirectoryIndex.add_directory(self.temp_dir + "/")
+        self.albums_dir = os.path.join(self.temp_dir, "albums")
+        os.makedirs(self.albums_dir, exist_ok=True)
+        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
+        self._settings_override.enable()
+        DirectoryIndex._albums_prefix = None
+        DirectoryIndex._albums_root = None
+        _, self.dir_obj = DirectoryIndex.add_directory(self.albums_dir + "/")
         self.sha = "f" * 64
         self.file_obj = FileIndex.objects.create(
             home_directory=self.dir_obj,
@@ -237,6 +245,11 @@ class TestWhitecheckGate(TestCase):
         self.normal = _gradient_jpeg_bytes()
 
     def tearDown(self):
+        from quickbbs.models import DirectoryIndex
+
+        self._settings_override.disable()
+        DirectoryIndex._albums_prefix = None
+        DirectoryIndex._albums_root = None
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def _generate(self) -> ThumbnailFiles:
