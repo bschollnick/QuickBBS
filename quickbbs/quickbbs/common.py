@@ -5,6 +5,7 @@ import hashlib
 import logging
 import os
 import pathlib
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TypeVar
@@ -78,6 +79,24 @@ def normalize_string_title(s: str) -> str:
         Title-cased, stripped string
     """
     return s.title().strip()
+
+
+def normalize_sha_input(sha_value: str) -> str:
+    """
+    Normalize a user-supplied SHA256 hex string for lookup.
+
+    SHA256 values are stored lowercase-only (hashlib hexdigests); this
+    normalizes untrusted request input (e.g. a query-string SHA parameter)
+    to match, so lookups can use plain equality instead of a case-insensitive
+    query.
+
+    Args:
+        sha_value: Raw SHA256 hex string from user input.
+
+    Returns:
+        Stripped, lowercased SHA256 hex string.
+    """
+    return sha_value.strip().lower()
 
 
 @cached(directory_sha_cache)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
@@ -215,13 +234,19 @@ def _cleanup_sha_executor() -> None:
     global _sha_executor  # pylint: disable=global-statement
 
     if _sha_executor is not None:
-        logger.info("Shutting down SHA256 ThreadPoolExecutor")
+        if not sys.is_finalizing() and not getattr(sys.stdout, "closed", False) and not getattr(sys.stderr, "closed", False):
+            handlers = list(logger.handlers) + list(logging.getLogger().handlers)
+            if not any(getattr(getattr(h, "stream", None), "closed", False) for h in handlers):
+                logger.info("Shutting down SHA256 ThreadPoolExecutor")
         try:
             # Wait for pending tasks but don't accept new ones
             # cancel_futures=True is Python 3.9+
             _sha_executor.shutdown(wait=True, cancel_futures=True)
         except Exception as e:  # pylint: disable=broad-exception-caught
-            logger.error("Error shutting down SHA256 ThreadPoolExecutor: %s", e)
+            if not sys.is_finalizing() and not getattr(sys.stdout, "closed", False) and not getattr(sys.stderr, "closed", False):
+                handlers = list(logger.handlers) + list(logging.getLogger().handlers)
+                if not any(getattr(getattr(h, "stream", None), "closed", False) for h in handlers):
+                    logger.error("Error shutting down SHA256 ThreadPoolExecutor: %s", e)
         finally:
             _sha_executor = None
 

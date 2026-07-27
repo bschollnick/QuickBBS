@@ -48,6 +48,8 @@ from quickbbs.fileindex import (
 )
 from quickbbs.models import DirectoryIndex
 
+pytestmark = pytest.mark.api
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -69,6 +71,7 @@ def _make_dir(path: str) -> DirectoryIndex:
     """Create a real filesystem directory and register it in DirectoryIndex."""
     os.makedirs(path, exist_ok=True)
     _, di = DirectoryIndex.add_directory(path + "/")
+    assert di is not None
     return di
 
 
@@ -693,6 +696,23 @@ class TestGetBySha256(TestCase):
         """Returns None when SHA is not in the database."""
         result = FileIndex.get_by_sha256("z" * 64, unique=True, select_related=FILEINDEX_SR_FILETYPE)
         assert result is None
+
+    def test_get_by_unique_sha_mixed_case_input_after_normalization(self):
+        """A mixed-case SHA, normalized via normalize_sha_input(), still resolves.
+
+        Regression guard for the normalize_sha_input() helper: callers (the
+        download view, build_context_info) normalize untrusted request input
+        before calling get_by_sha256, which itself does plain equality lookup
+        since SHA values are stored lowercase-only.
+        """
+        from quickbbs.common import normalize_sha_input
+
+        mixed_case_sha = self.unique_sha.upper()
+        normalized = normalize_sha_input(f"  {mixed_case_sha}  ")
+        assert normalized == self.unique_sha
+        result = FileIndex.get_by_sha256(normalized, unique=True, select_related=FILEINDEX_SR_FILETYPE)
+        assert result is not None
+        assert result.pk == self.rec.pk
 
     def test_excludes_delete_pending(self):
         """delete_pending records are not returned."""

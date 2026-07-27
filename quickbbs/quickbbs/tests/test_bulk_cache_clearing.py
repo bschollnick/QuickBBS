@@ -14,6 +14,8 @@ from quickbbs.cache_registry import (
 )
 from quickbbs.models import DirectoryIndex
 
+pytestmark = pytest.mark.api
+
 
 @pytest.mark.django_db
 class TestBulkLayoutCacheClearing(TestCase):

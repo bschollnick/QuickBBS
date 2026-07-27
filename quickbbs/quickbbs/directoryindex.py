@@ -114,7 +114,7 @@ def _clear_directoryindex_cache(directories: list["DirectoryIndex"]) -> None:
 
         logger.debug("Cleared %d DirectoryIndex cache entries for %d directories", cleared_count, len(directories))
 
-    except (KeyError, AttributeError) as e:
+    except (KeyError, AttributeError, models.ObjectDoesNotExist) as e:
         logger.error("Error clearing DirectoryIndex cache for directories: %s", e)
 
 
@@ -155,7 +155,30 @@ class DirectoryIndex(models.Model):
             cls._albums_root = normalize_fqpn(os.path.join(settings.ALBUMS_PATH, "albums"))
         return cls._albums_root
 
-    fqpndirectory = models.CharField(db_index=True, max_length=384, default="", unique=True, blank=True)  # True fqpn name
+    @staticmethod
+    def is_in_albums_tree(candidate_path: str, albums_root: str | None = None) -> bool:
+        """Return True if candidate_path lies within (or equals) the albums root.
+
+        Both candidate_path and albums_root are expected already normalized
+        (normalize_fqpn output is always lowercase) — this does not
+        re-lowercase, by design, so a caller passing a non-normalized path
+        fails the check instead of being silently rescued.
+
+        Args:
+            candidate_path: Normalized fully qualified pathname to test.
+            albums_root: Normalized albums root to compare against; defaults
+                to DirectoryIndex.get_albums_root().
+
+        Returns:
+            True if candidate_path is within the albums root tree.
+        """
+        root = albums_root if albums_root is not None else DirectoryIndex.get_albums_root()
+        return candidate_path.startswith(root)
+
+    # True fqpn name. Always stored lowercase — normalize_fqpn() lowercases
+    # every path before it reaches this field, so comparisons/lookups against
+    # it never need __iexact.
+    fqpndirectory = models.CharField(db_index=True, max_length=384, default="", unique=True, blank=True)
 
     dir_fqpn_sha256 = models.CharField(
         blank=True,
@@ -163,7 +186,7 @@ class DirectoryIndex(models.Model):
         null=True,
         default=None,
         max_length=64,
-    )  # sha of the directory fqpn (unique=True creates index; also in Meta composite index)
+    )  # sha of the directory fqpn (unique=True creates index; also in Meta composite index). hashlib hexdigest — always lowercase hex.
 
     parent_directory = models.ForeignKey(
         "self",
@@ -248,29 +271,26 @@ class DirectoryIndex(models.Model):
         fqpn_directory = normalize_fqpn(fqpn_directory)
         dir_sha256 = get_dir_sha(fqpn_directory)
 
-        # Normalize case once for all comparisons
-        fqpn_lower = fqpn_directory.lower()
-        albums_root_lower = DirectoryIndex.get_albums_root().lower()
-        is_in_albums = fqpn_lower.startswith(albums_root_lower)
+        albums_root = DirectoryIndex.get_albums_root()
 
         # DirectoryIndex only indexes the albums tree. Out-of-tree paths
         # (masters volumes, traversal escapes) are rejected outright — this
         # is the single chokepoint every creation path funnels through
         # (sync_subdirectories, watchdog placeholders, web discovery,
         # .link processing, management commands).
-        if not is_in_albums:
+        if not DirectoryIndex.is_in_albums_tree(fqpn_directory, albums_root):
             logger.warning("Rejected add_directory outside albums root: %s", fqpn_directory)
             return (False, None)
 
         # Determine parent directory link
         # Check if this IS the albums root directory - it has no parent
-        if fqpn_lower == albums_root_lower:
+        if fqpn_directory == albums_root:
             parent_dir_link = None
         else:
             # Regular subdirectory - find or create parent
             parent_dir = normalize_fqpn(str(Path(fqpn_directory).parent))
 
-            if parent_dir.lower().startswith(albums_root_lower):
+            if DirectoryIndex.is_in_albums_tree(parent_dir, albums_root):
                 # Recursively add/update parent to ensure proper parent_directory chain
                 # This fixes both missing parents AND parents with NULL parent_directory
                 parent_sha = get_dir_sha(parent_dir)
@@ -1307,17 +1327,27 @@ class DirectoryIndex(models.Model):
     def _make_sibling_link(fqpn: str) -> dict[str, str]:
         """Build a URL/name dict for a sibling directory.
 
+        Mirrors get_view_url(): fqpn is a DB-stored fqpndirectory value,
+        always lowercase (normalize_fqpn() invariant), so the prefix to
+        strip must come from get_albums_prefix() (also lowercase) rather
+        than the raw, possibly mixed-case settings.ALBUMS_PATH — a plain
+        str.replace(settings.ALBUMS_PATH, "") silently no-ops whenever
+        ALBUMS_PATH itself contains uppercase characters, leaving the full
+        absolute filesystem path in the returned url instead of a
+        '/albums/...'-relative one.
+
         Args:
             fqpn: Fully-qualified path of the sibling directory
 
         Returns:
-            Dict with 'url' (percent-encoded) and 'name' (human-readable) keys
+            Dict with 'url' (percent-encoded, reverse("directories")-prefixed)
+            and 'name' (human-readable) keys
         """
-        path = str(Path(fqpn)).replace(settings.ALBUMS_PATH, "")
-        parts = path.split("/")
-        url = "/".join(quote(part, safe="") for part in parts)
+        webpath = fqpn.removeprefix(DirectoryIndex.get_albums_prefix()).rstrip("/")
+        parts = webpath.split("/")
+        encoded_path = "/".join(quote(part, safe="") for part in parts)
         name = unquote(parts[-1]) if parts and parts[-1] else ""
-        return {"url": url, "name": name}
+        return {"url": reverse("directories") + encoded_path, "name": name}
 
     def get_prev_next_siblings(self, sort_order: int = 0) -> tuple[dict | None, dict | None]:
         """
@@ -1546,6 +1576,72 @@ class DirectoryIndex(models.Model):
 
         return bool(updated_records or new_dirs or deleted_dirs)
 
+    @staticmethod
+    def _file_needs_check(row: Any, fs_stat: os.stat_result) -> bool:
+        """
+        Return True if a lightweight DB row may need a full check_for_updates() pass.
+
+        Mirrors every unconditional update trigger in FileIndex.check_for_updates()
+        so files that are already correct on disk can be skipped without ever
+        instantiating a full ORM object. Deliberately over-inclusive for link
+        files (see comment below) since the precise repair decision still lives
+        in check_for_updates()/virtual_directory_needs_repair().
+
+        Args:
+            row: One dict from a FileIndex.objects.values(...) query, containing
+                at least "lastmod", "size", "file_sha256", "duration",
+                "is_animated", "filetype__fileext", "filetype__is_movie",
+                "filetype__is_link".
+            fs_stat: stat() result for the matching filesystem entry.
+
+        Returns:
+            True if this row should be routed into the full ORM fetch (Stage 2).
+        """
+        # filetype__is_link is over-inclusive on purpose: virtual_directory_needs_repair()
+        # needs a live instance to check, so every link/alias file is routed to
+        # Stage 2 rather than evaluating that condition here.
+        return (
+            row["lastmod"] != fs_stat.st_mtime
+            or row["size"] != fs_stat.st_size
+            or row["file_sha256"] is None
+            or row["filetype__is_link"]
+            or (row["filetype__is_movie"] and row["duration"] is None)
+            or (row["filetype__fileext"] == ".gif" and not row["is_animated"])
+        )
+
+    @staticmethod
+    def _find_changed_ids(
+        candidate_rows: list[Any],
+        matching_lower_names: set[str] | Any,
+        fs_names_lower_map: dict[str, str],
+        fs_file_names_dict: dict[str, Any],
+    ) -> list[int]:
+        """
+        Return ids of matched FileIndex rows that Stage 1 flags as possibly changed.
+
+        Args:
+            candidate_rows: Dict rows from FileIndex.objects.values(...), one
+                per non-deleted file in this directory.
+            matching_lower_names: Lowercased filenames present in both DB and
+                filesystem.
+            fs_names_lower_map: Maps lowercased filesystem name -> original
+                cased filesystem name.
+            fs_file_names_dict: Maps original cased filesystem name -> DirEntry.
+
+        Returns:
+            List of FileIndex ids that should be routed into the Stage 2 fetch.
+        """
+        changed_ids = []
+        for row in candidate_rows:
+            name_lower = row["name"].lower()
+            if name_lower not in matching_lower_names:
+                continue
+            fs_name = fs_names_lower_map[name_lower]
+            fs_entry = fs_file_names_dict[fs_name]
+            if DirectoryIndex._file_needs_check(row, fs_entry.stat()):
+                changed_ids.append(row["id"])
+        return changed_ids
+
     def sync_files(self, fs_entries: dict, bulk_size: int) -> bool:
         """
         Synchronize my files with filesystem entries.
@@ -1564,6 +1660,16 @@ class DirectoryIndex(models.Model):
         - Single pass through QuerySet (no chunking for updates check)
         - Simpler logic = faster execution and easier to understand
         - Still uses bulk operations for actual DB writes
+
+        Two-Stage Update Detection:
+        Stage 1 fetches a lightweight dict per matched file (via .values()) and
+        runs _file_needs_check() against the filesystem stat — no ORM object
+        instantiation, no JOIN materialization. Stage 2 (the existing
+        check_for_updates() pass) only loads full FileIndex objects for files
+        Stage 1 flagged as possibly changed. Files whose size/mtime/hash/
+        duration/is_animated already match are skipped entirely. See
+        _file_needs_check() for the exact conditions mirrored from
+        check_for_updates().
 
         Thread Safety:
         - This is a SYNC function wrapped with sync_to_async at call site
@@ -1591,9 +1697,24 @@ class DirectoryIndex(models.Model):
         # Maps lowercase filename -> original cased filename from filesystem
         fs_names_lower_map = {name.lower(): name for name in fs_file_names}
 
-        # Optimize: First get just filenames with lightweight query (no prefetch overhead)
-        # Then load full objects only for files that need comparison/updates
-        all_db_filenames = set(FileIndex.objects.filter(home_directory=self.pk, delete_pending=False).values_list("name", flat=True))
+        # Stage 1: lightweight dict-row fetch (no ORM instantiation, no JOIN
+        # materialization) carrying just enough fields to decide whether each
+        # matched file might need a full check_for_updates() pass.
+        candidate_rows = list(
+            FileIndex.objects.filter(home_directory=self.pk, delete_pending=False).values(
+                "id",
+                "name",
+                "lastmod",
+                "size",
+                "file_sha256",
+                "duration",
+                "is_animated",
+                "filetype__fileext",
+                "filetype__is_movie",
+                "filetype__is_link",
+            )
+        )
+        all_db_filenames = {row["name"] for row in candidate_rows}
 
         # Find files that exist in both DB and filesystem (case-insensitive match)
         # Build lowercase map from database names for matching
@@ -1601,16 +1722,23 @@ class DirectoryIndex(models.Model):
         # dict.keys() is a set-like view (keys are inherently unique) — supports & directly
         matching_lower_names = fs_names_lower_map.keys() & db_names_lower_set
 
-        # Load full objects with prefetch only for files that need comparison
-        # Convert matching lowercase names back to original database names
-        matching_db_names = {name for name in all_db_filenames if name.lower() in matching_lower_names}
+        # Stage 1 delta filter: only rows that are both matched by filesystem
+        # name and flagged by _file_needs_check() go on to Stage 2.
+        changed_ids = self._find_changed_ids(candidate_rows, matching_lower_names, fs_names_lower_map, fs_file_names_dict)
+
+        # Stage 2: load full objects with select_related only for files that
+        # Stage 1 flagged as possibly needing an update.
         # cast: files_in_dir with distinct=False always returns a QuerySet,
         # but its union return type can't be narrowed by mypy.
-        potential_updates = list(
-            cast(
-                "QuerySet[FileIndex]",
-                self.files_in_dir(select_related=FILEINDEX_SR_FILETYPE),
-            ).filter(name__in=matching_db_names)
+        potential_updates = (
+            list(
+                cast(
+                    "QuerySet[FileIndex]",
+                    self.files_in_dir(select_related=FILEINDEX_SR_FILETYPE),
+                ).filter(id__in=changed_ids)
+            )
+            if changed_ids
+            else []
         )
 
         # Batch compute SHA256 for files missing hashes
@@ -1748,7 +1876,7 @@ def update_database_from_disk(directory_record: "DirectoryIndex") -> "DirectoryI
     # out-of-tree rows (pre-2026-07 alias system) would otherwise spawn
     # more out-of-tree DirectoryIndex/FileIndex rows for their on-disk
     # children via sync_subdirectories/sync_files.
-    if not dirpath.lower().startswith(DirectoryIndex.get_albums_root().lower()):
+    if not DirectoryIndex.is_in_albums_tree(dirpath):
         logger.warning("Refusing to sync out-of-tree directory record (pk=%s): %s", directory_record.pk, dirpath)
         return None
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 
 import filetypes.models as filetype_models
@@ -47,7 +48,7 @@ def _filter_and_process_item(item, ext_ignore, files_ignore, ignore_dots):
         if fext in ext_ignore or not filetype_models.filetypes.filetype_exists_by_ext(fext):
             return None
 
-        return (normalize_string_title(item.name), item)
+        return (normalize_string_title(item.name), Path(item.path))
 
     except (OSError, PermissionError):
         # Skip items we can't access
@@ -94,9 +95,10 @@ def return_disk_listing_sync(fqpn: str) -> tuple[bool, dict]:
         Tuple of (success_status, file_data_dict)
     """
     try:
-        items = list(Path(fqpn).iterdir())
+        with os.scandir(fqpn) as scanner:
+            items = list(scanner)
         return _single_threaded_listing(items)
-    except FileNotFoundError:
+    except (FileNotFoundError, NotADirectoryError, OSError):
         return False, {}
 
 

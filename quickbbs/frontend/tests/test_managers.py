@@ -15,12 +15,15 @@ from __future__ import annotations
 
 import os
 
+import pytest
 from django.test import SimpleTestCase, override_settings
 
 from frontend.managers import calculate_page_bounds, layout_manager
 from quickbbs.cache_registry import layout_manager_cache
 from quickbbs.models import DirectoryIndex
 from quickbbs.tests.test_sync import SyncTestBase
+
+pytestmark = pytest.mark.api
 
 
 class TestCalculatePageBounds(SimpleTestCase):

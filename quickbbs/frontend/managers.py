@@ -28,6 +28,7 @@ from frontend.utilities import (
     return_breadcrumbs,
 )
 from quickbbs.cache_registry import layout_manager_cache
+from quickbbs.common import normalize_sha_input
 from quickbbs.directoryindex import get_ordered_sibling_dirs
 from quickbbs.fileindex import FILEINDEX_SR_FILETYPE_HOME_VIRTUAL
 from quickbbs.models import FileIndex
@@ -58,13 +59,13 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
     if not unique_file_sha256:
         return HttpResponseBadRequest(content="No SHA256 provided.")
 
-    unique_file_sha256 = unique_file_sha256.strip().lower()
+    unique_file_sha256 = normalize_sha_input(unique_file_sha256)
     entry = FileIndex.get_by_sha256(unique_file_sha256, unique=True, select_related=FILEINDEX_SR_FILETYPE_HOME_VIRTUAL)
     if entry is None:
         return HttpResponseBadRequest(content="No entry found.")
 
     start_time = time.perf_counter()
-    webpath = convert_to_webpath(entry.fqpndirectory.lower().replace("//", "/"))
+    webpath = convert_to_webpath(entry.fqpndirectory.replace("//", "/"))
     directory_entry = entry.home_directory
 
     # Get navigation data from the directory's cached ordered SHA list.

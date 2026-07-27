@@ -18,6 +18,7 @@ import shutil
 import tempfile
 from unittest import mock, skipUnless
 
+import pytest
 from django.test import TestCase, override_settings
 from PIL import Image
 
@@ -35,6 +36,8 @@ from thumbnails.thumbnail_engine import (
     is_apple_silicon,
     macintosh_optimizations_enabled,
 )
+
+pytestmark = pytest.mark.api
 
 IMAGE_SIZES = {"small": (200, 200), "medium": (740, 740), "large": (1024, 1024)}
 

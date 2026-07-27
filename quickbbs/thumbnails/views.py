@@ -15,7 +15,11 @@ from PIL import Image
 
 from quickbbs.fileindex import FILEINDEX_SR_FILETYPE_HOME_VIRTUAL
 from quickbbs.models import DirectoryIndex, FileIndex
-from thumbnails.exceptions import OrphanedFileIndex, OrphanedThumbnail
+from thumbnails.exceptions import (
+    OrphanedFileIndex,
+    OrphanedThumbnail,
+    ThumbnailGenerationError,
+)
 from thumbnails.models import THUMBNAILFILES_PR_FILEINDEX_FILETYPE, ThumbnailFiles
 
 logger = logging.getLogger()
@@ -52,7 +56,7 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
         if directory.thumbnail and directory.thumbnail.new_ftnail and directory.is_cached:
             try:
                 return directory.thumbnail.new_ftnail.send_thumbnail(fext_override=".jpg", size="small", index_data_item=directory.thumbnail)
-            except (OSError, ValueError, AttributeError) as e:
+            except (OSError, ValueError, AttributeError, ThumbnailGenerationError) as e:
                 # If thumbnail serving fails, fall through to cover image logic
                 print(f"Directory thumbnail serving failed for {directory.fqpndirectory}: {e}")
                 # Continue to cover image selection below
@@ -119,7 +123,7 @@ def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pyli
     # Try to return the thumbnail, fall back to generic icon on error
     try:
         return directory.thumbnail.new_ftnail.send_thumbnail(fext_override=".jpg", size="small", index_data_item=directory.thumbnail)
-    except (OSError, ValueError, AttributeError) as e:
+    except (OSError, ValueError, AttributeError, ThumbnailGenerationError) as e:
         # If thumbnail generation/serving fails, mark directory as generic and return filetype icon
         print(f"Directory thumbnail generation failed for {directory.fqpndirectory}: {e}")
         # Wrap in transaction to prevent race conditions
@@ -173,7 +177,7 @@ def _serve_existing_thumbnail(request: WSGIRequest, sha256: str, thumbsize: str)
             size=thumbsize,
             index_data_item=index_data_item,
         )
-    except (OSError, ValueError, AttributeError) as e:
+    except (OSError, ValueError, AttributeError, ThumbnailGenerationError) as e:
         # If thumbnail serving fails, mark ALL files with this SHA256 as generic
         # Use FileIndex classmethod to ensure layout cache is cleared
         print(f"Thumbnail serving failed for {index_data_item.name}: {e}")
@@ -253,7 +257,7 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
             size=thumbsize,
             index_data_item=index_data_item,
         )
-    except (OSError, ValueError, AttributeError) as e:
+    except (OSError, ValueError, AttributeError, ThumbnailGenerationError) as e:
         # If thumbnail generation/serving fails, mark ALL files with this SHA256 as generic
         # Use FileIndex classmethod to ensure layout cache is cleared
         print(f"Thumbnail generation failed for {index_data_item.name}: {e}")

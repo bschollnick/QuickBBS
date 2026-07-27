@@ -11,6 +11,8 @@ from django.test import TestCase, override_settings
 from quickbbs.directoryindex import DIRECTORYINDEX_SR_PARENT
 from quickbbs.models import DirectoryIndex
 
+pytestmark = pytest.mark.api
+
 
 @pytest.mark.django_db
 class TestGetAllParentShas(TestCase):

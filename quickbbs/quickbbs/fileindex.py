@@ -165,7 +165,7 @@ class FileIndex(models.Model):
         null=True,
         default=None,
         max_length=64,
-    )  # This is the sha256 of the file itself (indexed via Meta composite indexes)
+    )  # This is the sha256 of the file itself (indexed via Meta composite indexes). hashlib hexdigest — always lowercase hex.
     unique_sha256 = models.CharField(
         db_index=True,
         blank=True,
@@ -173,7 +173,7 @@ class FileIndex(models.Model):
         null=True,
         default=None,
         max_length=64,
-    )  # This is the sha256 of the (file + fqfn)
+    )  # This is the sha256 of the (file + fqfn). hashlib hexdigest — always lowercase hex; normalize_sha_input() lowercases untrusted request input before lookup.
 
     # lastscan/lastmod are never filtered or ordered on standalone (sorts always
     # follow a home_directory filter), so they carry no index — this also allows
@@ -1371,7 +1371,7 @@ class FileIndex(models.Model):
             alias_path: Path to the macOS alias file
 
         Returns:
-            Raw resolved target path (lowercased)
+            Raw resolved target path (stripped; case as returned by Foundation)
 
         Raises:
             ValueError: If bookmark data cannot be created or resolved
@@ -1401,7 +1401,7 @@ class FileIndex(models.Model):
             path: Path to the macOS alias file
 
         Returns:
-            Raw resolved target path (lowercased), no trailing separator
+            Raw resolved target path, no trailing separator
 
         Raises:
             ValueError: If bookmark data cannot be created or resolved
@@ -1426,7 +1426,7 @@ class FileIndex(models.Model):
         if error:
             raise ValueError(f"Error resolving bookmark data: {error}")
 
-        return str(resolved_url.path()).strip().lower()
+        return str(resolved_url.path()).strip()
 
     class Meta:
         """Model metadata: SHA/name/filetype lookup indexes, partial indexes for unlinked thumbnails and pending deletes, and the trigram search index."""

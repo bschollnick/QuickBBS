@@ -42,7 +42,12 @@ from frontend.utilities import (
     get_sort_param,
     return_breadcrumbs,
 )
-from quickbbs.common import SORT_MATRIX, get_dir_sha, normalize_fqpn
+from quickbbs.common import (
+    SORT_MATRIX,
+    get_dir_sha,
+    normalize_fqpn,
+    normalize_sha_input,
+)
 from quickbbs.directoryindex import (
     DIRECTORYINDEX_SR_FILETYPE_THUMB,
     update_database_from_disk,
@@ -635,7 +640,7 @@ def _find_directory(paths: dict) -> DirectoryIndex:
         # normalize_fqpn resolves ".." segments and follows symlinks, so a
         # crafted URL (or a symlink inside albums) can escape the albums
         # root. Reject escaped paths before any database work.
-        if not dirpath.lower().startswith(DirectoryIndex.get_albums_root().lower()):
+        if not DirectoryIndex.is_in_albums_tree(dirpath):
             logger.warning("Rejected gallery path outside albums root: %s (from %s)", dirpath, paths["album_viewing"])
             raise DirectoryInvalidError(f"Invalid path specified: {paths['album_viewing']}")
 
@@ -942,7 +947,7 @@ async def download_file(request: WSGIRequest):  # , filename=None):
     sha_value = request.GET.get("usha", None) or request.GET.get("USHA", None)
     if sha_value in ["", None]:
         raise Http404("No Identifier provided for download.")
-    sha_value = sha_value.strip().lower()
+    sha_value = normalize_sha_input(sha_value)
 
     try:
         # Wrap database query - use optimized download method

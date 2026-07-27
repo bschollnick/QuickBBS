@@ -12,18 +12,16 @@ memory at once. Tracks file additions locally instead of expensive count() queri
 from __future__ import annotations
 
 import logging
-import os
 import time
 
-from django.conf import settings
 from django.db import close_old_connections
 
-from quickbbs.common import normalize_fqpn
 from quickbbs.directoryindex import update_database_from_disk
 from quickbbs.management.commands.management_helper import (
     invalidate_directories_with_null_sha256,
     invalidate_directories_with_null_virtual_directory,
     invalidate_empty_directories,
+    resolve_albums_root,
 )
 from quickbbs.models import DirectoryIndex
 
@@ -108,29 +106,26 @@ def add_files(max_count: int = 0, start_path: str | None = None) -> None:
     # invalidate_empty_directories(start_path=start_path, verbose=True)
     # print("-" * 30)
 
-    if start_path:
-        albums_root = normalize_fqpn(start_path)
-    else:
-        albums_root = normalize_fqpn(os.path.join(settings.ALBUMS_PATH, "albums"))
-
-    if not os.path.exists(albums_root):
-        print(f"ERROR: Albums root does not exist: {albums_root}")
+    albums_root = resolve_albums_root(start_path)
+    if albums_root is None:
         return
 
-    print(f"Scanning albums root: {albums_root}")
-
+    # Only directories flagged for rescan need to be touched here; is_cached
+    # directories would just hit update_database_from_disk's early-return, so
+    # filtering them out at the DB level avoids materialising and looping over
+    # PKs that have nothing to do.
     if start_path:
-        base_qs = DirectoryIndex.objects.filter(fqpndirectory__startswith=albums_root).order_by("fqpndirectory")
+        base_qs = DirectoryIndex.objects.filter(fqpndirectory__startswith=albums_root, cache_invalidated=True).order_by("fqpndirectory")
     else:
-        base_qs = DirectoryIndex.objects.order_by("fqpndirectory")
+        base_qs = DirectoryIndex.objects.filter(cache_invalidated=True).order_by("fqpndirectory")
 
     # Materialise PKs once — len() gives the total count for free
     all_pks = list(base_qs.values_list("pk", flat=True))
     total_dirs = len(all_pks)
-    print(f"Found {total_dirs} directories in database")
+    print(f"Found {total_dirs} directories flagged for rescan")
 
     if total_dirs == 0:
-        print("No directories found in database. Run --add_directories first.")
+        print("No directories need rescanning.")
         return
 
     print(f"Processing up to {max_count if max_count > 0 else total_dirs} directories (chunked mode)...")

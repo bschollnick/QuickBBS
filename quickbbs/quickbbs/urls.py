@@ -14,20 +14,25 @@ Including another URLconf
     2. Add a URL to urlpatterns:  url(r'^blog/', include('blog.urls'))
 """
 
-import frontend.report_views
-import frontend.serve_up
-import frontend.views
-import thumbnails.views
-import user_preferences.views
 from django.conf import settings
 from django.conf.urls.static import static
 
 # from django.conf.urls import url
 from django.contrib import admin
-from django.urls import include, path, re_path
+from django.urls import URLPattern, URLResolver, include, path, re_path
 from django.views.generic import RedirectView
 
-urlpatterns = []
+import frontend.report_views
+import frontend.serve_up
+import frontend.views
+import thumbnails.views
+import user_preferences.views
+
+# Explicit annotation needed: without it mypy infers the list element type from
+# the first entry appended (a URLResolver, from debug_toolbar's include()), then
+# flags every bare path()/re_path() call below (which return URLPattern) as
+# incompatible.
+urlpatterns: list[URLResolver | URLPattern] = []
 if settings.DEBUG_TOOLBAR:
     import debug_toolbar
 

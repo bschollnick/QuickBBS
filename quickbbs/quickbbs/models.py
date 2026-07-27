@@ -21,8 +21,9 @@ class Owners(models.Model):
     uuid = models.UUIDField(default=None, null=True, editable=False, blank=True, db_index=True)
     ownerdetails = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, db_index=True, default=None)
 
-    # Reverse one-to-one relationship
-    fileindex: "models.OneToOneRel[FileIndex]"  # type: ignore[valid-type]  # From FileIndex.ownership
+    # Reverse one-to-one relationship: accessing owners_instance.fileindex
+    # returns the related FileIndex (or raises DoesNotExist). From FileIndex.ownership.
+    fileindex: "FileIndex"
 
     class Meta:
         """Model metadata: admin display names."""

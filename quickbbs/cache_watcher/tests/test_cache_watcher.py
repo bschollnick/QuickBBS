@@ -8,16 +8,16 @@ DATABASE SAFETY
 - All tests use Django TestCase only. Never TransactionTestCase.
 - TestCase wraps every test in a rolled-back transaction. Nothing persists.
 - Filesystem directories are created in tempfile.mkdtemp() and cleaned up in tearDown.
-- fs_Cache_Tracking queries are always scoped to directories created in the test,
+- Invalidation-state queries are always scoped to directories created in the test,
   never global counts, to avoid interference with other data.
 
 COVERAGE
 --------
   LockFreeEventBuffer      — add_event, get_events_to_process, size, clear, overflow
-  fs_Cache_Tracking        — add_from_indexdirs, sha_exists_in_cache,
-                             remove_from_cache_indexdirs, remove_multiple_from_cache_indexdirs,
-                             _validate_index_dir, clear_all_records, delete_orphaned_entries,
-                             _bulk_invalidate_by_shas, _clear_layout_cache_bulk
+  DirectoryIndex cache API — mark_scanned, cache_valid_for_sha, invalidate_cache,
+                             invalidate_cache_by_sha, invalidate_caches,
+                             invalidate_all_caches, _invalidate_by_shas,
+                             layout-cache clearing on invalidation
   CacheStatisticsTracking  — hit_rate property, __str__
   CacheFileMonitorEventHandler — cleanup, _buffer_event (timer creation, dedup)
   WatchdogManager          — start, stop, shutdown, restart, _schedule_restart,
@@ -33,21 +33,22 @@ import threading
 import time
 
 import pytest
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from cache_watcher.models import (
     CacheFileMonitorEventHandler,
     CacheStatisticsTracking,
     LockFreeEventBuffer,
-    fs_Cache_Tracking,
     optimized_event_buffer,
 )
 from quickbbs.models import DirectoryIndex
 
+pytestmark = pytest.mark.api
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_dir(path: str) -> DirectoryIndex:
     """Create filesystem directory and register in DirectoryIndex."""
@@ -61,9 +62,36 @@ def _test_shas(dirs: dict) -> set[str]:
     return {d.dir_fqpn_sha256 for d in dirs.values() if d is not None}
 
 
+class AlbumsRootTestCase(TestCase):
+    """Base for tests that register real directories in DirectoryIndex.
+
+    add_directory() rejects paths outside the albums root, so ALBUMS_PATH is
+    pointed at a per-test temp directory and content is created under
+    <temp>/albums/ (exposed as self.albums_dir). Mirrors the pattern in
+    quickbbs/tests/test_directoryindex.py.
+    """
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.albums_dir = os.path.join(self.temp_dir, "albums")
+        os.makedirs(self.albums_dir, exist_ok=True)
+        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
+        self._settings_override.enable()
+        # Reset cached class-level path lookups so they pick up the new ALBUMS_PATH
+        DirectoryIndex._albums_prefix = None
+        DirectoryIndex._albums_root = None
+
+    def tearDown(self):
+        self._settings_override.disable()
+        DirectoryIndex._albums_prefix = None
+        DirectoryIndex._albums_root = None
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+
 # ===========================================================================
 # LockFreeEventBuffer
 # ===========================================================================
+
 
 class TestLockFreeEventBuffer(TestCase):
     """Unit tests for LockFreeEventBuffer — no DB access."""
@@ -72,29 +100,35 @@ class TestLockFreeEventBuffer(TestCase):
         self.buf = LockFreeEventBuffer(max_size=10)
 
     def test_initial_size_is_zero(self):
+        """Initial size is zero."""
         assert self.buf.size() == 0
 
     def test_add_event_increases_size(self):
+        """Add event increases size."""
         self.buf.add_event("/some/path")
         assert self.buf.size() == 1
 
     def test_add_multiple_events(self):
+        """Add multiple events."""
         self.buf.add_event("/a")
         self.buf.add_event("/b")
         self.buf.add_event("/c")
         assert self.buf.size() == 3
 
     def test_get_events_returns_set(self):
+        """Get events returns set."""
         self.buf.add_event("/x")
         result = self.buf.get_events_to_process()
         assert isinstance(result, set)
 
     def test_get_events_contains_added_path(self):
+        """Get events contains added path."""
         self.buf.add_event("/mypath")
         result = self.buf.get_events_to_process()
         assert "/mypath" in result
 
     def test_get_events_clears_buffer(self):
+        """Get events clears buffer."""
         self.buf.add_event("/something")
         self.buf.get_events_to_process()
         assert self.buf.size() == 0
@@ -108,16 +142,19 @@ class TestLockFreeEventBuffer(TestCase):
         assert result == {"/dup"}
 
     def test_get_events_empty_buffer_returns_empty_set(self):
+        """Get events empty buffer returns empty set."""
         result = self.buf.get_events_to_process()
         assert result == set()
 
     def test_clear_empties_buffer(self):
+        """Clear empties buffer."""
         self.buf.add_event("/a")
         self.buf.add_event("/b")
         self.buf.clear()
         assert self.buf.size() == 0
 
     def test_clear_prevents_events_from_being_returned(self):
+        """Clear prevents events from being returned."""
         self.buf.add_event("/a")
         self.buf.clear()
         result = self.buf.get_events_to_process()
@@ -154,419 +191,379 @@ class TestLockFreeEventBuffer(TestCase):
 
 
 # ===========================================================================
-# fs_Cache_Tracking._validate_index_dir
+# DirectoryIndex.mark_scanned
 # ===========================================================================
+
 
 @pytest.mark.django_db
-class TestValidateIndexDir(TestCase):
-    """Tests for the static _validate_index_dir helper."""
+class TestMarkScanned(AlbumsRootTestCase):
+    """Tests for DirectoryIndex.mark_scanned (formerly add_from_indexdirs)."""
 
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        self.di = _make_dir(self.temp_dir)
-        self.cache = fs_Cache_Tracking()
+        super().setUp()
+        self.di = _make_dir(self.albums_dir)
 
     def tearDown(self):
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        super().tearDown()
 
-    def test_valid_directoryindex_returns_true(self):
-        assert fs_Cache_Tracking._validate_index_dir(self.di) is True
+    def test_new_directory_starts_invalidated(self):
+        """A freshly created row defaults to cache_invalidated=True."""
+        assert self.di.cache_invalidated is True
 
-    def test_none_returns_false(self):
-        assert fs_Cache_Tracking._validate_index_dir(None) is False
+    def test_mark_scanned_sets_valid(self):
+        """Mark scanned sets valid."""
+        self.di.mark_scanned()
+        self.di.refresh_from_db()
+        assert self.di.cache_invalidated is False
 
-    def test_object_without_sha_returns_false(self):
-        class Fake:
-            pass
-        assert fs_Cache_Tracking._validate_index_dir(Fake()) is False
-
-    def test_object_with_empty_sha_returns_false(self):
-        class Fake:
-            dir_fqpn_sha256 = ""
-        assert fs_Cache_Tracking._validate_index_dir(Fake()) is False
-
-    def test_object_with_none_sha_returns_false(self):
-        class Fake:
-            dir_fqpn_sha256 = None
-        assert fs_Cache_Tracking._validate_index_dir(Fake()) is False
-
-
-# ===========================================================================
-# fs_Cache_Tracking.add_from_indexdirs
-# ===========================================================================
-
-@pytest.mark.django_db
-class TestAddFromIndexdirs(TestCase):
-    """Tests for add_from_indexdirs."""
-
-    def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        self.di = _make_dir(self.temp_dir)
-        self.cache = fs_Cache_Tracking()
-
-    def tearDown(self):
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
-
-    def test_creates_cache_entry(self):
-        result = self.cache.add_from_indexdirs(self.di)
-        assert result is not None
-        assert fs_Cache_Tracking.objects.filter(directory=self.di).exists()
-
-    def test_entry_starts_not_invalidated(self):
-        self.cache.add_from_indexdirs(self.di)
-        entry = fs_Cache_Tracking.objects.get(directory=self.di)
-        assert entry.invalidated is False
-
-    def test_lastscan_is_recent(self):
+    def test_cache_lastscan_is_recent(self):
+        """Cache lastscan is recent."""
         before = time.time() - 1
-        self.cache.add_from_indexdirs(self.di)
-        entry = fs_Cache_Tracking.objects.get(directory=self.di)
-        assert entry.lastscan >= before
+        self.di.mark_scanned()
+        self.di.refresh_from_db()
+        assert self.di.cache_lastscan >= before
 
-    def test_idempotent_second_call_updates(self):
-        """Calling add_from_indexdirs twice updates rather than duplicating."""
-        self.cache.add_from_indexdirs(self.di)
-        self.cache.add_from_indexdirs(self.di)
-        count = fs_Cache_Tracking.objects.filter(directory=self.di).count()
-        assert count == 1
+    def test_idempotent_second_call(self):
+        """Calling mark_scanned twice leaves the row valid."""
+        self.di.mark_scanned()
+        self.di.mark_scanned()
+        self.di.refresh_from_db()
+        assert self.di.cache_invalidated is False
 
-    def test_returns_entry_object(self):
-        result = self.cache.add_from_indexdirs(self.di)
-        assert isinstance(result, fs_Cache_Tracking)
-
-    def test_none_input_returns_none(self):
-        result = self.cache.add_from_indexdirs(None)
-        assert result is None
+    def test_updates_in_memory_instance(self):
+        """Updates in memory instance."""
+        self.di.mark_scanned()
+        # No refresh — the instance itself is kept in sync
+        assert self.di.cache_invalidated is False
 
     def test_reinvalidated_entry_is_reset_to_valid(self):
-        """add_from_indexdirs on an already-invalidated entry marks it valid again."""
-        self.cache.add_from_indexdirs(self.di)
-        # Manually invalidate
-        fs_Cache_Tracking.objects.filter(directory=self.di).update(invalidated=True)
-        # Re-add
-        self.cache.add_from_indexdirs(self.di)
-        entry = fs_Cache_Tracking.objects.get(directory=self.di)
-        assert entry.invalidated is False
+        """mark_scanned on an already-invalidated row marks it valid again."""
+        self.di.mark_scanned()
+        DirectoryIndex.objects.filter(pk=self.di.pk).update(cache_invalidated=True)
+        self.di.mark_scanned()
+        self.di.refresh_from_db()
+        assert self.di.cache_invalidated is False
 
 
 # ===========================================================================
-# fs_Cache_Tracking.sha_exists_in_cache
+# DirectoryIndex.cache_valid_for_sha
 # ===========================================================================
+
 
 @pytest.mark.django_db
-class TestShaExistsInCache(TestCase):
-    """Tests for sha_exists_in_cache."""
+class TestCacheValidForSha(AlbumsRootTestCase):
+    """Tests for cache_valid_for_sha (formerly sha_exists_in_cache)."""
 
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        self.di = _make_dir(self.temp_dir)
-        self.cache = fs_Cache_Tracking()
+        super().setUp()
+        self.di = _make_dir(self.albums_dir)
 
     def tearDown(self):
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        super().tearDown()
 
-    def test_returns_false_when_not_in_cache(self):
-        assert self.cache.sha_exists_in_cache(self.di.dir_fqpn_sha256) is False
+    def test_returns_false_when_never_scanned(self):
+        """Returns false when never scanned."""
+        assert DirectoryIndex.cache_valid_for_sha(self.di.dir_fqpn_sha256) is False
 
-    def test_returns_true_after_adding(self):
-        self.cache.add_from_indexdirs(self.di)
-        assert self.cache.sha_exists_in_cache(self.di.dir_fqpn_sha256) is True
+    def test_returns_true_after_mark_scanned(self):
+        """Returns true after mark scanned."""
+        self.di.mark_scanned()
+        assert DirectoryIndex.cache_valid_for_sha(self.di.dir_fqpn_sha256) is True
 
     def test_returns_false_after_invalidation(self):
-        self.cache.add_from_indexdirs(self.di)
-        fs_Cache_Tracking.objects.filter(directory=self.di).update(invalidated=True)
-        assert self.cache.sha_exists_in_cache(self.di.dir_fqpn_sha256) is False
+        """Returns false after invalidation."""
+        self.di.mark_scanned()
+        DirectoryIndex.objects.filter(pk=self.di.pk).update(cache_invalidated=True)
+        assert DirectoryIndex.cache_valid_for_sha(self.di.dir_fqpn_sha256) is False
 
     def test_unknown_sha_returns_false(self):
-        assert self.cache.sha_exists_in_cache("0" * 64) is False
+        """Unknown sha returns false."""
+        assert DirectoryIndex.cache_valid_for_sha("0" * 64) is False
 
 
 # ===========================================================================
-# fs_Cache_Tracking.remove_from_cache_indexdirs
+# DirectoryIndex.invalidate_cache
 # ===========================================================================
+
 
 @pytest.mark.django_db
-class TestRemoveFromCacheIndexdirs(TestCase):
-    """Tests for remove_from_cache_indexdirs (single directory)."""
+class TestInvalidateCache(AlbumsRootTestCase):
+    """Tests for invalidate_cache (formerly remove_from_cache_indexdirs)."""
 
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        self.di = _make_dir(self.temp_dir)
-        self.cache = fs_Cache_Tracking()
-        self.cache.add_from_indexdirs(self.di)
+        super().setUp()
+        self.di = _make_dir(self.albums_dir)
+        self.di.mark_scanned()
 
     def tearDown(self):
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        super().tearDown()
 
     def test_returns_true_on_success(self):
-        result = self.cache.remove_from_cache_indexdirs(self.di)
+        """Returns true on success."""
+        result = self.di.invalidate_cache()
         assert result is True
 
     def test_entry_is_invalidated(self):
-        self.cache.remove_from_cache_indexdirs(self.di)
-        entry = fs_Cache_Tracking.objects.get(directory=self.di)
-        assert entry.invalidated is True
+        """Entry is invalidated."""
+        self.di.invalidate_cache()
+        self.di.refresh_from_db()
+        assert self.di.cache_invalidated is True
 
-    def test_sha_no_longer_in_cache(self):
-        self.cache.remove_from_cache_indexdirs(self.di)
-        assert self.cache.sha_exists_in_cache(self.di.dir_fqpn_sha256) is False
+    def test_sha_no_longer_valid(self):
+        """Sha no longer valid."""
+        self.di.invalidate_cache()
+        assert DirectoryIndex.cache_valid_for_sha(self.di.dir_fqpn_sha256) is False
 
-    def test_none_input_returns_false(self):
-        result = self.cache.remove_from_cache_indexdirs(None)
-        assert result is False
-
-    def test_invalid_object_returns_false(self):
-        class Fake:
-            dir_fqpn_sha256 = ""
-        result = self.cache.remove_from_cache_indexdirs(Fake())
-        assert result is False
+    def test_instance_refreshed(self):
+        """invalidate_cache refreshes the instance so held references see the flip."""
+        self.di.invalidate_cache()
+        # No manual refresh — the method refreshes from DB itself
+        assert self.di.cache_invalidated is True
 
 
 # ===========================================================================
-# fs_Cache_Tracking.remove_multiple_from_cache_indexdirs
+# DirectoryIndex.invalidate_cache_by_sha
 # ===========================================================================
+
 
 @pytest.mark.django_db
-class TestRemoveMultipleFromCacheIndexdirs(TestCase):
-    """Tests for remove_multiple_from_cache_indexdirs (batch invalidation)."""
+class TestInvalidateCacheBySha(AlbumsRootTestCase):
+    """Tests for invalidate_cache_by_sha (formerly remove_from_cache_sha)."""
 
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        os.makedirs(os.path.join(self.temp_dir, "a"), exist_ok=True)
-        os.makedirs(os.path.join(self.temp_dir, "b"), exist_ok=True)
-
-        self.di_root = _make_dir(self.temp_dir)
-        self.di_a = _make_dir(os.path.join(self.temp_dir, "a"))
-        self.di_b = _make_dir(os.path.join(self.temp_dir, "b"))
-        self.dirs = {"root": self.di_root, "a": self.di_a, "b": self.di_b}
-
-        self.cache = fs_Cache_Tracking()
-        for di in self.dirs.values():
-            self.cache.add_from_indexdirs(di)
+        super().setUp()
+        self.di = _make_dir(self.albums_dir)
+        self.di.mark_scanned()
 
     def tearDown(self):
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        super().tearDown()
+
+    def test_returns_true_on_success(self):
+        """Returns true on success."""
+        assert DirectoryIndex.invalidate_cache_by_sha(self.di.dir_fqpn_sha256) is True
+
+    def test_entry_is_invalidated(self):
+        """Entry is invalidated."""
+        DirectoryIndex.invalidate_cache_by_sha(self.di.dir_fqpn_sha256)
+        self.di.refresh_from_db()
+        assert self.di.cache_invalidated is True
+
+    def test_unknown_sha_returns_false(self):
+        """Unknown sha returns false."""
+        assert DirectoryIndex.invalidate_cache_by_sha("0" * 64) is False
+
+
+# ===========================================================================
+# DirectoryIndex.invalidate_caches (batch)
+# ===========================================================================
+
+
+@pytest.mark.django_db
+class TestInvalidateCaches(AlbumsRootTestCase):
+    """Tests for invalidate_caches (formerly remove_multiple_from_cache_indexdirs)."""
+
+    def setUp(self):
+        super().setUp()
+        os.makedirs(os.path.join(self.albums_dir, "a"), exist_ok=True)
+        os.makedirs(os.path.join(self.albums_dir, "b"), exist_ok=True)
+
+        self.di_root = _make_dir(self.albums_dir)
+        self.di_a = _make_dir(os.path.join(self.albums_dir, "a"))
+        self.di_b = _make_dir(os.path.join(self.albums_dir, "b"))
+        self.dirs = {"root": self.di_root, "a": self.di_a, "b": self.di_b}
+
+        for di in self.dirs.values():
+            di.mark_scanned()
+
+    def tearDown(self):
+        super().tearDown()
 
     def test_empty_list_returns_false(self):
-        result = self.cache.remove_multiple_from_cache_indexdirs([])
+        """Empty list returns false."""
+        result = DirectoryIndex.invalidate_caches([])
         assert result is False
 
     def test_single_dir_returns_true(self):
-        result = self.cache.remove_multiple_from_cache_indexdirs([self.di_a])
+        """Single dir returns true."""
+        result = DirectoryIndex.invalidate_caches([self.di_a])
         assert result is True
 
     def test_single_dir_is_invalidated(self):
-        self.cache.remove_multiple_from_cache_indexdirs([self.di_a])
-        entry = fs_Cache_Tracking.objects.get(directory=self.di_a)
-        assert entry.invalidated is True
+        """Single dir is invalidated."""
+        DirectoryIndex.invalidate_caches([self.di_a])
+        self.di_a.refresh_from_db()
+        assert self.di_a.cache_invalidated is True
 
     def test_multiple_dirs_all_invalidated(self):
-        self.cache.remove_multiple_from_cache_indexdirs([self.di_a, self.di_b])
+        """Multiple dirs all invalidated."""
+        DirectoryIndex.invalidate_caches([self.di_a, self.di_b])
         shas = _test_shas({"a": self.di_a, "b": self.di_b})
-        count = fs_Cache_Tracking.objects.filter(
-            directory__dir_fqpn_sha256__in=shas, invalidated=True
-        ).count()
+        count = DirectoryIndex.objects.filter(dir_fqpn_sha256__in=shas, cache_invalidated=True).count()
         assert count == 2
 
-    def test_duplicate_dirs_processed_once(self):
-        """Passing the same dir multiple times does not create extra entries."""
-        self.cache.remove_multiple_from_cache_indexdirs([self.di_a, self.di_a, self.di_a])
-        count = fs_Cache_Tracking.objects.filter(directory=self.di_a).count()
-        assert count == 1
+    def test_parents_also_invalidated(self):
+        """Invalidating a child expands to its parent directories.
+
+        Temp dirs outside the albums root get no parent_directory link from
+        add_directory(), so the parent assertion only applies when the link
+        exists (same guard as the historical tests).
+        """
+        DirectoryIndex.invalidate_caches([self.di_a])
+        if self.di_a.parent_directory_id is not None:
+            self.di_root.refresh_from_db()
+            assert self.di_root.cache_invalidated is True
+        self.di_a.refresh_from_db()
+        assert self.di_a.cache_invalidated is True
 
     def test_returns_false_for_all_invalid_objects(self):
+        """Returns false for all invalid objects."""
+
         class Fake:
             dir_fqpn_sha256 = ""
-        result = self.cache.remove_multiple_from_cache_indexdirs([Fake(), Fake()])
+
+        result = DirectoryIndex.invalidate_caches([Fake(), Fake()])
         assert result is False
 
     def test_other_dirs_not_affected(self):
-        """Invalidating 'a' does not affect 'b'."""
-        self.cache.remove_multiple_from_cache_indexdirs([self.di_a])
-        entry_b = fs_Cache_Tracking.objects.get(directory=self.di_b)
-        assert entry_b.invalidated is False
+        """Invalidating 'a' does not affect sibling 'b'."""
+        DirectoryIndex.invalidate_caches([self.di_a])
+        self.di_b.refresh_from_db()
+        assert self.di_b.cache_invalidated is False
 
 
 # ===========================================================================
-# fs_Cache_Tracking.clear_all_records
+# DirectoryIndex.invalidate_all_caches
 # ===========================================================================
+
 
 @pytest.mark.django_db
-class TestClearAllRecords(TestCase):
-    """Tests for clear_all_records."""
+class TestInvalidateAllCaches(AlbumsRootTestCase):
+    """Tests for invalidate_all_caches (formerly clear_all_records)."""
 
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        os.makedirs(os.path.join(self.temp_dir, "c1"), exist_ok=True)
-        os.makedirs(os.path.join(self.temp_dir, "c2"), exist_ok=True)
-        self.di1 = _make_dir(os.path.join(self.temp_dir, "c1"))
-        self.di2 = _make_dir(os.path.join(self.temp_dir, "c2"))
-        self.cache = fs_Cache_Tracking()
-        self.cache.add_from_indexdirs(self.di1)
-        self.cache.add_from_indexdirs(self.di2)
+        super().setUp()
+        os.makedirs(os.path.join(self.albums_dir, "c1"), exist_ok=True)
+        os.makedirs(os.path.join(self.albums_dir, "c2"), exist_ok=True)
+        self.di1 = _make_dir(os.path.join(self.albums_dir, "c1"))
+        self.di2 = _make_dir(os.path.join(self.albums_dir, "c2"))
+        self.di1.mark_scanned()
+        self.di2.mark_scanned()
 
     def tearDown(self):
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        super().tearDown()
 
     def test_returns_count_of_invalidated(self):
-        result = fs_Cache_Tracking.clear_all_records()
+        """Returns count of invalidated."""
+        result = DirectoryIndex.invalidate_all_caches()
         # At minimum our two entries were invalidated
         assert result >= 2
 
     def test_all_test_entries_are_invalidated(self):
-        fs_Cache_Tracking.clear_all_records()
+        """All test entries are invalidated."""
+        DirectoryIndex.invalidate_all_caches()
         shas = {self.di1.dir_fqpn_sha256, self.di2.dir_fqpn_sha256}
-        valid_count = fs_Cache_Tracking.objects.filter(
-            directory__dir_fqpn_sha256__in=shas, invalidated=False
-        ).count()
+        valid_count = DirectoryIndex.objects.filter(dir_fqpn_sha256__in=shas, cache_invalidated=False).count()
         assert valid_count == 0
 
     def test_idempotent_called_twice(self):
-        """clear_all_records is safe to call multiple times."""
-        fs_Cache_Tracking.clear_all_records()
-        result2 = fs_Cache_Tracking.clear_all_records()
+        """invalidate_all_caches is safe to call multiple times."""
+        DirectoryIndex.invalidate_all_caches()
+        result2 = DirectoryIndex.invalidate_all_caches()
         assert isinstance(result2, int)
 
 
 # ===========================================================================
-# fs_Cache_Tracking.delete_orphaned_entries
+# DirectoryIndex._invalidate_by_shas
 # ===========================================================================
+
 
 @pytest.mark.django_db
-class TestDeleteOrphanedEntries(TestCase):
-    """Tests for delete_orphaned_entries."""
+class TestInvalidateByShas(AlbumsRootTestCase):
+    """Tests for _invalidate_by_shas (formerly _bulk_invalidate_by_shas)."""
 
     def setUp(self):
-        self.cache = fs_Cache_Tracking()
-
-    def test_returns_integer(self):
-        result = fs_Cache_Tracking.delete_orphaned_entries()
-        assert isinstance(result, int)
-
-    def test_returns_zero_when_no_orphans(self):
-        # No orphans should exist in a clean test transaction
-        result = fs_Cache_Tracking.delete_orphaned_entries()
-        assert result == 0
-
-    def test_deletes_null_directory_entries(self):
-        """fs_Cache_Tracking entries with null directory are deleted."""
-        # Create an orphaned entry directly
-        orphan = fs_Cache_Tracking.objects.create(
-            directory=None,
-            lastscan=0.0,
-            invalidated=False,
-        )
-        pk = orphan.pk
-        deleted = fs_Cache_Tracking.delete_orphaned_entries()
-        assert deleted >= 1
-        assert not fs_Cache_Tracking.objects.filter(pk=pk).exists()
-
-
-# ===========================================================================
-# fs_Cache_Tracking._bulk_invalidate_by_shas
-# ===========================================================================
-
-@pytest.mark.django_db
-class TestBulkInvalidateByShas(TestCase):
-    """Tests for _bulk_invalidate_by_shas."""
-
-    def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        os.makedirs(os.path.join(self.temp_dir, "d1"), exist_ok=True)
-        os.makedirs(os.path.join(self.temp_dir, "d2"), exist_ok=True)
-        self.di1 = _make_dir(os.path.join(self.temp_dir, "d1"))
-        self.di2 = _make_dir(os.path.join(self.temp_dir, "d2"))
-        self.cache = fs_Cache_Tracking()
-        self.cache.add_from_indexdirs(self.di1)
-        self.cache.add_from_indexdirs(self.di2)
+        super().setUp()
+        os.makedirs(os.path.join(self.albums_dir, "d1"), exist_ok=True)
+        os.makedirs(os.path.join(self.albums_dir, "d2"), exist_ok=True)
+        self.di1 = _make_dir(os.path.join(self.albums_dir, "d1"))
+        self.di2 = _make_dir(os.path.join(self.albums_dir, "d2"))
+        self.di1.mark_scanned()
+        self.di2.mark_scanned()
 
     def tearDown(self):
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        super().tearDown()
 
     def test_invalidates_entries_for_given_shas(self):
+        """Invalidates entries for given shas."""
         shas = [self.di1.dir_fqpn_sha256]
-        count = self.cache._bulk_invalidate_by_shas(shas)
+        count = DirectoryIndex._invalidate_by_shas(shas)
         assert count >= 1
-        entry = fs_Cache_Tracking.objects.get(directory=self.di1)
-        assert entry.invalidated is True
+        self.di1.refresh_from_db()
+        assert self.di1.cache_invalidated is True
 
     def test_returns_count_of_updated_entries(self):
+        """Returns count of updated entries."""
         shas = [self.di1.dir_fqpn_sha256, self.di2.dir_fqpn_sha256]
-        count = self.cache._bulk_invalidate_by_shas(shas)
+        count = DirectoryIndex._invalidate_by_shas(shas)
         assert count >= 2
 
     def test_empty_sha_list_returns_zero(self):
-        count = self.cache._bulk_invalidate_by_shas([])
+        """Empty sha list returns zero."""
+        count = DirectoryIndex._invalidate_by_shas([])
         assert count == 0
 
-    def test_creates_entry_for_dir_without_cache_record(self):
-        """Directories without a cache entry get one created (invalidated=True)."""
-        # Create a dir that has NO cache entry
-        extra_path = os.path.join(self.temp_dir, "new_dir")
+    def test_never_scanned_dir_still_counted(self):
+        """A never-scanned directory row is matched by the UPDATE (no create pass needed)."""
+        extra_path = os.path.join(self.albums_dir, "new_dir")
         os.makedirs(extra_path, exist_ok=True)
         di_new = _make_dir(extra_path)
-        # Do NOT call add_from_indexdirs — no cache entry exists
+        # Never mark_scanned — row is born cache_invalidated=True
 
-        count = self.cache._bulk_invalidate_by_shas([di_new.dir_fqpn_sha256])
+        count = DirectoryIndex._invalidate_by_shas([di_new.dir_fqpn_sha256])
         assert count >= 1
-        assert fs_Cache_Tracking.objects.filter(directory=di_new, invalidated=True).exists()
+        assert DirectoryIndex.objects.filter(pk=di_new.pk, cache_invalidated=True).exists()
 
 
 # ===========================================================================
-# fs_Cache_Tracking._clear_layout_cache_bulk
+# Layout cache clearing on invalidation
 # ===========================================================================
+
 
 @pytest.mark.django_db
-class TestClearLayoutCacheBulk(TestCase):
-    """Tests for _clear_layout_cache_bulk."""
+class TestLayoutCacheClearedOnInvalidate(AlbumsRootTestCase):
+    """invalidate_cache clears layout cache entries (formerly _clear_layout_cache_bulk)."""
 
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        self.di = _make_dir(self.temp_dir)
-        self.cache = fs_Cache_Tracking()
+        super().setUp()
+        self.di = _make_dir(self.albums_dir)
+        self.di.mark_scanned()
         from quickbbs.cache_registry import layout_manager_cache
+
         layout_manager_cache.clear()
 
     def tearDown(self):
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        super().tearDown()
         from quickbbs.cache_registry import layout_manager_cache
+
         layout_manager_cache.clear()
 
-    def test_empty_list_does_not_raise(self):
-        """Passing an empty list is a no-op, no exception raised."""
-        try:
-            self.cache._clear_layout_cache_bulk([])
-        except Exception as e:
-            self.fail(f"_clear_layout_cache_bulk([]) raised: {e}")
-
     def test_clears_layout_cache_for_directory(self):
+        """Clears layout cache for directory."""
         from frontend.managers import layout_manager
+
         layout_manager(page_number=1, directory=self.di, sort_ordering=0, show_duplicates=False)
         from quickbbs.cache_registry import layout_manager_cache
+
         assert len(layout_manager_cache) > 0
 
-        self.cache._clear_layout_cache_bulk([self.di])
+        self.di.invalidate_cache()
         assert len(layout_manager_cache) == 0
-
-    def test_none_entries_in_list_are_skipped(self):
-        """None entries in the list don't crash the method."""
-        try:
-            self.cache._clear_layout_cache_bulk([None, self.di, None])
-        except Exception as e:
-            self.fail(f"_clear_layout_cache_bulk with None raised: {e}")
-
-    def test_no_db_queries_during_clear(self):
-        """Layout cache clearing uses no DB queries."""
-        from django.db import connection
-        from django.test.utils import CaptureQueriesContext
-        with CaptureQueriesContext(connection) as ctx:
-            self.cache._clear_layout_cache_bulk([self.di])
-        assert len(ctx.captured_queries) == 0
 
 
 # ===========================================================================
 # CacheStatisticsTracking
 # ===========================================================================
+
 
 class TestCacheStatisticsTracking(TestCase):
     """Tests for CacheStatisticsTracking model and properties."""
@@ -578,26 +575,32 @@ class TestCacheStatisticsTracking(TestCase):
         return stat
 
     def test_hit_rate_zero_when_no_requests(self):
+        """Hit rate zero when no requests."""
         stat = self._make_stat(0, 0)
         assert stat.hit_rate == 0.0
 
     def test_hit_rate_100_when_all_hits(self):
+        """Hit rate 100 when all hits."""
         stat = self._make_stat(100, 0)
         assert stat.hit_rate == 100.0
 
     def test_hit_rate_0_when_all_misses(self):
+        """Hit rate 0 when all misses."""
         stat = self._make_stat(0, 100)
         assert stat.hit_rate == 0.0
 
     def test_hit_rate_50_percent(self):
+        """Hit rate 50 percent."""
         stat = self._make_stat(50, 50)
         assert stat.hit_rate == 50.0
 
     def test_hit_rate_75_percent(self):
+        """Hit rate 75 percent."""
         stat = self._make_stat(75, 25)
         assert stat.hit_rate == 75.0
 
     def test_str_shows_cache_name(self):
+        """Str shows cache name."""
         stat = CacheStatisticsTracking()
         stat.cache_name = "fileindex"
         stat.hits = 10
@@ -605,6 +608,7 @@ class TestCacheStatisticsTracking(TestCase):
         assert "fileindex" in str(stat)
 
     def test_str_shows_hit_rate(self):
+        """Str shows hit rate."""
         stat = CacheStatisticsTracking()
         stat.cache_name = "test_cache"
         stat.hits = 80
@@ -613,6 +617,7 @@ class TestCacheStatisticsTracking(TestCase):
         assert "80.0%" in result
 
     def test_str_shows_na_when_no_requests(self):
+        """Str shows na when no requests."""
         stat = CacheStatisticsTracking()
         stat.cache_name = "empty"
         stat.hits = 0
@@ -623,6 +628,7 @@ class TestCacheStatisticsTracking(TestCase):
 # ===========================================================================
 # CacheFileMonitorEventHandler
 # ===========================================================================
+
 
 class TestCacheFileMonitorEventHandler(TestCase):
     """Tests for CacheFileMonitorEventHandler."""
@@ -638,9 +644,11 @@ class TestCacheFileMonitorEventHandler(TestCase):
         optimized_event_buffer.clear()
 
     def test_initial_state_no_timer(self):
+        """Initial state no timer."""
         assert self.handler.event_timer is None
 
     def test_initial_generation_is_zero(self):
+        """Initial generation is zero."""
         assert self.handler.timer_generation == 0
 
     def test_cleanup_cancels_timer(self):
@@ -677,6 +685,7 @@ class TestCacheFileMonitorEventHandler(TestCase):
     def test_buffer_event_adds_to_global_buffer(self):
         """_buffer_event adds the directory path to optimized_event_buffer."""
         from unittest.mock import MagicMock
+
         event = MagicMock()
         event.is_directory = True
         event.src_path = "/some/test/directory"
@@ -690,6 +699,7 @@ class TestCacheFileMonitorEventHandler(TestCase):
     def test_buffer_file_event_adds_parent_dir(self):
         """_buffer_event for a file event adds the parent directory, not the file."""
         from unittest.mock import MagicMock
+
         event = MagicMock()
         event.is_directory = False
         event.src_path = "/some/test/directory/file.jpg"
@@ -703,6 +713,7 @@ class TestCacheFileMonitorEventHandler(TestCase):
     def test_buffer_event_creates_timer(self):
         """_buffer_event creates a timer if none exists."""
         from unittest.mock import MagicMock
+
         event = MagicMock()
         event.is_directory = True
         event.src_path = "/timer/test"
@@ -714,6 +725,7 @@ class TestCacheFileMonitorEventHandler(TestCase):
     def test_buffer_event_does_not_create_second_timer(self):
         """_buffer_event does not create a new timer if one already exists."""
         from unittest.mock import MagicMock
+
         event = MagicMock()
         event.is_directory = True
         event.src_path = "/timer/test"
@@ -735,11 +747,13 @@ class TestCacheFileMonitorEventHandler(TestCase):
 # WatchdogManager instance so global state from apps.py doesn't interfere.
 # ===========================================================================
 
+
 class TestWatchdogManagerStart(TestCase):
     """Tests for WatchdogManager.start()."""
 
     def setUp(self):
         from cache_watcher.models import WatchdogManager
+
         self.manager = WatchdogManager()
 
     def tearDown(self):
@@ -750,50 +764,54 @@ class TestWatchdogManagerStart(TestCase):
                 self.manager.restart_timer = None
 
     def test_start_sets_is_running(self):
-        from unittest.mock import patch, MagicMock
+        """Start sets is running."""
+        from unittest.mock import MagicMock, patch
+
         mock_timer = MagicMock()
         mock_timer.is_alive.return_value = True
-        with patch("cache_watcher.models.watchdog") as mock_wdog, \
-             patch("cache_watcher.models.threading.Timer", return_value=mock_timer):
+        with patch("cache_watcher.models.watchdog") as mock_wdog, patch("cache_watcher.models.threading.Timer", return_value=mock_timer):
             self.manager.start()
         assert self.manager.is_running is True
 
     def test_start_calls_watchdog_startup(self):
-        from unittest.mock import patch, MagicMock
+        """Start calls watchdog startup."""
+        from unittest.mock import MagicMock, patch
+
         mock_timer = MagicMock()
         mock_timer.is_alive.return_value = True
-        with patch("cache_watcher.models.watchdog") as mock_wdog, \
-             patch("cache_watcher.models.threading.Timer", return_value=mock_timer):
+        with patch("cache_watcher.models.watchdog") as mock_wdog, patch("cache_watcher.models.threading.Timer", return_value=mock_timer):
             self.manager.start()
         mock_wdog.startup.assert_called_once()
 
     def test_start_schedules_restart_timer(self):
-        from unittest.mock import patch, MagicMock
+        """Start schedules restart timer."""
+        from unittest.mock import MagicMock, patch
+
         mock_timer = MagicMock()
         mock_timer.is_alive.return_value = True
-        with patch("cache_watcher.models.watchdog"), \
-             patch("cache_watcher.models.threading.Timer", return_value=mock_timer) as mock_timer_cls:
+        with patch("cache_watcher.models.watchdog"), patch("cache_watcher.models.threading.Timer", return_value=mock_timer) as mock_timer_cls:
             self.manager.start()
         mock_timer_cls.assert_called_once()
         mock_timer.start.assert_called_once()
 
     def test_start_twice_does_not_call_startup_again(self):
         """Second call to start() when already running is a no-op."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         mock_timer = MagicMock()
         mock_timer.is_alive.return_value = True
-        with patch("cache_watcher.models.watchdog") as mock_wdog, \
-             patch("cache_watcher.models.threading.Timer", return_value=mock_timer):
+        with patch("cache_watcher.models.watchdog") as mock_wdog, patch("cache_watcher.models.threading.Timer", return_value=mock_timer):
             self.manager.start()
             self.manager.start()
         assert mock_wdog.startup.call_count == 1
 
     def test_start_with_force_recreate_passes_flag(self):
-        from unittest.mock import patch, MagicMock
+        """Start with force recreate passes flag."""
+        from unittest.mock import MagicMock, patch
+
         mock_timer = MagicMock()
         mock_timer.is_alive.return_value = True
-        with patch("cache_watcher.models.watchdog") as mock_wdog, \
-             patch("cache_watcher.models.threading.Timer", return_value=mock_timer):
+        with patch("cache_watcher.models.watchdog") as mock_wdog, patch("cache_watcher.models.threading.Timer", return_value=mock_timer):
             self.manager.start(force_recreate=True)
         _, kwargs = mock_wdog.startup.call_args
         assert kwargs.get("force_recreate") is True
@@ -804,15 +822,16 @@ class TestWatchdogManagerStop(TestCase):
 
     def setUp(self):
         from cache_watcher.models import WatchdogManager
+
         self.manager = WatchdogManager()
 
     def _start_mocked(self):
         """Start the manager with all external calls mocked."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         mock_timer = MagicMock()
         mock_timer.is_alive.return_value = True
-        with patch("cache_watcher.models.watchdog"), \
-             patch("cache_watcher.models.threading.Timer", return_value=mock_timer):
+        with patch("cache_watcher.models.watchdog"), patch("cache_watcher.models.threading.Timer", return_value=mock_timer):
             self.manager.start()
         # Replace the real timer with a mock so tearDown doesn't try to cancel a dead thread
         self.manager.restart_timer = mock_timer
@@ -824,21 +843,27 @@ class TestWatchdogManagerStop(TestCase):
                 self.manager.restart_timer = None
 
     def test_stop_sets_is_running_false(self):
+        """Stop sets is running false."""
         from unittest.mock import patch
+
         self._start_mocked()
         with patch("cache_watcher.models.watchdog"):
             self.manager.stop()
         assert self.manager.is_running is False
 
     def test_stop_calls_stop_observer(self):
+        """Stop calls stop observer."""
         from unittest.mock import patch
+
         self._start_mocked()
         with patch("cache_watcher.models.watchdog") as mock_wdog:
             self.manager.stop()
         mock_wdog.stop_observer.assert_called_once()
 
     def test_stop_clears_event_handler(self):
+        """Stop clears event handler."""
         from unittest.mock import patch
+
         self._start_mocked()
         with patch("cache_watcher.models.watchdog"):
             self.manager.stop()
@@ -848,6 +873,7 @@ class TestWatchdogManagerStop(TestCase):
         """stop() on an already-stopped manager does nothing."""
         assert self.manager.is_running is False
         from unittest.mock import patch
+
         with patch("cache_watcher.models.watchdog") as mock_wdog:
             self.manager.stop()
         mock_wdog.stop_observer.assert_not_called()
@@ -858,10 +884,13 @@ class TestWatchdogManagerShutdown(TestCase):
 
     def setUp(self):
         from cache_watcher.models import WatchdogManager
+
         self.manager = WatchdogManager()
 
     def test_shutdown_cancels_restart_timer(self):
-        from unittest.mock import patch, MagicMock
+        """Shutdown cancels restart timer."""
+        from unittest.mock import MagicMock, patch
+
         mock_timer = MagicMock()
         mock_timer.is_alive.return_value = True
         self.manager.restart_timer = mock_timer
@@ -871,11 +900,12 @@ class TestWatchdogManagerShutdown(TestCase):
         assert self.manager.restart_timer is None
 
     def test_shutdown_sets_is_running_false(self):
-        from unittest.mock import patch, MagicMock
+        """Shutdown sets is running false."""
+        from unittest.mock import MagicMock, patch
+
         mock_timer = MagicMock()
         mock_timer.is_alive.return_value = True
-        with patch("cache_watcher.models.watchdog"), \
-             patch("cache_watcher.models.threading.Timer", return_value=mock_timer):
+        with patch("cache_watcher.models.watchdog"), patch("cache_watcher.models.threading.Timer", return_value=mock_timer):
             self.manager.start()
         self.manager.restart_timer = mock_timer
         with patch("cache_watcher.models.watchdog"):
@@ -883,7 +913,9 @@ class TestWatchdogManagerShutdown(TestCase):
         assert self.manager.is_running is False
 
     def test_shutdown_when_not_running_does_not_raise(self):
+        """Shutdown when not running does not raise."""
         from unittest.mock import patch
+
         assert self.manager.is_running is False
         try:
             with patch("cache_watcher.models.watchdog"):
@@ -892,11 +924,12 @@ class TestWatchdogManagerShutdown(TestCase):
             self.fail(f"shutdown() when not running raised: {e}")
 
     def test_shutdown_clears_event_handler(self):
-        from unittest.mock import patch, MagicMock
+        """Shutdown clears event handler."""
+        from unittest.mock import MagicMock, patch
+
         mock_timer = MagicMock()
         mock_timer.is_alive.return_value = True
-        with patch("cache_watcher.models.watchdog"), \
-             patch("cache_watcher.models.threading.Timer", return_value=mock_timer):
+        with patch("cache_watcher.models.watchdog"), patch("cache_watcher.models.threading.Timer", return_value=mock_timer):
             self.manager.start()
         self.manager.restart_timer = mock_timer
         with patch("cache_watcher.models.watchdog"):
@@ -909,6 +942,7 @@ class TestWatchdogManagerRestart(TestCase):
 
     def setUp(self):
         from cache_watcher.models import WatchdogManager
+
         self.manager = WatchdogManager()
 
     def tearDown(self):
@@ -919,17 +953,22 @@ class TestWatchdogManagerRestart(TestCase):
 
     def _mock_timer(self):
         from unittest.mock import MagicMock
+
         t = MagicMock()
         t.is_alive.return_value = True
         return t
 
     def test_restart_calls_stop_then_start(self):
+        """Restart calls stop then start."""
         from unittest.mock import patch
+
         mock_timer = self._mock_timer()
         # WatchdogManager uses __slots__ — patch at class level, not instance level
-        with patch("cache_watcher.models.watchdog") as mock_wdog, \
-             patch("cache_watcher.models.threading.Timer", return_value=mock_timer), \
-             patch("cache_watcher.models.WatchdogManager._process_pending_events"):
+        with (
+            patch("cache_watcher.models.watchdog") as mock_wdog,
+            patch("cache_watcher.models.threading.Timer", return_value=mock_timer),
+            patch("cache_watcher.models.WatchdogManager._process_pending_events"),
+        ):
             self.manager.start()
             self.manager.restart_timer = mock_timer
             self.manager.restart()
@@ -938,14 +977,18 @@ class TestWatchdogManagerRestart(TestCase):
         assert mock_wdog.startup.call_count == 2
 
     def test_restart_clears_event_buffer(self):
+        """Restart clears event buffer."""
         from unittest.mock import patch
+
         mock_timer = self._mock_timer()
         optimized_event_buffer.add_event("/some/path")
         assert optimized_event_buffer.size() > 0
 
-        with patch("cache_watcher.models.watchdog"), \
-             patch("cache_watcher.models.threading.Timer", return_value=mock_timer), \
-             patch("cache_watcher.models.WatchdogManager._process_pending_events"):
+        with (
+            patch("cache_watcher.models.watchdog"),
+            patch("cache_watcher.models.threading.Timer", return_value=mock_timer),
+            patch("cache_watcher.models.WatchdogManager._process_pending_events"),
+        ):
             self.manager.start()
             self.manager.restart_timer = mock_timer
             self.manager.restart()
@@ -955,10 +998,13 @@ class TestWatchdogManagerRestart(TestCase):
     def test_restart_uses_force_recreate(self):
         """restart() calls start(force_recreate=True) to prevent memory leaks."""
         from unittest.mock import patch
+
         mock_timer = self._mock_timer()
-        with patch("cache_watcher.models.watchdog") as mock_wdog, \
-             patch("cache_watcher.models.threading.Timer", return_value=mock_timer), \
-             patch("cache_watcher.models.WatchdogManager._process_pending_events"):
+        with (
+            patch("cache_watcher.models.watchdog") as mock_wdog,
+            patch("cache_watcher.models.threading.Timer", return_value=mock_timer),
+            patch("cache_watcher.models.WatchdogManager._process_pending_events"),
+        ):
             self.manager.start()
             self.manager.restart_timer = mock_timer
             self.manager.restart()
@@ -970,10 +1016,13 @@ class TestWatchdogManagerRestart(TestCase):
     def test_restart_schedules_next_restart(self):
         """After restarting, a new restart timer is scheduled."""
         from unittest.mock import patch
+
         mock_timer = self._mock_timer()
-        with patch("cache_watcher.models.watchdog"), \
-             patch("cache_watcher.models.threading.Timer", return_value=mock_timer) as mock_cls, \
-             patch("cache_watcher.models.WatchdogManager._process_pending_events"):
+        with (
+            patch("cache_watcher.models.watchdog"),
+            patch("cache_watcher.models.threading.Timer", return_value=mock_timer) as mock_cls,
+            patch("cache_watcher.models.WatchdogManager._process_pending_events"),
+        ):
             self.manager.start()
             self.manager.restart_timer = mock_timer
             self.manager.restart()
@@ -987,6 +1036,7 @@ class TestWatchdogManagerScheduleRestart(TestCase):
 
     def setUp(self):
         from cache_watcher.models import WatchdogManager
+
         self.manager = WatchdogManager()
 
     def tearDown(self):
@@ -996,7 +1046,9 @@ class TestWatchdogManagerScheduleRestart(TestCase):
                 self.manager.restart_timer = None
 
     def test_schedule_restart_creates_timer(self):
-        from unittest.mock import patch, MagicMock
+        """Schedule restart creates timer."""
+        from unittest.mock import MagicMock, patch
+
         mock_timer = MagicMock()
         mock_timer.is_alive.return_value = True
         with patch("cache_watcher.models.threading.Timer", return_value=mock_timer):
@@ -1005,7 +1057,9 @@ class TestWatchdogManagerScheduleRestart(TestCase):
         assert self.manager.restart_timer is mock_timer
 
     def test_schedule_restart_starts_timer(self):
-        from unittest.mock import patch, MagicMock
+        """Schedule restart starts timer."""
+        from unittest.mock import MagicMock, patch
+
         mock_timer = MagicMock()
         mock_timer.is_alive.return_value = True
         with patch("cache_watcher.models.threading.Timer", return_value=mock_timer):
@@ -1015,7 +1069,8 @@ class TestWatchdogManagerScheduleRestart(TestCase):
 
     def test_schedule_restart_timer_is_daemon(self):
         """Timer must be a daemon thread so it doesn't block process exit."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         mock_timer = MagicMock()
         mock_timer.is_alive.return_value = True
         with patch("cache_watcher.models.threading.Timer", return_value=mock_timer):
@@ -1025,7 +1080,8 @@ class TestWatchdogManagerScheduleRestart(TestCase):
 
     def test_schedule_restart_cancels_existing_timer(self):
         """Calling _schedule_restart when a timer exists cancels the old one."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         old_timer = MagicMock()
         old_timer.is_alive.return_value = True
         self.manager.restart_timer = old_timer
@@ -1041,8 +1097,10 @@ class TestWatchdogManagerScheduleRestart(TestCase):
 
     def test_schedule_restart_uses_configured_interval(self):
         """Timer is created with the configured WATCHDOG_RESTART_INTERVAL."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from cache_watcher.models import WATCHDOG_RESTART_INTERVAL
+
         mock_timer = MagicMock()
         mock_timer.is_alive.return_value = True
         with patch("cache_watcher.models.threading.Timer", return_value=mock_timer) as mock_cls:
@@ -1057,6 +1115,7 @@ class TestWatchdogManagerProcessPendingEvents(TestCase):
 
     def setUp(self):
         from cache_watcher.models import WatchdogManager
+
         self.manager = WatchdogManager()
         optimized_event_buffer.clear()
 
@@ -1066,42 +1125,43 @@ class TestWatchdogManagerProcessPendingEvents(TestCase):
     def test_empty_buffer_returns_immediately(self):
         """No semaphore acquisition when buffer is empty."""
         from unittest.mock import patch
+
         assert optimized_event_buffer.size() == 0
         with patch("cache_watcher.models.processing_semaphore") as mock_sem:
             self.manager._process_pending_events()
         mock_sem.acquire.assert_not_called()
 
     def test_non_empty_buffer_acquires_semaphore(self):
-        from unittest.mock import patch, MagicMock
+        """Non empty buffer acquires semaphore."""
+        from unittest.mock import MagicMock, patch
+
         optimized_event_buffer.add_event("/some/path")
         mock_sem = MagicMock()
         mock_sem.acquire.return_value = True
-        with patch("cache_watcher.models.processing_semaphore", mock_sem), \
-             patch("cache_watcher.models.Cache_Storage") as mock_cache, \
-             patch("quickbbs.models.DirectoryIndex.objects") as mock_di:
-            mock_di.filter.return_value.only.return_value = []
+        with patch("cache_watcher.models.processing_semaphore", mock_sem), patch("cache_watcher.models.DirectoryIndex") as mock_di:
+            mock_di.objects.filter.return_value.only.return_value = []
             self.manager._process_pending_events()
         mock_sem.acquire.assert_called_once_with(blocking=False)
 
     def test_semaphore_released_after_processing(self):
-        from unittest.mock import patch, MagicMock
+        """Semaphore released after processing."""
+        from unittest.mock import MagicMock, patch
+
         optimized_event_buffer.add_event("/some/path")
         mock_sem = MagicMock()
         mock_sem.acquire.return_value = True
-        with patch("cache_watcher.models.processing_semaphore", mock_sem), \
-             patch("cache_watcher.models.Cache_Storage"), \
-             patch("quickbbs.models.DirectoryIndex.objects") as mock_di:
-            mock_di.filter.return_value.only.return_value = []
+        with patch("cache_watcher.models.processing_semaphore", mock_sem), patch("cache_watcher.models.DirectoryIndex") as mock_di:
+            mock_di.objects.filter.return_value.only.return_value = []
             self.manager._process_pending_events()
         mock_sem.release.assert_called_once()
 
     def test_semaphore_not_acquired_skips_processing(self):
         """If semaphore is held by another thread, processing is skipped gracefully."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         optimized_event_buffer.add_event("/some/path")
         mock_sem = MagicMock()
         mock_sem.acquire.return_value = False  # Can't acquire — another thread holds it
-        with patch("cache_watcher.models.processing_semaphore", mock_sem), \
-             patch("cache_watcher.models.Cache_Storage") as mock_cache:
+        with patch("cache_watcher.models.processing_semaphore", mock_sem), patch("cache_watcher.models.DirectoryIndex") as mock_di:
             self.manager._process_pending_events()
-        mock_cache.remove_multiple_from_cache_indexdirs.assert_not_called()
+        mock_di.invalidate_caches.assert_not_called()

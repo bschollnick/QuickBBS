@@ -42,7 +42,7 @@ class filetypes(models.Model):
 
     fileext = models.CharField(
         primary_key=True, db_index=True, max_length=10, unique=True
-    )  # File Extension (eg. .html, is lowercase, and includes the DOT)
+    )  # File Extension (eg. .html, includes the DOT). Always stored lowercase.
     generic = models.BooleanField(default=False)
 
     icon_filename = models.CharField(max_length=384, default="", blank=True)  # FQFN of the file itself

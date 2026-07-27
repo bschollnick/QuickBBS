@@ -13,12 +13,14 @@ from django.conf import settings
 from django.test import TestCase
 
 from frontend.utilities import (
+    breadcrumbs_cache,
     convert_to_webpath,
     ensures_endswith,
     return_breadcrumbs,
     webpaths_cache,
-    breadcrumbs_cache,
 )
+
+pytestmark = pytest.mark.api
 
 
 # ---------------------------------------------------------------------------
@@ -158,8 +160,8 @@ class TestConvertToWebpathRed(TestCase):
     def test_none_and_omitted_share_cache_entry(self):
         """Calls with explicit None and omitted directory must share a cache entry."""
         full = f"{settings.ALBUMS_PATH}/shared/cache/test.jpg".lower()
-        convert_to_webpath(full)           # populates cache with key (full,)
-        convert_to_webpath(full, None)     # should hit the same cache entry
+        convert_to_webpath(full)  # populates cache with key (full,)
+        convert_to_webpath(full, None)  # should hit the same cache entry
 
         # Cache should contain exactly one entry for this path, not two
         assert webpaths_cache.currsize == 1

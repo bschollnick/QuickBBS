@@ -82,7 +82,11 @@ def download_optimization_middleware(get_response: Callable[[HttpRequest], HttpR
 
     else:
         # Sync version (shouldn't be used in ASGI, but provide for compatibility)
-        def middleware(request: HttpRequest) -> HttpResponse:
+        # mypy infers the async `middleware` above as returning
+        # Coroutine[Any, Any, HttpResponse] regardless of its -> HttpResponse
+        # annotation, so this legitimate sync redefinition looks like a signature
+        # mismatch; mypy has no construct for "conditionally sync-or-async function".
+        def middleware(request: HttpRequest) -> HttpResponse:  # type: ignore[misc]
             """Pass all requests through the normal chain (sync fallback — no bypass)."""
             # Check if this is a download endpoint
             match = DOWNLOAD_URL_PATTERN.match(request.path)

@@ -107,6 +107,7 @@ class cache_startup(AppConfig):
         except (FileNotFoundError, ValueError):
             pass  # No lock file or unreadable — normal first-start path
 
+        lock_fd = None
         try:
             lock_fd = open(lock_file_path, "w")
             fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -118,10 +119,11 @@ class cache_startup(AppConfig):
             logger.info("Acquired watchdog lock (PID %s) - production server worker", os.getpid())
         except (IOError, OSError, BlockingIOError) as e:
             logger.warning("Failed to acquire lock file: %s", e)
-            try:
-                lock_fd.close()
-            except (IOError, OSError, AttributeError) as close_error:
-                logger.debug("Failed to close lock file: %s", close_error)
+            if lock_fd is not None:
+                try:
+                    lock_fd.close()
+                except (IOError, OSError, AttributeError) as close_error:
+                    logger.debug("Failed to close lock file: %s", close_error)
             logger.info("Watchdog already running in another worker (PID %s) - skipping", os.getpid())
 
         if should_start:
@@ -144,6 +146,13 @@ class cache_startup(AppConfig):
             lock_fd.close()
             if os.path.exists(lock_file_path):
                 os.remove(lock_file_path)
-            logger.info("Watchdog lock cleaned up")
+            if not sys.is_finalizing() and not getattr(sys.stdout, "closed", False) and not getattr(sys.stderr, "closed", False):
+                # Ensure no logging handler has a closed stream
+                handlers = list(logger.handlers) + list(logging.getLogger().handlers)
+                if not any(getattr(getattr(h, "stream", None), "closed", False) for h in handlers):
+                    logger.info("Watchdog lock cleaned up")
         except (OSError, AttributeError) as e:
-            logger.error("Error cleaning up watchdog lock: %s", e)
+            if not sys.is_finalizing() and not getattr(sys.stdout, "closed", False) and not getattr(sys.stderr, "closed", False):
+                handlers = list(logger.handlers) + list(logging.getLogger().handlers)
+                if not any(getattr(getattr(h, "stream", None), "closed", False) for h in handlers):
+                    logger.error("Error cleaning up watchdog lock: %s", e)

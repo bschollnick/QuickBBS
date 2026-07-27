@@ -229,9 +229,6 @@ def _process_verify_files_chunk(
     """
     directories = list(DirectoryIndex.objects.select_related("parent_directory").filter(pk__in=directory_pks).order_by("fqpndirectory"))
 
-    # Batch-invalidate all directories in the chunk before rescanning
-    DirectoryIndex.invalidate_caches(directories)
-
     for directory in directories:
         update_database_from_disk(directory)
         processed_count += 1
@@ -289,13 +286,16 @@ def verify_files(start_path: str | None = None, max_count: int = 0):
     start_count = FileIndex.objects.count()
     print(f"\tStarting File Count: {start_count}")
 
-    # Build base queryset
+    # Build base queryset — only directories flagged for rescan need to be
+    # touched here; is_cached directories would just hit update_database_from_disk's
+    # early-return, so filtering them out at the DB level avoids materialising
+    # and looping over PKs that have nothing to do.
     if start_path:
         normalized_start = normalize_fqpn(start_path)
         print(f"\tFiltering directories under: {normalized_start}")
-        base_qs = DirectoryIndex.objects.filter(fqpndirectory__startswith=normalized_start).order_by("fqpndirectory")
+        base_qs = DirectoryIndex.objects.filter(fqpndirectory__startswith=normalized_start, cache_invalidated=True).order_by("fqpndirectory")
     else:
-        base_qs = DirectoryIndex.objects.order_by("fqpndirectory")
+        base_qs = DirectoryIndex.objects.filter(cache_invalidated=True).order_by("fqpndirectory")
 
     # Fetch only primary keys (lightweight - avoids loading full objects into memory)
     all_pks = list(base_qs.values_list("pk", flat=True))
@@ -650,14 +650,11 @@ class Command(BaseCommand):
             # Normalize the provided path
             normalized_start_path = normalize_fqpn(start_path)
 
-            # Get the albums root directory
-            albums_root = normalize_fqpn(os.path.join(settings.ALBUMS_PATH, "albums"))
-
             # Ensure the start_path is within the albums directory
-            if not normalized_start_path.startswith(albums_root):
+            if not DirectoryIndex.is_in_albums_tree(normalized_start_path):
                 raise CommandError(
                     f"Invalid --start path: '{start_path}'\n"
-                    f"The path must be within the albums directory: '{albums_root}'\n"
+                    f"The path must be within the albums directory: '{DirectoryIndex.get_albums_root()}'\n"
                     f"Normalized path provided: '{normalized_start_path}'"
                 )
 
@@ -668,6 +665,10 @@ class Command(BaseCommand):
             # Ensure it's a directory
             if not os.path.isdir(normalized_start_path):
                 raise CommandError(f"Invalid --start path: '{start_path}'\n" f"The path is not a directory: '{normalized_start_path}'")
+
+            # Use the validated, normalized form for every downstream operation
+            # instead of re-deriving it independently at each call site.
+            start_path = normalized_start_path
 
         if options["verify_directories"]:
             verify_directories(start_path=start_path, max_count=max_count)

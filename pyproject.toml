@@ -92,6 +92,7 @@ omit = [
     "quickbbs/instagram_downloader.py",
     "quickbbs/frontend/file_mover_colors3.py",
     "quickbbs/frontend/organize_by_person_name.py",
+    "quickbbs/quickbbs/pdf_repair.py",
 ]
 
 [tool.isort]

@@ -105,8 +105,9 @@ SMALL_THUMBNAIL_SAFEGUARD_SIZE = 2500
 
 # ALIAS_MAPPING (macOS alias target -> gallery path overrides) is imported from
 # secrets.py, since the mapped paths are specific to this deployment's drives.
-from quickbbs.secrets import ALIAS_MAPPING  # noqa: E402  # pylint: disable=wrong-import-position,unused-import
-
+from quickbbs.secrets import (  # noqa: E402  # pylint: disable=wrong-import-position,unused-import
+    ALIAS_MAPPING,
+)
 
 # Set to True to enable hit/miss tracking on LRU caches for performance analysis
 # When enabled, caches use MonitoredLRUCache which tracks hits/misses/hit_rate
@@ -149,6 +150,7 @@ USER_PREF_CACHE_TTL = 10  # Seconds before user preference cache entries expire
 
 # HTTP Cache-Control header settings
 HTTP_CACHE_MAX_AGE = 300  # seconds (5 minutes) for file response Cache-Control headers
+STATIC_ASSET_CACHE_MAX_AGE = 300  # seconds (5 minutes) for resources/static CSS/JS/icon Cache-Control headers
 
 # Search and view limits
 DEFAULT_SORT_ORDER = 0  # Default sort order index (maps to SORT_MATRIX keys)
@@ -167,8 +169,8 @@ TASK_RETAIN_DAYS = 3  # Days to retain completed/failed task records in Schedule
 
 # Directory traversal and bulk operation limits
 MAX_DIRECTORY_DEPTH = 15  # Maximum parent directory traversal depth
-DIRECTORY_SYNC_CHUNK_SIZE = 100  # Iterator chunk size for directory sync queries
-DIRECTORY_SYNC_BATCH_SIZE = 100  # Batch size for bulk_update during directory sync
+DIRECTORY_SYNC_CHUNK_SIZE = 250  # Iterator chunk size for directory sync queries
+DIRECTORY_SYNC_BATCH_SIZE = 250  # Batch size for bulk_update during directory sync
 
 # SHA256 parallel processing configuration
 SHA256_MAX_WORKERS = 8  # Maximum worker processes for parallel SHA256 computation

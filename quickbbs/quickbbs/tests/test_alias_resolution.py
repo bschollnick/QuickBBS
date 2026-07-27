@@ -23,6 +23,8 @@ from quickbbs.directoryindex import DirectoryIndex
 from quickbbs.fileindex import FileIndex
 from quickbbs.tests.test_directoryindex import DirectoryIndexTestBase, _make_dirs
 
+pytestmark = pytest.mark.api
+
 
 class AliasResolutionTestBase(DirectoryIndexTestBase):
     """Adds a fake masters volume and gallery layout to the temp-dir fixture."""

@@ -35,6 +35,8 @@ from quickbbs.directoryindex import (
     DirectoryIndex,
 )
 
+pytestmark = pytest.mark.api
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -87,7 +89,9 @@ class DirectoryIndexTestBase(TestCase):
         path = os.path.join(self.temp_dir, rel_path)
         if trailing_sep and not path.endswith(os.sep):
             path += os.sep
-        return DirectoryIndex.add_directory(path)
+        found, record = DirectoryIndex.add_directory(path)
+        assert record is not None
+        return found, record
 
 
 # ===========================================================================
@@ -117,6 +121,19 @@ class TestAddDirectory(DirectoryIndexTestBase):
         """add_directory stores a normalized (lowercase, resolved) path."""
         _, record = self._add("albums")
         assert record.fqpndirectory == normalize_fqpn(os.path.join(self.temp_dir, "albums") + os.sep)
+
+    def test_add_directory_accepts_mixed_case_input_path(self) -> None:
+        """A mixed-case input path is still recognized as within the albums root.
+
+        Regression guard for the is_in_albums_tree() refactor: add_directory
+        normalizes fqpn_directory via normalize_fqpn() before the albums-root
+        check, so mixed-case input must succeed identically to lowercase input.
+        """
+        mixed_case_path = os.path.join(self.temp_dir, "ALBUMS", "Photos") + os.sep
+        found, record = DirectoryIndex.add_directory(mixed_case_path)
+        assert found is True
+        assert record is not None
+        assert record.fqpndirectory == normalize_fqpn(mixed_case_path)
 
     def test_add_directory_sets_sha256(self) -> None:
         """add_directory populates dir_fqpn_sha256."""
@@ -235,8 +252,10 @@ class TestSearchForDirectory(DirectoryIndexTestBase):
     def test_search_by_sha_found(self) -> None:
         """search_for_directory_by_sha returns (True, record) for a known SHA."""
         sha = self.dirs["albums"].dir_fqpn_sha256
+        assert sha is not None
         found, record = DirectoryIndex.search_for_directory_by_sha(sha)
         assert found is True
+        assert record is not None
         assert record.pk == self.dirs["albums"].pk
 
     def test_search_by_sha_not_found(self) -> None:
@@ -248,6 +267,7 @@ class TestSearchForDirectory(DirectoryIndexTestBase):
     def test_search_excludes_delete_pending(self) -> None:
         """search_for_directory_by_sha skips delete_pending=True records."""
         sha = self.dirs["albums"].dir_fqpn_sha256
+        assert sha is not None
         DirectoryIndex.objects.filter(pk=self.dirs["albums"].pk).update(delete_pending=True)
         found, record = DirectoryIndex.search_for_directory_by_sha(sha)
         assert found is False
@@ -385,6 +405,13 @@ class TestGetAllParentShas(DirectoryIndexTestBase):
         _, self.d_jan = self._add("albums/photos/2024/jan")
         _, self.d_videos = self._add("albums/videos")
 
+    @staticmethod
+    def _sha(directory: DirectoryIndex) -> str:
+        """Return directory.dir_fqpn_sha256, narrowed to str (field is nullable)."""
+        sha = directory.dir_fqpn_sha256
+        assert sha is not None
+        return sha
+
     def test_empty_list_returns_empty_set(self) -> None:
         """Empty sha_list returns empty set."""
         result = DirectoryIndex.get_all_parent_shas([], DIRECTORYINDEX_SR_PARENT)
@@ -392,31 +419,31 @@ class TestGetAllParentShas(DirectoryIndexTestBase):
 
     def test_input_shas_always_in_result(self) -> None:
         """All input SHAs are always present in the result."""
-        input_shas = [self.d_jan.dir_fqpn_sha256]
+        input_shas = [self._sha(self.d_jan)]
         result = DirectoryIndex.get_all_parent_shas(input_shas, DIRECTORYINDEX_SR_PARENT)
-        assert self.d_jan.dir_fqpn_sha256 in result
+        assert self._sha(self.d_jan) in result
 
     def test_multiple_branches_in_result(self) -> None:
         """SHAs from multiple branches are all present."""
-        input_shas = [self.d_jan.dir_fqpn_sha256, self.d_videos.dir_fqpn_sha256]
+        input_shas = [self._sha(self.d_jan), self._sha(self.d_videos)]
         result = DirectoryIndex.get_all_parent_shas(input_shas, DIRECTORYINDEX_SR_PARENT)
-        assert self.d_jan.dir_fqpn_sha256 in result
-        assert self.d_videos.dir_fqpn_sha256 in result
+        assert self._sha(self.d_jan) in result
+        assert self._sha(self.d_videos) in result
 
     def test_result_is_set(self) -> None:
         """Return value is a set (no duplicates)."""
-        input_shas = [self.d_jan.dir_fqpn_sha256]
+        input_shas = [self._sha(self.d_jan)]
         result = DirectoryIndex.get_all_parent_shas(input_shas, DIRECTORYINDEX_SR_PARENT)
         assert isinstance(result, set)
 
     def test_raises_without_select_related(self) -> None:
         """Passing select_related=None raises ValueError."""
         with pytest.raises(ValueError):
-            DirectoryIndex.get_all_parent_shas(["abc"], None)
+            DirectoryIndex.get_all_parent_shas(["abc"], None)  # type: ignore[arg-type]
 
     def test_root_has_no_additional_parents(self) -> None:
         """A root-level directory (no parent_directory) returns just itself."""
-        root_sha = self.d_albums.dir_fqpn_sha256
+        root_sha = self._sha(self.d_albums)
         result = DirectoryIndex.get_all_parent_shas([root_sha], DIRECTORYINDEX_SR_PARENT)
         assert root_sha in result
         # Root should not find extra parents it doesn't have
@@ -481,12 +508,14 @@ class TestFileDirCounts(VerificationSuiteTestBase):
 
     def test_get_dir_counts_with_children(self) -> None:
         """get_dir_counts returns the number of child DirectoryIndex entries."""
-        count = self.parent.get_dir_counts()
+        # cachetools.cached erases the descriptor typing, so mypy sees the
+        # unbound function and expects an explicit `self` argument.
+        count = self.parent.get_dir_counts()  # type: ignore[call-arg]
         assert count == 3
 
     def test_get_dir_counts_empty(self) -> None:
         """get_dir_counts returns 0 for a leaf directory (benchtests has no subdirs)."""
-        assert self.child.get_dir_counts() == 0
+        assert self.child.get_dir_counts() == 0  # type: ignore[call-arg]
 
     def test_do_files_exist_empty_directory(self) -> None:
         """do_files_exist returns False for a directory with no FileIndex entries."""
@@ -597,7 +626,7 @@ class TestReturnBySha256List(VerificationSuiteTestBase):
 
     def test_returns_matching_directories(self) -> None:
         """return_by_sha256_list returns directories matching the SHA list."""
-        qs = DirectoryIndex.return_by_sha256_list([self.sha1, self.sha2], sort=0, select_related=(), prefetch_related=())
+        qs = DirectoryIndex.return_by_sha256_list([self.sha1, self.sha2], sort=0, select_related=[], prefetch_related=[])
         pks = list(qs.values_list("pk", flat=True))
         assert self.pk1 in pks
         assert self.pk2 in pks
@@ -606,7 +635,7 @@ class TestReturnBySha256List(VerificationSuiteTestBase):
         """return_by_sha256_list excludes delete_pending directories."""
         DirectoryIndex.objects.filter(pk=self.pk2).update(delete_pending=True)
         try:
-            qs = DirectoryIndex.return_by_sha256_list([self.sha1, self.sha2], sort=0, select_related=(), prefetch_related=())
+            qs = DirectoryIndex.return_by_sha256_list([self.sha1, self.sha2], sort=0, select_related=[], prefetch_related=[])
             pks = list(qs.values_list("pk", flat=True))
             assert self.pk2 not in pks
             assert self.pk1 in pks
@@ -615,18 +644,18 @@ class TestReturnBySha256List(VerificationSuiteTestBase):
 
     def test_empty_sha_list_returns_empty_queryset(self) -> None:
         """Empty SHA list returns an empty queryset."""
-        qs = DirectoryIndex.return_by_sha256_list([], sort=0, select_related=(), prefetch_related=())
+        qs = DirectoryIndex.return_by_sha256_list([], sort=0, select_related=[], prefetch_related=[])
         assert qs.count() == 0
 
     def test_raises_without_select_related(self) -> None:
         """Passing select_related=None raises ValueError."""
         with pytest.raises(ValueError):
-            DirectoryIndex.return_by_sha256_list([], sort=0, select_related=None, prefetch_related=())
+            DirectoryIndex.return_by_sha256_list([], sort=0, select_related=None, prefetch_related=[])  # type: ignore[arg-type]
 
     def test_raises_without_prefetch_related(self) -> None:
         """Passing prefetch_related=None raises ValueError."""
         with pytest.raises(ValueError):
-            DirectoryIndex.return_by_sha256_list([], sort=0, select_related=(), prefetch_related=None)
+            DirectoryIndex.return_by_sha256_list([], sort=0, select_related=[], prefetch_related=None)  # type: ignore[arg-type]
 
 
 # ===========================================================================
@@ -645,7 +674,9 @@ class TestUrls(DirectoryIndexTestBase):
     def test_get_thumbnail_url_contains_sha(self) -> None:
         """get_thumbnail_url includes the dir SHA in the URL."""
         url = self.dir_obj.get_thumbnail_url()
-        assert self.dir_obj.dir_fqpn_sha256 in url
+        sha = self.dir_obj.dir_fqpn_sha256
+        assert sha is not None
+        assert sha in url
 
     def test_get_thumbnail_url_returns_string(self) -> None:
         """get_thumbnail_url returns a non-empty string."""
@@ -655,7 +686,9 @@ class TestUrls(DirectoryIndexTestBase):
 
     def test_get_view_url_returns_string(self) -> None:
         """get_view_url returns a non-empty string."""
-        url = self.dir_obj.get_view_url()
+        # cachetools.cached erases the descriptor typing, so mypy sees the
+        # unbound function and expects an explicit `self` argument.
+        url = self.dir_obj.get_view_url()  # type: ignore[call-arg]
         assert isinstance(url, str)
         assert len(url) > 0
 
@@ -709,6 +742,80 @@ class TestGetPrevNextSiblings(VerificationSuiteTestBase):
 
 
 # ===========================================================================
+# _make_sibling_link — mixed-case ALBUMS_PATH regression
+# ===========================================================================
+
+
+@pytest.mark.django_db
+class TestMakeSiblingLinkMixedCaseAlbumsPath(TestCase):
+    """Regression test for prev/next navigation crashing in production.
+
+    _make_sibling_link() used to strip the raw settings.ALBUMS_PATH from a
+    sibling's fqpndirectory via str.replace(). fqpndirectory is always
+    lowercase (normalize_fqpn() invariant), so whenever ALBUMS_PATH itself
+    contains uppercase characters (true in production:
+    '/Volumes/Support-8TB/gallery/quickbbs'), the replace() silently no-ops
+    and the returned 'url' is the entire absolute filesystem path instead
+    of a '/albums/...'-relative one — which never matches the '^albums/'
+    URL pattern, breaking prev/next navigation. Existing coverage
+    (TestGetPrevNextSiblings) used a tempfile.mkdtemp() root, which is
+    always lowercase on macOS, so it never exercised this path.
+    """
+
+    def setUp(self) -> None:
+        # Resolve through any symlinks up front (e.g. macOS /var -> /private/var)
+        # so ALBUMS_PATH matches what normalize_fqpn()'s Path.resolve() will
+        # produce for fqpndirectory — otherwise get_albums_prefix() (built
+        # from the raw, unresolved ALBUMS_PATH) would never match, for a
+        # reason unrelated to the case-sensitivity bug under test here.
+        from pathlib import Path as _Path
+
+        self.temp_dir = str(_Path(tempfile.mkdtemp()).resolve())
+        # A mixed-case ALBUMS_PATH, mirroring production's
+        # '/Volumes/Support-8TB/gallery/quickbbs'.
+        self.mixed_case_root = os.path.join(self.temp_dir, "MixedCaseRoot")
+        os.makedirs(os.path.join(self.mixed_case_root, "albums", "alpha"), exist_ok=True)
+        os.makedirs(os.path.join(self.mixed_case_root, "albums", "beta"), exist_ok=True)
+        os.makedirs(os.path.join(self.mixed_case_root, "albums", "gamma"), exist_ok=True)
+        self._settings_override = override_settings(ALBUMS_PATH=self.mixed_case_root)
+        self._settings_override.enable()
+        DirectoryIndex._albums_prefix = None
+        DirectoryIndex._albums_root = None
+
+    def tearDown(self) -> None:
+        self._settings_override.disable()
+        DirectoryIndex._albums_prefix = None
+        DirectoryIndex._albums_root = None
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _add_siblings(self) -> DirectoryIndex:
+        """Register alpha/beta/gamma as siblings and return the beta record."""
+        for name in ("alpha", "beta", "gamma"):
+            found, record = DirectoryIndex.add_directory(os.path.join(self.mixed_case_root, "albums", name) + os.sep)
+            assert record is not None, f"add_directory failed for {name}"
+            if name == "beta":
+                beta = record
+        return beta
+
+    def test_url_is_albums_relative_not_absolute_filesystem_path(self) -> None:
+        """The generated url must start with the '/albums/' route prefix,
+        never with the raw filesystem path (which would 404)."""
+        beta = self._add_siblings()
+        prev, nxt = beta.get_prev_next_siblings(sort_order=0)
+        for sibling in (prev, nxt):
+            assert sibling is not None
+            assert sibling["url"].startswith("/albums/"), f"url leaked filesystem path: {sibling['url']!r}"
+            assert self.mixed_case_root.lower() not in sibling["url"]
+
+    def test_sibling_names_and_order(self) -> None:
+        """prev/next resolve to the correct sibling names by sort order."""
+        beta = self._add_siblings()
+        prev, nxt = beta.get_prev_next_siblings(sort_order=0)
+        assert prev is not None and prev["name"] == "alpha"
+        assert nxt is not None and nxt["name"] == "gamma"
+
+
+# ===========================================================================
 # delete_directory
 # ===========================================================================
 
@@ -755,7 +862,7 @@ class TestDeleteDirectoryRecord(DirectoryIndexTestBase):
 
     def test_delete_record_none_is_noop(self) -> None:
         """Passing None to delete_directory_record is a no-op (no exception)."""
-        DirectoryIndex.delete_directory_record(None)  # Should not raise
+        DirectoryIndex.delete_directory_record(None)  # type: ignore[arg-type]  # Should not raise
 
     def test_delete_record_cache_only_keeps_db_entry(self) -> None:
         """cache_only=True clears cache but does not delete from DB."""

@@ -36,6 +36,8 @@ from quickbbs.directoryindex import DIRECTORYINDEX_SR_PARENT
 from quickbbs.fileindex import FILEINDEX_SR_FILETYPE
 from quickbbs.models import DirectoryIndex, FileIndex
 
+pytestmark = pytest.mark.api
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

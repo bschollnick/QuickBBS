@@ -157,6 +157,36 @@ def create_safe_directory_name(name: str) -> str:
     return safe_name
 
 
+def _dedupe_target_path(target_dir: Path, filename: str) -> Path:
+    """
+    Return a target path in target_dir that does not overwrite an existing file.
+
+    If ``filename`` is free in ``target_dir`` it is returned unchanged. Otherwise
+    a numeric suffix is inserted before the extension ("photo.jpg" -> "photo_1.jpg",
+    "photo_2.jpg", ...) until an unused name is found. This prevents shutil.move()
+    from silently overwriting a file that already exists at the destination.
+
+    Args:
+        target_dir: Destination directory Path.
+        filename: Desired filename within target_dir.
+
+    Returns:
+        A Path within target_dir that does not currently exist.
+    """
+    candidate = target_dir / filename
+    if not candidate.exists():
+        return candidate
+
+    stem = candidate.stem
+    suffix = candidate.suffix
+    counter = 1
+    while True:
+        candidate = target_dir / f"{stem}_{counter}{suffix}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
 def organize_files(source_directory, create_subdirs=True):
     """
     Organize files into directories based on person names.
@@ -191,6 +221,15 @@ def organize_files(source_directory, create_subdirs=True):
 
         # Create safe directory name
         dir_name = create_safe_directory_name(person_name)
+
+        # create_safe_directory_name can reduce to an empty string (e.g. a name
+        # that was all punctuation/underscores). An empty dir_name would make
+        # target_dir == source_path and move the file onto itself in the source
+        # root — skip it rather than corrupt the layout.
+        if not dir_name:
+            print(f"Warning: '{person_name}' reduced to an empty directory name for '{filename}' - skipping")
+            continue
+
         target_dir = source_path / dir_name
 
         # Add to organization plan
@@ -202,11 +241,11 @@ def organize_files(source_directory, create_subdirs=True):
             # Create directory if it doesn't exist
             target_dir.mkdir(exist_ok=True)
 
-            # Move file to target directory
-            target_file = target_dir / filename
+            # Move file to target directory, never overwriting an existing file
+            target_file = _dedupe_target_path(target_dir, filename)
             try:
                 shutil.move(str(file_path), str(target_file))
-                print(f"Moved '{filename}' to '{dir_name}/' directory")
+                print(f"Moved '{filename}' to '{dir_name}/{target_file.name}'")
             except (OSError, shutil.Error) as e:
                 print(f"Error moving '{filename}': {e}")
 

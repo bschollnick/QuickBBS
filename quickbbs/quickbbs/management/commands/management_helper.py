@@ -7,12 +7,49 @@ directory validation, cache invalidation, and database maintenance.
 
 from __future__ import annotations
 
+import os
 import time
 
+from django.conf import settings
 from django.db.models import Count
 
 from quickbbs.common import normalize_fqpn
 from quickbbs.models import DirectoryIndex, FileIndex
+
+
+def resolve_albums_root(start_path: str | None) -> str | None:
+    """
+    Resolve, validate, and confirm on-disk existence of a scan operation's root.
+
+    If start_path is supplied, it becomes the operation's scope and must lie
+    within the real albums root — used by add_directories()/add_files() so
+    each is independently safe against an out-of-tree --start rather than
+    relying solely on scan.py's Command.handle() having validated it first.
+
+    Args:
+        start_path: Optional starting directory path (raw, unnormalized);
+            defaults to ALBUMS_PATH/albums when None.
+
+    Returns:
+        The normalized, existing albums root to scan from, or None if
+        start_path lies outside the real albums root, or the resolved root
+        does not exist on disk (caller should abort; an error message is
+        already printed in either case).
+    """
+    if start_path:
+        albums_root = normalize_fqpn(start_path)
+        if not DirectoryIndex.is_in_albums_tree(albums_root):
+            print(f"ERROR: --start path is outside the albums root: {albums_root}")
+            return None
+    else:
+        albums_root = normalize_fqpn(os.path.join(settings.ALBUMS_PATH, "albums"))
+
+    if not os.path.exists(albums_root):
+        print(f"ERROR: Albums root does not exist: {albums_root}")
+        return None
+
+    print(f"Scanning albums root: {albums_root}")
+    return albums_root
 
 
 def invalidate_empty_directories(start_path: str | None = None, verbose: bool = True) -> int:
@@ -36,6 +73,10 @@ def invalidate_empty_directories(start_path: str | None = None, verbose: bool = 
     # Filter to start_path if specified
     if start_path:
         normalized_start = normalize_fqpn(start_path)
+        if not DirectoryIndex.is_in_albums_tree(normalized_start):
+            if verbose:
+                print(f"WARNING: --start path is outside the albums root, skipping: {normalized_start}")
+            return 0
         empty_directories_query = empty_directories_query.filter(fqpndirectory__startswith=normalized_start)
 
     empty_pks = list(empty_directories_query.values_list("pk", flat=True))
@@ -78,6 +119,11 @@ def invalidate_directories_with_null_sha256(start_path: str | None = None, verbo
 
     # Normalize start_path if provided
     normalized_start = normalize_fqpn(start_path) if start_path else None
+    if normalized_start is not None and not DirectoryIndex.is_in_albums_tree(normalized_start):
+        if verbose:
+            print(f"WARNING: --start path is outside the albums root, skipping: {normalized_start}")
+            print("-" * 60)
+        return 0
 
     # Query for files with NULL SHA256 using FileIndex classmethod
     files_without_sha = FileIndex.find_files_without_sha(start_path=normalized_start)
@@ -132,6 +178,11 @@ def invalidate_directories_with_null_virtual_directory(start_path: str | None = 
 
     # Normalize start_path if provided
     normalized_start = normalize_fqpn(start_path) if start_path else None
+    if normalized_start is not None and not DirectoryIndex.is_in_albums_tree(normalized_start):
+        if verbose:
+            print(f"WARNING: --start path is outside the albums root, skipping: {normalized_start}")
+            print("-" * 60)
+        return 0
 
     # Query for link files with NULL virtual_directory using FileIndex classmethod
     link_files_without_vdir = FileIndex.find_broken_link_files(start_path=normalized_start)

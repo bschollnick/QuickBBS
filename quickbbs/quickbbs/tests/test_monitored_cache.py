@@ -15,6 +15,7 @@ from __future__ import annotations
 import sys
 import threading
 
+import pytest
 from django.test import SimpleTestCase
 
 from quickbbs.MonitoredCache import (
@@ -23,6 +24,8 @@ from quickbbs.MonitoredCache import (
     ThreadSafeTTLCache,
     create_cache,
 )
+
+pytestmark = pytest.mark.api
 
 THREAD_COUNT = 8
 OPS_PER_THREAD = 3000

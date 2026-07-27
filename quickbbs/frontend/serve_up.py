@@ -10,6 +10,7 @@ import os.path
 import aiofiles
 from django.conf import settings
 from django.http import FileResponse, Http404, StreamingHttpResponse
+from django.utils.http import http_date
 
 # TODO: Examine django-sage-streaming as a replacement for RangedFileResponse
 # https://github.com/sageteamorg/django-sage-streaming
@@ -313,6 +314,11 @@ def static_or_resources(request, pathstr: str | None = None):
         request: Django request object
         pathstr: Path to the static or resource file
 
+    Sets a Cache-Control max-age (STATIC_ASSET_CACHE_MAX_AGE) and a
+    Last-Modified header so ConditionalGetMiddleware can answer repeat
+    requests (e.g. from an "open in new window" navigation) with a 304
+    instead of retransmitting the file.
+
     Returns:
         FileResponse containing the requested file
 
@@ -325,7 +331,10 @@ def static_or_resources(request, pathstr: str | None = None):
     # Locate the file using shared logic
     file_path = _locate_static_or_resource_file(pathstr)
     if file_path:
-        return FileResponse(open(file_path, "rb"))
+        response = FileResponse(open(file_path, "rb"))  # pylint: disable=consider-using-with
+        response["Cache-Control"] = f"public, max-age={settings.STATIC_ASSET_CACHE_MAX_AGE}"
+        response["Last-Modified"] = http_date(os.path.getmtime(file_path))
+        return response
 
     raise Http404(f"File {pathstr} not found in resources or static files")
 
@@ -334,7 +343,9 @@ async def async_static_or_resources(request, pathstr: str | None = None):
     """
     Serve static or resource files from configured directories (ASGI async mode).
 
-    Uses async file I/O for better performance in async contexts.
+    Uses async file I/O for better performance in async contexts. Sets the
+    same Cache-Control/Last-Modified headers as static_or_resources so
+    ConditionalGetMiddleware can 304 repeat requests.
 
     Args:
         request: Django request object
@@ -354,7 +365,10 @@ async def async_static_or_resources(request, pathstr: str | None = None):
     if file_path:
         async with aiofiles.open(file_path, "rb") as f:
             content = await f.read()
-        return FileResponse(io.BytesIO(content))
+        response = FileResponse(io.BytesIO(content))
+        response["Cache-Control"] = f"public, max-age={settings.STATIC_ASSET_CACHE_MAX_AGE}"
+        response["Last-Modified"] = http_date(os.path.getmtime(file_path))
+        return response
 
     raise Http404(f"File {pathstr} not found in resources or static files")
 

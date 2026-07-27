@@ -12,10 +12,10 @@ import logging
 import os
 import time
 
-from django.conf import settings
 from django.db import close_old_connections
 
 from quickbbs.common import normalize_fqpn
+from quickbbs.management.commands.management_helper import resolve_albums_root
 from quickbbs.models import DirectoryIndex
 
 logger = logging.getLogger(__name__)
@@ -120,16 +120,10 @@ def add_directories(max_count: int = 0, start_path: str | None = None) -> None:
     print("Adding missing directories from filesystem to database")
     print("=" * 60)
 
-    if start_path:
-        albums_root = normalize_fqpn(start_path)
-    else:
-        albums_root = normalize_fqpn(os.path.join(settings.ALBUMS_PATH, "albums"))
-
-    if not os.path.exists(albums_root):
-        print(f"ERROR: Albums root does not exist: {albums_root}")
+    albums_root = resolve_albums_root(start_path)
+    if albums_root is None:
         return
 
-    print(f"Scanning albums root: {albums_root}")
     print("Walking filesystem and checking database (batch mode)...")
 
     batch_paths: list[str] = []

@@ -24,6 +24,8 @@ import tempfile
 from typing import cast
 from unittest import mock
 
+import pytest
+from django.contrib.auth import get_user_model
 from django.http import HttpResponse
 from django.test import Client, TestCase, override_settings
 from PIL import Image
@@ -33,6 +35,8 @@ from quickbbs.cache_registry import layout_manager_cache
 from quickbbs.directoryindex import update_database_from_disk
 from quickbbs.fileindex import FileIndex
 from quickbbs.models import DirectoryIndex
+
+pytestmark = pytest.mark.web
 
 
 class SecureClientMixin:
@@ -139,6 +143,77 @@ class TestGalleryView(ViewSmokeTestBase):
         assert response.status_code == 200
         assert DirectoryIndex.objects.filter(fqpndirectory__icontains="newalbum").exists()
 
+    def test_gallery_invalid_path_returns_400(self):
+        """A path outside ALBUMS_PATH is rejected as invalid, not merely not-found."""
+        response = self.get("/albums/../../../../etc/")
+        assert response.status_code in (400, 404)
+
+    def test_gallery_page_lists_subdirectory(self):
+        """When the page contains a subdirectory, it is discovered and listed on revisit."""
+        os.makedirs(os.path.join(self.albums_dir, "subalbum"))
+        update_database_from_disk(self.dir_obj)
+        self.dir_obj.invalidate_cache()
+        response = self.get("/albums/")
+        assert response.status_code == 200
+        assert DirectoryIndex.objects.filter(fqpndirectory__icontains="subalbum").exists()
+
+    def test_gallery_authenticated_user_sets_no_cache_header(self):
+        """An authenticated request gets a private/no-cache Cache-Control header."""
+        user = get_user_model().objects.create_user(username="galleryuser", password="pw")
+        self.client.force_login(user)
+        response = self.get("/albums/")
+        assert response.status_code == 200
+        assert response["Cache-Control"] == "private, no-cache, must-revalidate"
+
+
+class TestGalleryDirectoryRaceCondition(SecureClientMixin, TestCase):
+    """new_viewgallery's _find_directory race-condition branch: DB record exists
+    but the directory has been removed from disk since it was added."""
+
+    def setUp(self) -> None:
+        self._coc_patcher = mock.patch("quickbbs.directoryindex.close_old_connections")
+        self._coc_patcher.start()
+        layout_manager_cache.clear()
+        self.temp_dir = tempfile.mkdtemp()
+        self.albums_dir = os.path.join(self.temp_dir, "albums")
+        self.stale_dir = os.path.join(self.albums_dir, "stale")
+        os.makedirs(self.stale_dir, exist_ok=True)
+
+        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
+        self._settings_override.enable()
+        DirectoryIndex._albums_prefix = None
+        DirectoryIndex._albums_root = None
+
+        self._prefix_patcher = mock.patch(
+            "frontend.utilities._ALBUMS_PATH_LOWER",
+            os.path.realpath(self.temp_dir).lower(),
+        )
+        self._prefix_patcher.start()
+        webpaths_cache.clear()
+        breadcrumbs_cache.clear()
+
+        _, self.dir_obj = DirectoryIndex.add_directory(self.stale_dir + "/")
+        assert self.dir_obj is not None
+
+        # Simulate the directory disappearing from disk after being recorded.
+        shutil.rmtree(self.stale_dir)
+
+    def tearDown(self) -> None:
+        self._prefix_patcher.stop()
+        webpaths_cache.clear()
+        breadcrumbs_cache.clear()
+        self._coc_patcher.stop()
+        self._settings_override.disable()
+        DirectoryIndex._albums_prefix = None
+        DirectoryIndex._albums_root = None
+        layout_manager_cache.clear()
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_directory_removed_from_disk_returns_404(self):
+        """A directory present in the DB but missing on disk returns 404, not a server error."""
+        response = self.get("/albums/stale/")
+        assert response.status_code == 404
+
 
 class TestDownloadFile(ViewSmokeTestBase):
     """download_file via /download_file/?usha=..."""
@@ -181,6 +256,14 @@ class TestHtmxViewItem(ViewSmokeTestBase):
         """An unknown SHA returns a 4xx client error, not a server error."""
         response = self.get(f"/view_item/{'0' * 64}/")
         assert 400 <= response.status_code < 500
+
+    def test_view_item_authenticated_user_sets_no_cache_header(self):
+        """An authenticated request gets a private/no-cache Cache-Control header."""
+        user = get_user_model().objects.create_user(username="itemuser", password="pw")
+        self.client.force_login(user)
+        response = self.get(f"/view_item/{self.file_obj.unique_sha256}/")
+        assert response.status_code == 200
+        assert response["Cache-Control"] == "private, no-cache, must-revalidate"
 
 
 class TestSearchView(ViewSmokeTestBase):

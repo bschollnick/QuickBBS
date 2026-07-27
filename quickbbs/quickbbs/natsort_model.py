@@ -54,8 +54,14 @@ class NaturalSortField(models.CharField):
             Tuple of (name, path, args, kwargs) for reconstructing the field.
         """
         name, path, args, kwargs = super().deconstruct()  # pylint: disable=no-member
+        # super().deconstruct() is typed to return Sequence/Mapping (read-only);
+        # copy into mutable list/dict before appending our own extras.
+        args = list(args)
+        kwargs = dict(kwargs)
         args.append(self.for_field)
-        kwargs["db_index"] = self.db_index
+        # db_index is a real runtime attribute set by Field.__init__, but the
+        # django-stubs Field[_ST, _GT] stub doesn't declare it.
+        kwargs["db_index"] = self.db_index  # type: ignore[attr-defined]
         return name, path, args, kwargs
 
     def pre_save(self, model_instance, add):

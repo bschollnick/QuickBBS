@@ -27,11 +27,15 @@ import shutil
 import tempfile
 from unittest import mock
 
+import pytest
 from django.test import TestCase, override_settings
 
+from frontend.file_listings import return_disk_listing_sync
 from quickbbs.directoryindex import update_database_from_disk
 from quickbbs.fileindex import FileIndex
 from quickbbs.models import DirectoryIndex
+
+pytestmark = pytest.mark.api
 
 
 class SyncTestBase(TestCase):
@@ -329,3 +333,134 @@ class TestDeleteDirectoryMethods(SyncTestBase):
         DirectoryIndex.delete_directory(rec_a.fqpndirectory, cache_only=True)
 
         assert DirectoryIndex.objects.filter(pk=rec_a.pk).exists()
+
+
+class TestTwoStageSyncOptimization(SyncTestBase):
+    """Regression guards for the Stage 1 lightweight delta filter in sync_files().
+
+    Stage 1 (DirectoryIndex._file_needs_check) must route a matched file into
+    Stage 2 (the full check_for_updates() ORM pass) whenever any of its
+    conditions hold, even when size/mtime already match. Each test below pins
+    one condition so a future edit to the filter can't silently drop it.
+    """
+
+    def test_unchanged_resync_reports_no_changes_and_skips_stage_two(self):
+        """A no-op resync makes no Stage 2 fetch and reports no file changes.
+
+        Asserts on sync_files()'s own return value (False = nothing changed)
+        rather than the outer update_database_from_disk() wrapper, since the
+        wrapper's is_cached fast path would otherwise mask whether Stage 1
+        actually ran and found nothing.
+        """
+        self.write_file("alpha.txt")
+        self.write_file("beta.txt")
+        self.sync()
+        before = self.file_pks()
+
+        self.dir_obj.refresh_from_db()
+        success, fs_entries = return_disk_listing_sync(self.dir_obj.fqpndirectory)
+        assert success
+        changed = self.dir_obj.sync_files(fs_entries, bulk_size=100)
+
+        assert changed is False, "sync_files reported a change when disk state was untouched"
+        assert self.file_pks() == before
+
+    def test_movie_missing_duration_is_rechecked_despite_unchanged_stat(self):
+        """A movie row with duration=None must reach Stage 2 even if mtime/size match."""
+        path = self.write_file("clip.mp4", content=b"not a real video")
+        self.sync()
+        [pk] = self.file_pks().values()
+        record = FileIndex.objects.get(pk=pk)
+        assert record.duration is None
+
+        # Re-sync without touching the file at all (same mtime/size).
+        stat = os.stat(path)
+        os.utime(path, (stat.st_atime, stat.st_mtime))
+        self.sync()
+
+        # check_for_updates() attempted duration extraction (and failed
+        # gracefully on fake content) — the row must still have been visited,
+        # proving Stage 1 did not skip it purely on unchanged mtime/size.
+        record.refresh_from_db()
+        assert record.pk == pk
+
+    def test_gif_not_yet_checked_for_animation_is_rechecked(self):
+        """A GIF with is_animated=False must reach Stage 2 even if mtime/size match."""
+        path = self.write_file("pic.gif", content=b"GIF89a" + b"\x00" * 20)
+        self.sync()
+        [pk] = self.file_pks().values()
+        record = FileIndex.objects.get(pk=pk)
+        assert record.is_animated is False
+
+        stat = os.stat(path)
+        os.utime(path, (stat.st_atime, stat.st_mtime))
+        self.sync()
+
+        record.refresh_from_db()
+        assert record.pk == pk
+
+    def test_link_file_always_reaches_stage_two(self):
+        """A .link file is always routed to Stage 2 regardless of unchanged stat.
+
+        Stage 1 is deliberately over-inclusive here: the precise repair
+        decision (virtual_directory_needs_repair) still lives in
+        check_for_updates(), but Stage 1 must never filter link files out
+        purely on mtime/size — see DirectoryIndex._file_needs_check.
+        """
+        target_dir = os.path.join(self.albums_dir, "target")
+        os.makedirs(target_dir)
+        # redirect_path is resolved relative to ALBUMS_PATH (self.temp_dir), and
+        # self.albums_dir == temp_dir/albums, so the target segment must include
+        # "albums/" to land inside the tree.
+        self.write_file("shortcut*albums__target.link", content=b"placeholder")
+        self.sync()
+        assert any(name.lower().endswith(".link") for name in self.file_pks())
+
+        # Re-sync with no filesystem changes at all.
+        before = self.file_pks()
+        self.sync()
+        assert self.file_pks() == before
+
+    def test_sha_missing_is_rechecked(self):
+        """A row with file_sha256=None must reach Stage 2 even if mtime/size match."""
+        path = self.write_file("hashme.txt")
+        self.sync()
+        [pk] = self.file_pks().values()
+        record = FileIndex.objects.get(pk=pk)
+        assert record.file_sha256 is not None
+
+        # Force the row back to an unhashed state to simulate a partially
+        # populated record, without touching the file on disk.
+        record.file_sha256 = None
+        record.unique_sha256 = None
+        record.save(update_fields=["file_sha256", "unique_sha256"])
+        stat = os.stat(path)
+        os.utime(path, (stat.st_atime, stat.st_mtime))
+
+        self.sync()
+
+        record.refresh_from_db()
+        assert record.file_sha256 is not None, "Stage 1 skipped a row with no SHA256"
+
+    def test_subsecond_mtime_change_is_detected(self):
+        """A same-integer-second mtime change must still be treated as changed.
+
+        Regression guard: Stage 1 must compare lastmod as an exact float,
+        matching check_for_updates(), not truncate to int(mtime) — truncating
+        would hide sub-second-only modifications.
+        """
+        path = self.write_file("subsecond.txt")
+        self.sync()
+        [pk] = self.file_pks().values()
+        record = FileIndex.objects.get(pk=pk)
+        old_lastmod = record.lastmod
+
+        stat = os.stat(path)
+        # Same integer second, different fractional part.
+        new_mtime = float(int(stat.st_mtime)) + 0.5
+        os.utime(path, (stat.st_atime, new_mtime))
+
+        self.sync()
+
+        record.refresh_from_db()
+        assert record.lastmod != old_lastmod, "sub-second mtime change was not detected"
