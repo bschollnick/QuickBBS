@@ -2,7 +2,6 @@
 Serve Resources, and Static documents from Django
 """
 
-import io
 import logging
 import os
 import os.path
@@ -332,40 +331,6 @@ def static_or_resources(request, pathstr: str | None = None):
     file_path = _locate_static_or_resource_file(pathstr)
     if file_path:
         response = FileResponse(open(file_path, "rb"))  # pylint: disable=consider-using-with
-        response["Cache-Control"] = f"public, max-age={settings.STATIC_ASSET_CACHE_MAX_AGE}"
-        response["Last-Modified"] = http_date(os.path.getmtime(file_path))
-        return response
-
-    raise Http404(f"File {pathstr} not found in resources or static files")
-
-
-async def async_static_or_resources(request, pathstr: str | None = None):
-    """
-    Serve static or resource files from configured directories (ASGI async mode).
-
-    Uses async file I/O for better performance in async contexts. Sets the
-    same Cache-Control/Last-Modified headers as static_or_resources so
-    ConditionalGetMiddleware can 304 repeat requests.
-
-    Args:
-        request: Django request object
-        pathstr: Path to the static or resource file
-
-    Returns:
-        FileResponse containing the requested file
-
-    Raises:
-        Http404: If the file is not found in static or resources directories
-    """
-    if pathstr is None:
-        raise Http404("No path specified")
-
-    # Locate the file using shared logic
-    file_path = _locate_static_or_resource_file(pathstr)
-    if file_path:
-        async with aiofiles.open(file_path, "rb") as f:
-            content = await f.read()
-        response = FileResponse(io.BytesIO(content))
         response["Cache-Control"] = f"public, max-age={settings.STATIC_ASSET_CACHE_MAX_AGE}"
         response["Last-Modified"] = http_date(os.path.getmtime(file_path))
         return response

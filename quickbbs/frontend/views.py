@@ -1,8 +1,9 @@
 """
 Django views for QuickBBS Gallery
 
-ASGI: Views are being converted to async for ASGI compatibility.
-Both sync and async versions will be maintained during transition.
+Most views are plain sync `def` (Django transparently adapts them under
+ASGI). `download_file` remains `async def` for its genuine streaming
+benefit — see claude_docs/plans/async_simplification.md.
 """
 
 import asyncio
@@ -32,9 +33,9 @@ from django_htmx.middleware import HtmxDetails
 
 from frontend.managers import (
     _get_files_needing_thumbnails,
-    async_build_context_info,
-    async_layout_manager,
+    build_context_info,
     calculate_page_bounds,
+    layout_manager,
 )
 from frontend.utilities import (
     convert_to_webpath,
@@ -99,23 +100,6 @@ class HtmxHttpRequest(HttpRequest):
 
 
 logger = logging.getLogger()
-
-
-# ASGI: Async wrapper for render function
-async def async_render(request, template_name, context=None, **kwargs):
-    """
-    Async wrapper for Django's render function.
-
-    Args:
-        request: HttpRequest object
-        template_name: Template file name
-        context: Context dictionary
-        **kwargs: Additional arguments for render
-
-    Returns:
-        HttpResponse
-    """
-    return await sync_to_async(render)(request, template_name, context, **kwargs)
 
 
 def get_page_param(request: WSGIRequest) -> int:
@@ -451,9 +435,9 @@ def _get_paginated_search_results(
 
 
 @vary_on_headers("HX-Request")
-async def search_viewresults(request: WSGIRequest):
+def search_viewresults(request: WSGIRequest):
     """
-    View the search results Gallery page using shared patterns (ASGI async version).
+    View the search results Gallery page using shared patterns.
 
     Args:
         request: Django Request object
@@ -464,8 +448,7 @@ async def search_viewresults(request: WSGIRequest):
     print("NEW search GALLERY")
     start_time = time.perf_counter()
 
-    # Get show_duplicates preference (async-safe)
-    show_duplicates = await sync_to_async(_get_show_duplicates_preference)(request)
+    show_duplicates = _get_show_duplicates_preference(request)
 
     # Use standardized template selection
     template_name = _determine_template(request, "search")
@@ -495,13 +478,13 @@ async def search_viewresults(request: WSGIRequest):
         }
     )
 
-    # Perform search using shared functions (async wrapped)
+    # Perform search using shared functions
     search_regex_pattern = create_search_regex_pattern(searchtext)
     logger.debug("Search text: '%s' -> Regex pattern: '%s'", searchtext, search_regex_pattern)
 
     items_per_page = settings.SEARCH_ITEMS_PER_PAGE
 
-    dir_shas, file_shas, total_items = await sync_to_async(_get_paginated_search_results)(
+    dir_shas, file_shas, total_items = _get_paginated_search_results(
         searchtext,
         search_regex_pattern,
         context["sort"],
@@ -514,7 +497,7 @@ async def search_viewresults(request: WSGIRequest):
 
     # Hydrate full objects for this page only — same pattern as new_viewgallery()
     dirs_to_display = (
-        await sync_to_async(list)(
+        list(
             DirectoryIndex.objects.filter(dir_fqpn_sha256__in=dir_shas, delete_pending=False)
             .prefetch_related(*SEARCH_PR_FILETYPE)
             .annotate(
@@ -535,9 +518,7 @@ async def search_viewresults(request: WSGIRequest):
     )
 
     files_to_display = (
-        await sync_to_async(list)(
-            FileIndex.objects.filter(unique_sha256__in=file_shas, delete_pending=False).prefetch_related(*SEARCH_PR_FILETYPE_HOME)
-        )
+        list(FileIndex.objects.filter(unique_sha256__in=file_shas, delete_pending=False).prefetch_related(*SEARCH_PR_FILETYPE_HOME))
         if file_shas
         else []
     )
@@ -565,7 +546,7 @@ async def search_viewresults(request: WSGIRequest):
     # Use an empty queryset to maintain consistent type (QuerySet) with gallery view.
     context["files_needing_thumbnails"] = FileIndex.objects.none()
 
-    response = await async_render(request, template_name, context, using="Jinja2")
+    response = render(request, template_name, context, using="Jinja2")
 
     # Prevent HTMX history caching AND browser caching for search results
     # This fixes the issue where subsequent searches show cached results from the first search
@@ -735,9 +716,9 @@ def _check_and_enqueue_missing_thumbnails(directory: DirectoryIndex, sort_orderi
 
 
 @vary_on_headers("HX-Request")
-async def new_viewgallery(request: WSGIRequest):
+def new_viewgallery(request: WSGIRequest):
     """
-    View the requested Gallery page using optimized helper functions (ASGI async version).
+    View the requested Gallery page using optimized helper functions.
 
     Args:
         request: Django Request object
@@ -746,8 +727,7 @@ async def new_viewgallery(request: WSGIRequest):
     print("NEW VIEW GALLERY for ", request.path)
     start_time = time.perf_counter()
 
-    # Get show_duplicates preference (async-safe)
-    show_duplicates = await sync_to_async(_get_show_duplicates_preference)(request)
+    show_duplicates = _get_show_duplicates_preference(request)
 
     # Use standardized template selection
     template_name = _determine_template(request, "gallery")
@@ -767,14 +747,14 @@ async def new_viewgallery(request: WSGIRequest):
 
     # Get directory and handle errors via exceptions
     try:
-        directory = await sync_to_async(_find_directory)(paths)
-    except DirectoryNotFoundError as e:
+        directory = _find_directory(paths)
+    except DirectoryNotFoundError:
         return HttpResponseNotFound("<h1>gallery not found</h1>")
-    except DirectoryInvalidError as e:
+    except DirectoryInvalidError:
         return HttpResponseBadRequest("<h1>Invalid path specified</h1>")
 
     # Ensure directory data is up to date
-    await sync_to_async(update_database_from_disk)(directory)
+    update_database_from_disk(directory)
 
     # Build initial context - start with shared base context
     context = _create_base_context(request)
@@ -794,8 +774,8 @@ async def new_viewgallery(request: WSGIRequest):
         }
     )
 
-    # Get layout data and update context (async wrapped)
-    layout = await async_layout_manager(
+    # Get layout data and update context
+    layout = layout_manager(
         page_number=context["current_page"],
         directory=directory,
         sort_ordering=context["sort"],
@@ -811,12 +791,12 @@ async def new_viewgallery(request: WSGIRequest):
         }
     )
 
-    # Set navigation URIs (sync function wrapped for async context)
-    context["prev_uri"], context["next_uri"] = await sync_to_async(directory.get_prev_next_siblings)(sort_order=context["sort"])
+    # Set navigation URIs
+    context["prev_uri"], context["next_uri"] = directory.get_prev_next_siblings(sort_order=context["sort"])
 
-    # Only fetch directories if there are any on this page (async wrapped)
+    # Only fetch directories if there are any on this page
     if layout["page_items"]["directory_shas"]:
-        dirs_to_display = await sync_to_async(list)(
+        dirs_to_display = list(
             directory.dirs_in_dir(
                 sort=context["sort"],
                 select_related=DIRECTORYINDEX_SR_FILETYPE_THUMB,
@@ -840,11 +820,11 @@ async def new_viewgallery(request: WSGIRequest):
     else:
         dirs_to_display = []
 
-    # Only fetch files if there are any on this page (async wrapped)
+    # Only fetch files if there are any on this page
     if layout["page_items"]["file_shas"]:
         # Fetch and separate files and links in one pass
         # Note: select_related already handled by files_in_dir() - no need to duplicate
-        all_items = await sync_to_async(list)(
+        all_items = list(
             directory.files_in_dir(sort=context["sort"], select_related=FILEINDEX_SR_FILETYPE_HOME_VIRTUAL).filter(
                 unique_sha256__in=layout["page_items"]["file_shas"]
             )
@@ -861,9 +841,9 @@ async def new_viewgallery(request: WSGIRequest):
 
     # Check if thumbnails are needed (computed separately from cached layout
     # to avoid invalidating layout cache when thumbnails are generated)
-    missing_count = await sync_to_async(_check_and_enqueue_missing_thumbnails)(directory, context["sort"], settings.THUMBNAIL_BATCH_LIMIT)
+    missing_count = _check_and_enqueue_missing_thumbnails(directory, context["sort"], settings.THUMBNAIL_BATCH_LIMIT)
 
-    response = await async_render(
+    response = render(
         request,
         f"{template_name}",
         context,
@@ -875,7 +855,7 @@ async def new_viewgallery(request: WSGIRequest):
         response["Cache-Control"] = "private, no-cache, must-revalidate"
 
     if settings.CACHE_MONITORING:
-        await sync_to_async(snapshot_cache_statistics)()
+        snapshot_cache_statistics()
 
     print("Gallery View, processing time: ", time.perf_counter() - start_time)
 
@@ -883,24 +863,23 @@ async def new_viewgallery(request: WSGIRequest):
 
 
 @vary_on_headers("HX-Request")
-async def htmx_view_item(request: HtmxHttpRequest, sha256: str):
+def htmx_view_item(request: HtmxHttpRequest, sha256: str):
     """
-    View individual item with HTMX support using standardized patterns (ASGI async version).
+    View individual item with HTMX support using standardized patterns.
 
     Args:
         request: Django HtmxHttpRequest object
         sha256: SHA256 hash of the item to view
     Returns: Django response
     """
-    # Get show_duplicates preference (async-safe)
-    show_duplicates = await sync_to_async(_get_show_duplicates_preference)(request)
+    show_duplicates = _get_show_duplicates_preference(request)
 
     # Use standardized template selection
     template_name = _determine_template(request, "item")
 
-    # Use managers.py for context building (async wrapped)
+    # Use managers.py for context building.
     # Pass show_duplicates to ensure navigation uses same distinct mode as gallery
-    context = await async_build_context_info(request, sha256, show_duplicates)
+    context = build_context_info(sha256, get_sort_param(request), show_duplicates)
     if isinstance(context, HttpResponseBadRequest):
         return context
 
@@ -912,9 +891,9 @@ async def htmx_view_item(request: HtmxHttpRequest, sha256: str):
     # Same pattern as new_viewgallery() but with a smaller batch limit.
     # Uses cached DirectoryIndex from build_context_info (avoids redundant DB fetch).
     directory = context["home_directory"]
-    await sync_to_async(_check_and_enqueue_missing_thumbnails)(directory, context["sort"], settings.ITEM_VIEW_THUMBNAIL_BATCH_LIMIT)
+    _check_and_enqueue_missing_thumbnails(directory, context["sort"], settings.ITEM_VIEW_THUMBNAIL_BATCH_LIMIT)
 
-    response = await async_render(request, template_name, context, using="Jinja2")
+    response = render(request, template_name, context, using="Jinja2")
 
     # Prevent browser caching when user preferences might change
     if request.user.is_authenticated:

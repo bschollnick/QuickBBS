@@ -32,6 +32,8 @@ class QuickbbsConfig(AppConfig):
         Returns:
             None
         """
+        self._register_scheduled_task_admin()
+
         is_manage_py = sys.argv[0].endswith("manage.py") and len(sys.argv) > 1
         is_dev_server_cmd = is_manage_py and sys.argv[1] in ("runserver", "runserver_plus")
         is_other_management_cmd = is_manage_py and not is_dev_server_cmd
@@ -45,6 +47,30 @@ class QuickbbsConfig(AppConfig):
                 return
 
         self._check_ssl_cert_expiry()
+
+    @staticmethod
+    def _register_scheduled_task_admin() -> None:
+        """Replace django-dbtasks' default ScheduledTask admin with ours.
+
+        django.contrib.admin's autodiscovery imports quickbbs.admin before
+        dbtasks.admin (INSTALLED_APPS order), so dbtasks.admin's own
+        @admin.register(ScheduledTask) always overwrites ours if registered
+        directly in quickbbs/admin.py. AppConfig.ready() runs after all
+        admin.py autodiscovery has completed, so re-registering here
+        deterministically wins regardless of app load order.
+        """
+        from dbtasks.models import (  # pylint: disable=import-outside-toplevel
+            ScheduledTask,
+        )
+        from django.contrib import admin  # pylint: disable=import-outside-toplevel
+
+        from quickbbs.admin import (  # pylint: disable=import-outside-toplevel
+            ScheduledTaskAdmin,
+        )
+
+        if admin.site.is_registered(ScheduledTask):
+            admin.site.unregister(ScheduledTask)
+        admin.site.register(ScheduledTask, ScheduledTaskAdmin)
 
     @staticmethod
     def _check_ssl_cert_expiry() -> None:

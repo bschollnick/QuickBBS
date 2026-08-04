@@ -2,12 +2,17 @@
 
 import time
 
+from dbtasks.models import ScheduledTask
 from django.contrib import admin
 from django.db import transaction
 from django.db.models.query import QuerySet
 from django.http import HttpRequest
+from django.tasks import TaskResultStatus
+from django.utils import timezone
+from django.utils.html import format_html
 
 from quickbbs.models import DirectoryIndex, Favorites, FileIndex, Owners
+from quickbbs.tasks import get_vacuum_candidates
 from thumbnails.models import ThumbnailFiles
 
 
@@ -225,3 +230,111 @@ class AdminMasterDirs(admin.ModelAdmin):
 admin.site.register(Owners)
 admin.site.register(Favorites)
 # admin.site.register(Cache_Tracking)
+
+
+_original_admin_index = admin.site.index
+
+
+def _index_with_vacuum_status(request: HttpRequest, extra_context: dict | None = None):
+    """Inject PostgreSQL vacuum-candidate tables into the admin index context.
+
+    Wraps AdminSite.index() rather than subclassing AdminSite, since
+    quickbbs/urls.py registers the default admin.site directly. Reuses
+    quickbbs.tasks.get_vacuum_candidates() (also used by the weekly_vacuum_check
+    periodic task) so the admin widget and the logged warning agree.
+    """
+    extra_context = extra_context or {}
+    extra_context["vacuum_candidates"] = get_vacuum_candidates()
+    return _original_admin_index(request, extra_context)
+
+
+admin.site.index = _index_with_vacuum_status
+
+
+_STATUS_COLORS = {
+    TaskResultStatus.READY: "#6c757d",
+    TaskResultStatus.RUNNING: "#0d6efd",
+    TaskResultStatus.SUCCESSFUL: "#198754",
+    TaskResultStatus.FAILED: "#dc3545",
+}
+
+
+class ScheduledTaskAdmin(admin.ModelAdmin):
+    """Admin view for django-dbtasks job queue records (pending and completed)."""
+
+    list_display = (
+        "task_path",
+        "colored_status",
+        "queue",
+        "priority",
+        "periodic",
+        "enqueued_at",
+        "started_at",
+        "finished_at",
+        "elapsed_runtime",
+    )
+    list_filter = ("status", "queue", "backend", "periodic")
+    search_fields = ("task_path", "id", "exception_path")
+    ordering = ("-enqueued_at",)
+    actions = ("mark_ready", "mark_deletion")
+    readonly_fields = (
+        "id",
+        "status",
+        "enqueued_at",
+        "started_at",
+        "finished_at",
+        "args",
+        "kwargs",
+        "task_path",
+        "priority",
+        "queue",
+        "backend",
+        "run_after",
+        "delete_after",
+        "periodic",
+        "worker_ids",
+        "return_value",
+        "exception_path",
+        "traceback",
+    )
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        """Disallow manual creation — rows are managed by the task worker."""
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj: ScheduledTask | None = None) -> bool:
+        """Disallow editing — job records are written only by the task worker."""
+        return False
+
+    def has_delete_permission(self, request: HttpRequest, obj: ScheduledTask | None = None) -> bool:
+        """Allow deletion so stale/failed job records can be pruned manually."""
+        return True
+
+    @admin.display(description="Status", ordering="status")
+    def colored_status(self, obj: ScheduledTask) -> str:
+        """Return the job status as color-coded HTML for quick scanning."""
+        color = _STATUS_COLORS.get(obj.status, "#6c757d")
+        return format_html('<span style="color: {}; font-weight: bold;">{}</span>', color, obj.get_status_display())
+
+    @admin.display(description="Elapsed")
+    def elapsed_runtime(self, obj: ScheduledTask) -> str:
+        """Return how long the job ran, or has been running, as H:MM:SS.
+
+        Uses finished_at - started_at once the job completes; for a job
+        still RUNNING, uses now - started_at so the column updates on every
+        page load. Empty for jobs that haven't started yet.
+        """
+        if obj.started_at is None:
+            return ""
+        end = obj.finished_at or timezone.now()
+        return str(end - obj.started_at).split(".", maxsplit=1)[0]
+
+    @admin.action(description="Mark ready to run now")
+    def mark_ready(self, request: HttpRequest, queryset: "QuerySet[ScheduledTask]") -> None:
+        """Reset selected jobs to READY and clear run_after so they run immediately."""
+        queryset.update(status=TaskResultStatus.READY, run_after=None)
+
+    @admin.action(description="Mark ready for deletion")
+    def mark_deletion(self, request: HttpRequest, queryset: "QuerySet[ScheduledTask]") -> None:
+        """Set delete_after to now so the retention cleanup task removes these jobs."""
+        queryset.update(delete_after=timezone.now())

@@ -18,6 +18,7 @@ model-level test modules.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import os
 import shutil
 import tempfile
@@ -305,3 +306,45 @@ class TestPreferencesToggle(SecureClientMixin, TestCase):
         response = self.get("/preferences/toggle-duplicates/")
         assert response.status_code == 302
         assert "login" in response["Location"]
+
+
+class TestPhase5ViewsAreSync(TestCase):
+    """Regression guard for async_simplification.md Phase 5.
+
+    search_viewresults, new_viewgallery, htmx_view_item, and
+    duplicate_files_report were deliberately converted from async def to
+    plain def (Phase 5) after production load-test data showed no latency
+    benefit from keeping them async. A future edit reintroducing `async`
+    on any of these would silently re-add the sync_to_async crossings this
+    phase removed — assert they stay plain functions.
+    """
+
+    def test_search_viewresults_is_sync(self):
+        """search_viewresults must remain a plain function, not a coroutine."""
+        from frontend.views import search_viewresults
+
+        assert not inspect.iscoroutinefunction(search_viewresults)
+
+    def test_new_viewgallery_is_sync(self):
+        """new_viewgallery must remain a plain function, not a coroutine."""
+        from frontend.views import new_viewgallery
+
+        assert not inspect.iscoroutinefunction(new_viewgallery)
+
+    def test_htmx_view_item_is_sync(self):
+        """htmx_view_item must remain a plain function, not a coroutine."""
+        from frontend.views import htmx_view_item
+
+        assert not inspect.iscoroutinefunction(htmx_view_item)
+
+    def test_duplicate_files_report_is_sync(self):
+        """duplicate_files_report must remain a plain function, not a coroutine."""
+        from frontend.report_views import duplicate_files_report
+
+        assert not inspect.iscoroutinefunction(duplicate_files_report)
+
+    def test_download_file_remains_async(self):
+        """download_file is explicitly out of Phase 5's scope — must stay async."""
+        from frontend.views import download_file
+
+        assert inspect.iscoroutinefunction(download_file)

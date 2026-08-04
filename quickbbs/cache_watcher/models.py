@@ -31,9 +31,7 @@ import os
 import pathlib
 import threading
 import time
-from typing import Any
 
-from asgiref.sync import async_to_sync, sync_to_async
 from django.conf import settings
 from django.db import close_old_connections, models
 from django.db.utils import DatabaseError
@@ -529,13 +527,9 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
 
                 # Process existing directories (current behavior)
                 if index_dirs:
-                    # Wrap DB operation for ASGI compatibility
-                    try:
-                        # Try async_to_sync wrapper for ASGI compatibility
-                        async_to_sync(self._remove_from_cache_indexdirs_async)(index_dirs)
-                    except RuntimeError:
-                        # Fallback to direct call if not in async context
-                        DirectoryIndex.invalidate_caches(index_dirs)
+                    # This method runs on a watchdog OS thread, never inside
+                    # Django's ASGI event loop, so no async bridging is needed.
+                    DirectoryIndex.invalidate_caches(index_dirs)
 
                 # NEW: Handle paths that don't exist in DirectoryIndex
                 found_shas = {d.dir_fqpn_sha256 for d in index_dirs}
@@ -595,10 +589,7 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
                                     expected_generation,
                                     len(unique_parents),
                                 )
-                                try:
-                                    async_to_sync(self._remove_from_cache_indexdirs_async)(unique_parents)
-                                except RuntimeError:
-                                    DirectoryIndex.invalidate_caches(unique_parents)
+                                DirectoryIndex.invalidate_caches(unique_parents)
 
         except (RuntimeError, DatabaseError, OSError, AttributeError) as e:
             logger.error("Error processing buffered events: %s", e)
@@ -616,15 +607,6 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
             # NOTE: Manual gc.collect() commented out - Python's automatic GC is sufficient
             # See bug_hunt.md issue #7 for details
             # gc.collect()
-
-    async def _remove_from_cache_indexdirs_async(self, index_dirs: list[Any]) -> None:
-        """Async wrapper for cache invalidation to support ASGI mode.
-
-        Args:
-            index_dirs: List of DirectoryIndex objects to invalidate
-        """
-        # Run the synchronous database operation in a thread pool
-        await sync_to_async(DirectoryIndex.invalidate_caches)(index_dirs)
 
 
 class CacheStatisticsTracking(models.Model):

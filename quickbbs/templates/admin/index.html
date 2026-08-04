@@ -1,0 +1,116 @@
+{% extends "admin/base_site.html" %}
+{% load i18n grp_tags log %}
+
+{% block javascripts %}
+    {{ block.super }}
+{% endblock %}
+
+{% block bodyclass %}dashboard{% endblock %}
+{% block content-class %}content-grid{% endblock %}
+
+{% block breadcrumbs %}
+    <ul class="grp-horizontal-list">
+        <li>{% trans "Home" %}</li>
+    </ul>
+{% endblock %}
+{% block content_title %}
+    {% if title %}
+        <header><h1>{{ title }}</h1></header>
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+    <div class="g-d-c">
+        <div class="g-d-12 g-d-f">
+            {% if vacuum_candidates %}
+                <div class="grp-module" id="vacuum-status-module" style="border-left: 4px solid #dc3545;">
+                    <h2 style="background: #dc3545;">{% trans "PostgreSQL vacuum recommended" %}</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>{% trans "Table" %}</th>
+                                <th>{% trans "Live rows" %}</th>
+                                <th>{% trans "Dead rows" %}</th>
+                                <th>{% trans "Dead ratio" %}</th>
+                                <th>{% trans "Last autovacuum" %}</th>
+                                <th>{% trans "Last manual vacuum" %}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for candidate in vacuum_candidates %}
+                            <tr class="grp-row">
+                                <td>{{ candidate.table_name }}</td>
+                                <td>{{ candidate.n_live_tup }}</td>
+                                <td>{{ candidate.n_dead_tup }}</td>
+                                <td>{{ candidate.dead_ratio|floatformat:2 }}</td>
+                                <td>{{ candidate.last_autovacuum|default:"never" }}</td>
+                                <td>{{ candidate.last_vacuum|default:"never" }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% endif %}
+            {% for app in app_list %}
+                <div class="grp-module" id="app_{{ app.name|lower }}">
+                    <h2><a href="{{ app.app_url }}" class="grp-section">{% trans app.name %}</a></h2>
+                    {% for model in app.models %}
+                        <div class="grp-row" id="model-{{ model.object_name|lower }}">
+                            {% if model.admin_url %}
+                                <a href="{{ model.admin_url }}"><strong>{{ model.name }}</strong></a>
+                            {% else %}
+                                <strong>{{ model.name }}</strong>
+                            {% endif %}
+                            {% if model.add_url %}
+                                <ul class="grp-actions">
+                                    <li class="grp-icon grp-add-link">
+                                        <a href="{{ model.add_url }}" title="{% trans "Add" %}">&nbsp;</a>
+                                    </li>
+                                </ul>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                </div>
+            {% empty %}
+                <p>{% trans "You don´t have permission to edit anything." %}</p>
+            {% endfor %}
+            {% block custom_views %}
+                {% if custom_list %}
+                    <div class="grp-module" id="custom_views">
+                        <h2>{% trans 'Custom Views' %}</h2>
+                        {% for path, name in custom_list %}
+                            <div class="grp-row">
+                                <a href="{{ path }}"><strong>{{ name }}</strong></a>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            {% endblock %}
+        </div>
+        <div class="g-d-6 g-d-l">
+            <div class="grp-module" id="grp-recent-actions-module">
+                <h2>{% trans 'Recent actions' %}</h2>
+                <div class="grp-module">
+                    <h3>{% trans 'My actions' %}</h3>
+                    {% get_admin_log 10 as admin_log for_user user %}
+                    {% if not admin_log %}
+                        <div class="grp-row"><p>{% trans 'None available' %}</p></div>
+                    {% else %}
+                        <ul class="grp-listing-small">
+                            {% for entry in admin_log %}
+                                <li class="grp-row{% if entry.is_addition %} grp-add-link{% endif %}{% if entry.is_change %} grp-change-link{% endif %}{% if entry.is_deletion %} grp-delete-link{% endif %}">
+                                    {% if entry.is_deletion %}
+                                        <span>{{ entry.object_repr }}</span>
+                                    {% else %}
+                                        <a href="{{ entry.get_admin_url }}">{{ entry.object_repr }}</a>
+                                    {% endif %}
+                                    <span class="grp-font-color-quiet">{% filter capfirst %}{% trans entry.content_type.name %}{% endfilter %}</span>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

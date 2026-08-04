@@ -11,7 +11,7 @@ from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from dbtasks.models import ScheduledTask
 from django.conf import settings
-from django.db import connection
+from django.db import DatabaseError, OperationalError, connection
 from django.tasks import TaskResultStatus, task
 from django.utils import timezone
 
@@ -221,7 +221,7 @@ def get_vacuum_candidates(
             relname AS table_name,
             n_live_tup,
             n_dead_tup,
-            ROUND(n_dead_tup::float8 / NULLIF(n_live_tup, 0), 4) AS dead_ratio,
+            ROUND((n_dead_tup::numeric / NULLIF(n_live_tup, 0)), 4) AS dead_ratio,
             last_autovacuum::text,
             last_vacuum::text
         FROM pg_stat_user_tables
@@ -235,38 +235,77 @@ def get_vacuum_candidates(
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
+def vacuum_table(table_name: str) -> None:
+    """Run VACUUM ANALYZE on a single table.
+
+    VACUUM cannot run inside a transaction block, so this temporarily
+    switches the connection to autocommit for the duration of the call.
+    Table name is never taken from user input — it always originates from
+    pg_stat_user_tables via get_vacuum_candidates(), so plain string
+    interpolation (not parameterized query) is safe here; Postgres also
+    does not support parameterizing identifiers in VACUUM.
+
+    Args:
+        table_name: Name of the table to vacuum, as reported by
+            pg_stat_user_tables.relname.
+    """
+    original_autocommit = connection.get_autocommit()
+    connection.set_autocommit(True)
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(f'VACUUM ANALYZE "{table_name}"')
+    finally:
+        connection.set_autocommit(original_autocommit)
+
+
 @task()
 def weekly_vacuum_check() -> list[dict]:
-    """Log tables with high dead tuple ratios as a vacuum health check.
+    """Vacuum tables with high dead tuple ratios as a weekly maintenance pass.
 
-    Calls get_vacuum_candidates() and logs a warning for each table that
-    exceeds the 15% dead-tuple threshold. Safe on non-PostgreSQL backends.
+    Calls get_vacuum_candidates() and runs VACUUM ANALYZE on each table that
+    exceeds the 15% dead-tuple threshold, logging the start and completion of
+    each vacuum. Safe on non-PostgreSQL backends (get_vacuum_candidates
+    returns an empty list, so no vacuum is attempted).
 
     Registered as a periodic task via TASKS settings (runs weekly on Sundays).
 
     Returns:
-        List of candidate dicts returned by get_vacuum_candidates().
+        List of candidate dicts returned by get_vacuum_candidates(), one per
+        table that was vacuumed.
     """
     candidates = get_vacuum_candidates()
     if not candidates:
-        logger.info("Weekly vacuum check: all tables are healthy")
+        logger.info("Weekly vacuum check: all tables are healthy, no vacuum needed")
         return []
 
+    logger.warning(
+        "Weekly vacuum check: %d table(s) exceed 15%% dead tuple threshold — starting vacuum",
+        len(candidates),
+    )
+
     for table in candidates:
+        table_name = table["table_name"]
         logger.warning(
-            "Vacuum candidate: %s — %d dead / %d live rows (%.1f%%), " "last autovacuum: %s, last manual vacuum: %s",
-            table["table_name"],
+            "Vacuum starting: %s — %d dead / %d live rows (%.1f%%), last autovacuum: %s, last manual vacuum: %s",
+            table_name,
             table["n_dead_tup"],
             table["n_live_tup"],
             float(table["dead_ratio"]) * 100,
             table["last_autovacuum"] or "never",
             table["last_vacuum"] or "never",
         )
+        start_time = time.monotonic()
+        try:
+            vacuum_table(table_name)
+        except (DatabaseError, OperationalError):
+            logger.exception("Vacuum failed: %s", table_name)
+            continue
+        logger.warning(
+            "Vacuum complete: %s (%.1fs)",
+            table_name,
+            time.monotonic() - start_time,
+        )
 
-    logger.warning(
-        "Weekly vacuum check: %d table(s) exceed 15%% dead tuple threshold",
-        len(candidates),
-    )
     return candidates
 
 

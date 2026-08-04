@@ -72,15 +72,15 @@ class DuplicateReportTestBase(TestCase):
 class TestGetDuplicateShaData(DuplicateReportTestBase):
     """api-layer: _get_duplicate_sha_data aggregation logic."""
 
-    async def test_no_duplicates_returns_empty(self):
+    def test_no_duplicates_returns_empty(self):
         """When no SHA appears more than 5 times, an empty result is returned."""
-        await FileIndex.objects.filter(file_sha256=self.dup_sha).adelete()
-        result = await _get_duplicate_sha_data()
+        FileIndex.objects.filter(file_sha256=self.dup_sha).delete()
+        result = _get_duplicate_sha_data()
         assert result == {"groups": [], "total_shas": 0, "total_files": 0}
 
-    async def test_duplicate_group_included(self):
+    def test_duplicate_group_included(self):
         """A SHA appearing 6 times is reported as one group with 6 files."""
-        result = await _get_duplicate_sha_data()
+        result = _get_duplicate_sha_data()
         assert result["total_shas"] == 1
         assert result["total_files"] == 6
         assert len(result["groups"]) == 1
@@ -89,9 +89,9 @@ class TestGetDuplicateShaData(DuplicateReportTestBase):
         assert group["count"] == 6
         assert len(group["files"]) == 6
 
-    async def test_unique_file_excluded(self):
+    def test_unique_file_excluded(self):
         """A file whose SHA is not duplicated is not included in any group."""
-        result = await _get_duplicate_sha_data()
+        result = _get_duplicate_sha_data()
         all_names = {f["name"] for group in result["groups"] for f in group["files"]}
         assert "unique.txt" not in all_names
 

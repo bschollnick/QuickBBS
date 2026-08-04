@@ -1909,6 +1909,15 @@ def update_database_from_disk(directory_record: "DirectoryIndex") -> "DirectoryI
 
     logger.debug("Rescanning directory: %s", dirpath)
 
+    # Timed separately from start_time above: start_time also covers the
+    # is_cached/refresh_from_db short-circuits, which are near-zero-cost and
+    # would dilute a measurement of actual scan duration. rescan_start marks
+    # entry into the real filesystem-scan branch specifically — see Finding 2
+    # in claude_docs/plans/async_simplification.md (this branch's duration is
+    # unbounded, proportional to directory size, and was previously invisible
+    # in production since the only timing was this function's DEBUG-level log).
+    rescan_start = time.perf_counter()
+
     # Get filesystem entries using the directory path from the record
     success, fs_entries = return_disk_listing_sync(dirpath)
     if not success:
@@ -1924,9 +1933,16 @@ def update_database_from_disk(directory_record: "DirectoryIndex") -> "DirectoryI
 
     # Cache the result using the directory record
     directory_record.mark_scanned()
+    rescan_elapsed = time.perf_counter() - rescan_start
     # Only log when a change was actually applied — an unchanged rescan is noise.
     if dirs_changed or files_changed:
         logger.info("Cached directory: %s", dirpath)
+    # INFO-level and production-visible (unlike the total-duration DEBUG log
+    # below, which includes the short-circuit checks): this is the actual
+    # scan cost, proportional to directory size and file count, with no
+    # current upper bound. Kept as a plain log line rather than a metrics
+    # counter since no metrics backend is wired up in this codebase yet.
+    logger.info("Directory rescan took %.4fs: %s (%d files)", rescan_elapsed, dirpath, len(fs_entries))
     logger.debug("Elapsed time (sync database from disk): %.4fs", time.perf_counter() - start_time)
 
     # Close connections that have exceeded CONN_MAX_AGE (may have gone stale during sync)

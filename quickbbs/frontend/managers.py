@@ -3,9 +3,6 @@ QuickBBS Frontend Managers.
 
 Context building for item views, layout management with database-level
 pagination, and cached query functions for gallery rendering.
-
-All database functions are sync; async wrappers are provided for ASGI
-views via sync_to_async.
 """
 
 from __future__ import annotations
@@ -15,16 +12,13 @@ import logging
 import math
 import time
 
-from asgiref.sync import sync_to_async
 from cachetools import cached
 from cachetools.keys import hashkey
 from django.conf import settings
-from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpResponseBadRequest
 
 from frontend.utilities import (
     convert_to_webpath,
-    get_sort_param,
     return_breadcrumbs,
 )
 from quickbbs.cache_registry import layout_manager_cache
@@ -142,30 +136,6 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
     build_time = time.perf_counter() - start_time
     logging.debug("Context built in %.4f seconds", build_time)
     return context
-
-
-# ASGI: Async wrapper for build_context_info
-async def async_build_context_info(request: WSGIRequest, unique_file_sha256: str, show_duplicates: bool = False) -> dict | HttpResponseBadRequest:
-    """
-    Async wrapper for build_context_info to support ASGI views.
-
-    All database operations are wrapped to run in thread pool.
-    Extracts request-specific data (sort order) before calling cached function.
-
-    Args:
-        request: Django WSGIRequest object
-        unique_file_sha256: The unique SHA256 hash of the item
-        show_duplicates: Whether to show duplicate files (affects navigation list)
-    Returns: Dictionary containing context data or HttpResponseBadRequest on error
-    """
-    # Extract and validate sort order before calling cached function
-    sort_order_value = get_sort_param(request)
-
-    return await sync_to_async(build_context_info)(
-        unique_file_sha256=unique_file_sha256,
-        sort_order_value=sort_order_value,
-        show_duplicates=show_duplicates,
-    )
 
 
 def _get_files_needing_thumbnails(directory, sort_ordering: int):
@@ -358,20 +328,3 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int = 0,
     build_time = time.perf_counter() - start_time
     logging.debug("Optimized layout manager completed in %.4f seconds", build_time)
     return output
-
-
-# ASGI: Async wrapper for layout_manager
-async def async_layout_manager(page_number: int = 1, directory=None, sort_ordering: int = 0, show_duplicates: bool = False) -> dict:
-    """
-    Async wrapper for layout_manager to support ASGI views.
-
-    Args:
-        page_number: Current page number (1-indexed)
-        directory: DirectoryIndex object representing the directory to layout
-        sort_ordering: Sort order to apply (0-2), defaults to 0 (name)
-        show_duplicates: Whether to show duplicate files
-    Returns: Dictionary containing pagination data and current page items
-    """
-    return await sync_to_async(layout_manager)(
-        page_number=page_number, directory=directory, sort_ordering=sort_ordering, show_duplicates=show_duplicates
-    )

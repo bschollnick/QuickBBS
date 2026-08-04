@@ -99,6 +99,19 @@ class TestInitialSync(SyncTestBase):
         names = set(self.file_pks())
         assert {n.lower() for n in names} == {"alpha.txt", "beta.txt"}
 
+    def test_rescan_logs_info_level_timing(self):
+        """A real (non-short-circuited) rescan logs INFO-level duration/file-count.
+
+        Regression guard for the Finding 2 timing instrumentation added to
+        update_database_from_disk() — production runs at INFO level, so this
+        log line is the only visibility into non-short-circuit scan duration.
+        """
+        self.write_file("alpha.txt")
+        self.write_file("beta.txt")
+        with self.assertLogs("quickbbs.directoryindex", level="INFO") as captured:
+            self.sync()
+        assert any("Directory rescan took" in message and "2 files" in message for message in captured.output)
+
     def test_creates_directoryindex_records_for_subdirectories(self):
         """Every subdirectory on disk gets a DirectoryIndex record linked to the parent."""
         os.makedirs(os.path.join(self.albums_dir, "sub_one"))

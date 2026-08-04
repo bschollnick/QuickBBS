@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from asgiref.sync import sync_to_async
 from django.db.models import Count
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
@@ -14,28 +13,6 @@ from django.shortcuts import render
 from quickbbs.fileindex import FileIndex
 
 
-async def async_render(
-    request: HttpRequest,
-    template_name: str,
-    context: dict | None = None,
-    **kwargs,
-) -> HttpResponse:
-    """
-    Async wrapper for Django's render function.
-
-    Args:
-        request: HttpRequest object
-        template_name: Template file name
-        context: Context dictionary
-        **kwargs: Additional arguments for render
-
-    Returns:
-        HttpResponse
-    """
-    return await sync_to_async(render)(request, template_name, context, **kwargs)
-
-
-@sync_to_async
 def _get_duplicate_sha_data() -> dict:
     """
     Query FileIndex for duplicate file_sha256 values with count > 5.
@@ -105,7 +82,7 @@ def _get_duplicate_sha_data() -> dict:
     }
 
 
-async def duplicate_files_report(request: HttpRequest) -> HttpResponse:
+def duplicate_files_report(request: HttpRequest) -> HttpResponse:
     """
     Display a report of duplicate file SHA256 hashes with count > 5.
 
@@ -118,7 +95,7 @@ async def duplicate_files_report(request: HttpRequest) -> HttpResponse:
     Returns:
         HttpResponse with rendered report
     """
-    data = await _get_duplicate_sha_data()
+    data = _get_duplicate_sha_data()
 
     context = {
         "groups": data["groups"],
@@ -126,7 +103,7 @@ async def duplicate_files_report(request: HttpRequest) -> HttpResponse:
         "total_files": data["total_files"],
     }
 
-    return await async_render(
+    return render(
         request,
         "reports/duplicate_files.jinja",
         context,

@@ -3,6 +3,18 @@ Download optimization middleware for QuickBBS.
 
 This module contains middleware that optimizes download endpoints by
 bypassing heavy middleware processing when not needed.
+
+STATUS: DISABLED — measured regression, do not re-enable without
+re-measuring. This middleware is commented out of MIDDLEWARE in
+quickbbs/settings.py. Under concurrent load it measurably increased P95
+latency by ~2x and P99 by ~200ms — the middleware-stack-bypass overhead
+it introduces turned out to cost more than the middleware layers it
+skips. See the comment above the commented-out entry in settings.py for
+the specific numbers. The design and "Performance Impact" figures in this
+module's docstrings below describe the intended effect, not a validated
+one — kept here as a documented historical record of a plausible-sounding
+optimization that backfired when actually measured, not as a
+recommendation to use it.
 """
 
 from __future__ import annotations
