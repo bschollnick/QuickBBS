@@ -204,7 +204,7 @@ class WatchdogManager:
         """Start the watchdog with periodic restart capability.
 
         Args:
-            force_recreate: If True, recreate the observer to prevent memory leaks
+            force_recreate: If True, recreate the observer as a periodic precaution
         """
         with self.lock:
             if not self.is_running:
@@ -342,7 +342,9 @@ class WatchdogManager:
             logger.debug("Stop() completed, waiting 1 second...")
             time.sleep(1)  # Brief pause to ensure clean shutdown
             logger.debug("Calling start() with force_recreate=True...")
-            # Use force_recreate=True to prevent memory leaks from accumulated observer state
+            # force_recreate=True as a periodic precaution, on the theory that a
+            # long-running Observer could accumulate state; no leak has actually
+            # been confirmed in the Observer itself.
             self.start(force_recreate=True)
             restart_successful = True
             logger.info("Watchdog restart completed successfully")
@@ -416,7 +418,8 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
         Clean up resources before disposing of this handler instance.
 
         Cancels any pending timers to prevent them from executing after
-        the handler is replaced. This prevents memory leaks during watchdog restarts.
+        the handler is replaced, avoiding stray timers left running past a
+        watchdog restart.
         """
         with self.timer_lock:
             if self.event_timer is not None:
@@ -445,13 +448,13 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
     def _buffer_event(self, event: FileSystemEvent) -> None:
         """Buffer events to process them in batches.
 
-        MEMORY OPTIMIZATION: Only creates a new timer if one isn't already running.
-        During heavy file activity (e.g., copying thousands of files), this prevents
-        creating 10,000+ Timer objects/threads which would consume 500MB-10GB of memory.
+        DEBOUNCE: Only creates a new timer if one isn't already running, so that
+        repeated events for the same directory during heavy file activity (e.g.,
+        copying thousands of files) are bundled into a single processing run
+        instead of triggering a separate one per event.
 
-        Previous behavior: Cancel and recreate timer for EVERY event (360/min during copies)
-        New behavior: Create timer only once per 5-second batch window
-        Memory impact: Reduces Timer object creation by 99%+
+        Previous behavior: cancel and recreate timer for EVERY event (360/min during copies)
+        New behavior: create timer only once per 5-second batch window
         """
         try:
             if event.is_directory:

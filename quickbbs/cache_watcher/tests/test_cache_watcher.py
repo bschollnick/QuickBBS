@@ -738,6 +738,60 @@ class TestCacheFileMonitorEventHandler(TestCase):
         assert self.handler.event_timer is first_timer
 
 
+class TestProcessBufferedEventsCallsInvalidateCachesDirectly(TestCase):
+    """_process_buffered_events calls DirectoryIndex.invalidate_caches() directly.
+
+    Regression guard for the async_to_sync/sync_to_async removal: this
+    method runs on a watchdog OS thread, never inside Django's ASGI event
+    loop, so no async bridging should appear anywhere in its call stack.
+    """
+
+    def setUp(self):
+        optimized_event_buffer.clear()
+        self.handler = CacheFileMonitorEventHandler()
+
+    def tearDown(self):
+        self.handler.cleanup()
+        optimized_event_buffer.clear()
+
+    def test_existing_directories_invalidated_via_direct_call(self):
+        """Matched DirectoryIndex rows are invalidated with a plain direct call."""
+        from unittest.mock import MagicMock, patch
+
+        optimized_event_buffer.add_event("/some/existing/dir")
+        mock_dir = MagicMock()
+        mock_dir.dir_fqpn_sha256 = "deadbeef"
+        with (
+            patch("cache_watcher.models.processing_semaphore") as mock_sem,
+            patch("cache_watcher.models.DirectoryIndex") as mock_di,
+        ):
+            mock_sem.acquire.return_value = True
+            mock_di.objects.filter.return_value.only.return_value = [mock_dir]
+            self.handler._process_buffered_events(self.handler.timer_generation)
+
+        mock_di.invalidate_caches.assert_called_once_with([mock_dir])
+
+    def test_no_async_to_sync_in_call_stack(self):
+        """async_to_sync/sync_to_async are never invoked for this path."""
+        from unittest.mock import MagicMock, patch
+
+        optimized_event_buffer.add_event("/some/existing/dir")
+        mock_dir = MagicMock()
+        mock_dir.dir_fqpn_sha256 = "deadbeef"
+        with (
+            patch("cache_watcher.models.processing_semaphore") as mock_sem,
+            patch("cache_watcher.models.DirectoryIndex") as mock_di,
+            patch("asgiref.sync.async_to_sync") as mock_a2s,
+            patch("asgiref.sync.sync_to_async") as mock_s2a,
+        ):
+            mock_sem.acquire.return_value = True
+            mock_di.objects.filter.return_value.only.return_value = [mock_dir]
+            self.handler._process_buffered_events(self.handler.timer_generation)
+
+        mock_a2s.assert_not_called()
+        mock_s2a.assert_not_called()
+
+
 # ===========================================================================
 # WatchdogManager — state machine tests via mocks
 #

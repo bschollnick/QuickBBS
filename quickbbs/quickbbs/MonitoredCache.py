@@ -21,9 +21,22 @@ Usage:
     # http://localhost:8888/cache_stats/
 
 Interpretation:
-    - Hit rate >80%: Cache size is adequate
-    - Hit rate 60-80%: Consider increasing cache size
-    - Hit rate <60%: Increase cache size
+    A low hit rate has two unrelated causes, and only one of them means "grow
+    maxsize":
+
+    - Eviction-driven misses: a key was cached, evicted to make room for newer
+      entries, then requested again shortly after. This is the case a larger
+      maxsize fixes, since the key really is being reused.
+    - Cold-key misses: the workload is inherently one-shot (e.g. a bulk import
+      touching thousands of distinct files once each). No maxsize increase
+      helps here, because the same key is never asked for twice — a low hit
+      rate is simply correct behavior for this kind of traffic.
+
+    Only treat a low hit rate as a signal to increase maxsize when the
+    workload is known to be repetitive (the same directories/files/paths
+    getting revisited). A consistently high hit rate against a large maxsize
+    is a safer signal in both cases — it usually means the cache could be
+    shrunk without losing hits.
 """
 
 from __future__ import annotations

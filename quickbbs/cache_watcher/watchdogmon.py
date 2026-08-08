@@ -86,15 +86,16 @@ class WatchdogMonitor:
         Args:
             monitor_path: Path to monitor for filesystem changes.
             event_handler: Event handler to process filesystem events.
-            force_recreate: If True, stop and recreate the observer (prevents memory leaks).
+            force_recreate: If True, stop and recreate the observer as a periodic precaution.
 
         Returns:
             None
         """
         logger.info("Monitoring : %s", monitor_path)
 
-        # If force_recreate is True, stop and recreate the observer
-        # This prevents memory leaks from accumulated internal state
+        # If force_recreate is True, stop and recreate the observer.
+        # This is a periodic precaution against accumulated internal state,
+        # not a fix for a confirmed leak.
         if force_recreate and self.my_observer is not None:
             logger.debug("Force recreate requested - stopping existing observer")
             self.stop_observer()

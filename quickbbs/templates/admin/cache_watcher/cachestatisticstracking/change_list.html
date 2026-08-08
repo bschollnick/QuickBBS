@@ -1,0 +1,43 @@
+{% extends "admin/change_list.html" %}
+
+{% block result_list %}
+  <div class="module" style="margin-bottom: 20px; padding: 12px 16px; border: 1px solid var(--border-color, #ccc); border-radius: 4px;">
+    <h3 style="margin-top: 0;">How to read Sizing Advice</h3>
+    <p>
+      A low hit rate has two unrelated causes, and only one of them means the cache
+      should actually grow:
+    </p>
+    <ul>
+      <li>
+        <strong>Eviction pressure</strong> — the cache is running near full
+        (<code>current_size</code> close to <code>max_size</code>) and the hit rate
+        is low. Entries are being evicted before they get reused. This is the case
+        where raising the corresponding <code>*_CACHE_SIZE</code> setting in
+        <code>quickbbs_settings.py</code> should help.
+      </li>
+      <li>
+        <strong>Cold-key traffic</strong> — the hit rate is low but
+        <code>current_size</code> is well below <code>max_size</code>. The cache has
+        room to spare; the misses aren't from eviction, they're from a workload
+        that's inherently one-shot (e.g. a bulk scan touching thousands of distinct
+        files once each). No <code>max_size</code> increase fixes this — the same
+        key is never asked for twice.
+      </li>
+      <li>
+        <strong>Healthy, oversized</strong> — the hit rate is high but
+        <code>current_size</code> stays well below <code>max_size</code>. The cache
+        could likely be shrunk without losing hits, freeing memory for something
+        else.
+      </li>
+    </ul>
+    <p>
+      The advice column is a hint, not a verdict — it can't see your actual traffic
+      pattern, only one snapshot's numbers. Treat "consider raising" or "could
+      shrink" as a starting point for a decision, not an instruction, and watch
+      several snapshots (via <code>settings.CACHE_MONITORING = True</code>) before
+      changing a size. See <code>quickbbs_app_design.md</code> §4.5 for the full
+      reasoning.
+    </p>
+  </div>
+{{ block.super }}
+{% endblock %}
