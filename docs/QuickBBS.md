@@ -18,7 +18,7 @@ A high-performance Django-based gallery and file browser application with hybrid
 
 ### Prerequisites
 - Python 3.12-3.14
-- Django 6.0 or higher (currently using 6.0.3 — the built-in task framework requires Django 6)
+- Django 6.1 or higher (currently using 6.1.0). Django 6.0 introduced the built-in task framework; 6.1 is the actual floor here because `FileIndex`/`DirectoryIndex` use the `DB_CASCADE`/`DB_SET_NULL` on_delete options, which are DB-enforced `ON DELETE` constraints added in 6.1 and don't exist on 6.0. Downgrading to Django 6.0 or earlier would require reverting those FK fields to the classic `models.CASCADE`/`models.SET_NULL` (app-level, not DB-enforced) and regenerating the affected migrations.
 - PostgreSQL (currently used - testing would be needed for other database engines) 
 ### Installation
 
@@ -345,7 +345,7 @@ The application automatically selects templates based on request type:
 
 ## Technology Stack
 
-- **Backend**: Django 6.0+ (currently using 6.0.3), Python 3.12-3.14
+- **Backend**: Django 6.1+ (currently using 6.1.0), Python 3.12-3.14
 - **Database**: PostgreSQL with binary blob storage (currently used - testing needed for other engines). Optimized for Django & PostgreSQL features (binary blobs, partial indexes), but compatible with any Django ORM-compliant database.
 - **Frontend**: HTMX for dynamic interactions, Jinja2 templates
 - **File Monitoring**: Watchdog library

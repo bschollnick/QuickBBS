@@ -20,9 +20,9 @@ from quickbbs.cache_registry import (
     resolve_monitored_caches,
 )
 from quickbbs.MonitoredCache import MonitoredLRUCache
+from thumbnails.engine import resolve_backend_name
 from thumbnails.exceptions import OrphanedFileIndex, OrphanedThumbnail
 from thumbnails.models import THUMBNAILFILES_PR_FILEINDEX_FILETYPE, ThumbnailFiles
-from thumbnails.thumbnail_engine import resolve_backend_name
 
 logger = logging.getLogger(__name__)
 

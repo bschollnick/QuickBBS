@@ -1,5 +1,11 @@
 """
 DirectoryIndex Model - Master index for directories in the filesystem
+
+Requires Django 6.1+: the FK fields below use `models.DB_CASCADE` /
+`models.DB_SET_NULL`, DB-enforced `ON DELETE` constraints added in Django 6.1.
+They don't exist on Django 6.0 or earlier. Downgrading would mean switching
+these back to the classic `models.CASCADE` / `models.SET_NULL` (app-level,
+not DB-enforced) and regenerating migrations.
 """
 
 from __future__ import annotations
