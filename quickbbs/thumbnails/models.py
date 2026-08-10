@@ -36,17 +36,20 @@ from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import connection, models, transaction
 from django.db.models import Q
-from PIL import Image
 
 from frontend.serve_up import send_file_response
 from quickbbs.cache_registry import clear_layout_cache_for_directories
+from thumbnails.engine import (
+    BackendType,
+    create_thumbnails_from_path,
+    is_all_white_thumbnail,
+)
 from thumbnails.exceptions import (
     MediaProcessingError,
     OrphanedFileIndex,
     OrphanedThumbnail,
     ThumbnailGenerationError,
 )
-from thumbnails.thumbnail_engine import BackendType, create_thumbnails_from_path
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -94,33 +97,6 @@ THUMBNAILFILES_PR_FILEINDEX_FILETYPE = ("FileIndex__filetype",)
 
 # Empty-value sentinel for thumbnail existence checks (avoids per-call list creation)
 _EMPTY_THUMB_VALUES = ("", b"", None)
-
-
-def is_all_white_thumbnail(small_thumb: bytes | memoryview | None) -> bool:
-    """Return True if the thumbnail blob decodes to an entirely white image.
-
-    Shared detector used by both the creation-time white check
-    (settings.MAC_OPTIMIZATION_WHITECHECK) and the offline repair scan
-    (manage.py scan --verify_thumbnails). Callers apply their own size
-    prefilter (settings.SMALL_THUMBNAIL_SAFEGUARD_SIZE).
-
-    Args:
-        small_thumb: JPEG/PNG blob of the small thumbnail (bytes or a
-            memoryview from a BinaryField), or None.
-
-    Returns:
-        True if every pixel is white, False for empty/None blobs, non-RGB/L
-        modes, or any non-white pixel.
-    """
-    if not small_thumb:
-        return False
-    with Image.open(io.BytesIO(small_thumb)) as img:
-        extrema = img.getextrema()
-        if img.mode == "RGB":
-            return extrema == ((255, 255), (255, 255), (255, 255))
-        if img.mode == "L":
-            return extrema == (255, 255)
-    return False
 
 
 def _is_suspect_all_white(small_thumb: bytes) -> bool:

@@ -15,14 +15,9 @@ try:
 except ImportError:
     PDFKIT_AVAILABLE = False
 
-try:
-    from .Abstractbase_thumbnails import AbstractBackend
-    from .core_image_thumbnails import CoreImageBackend, autorelease_pool
-    from .exceptions import PDFProcessingError
-except ImportError:
-    from Abstractbase_thumbnails import AbstractBackend
-    from core_image_thumbnails import CoreImageBackend, autorelease_pool
-    from exceptions import PDFProcessingError
+from .base import AbstractBackend
+from .core_image_thumbnails import CoreImageBackend, autorelease_pool
+from .exceptions import PDFProcessingError
 
 
 class PDFKitBackend(AbstractBackend):

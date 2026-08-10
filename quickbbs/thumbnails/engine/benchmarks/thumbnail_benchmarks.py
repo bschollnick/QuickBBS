@@ -23,20 +23,20 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, TextIO
 
-# Add parent directory to path for imports
+# Add the source root to the path so this runs standalone: python thumbnail_benchmarks.py
 BENCHMARKS_DIR = Path(__file__).parent
-THUMBNAILS_DIR = BENCHMARKS_DIR.parent
+ENGINE_DIR = BENCHMARKS_DIR.parent
+THUMBNAILS_DIR = ENGINE_DIR.parent
 sys.path.insert(0, str(THUMBNAILS_DIR.parent))
 
 from quickbbs.quickbbs_settings import CORE_IMAGE_QUALITY, PIL_IMAGE_QUALITY
 
 # pylint: disable=wrong-import-position
-from thumbnails.thumbnail_engine import (
-    BackendType,
+from thumbnails.engine import BackendType, create_thumbnails_from_path
+from thumbnails.engine.engine import (
     _check_avfoundation_available,
     _check_core_image_available,
     _check_pdfkit_available,
-    create_thumbnails_from_path,
 )
 
 # pylint: enable=wrong-import-position

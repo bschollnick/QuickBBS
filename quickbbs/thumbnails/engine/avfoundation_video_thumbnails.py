@@ -23,14 +23,9 @@ try:
 except ImportError:
     AVFOUNDATION_AVAILABLE = False
 
-try:
-    from .Abstractbase_thumbnails import AbstractBackend
-    from .core_image_thumbnails import CoreImageBackend, autorelease_pool
-    from .exceptions import VideoProcessingError
-except ImportError:
-    from Abstractbase_thumbnails import AbstractBackend
-    from core_image_thumbnails import CoreImageBackend, autorelease_pool
-    from exceptions import VideoProcessingError
+from .base import AbstractBackend
+from .core_image_thumbnails import CoreImageBackend, autorelease_pool
+from .exceptions import VideoProcessingError
 
 
 class AVFoundationVideoBackend(AbstractBackend):

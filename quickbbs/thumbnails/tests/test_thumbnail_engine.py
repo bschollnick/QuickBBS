@@ -1,13 +1,15 @@
 """
-Tests for the thumbnail engine's MACINTOSH_OPTIMIZATIONS gating, fork-safety
-hooks, and the shared all-white thumbnail detector / creation-time whitecheck.
+Tests for the Django-side thumbnail integration: the app's wiring of the engine
+config, the creation-time whitecheck, and the shared all-white detector's use
+from the scan command.
+
+Backend selection, fork-safety hooks, and the detector's own pixel logic are
+covered without Django in thumbnails/engine/tests/test_engine.py.
 
 DATABASE SAFETY NOTES
 ---------------------
 - All tests use Django's TestCase (transaction rolled back per test).
 - No TransactionTestCase is used — ever.
-- Backend/processor caches are cleared around gating tests so cached backend
-  instances never leak between tests or into other test modules.
 """
 
 from __future__ import annotations
@@ -16,25 +18,17 @@ import io
 import os
 import shutil
 import tempfile
-from unittest import mock, skipUnless
+from unittest import mock
 
 import pytest
 from django.test import TestCase, override_settings
 from PIL import Image
 
-from thumbnails import thumbnail_engine
 from thumbnails.models import (
     THUMBNAILFILES_PR_FILEINDEX_FILETYPE,
     ThumbnailFiles,
     _is_suspect_all_white,
     is_all_white_thumbnail,
-)
-from thumbnails.thumbnail_engine import (
-    FastImageProcessor,
-    _check_core_image_available,
-    clear_backend_caches,
-    is_apple_silicon,
-    macintosh_optimizations_enabled,
 )
 
 pytestmark = pytest.mark.api
@@ -62,131 +56,17 @@ def _gradient_jpeg_bytes(size: tuple[int, int] = (200, 200)) -> bytes:
 
 
 # ===========================================================================
-# MACINTOSH_OPTIMIZATIONS gating in _create_backend
-# ===========================================================================
-
-
-class TestMacintoshOptimizationsGate(TestCase):
-    """The auto-selecting backend cases honor settings.MACINTOSH_OPTIMIZATIONS."""
-
-    def setUp(self):
-        clear_backend_caches(force_gc=False)
-
-    def tearDown(self):
-        clear_backend_caches(force_gc=False)
-
-    @override_settings(MACINTOSH_OPTIMIZATIONS=False)
-    def test_helper_reads_setting_false(self):
-        """Helper returns False when the setting is False."""
-        assert macintosh_optimizations_enabled() is False
-
-    @override_settings(MACINTOSH_OPTIMIZATIONS=True)
-    def test_helper_reads_setting_true(self):
-        """Helper returns True when the setting is True."""
-        assert macintosh_optimizations_enabled() is True
-
-    @override_settings(MACINTOSH_OPTIMIZATIONS=False)
-    def test_auto_resolves_to_pil_when_disabled(self):
-        """backend="auto" uses PIL when the optimizations are disabled."""
-        processor = FastImageProcessor(IMAGE_SIZES, backend="auto")
-        assert processor.current_backend == "ImageBackend"
-
-    @override_settings(MACINTOSH_OPTIMIZATIONS=False)
-    def test_corevideo_falls_back_to_ffmpeg_when_disabled(self):
-        """backend="corevideo" uses FFmpeg when the optimizations are disabled."""
-        processor = FastImageProcessor(IMAGE_SIZES, backend="corevideo")
-        assert processor.current_backend == "VideoBackend"
-
-    @override_settings(MACINTOSH_OPTIMIZATIONS=False)
-    def test_pdf_falls_back_to_pymupdf_when_disabled(self):
-        """backend="pdf" uses PyMuPDF when the optimizations are disabled."""
-        processor = FastImageProcessor(IMAGE_SIZES, backend="pdf")
-        assert processor.current_backend == "PDFBackend"
-
-    @skipUnless(
-        _check_core_image_available() and is_apple_silicon(),
-        "Core Image backend requires Apple Silicon macOS with pyobjc",
-    )
-    @override_settings(MACINTOSH_OPTIMIZATIONS=True)
-    def test_auto_uses_coreimage_when_enabled(self):
-        """backend="auto" selects Core Image when enabled on Apple Silicon."""
-        processor = FastImageProcessor(IMAGE_SIZES, backend="auto")
-        assert processor.current_backend == "CoreImageBackend"
-
-    @override_settings(MACINTOSH_OPTIMIZATIONS=True)
-    def test_explicit_image_backend_unaffected_by_setting(self):
-        """Explicit backend="image" is never redirected by the setting."""
-        processor = FastImageProcessor(IMAGE_SIZES, backend="image")
-        assert processor.current_backend == "ImageBackend"
-
-
-# ===========================================================================
-# os.register_at_fork hooks
-# ===========================================================================
-
-
-class TestForkHooks(TestCase):
-    """The fork hooks reset caches/locks so a forked child cannot deadlock or
-    reuse a backend whose Metal ports died with the parent."""
-
-    def tearDown(self):
-        clear_backend_caches(force_gc=False)
-
-    def test_fork_reset_child_clears_caches_and_replaces_locks(self):
-        """Child hook empties both caches and installs fresh lock objects."""
-        thumbnail_engine._processor_cache["sentinel"] = object()
-        FastImageProcessor._backend_cache["sentinel"] = object()
-        old_processor_lock = thumbnail_engine._processor_lock
-        old_backend_lock = FastImageProcessor._backend_lock
-
-        thumbnail_engine._fork_reset_child()
-
-        assert not thumbnail_engine._processor_cache
-        assert not FastImageProcessor._backend_cache
-        assert thumbnail_engine._processor_lock is not old_processor_lock
-        assert FastImageProcessor._backend_lock is not old_backend_lock
-        assert not thumbnail_engine._processor_lock.locked()
-        assert not FastImageProcessor._backend_lock.locked()
-
-    def test_fork_acquire_then_parent_release_leaves_locks_free(self):
-        """before + after_in_parent hooks are a balanced acquire/release pair."""
-        thumbnail_engine._fork_acquire_locks()
-        assert thumbnail_engine._processor_lock.locked()
-        assert FastImageProcessor._backend_lock.locked()
-
-        thumbnail_engine._fork_release_locks_parent()
-        assert not thumbnail_engine._processor_lock.locked()
-        assert not FastImageProcessor._backend_lock.locked()
-
-
-# ===========================================================================
-# Shared all-white detector
+# Settings-gated suspect check and shared-detector wiring
 # ===========================================================================
 
 
 class TestAllWhiteDetector(TestCase):
-    """is_all_white_thumbnail / _is_suspect_all_white behavior."""
+    """_is_suspect_all_white's settings-driven size gate, and detector reuse.
 
-    def test_all_white_rgb_jpeg_detected(self):
-        """A solid white RGB JPEG is detected as all-white."""
-        assert is_all_white_thumbnail(_jpeg_bytes((255, 255, 255))) is True
-
-    def test_all_white_grayscale_jpeg_detected(self):
-        """A solid white L-mode JPEG is detected as all-white."""
-        assert is_all_white_thumbnail(_jpeg_bytes(255, mode="L")) is True
-
-    def test_normal_image_not_detected(self):
-        """An image with varied pixel content is not all-white."""
-        assert is_all_white_thumbnail(_gradient_jpeg_bytes()) is False
-
-    def test_solid_black_not_detected(self):
-        """A solid black image is not all-white."""
-        assert is_all_white_thumbnail(_jpeg_bytes((0, 0, 0))) is False
-
-    def test_none_and_empty_blobs_are_false(self):
-        """None/empty blobs are treated as not-all-white, not an error."""
-        assert is_all_white_thumbnail(None) is False
-        assert is_all_white_thumbnail(b"") is False
+    The detector's own pixel logic is covered in the engine's Django-free
+    suite; these cases exist because they depend on Django settings or on
+    QuickBBS wiring.
+    """
 
     def test_suspect_gate_true_for_small_white_blob(self):
         """A small all-white blob is flagged as suspect GPU corruption."""

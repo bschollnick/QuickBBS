@@ -4,10 +4,7 @@ import io
 
 from PIL import Image, ImageOps
 
-try:
-    from .Abstractbase_thumbnails import AbstractBackend
-except ImportError:
-    from Abstractbase_thumbnails import AbstractBackend
+from .base import AbstractBackend
 
 
 def convert_image_for_format(img: Image.Image, output_format: str) -> Image.Image:

@@ -165,12 +165,14 @@ HTTP request
 what went wrong when a thumbnail couldn't be made or served, instead of everything
 looking like a generic error.
 
-**What is its purpose?** Declares every thumbnail-specific exception class in one
-module, so callers can catch them without importing the backend or model modules that
-raise them.
+**What is its purpose?** Gives callers a single import location for every
+thumbnail-specific exception, so they can catch them without importing the backend or
+model modules that raise them.
 
-All thumbnail-specific exceptions are declared here so callers can catch them without
-importing implementation modules.
+The declarations are split along the extraction boundary. The five
+framework-independent exceptions live in `engine/exceptions.py`; the two that carry a
+`ThumbnailFiles` instance in their constructor stay in `thumbnails/exceptions.py`,
+which re-exports the engine's five so a single import still reaches all seven.
 
 | Exception | Inherits | Purpose |
 |---|---|---|
@@ -179,8 +181,11 @@ importing implementation modules.
 | `PDFProcessingError` | `MediaProcessingError` | PDF-specific decode/render failure |
 | `VideoProcessingError` | `MediaProcessingError` | Video-specific decode/extraction failure |
 | `UnsupportedFormatError` | `ValueError` | An unrecognized output format was requested; carries `fmt` |
-| `OrphanedThumbnail` | `Exception` | A `ThumbnailFiles` row has no matching `FileIndex` record; carries `.thumbnail` and `.sha256` |
-| `OrphanedFileIndex` | `Exception` | A `FileIndex` record's `home_directory` is `None` (its directory was deleted); carries `.thumbnail`, `.file_index_id`, `.sha256` |
+| `OrphanedThumbnail` | `Exception` | *(app-level)* A `ThumbnailFiles` row has no matching `FileIndex` record; carries `.thumbnail` and `.sha256` |
+| `OrphanedFileIndex` | `Exception` | *(app-level)* A `FileIndex` record's `home_directory` is `None` (its directory was deleted); carries `.thumbnail`, `.file_index_id`, `.sha256` |
+
+The first five are declared in `engine/exceptions.py`; the two marked *(app-level)* are
+declared in `thumbnails/exceptions.py` because they reference the ORM model.
 
 **`OrphanedThumbnail` and `OrphanedFileIndex`** are not error conditions in the
 traditional sense — they are signals telling the caller to delete the stale record and
@@ -189,7 +194,7 @@ fall back to the generic icon. Both views catch them explicitly and call
 
 ---
 
-### 4.2 `Abstractbase_thumbnails.py`
+### 4.2 `engine/base.py`
 
 **What does this do?** Guarantees that no matter which underlying tool actually draws a
 thumbnail, every one of them can be asked to do the job in exactly the same way.
@@ -211,7 +216,7 @@ any backend identically regardless of input source.
 
 ---
 
-### 4.3 `thumbnail_engine.py`
+### 4.3 `engine/engine.py`
 
 **What does this do?** Decides which tool should actually generate a given thumbnail,
 favoring a GPU-accelerated option when it's available, and otherwise falling back
@@ -223,8 +228,10 @@ the right backend for a file and caches backend instances so each is constructed
 **Backend selectors** (`BackendType`): `"image"`, `"coreimage"`, `"auto"` (still
 images); `"video"`, `"corevideo"` (video); `"pdf"`, `"pymupdf"`, `"pdfkit"` (PDF). The
 three auto-selecting variants each check `macintosh_optimizations_enabled()` (reads
-`settings.MACINTOSH_OPTIMIZATIONS`) and whether the relevant macOS framework import
-succeeded, falling back to the cross-platform backend if either check fails (§1.2).
+`engine.config.config.macintosh_optimizations`, which `thumbnails/apps.py` populates
+from `settings.MACINTOSH_OPTIMIZATIONS` at startup) and whether the relevant macOS
+framework import succeeded, falling back to the cross-platform backend if either check
+fails (§1.2).
 `"auto"` and `"pdf"` add a third condition on top of those two: the process must be
 running on Apple Silicon specifically, not just any Mac — an Intel Mac with
 `MACINTOSH_OPTIMIZATIONS` enabled and Core Image or PDFKit importable still falls back
@@ -258,7 +265,7 @@ Default sizes come from `settings.IMAGE_SIZE`.
 
 ---
 
-### 4.4 `pil_thumbnails.py`
+### 4.4 `engine/pil_thumbnails.py`
 
 **What does this do?** Makes sure ordinary images always get a thumbnail, on any
 machine, even one with no Apple-specific acceleration installed at all.
@@ -283,7 +290,7 @@ sizes.
 
 ---
 
-### 4.5 `pdf_thumbnails.py`
+### 4.5 `engine/pdf_thumbnails.py`
 
 **What does this do?** Lets a PDF show a preview of its first page in the gallery, on
 any machine, without needing Apple's own PDF renderer.
@@ -305,7 +312,7 @@ of accepting a pre-decoded PIL image.
 
 ---
 
-### 4.6 `pdfkit_thumbnails.py`
+### 4.6 `engine/pdfkit_thumbnails.py`
 
 **What does this do?** Produces PDF page previews faster on a Mac, by handing the work
 off to Apple's own PDF and graphics frameworks instead of a general-purpose library.
@@ -327,7 +334,7 @@ Django worker process.
 
 ---
 
-### 4.7 `core_image_thumbnails.py`
+### 4.7 `engine/core_image_thumbnails.py`
 
 **What does this do?** Does the actual GPU-accelerated pixel-crunching that the other
 Mac-native backends rely on, so resizing and encoding work is written once rather than
@@ -365,7 +372,7 @@ than holding everything until the whole batch completes.
 
 ---
 
-### 4.8 `video_thumbnails.py`
+### 4.8 `engine/video_thumbnails.py`
 
 **What does this do?** Lets a video show a representative freeze-frame in the gallery,
 on any machine, without needing Apple's own video framework.
@@ -384,7 +391,7 @@ empty bytes with an unhelpful decode error.
 
 ---
 
-### 4.9 `avfoundation_video_thumbnails.py`
+### 4.9 `engine/avfoundation_video_thumbnails.py`
 
 **What does this do?** Produces video freeze-frame previews faster on a Mac, by reading
 the video directly rather than handing it off to a separate helper program.
@@ -574,30 +581,6 @@ selected rows into an in-memory ZIP, named `<sha256>_<size>.jpg`.
 
 ---
 
-### 4.13 `image_utils.py`
-
-**What does this do?** Keeps older code working that was written before the current
-backend system existed, without forcing every caller to be rewritten at once.
-
-**What is its purpose?** A set of standalone legacy utility functions that predate the
-backend system (§4.3–§4.9), still used by callers that haven't migrated to
-`FastImageProcessor`.
-
-| Function | Description |
-|---|---|
-| `pdf_to_pil(fspath)` | Renders page 0 with PyMuPDF, returns a PIL Image, or `None` if PIL raises a `UserWarning` while decoding the rendered page |
-| `movie_to_pil(fspath)` | Seeks to the midpoint with PyAV, decodes the next frame; falls back to a "broken video" placeholder image on decode error |
-| `movie_duration(fspath)` | Duration in whole seconds via PyAV stream metadata, or `None` if the first video stream has no readable duration |
-| `image_to_pil(fspath, mem=False)` | Opens a raster image from a path or from bytes, returning `None` if the data can't be decoded |
-| `return_image_obj(fs_path, memory=False)` | Dispatches to the three functions above based on a direct read of `filetypes.models.FILETYPE_DATA`; returns `None` for an extension that isn't a PDF, movie, or image type |
-| `resize_pil_image(source_image, size, fext)` | Resizes with `LANCZOS`; saves PNG, falling back to JPEG on an encoding error |
-
-`return_image_obj` reads `FILETYPE_DATA` directly rather than through
-`filetypes.get_ftype_dict()` — a holdover reference from before that accessor existed,
-kept only because this module's callers haven't been migrated yet.
-
----
-
 ## 5. Concurrency and Safety
 
 ### PostgreSQL advisory lock
@@ -627,29 +610,37 @@ thread's pool and are never drained in a long-running Django worker.
 
 ## 6. Module Structure Summary
 
+The app is split in two: `engine/` is the framework-independent work layer, and
+everything beside it is the Django integration. Nothing under `engine/` imports
+Django — see §1.x on the extraction boundary.
+
 ```
 thumbnails/
 ├── __init__.py
-├── exceptions.py                     # All thumbnail-specific exceptions
-├── Abstractbase_thumbnails.py        # AbstractBackend ABC
-├── thumbnail_engine.py               # FastImageProcessor: backend factory + dispatch
-├── pil_thumbnails.py                 # ImageBackend: cross-platform PIL backend
-├── pdf_thumbnails.py                 # PDFBackend: PyMuPDF cross-platform PDF backend
-├── pdfkit_thumbnails.py              # PDFKitBackend: macOS GPU PDF backend
-├── core_image_thumbnails.py          # CoreImageBackend: macOS GPU image backend
-├── video_thumbnails.py               # VideoBackend: ffmpeg cross-platform video backend
-├── avfoundation_video_thumbnails.py  # AVFoundationVideoBackend: macOS native video
+├── engine/                           # Django-free work layer
+│   ├── __init__.py                   # Public API surface (__all__)
+│   ├── config.py                     # EngineConfig — settings supplied by the host app
+│   ├── engine.py                     # FastImageProcessor: backend factory + dispatch,
+│   │                                 #   get_video_info, is_all_white_thumbnail
+│   ├── base.py                       # AbstractBackend ABC
+│   ├── exceptions.py                 # Framework-independent exceptions
+│   ├── pil_thumbnails.py             # ImageBackend: cross-platform PIL backend
+│   ├── pdf_thumbnails.py             # PDFBackend: PyMuPDF cross-platform PDF backend
+│   ├── pdfkit_thumbnails.py          # PDFKitBackend: macOS GPU PDF backend
+│   ├── core_image_thumbnails.py      # CoreImageBackend: macOS GPU image backend
+│   ├── video_thumbnails.py           # VideoBackend: ffmpeg cross-platform video backend
+│   ├── avfoundation_video_thumbnails.py  # AVFoundationVideoBackend: macOS native video
+│   ├── benchmarks/
+│   │   └── thumbnail_benchmarks.py   # Standalone performance benchmarks — not imported by the app
+│   └── tests/
+│       └── test_engine.py            # Pure pytest — runs without Django
+├── exceptions.py                     # ORM-coupled exceptions + re-exports of engine's
+├── apps.py                           # ThumbnailsConfig.ready() → pushes settings into engine config
 ├── models.py                         # ThumbnailFiles model + get_or_create_thumbnail_record
 ├── views.py                          # thumbnail2_file, thumbnail2_dir HTTP views
 ├── admin.py                          # AdminThumbnail_Files + download_thumbnails action
-├── image_utils.py                    # Legacy utility functions (pre-backend-system)
-├── benchmarks/
-│   └── thumbnail_benchmarks.py       # Standalone backend performance benchmarks — not imported by the app
 ├── migrations/                       # 7 migrations (0001-0007)
-├── tests/
-│   ├── test_thumbnail_engine.py
-│   └── test_views.py
-└── SCRIPT_test_avfoundation_memory.py  # Standalone memory-leak probes — not imported by the app
-    SCRIPT_test_memory_leak.py
-    SCRIPT_test_pdfkit_memory.py
+└── tests/
+    ├── test_thumbnail_engine.py      # Django-dependent tests only
+    └── test_views.py
 ```

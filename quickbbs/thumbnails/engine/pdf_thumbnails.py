@@ -5,12 +5,8 @@ from functools import lru_cache
 import fitz  # PyMuPDF
 from PIL import Image, ImageOps
 
-try:
-    from .Abstractbase_thumbnails import AbstractBackend
-    from .pil_thumbnails import ImageBackend
-except ImportError:
-    from Abstractbase_thumbnails import AbstractBackend
-    from pil_thumbnails import ImageBackend
+from .base import AbstractBackend
+from .pil_thumbnails import ImageBackend
 
 
 class PDFBackend(AbstractBackend):

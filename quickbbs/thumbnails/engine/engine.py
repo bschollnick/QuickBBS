@@ -1,29 +1,22 @@
 """Multi-backend thumbnail generation engine with automatic backend selection.
 
 Backend imports are deferred to first use to avoid loading heavy libraries
-(PyMuPDF/fitz, ffmpeg, macOS frameworks) at Django startup time.
+(PyMuPDF/fitz, ffmpeg, macOS frameworks) at import time — only the backend
+actually selected is ever loaded.
+
+This module is framework-independent: it reads its settings from
+:mod:`thumbnails.engine.config` rather than from any application framework.
 """
 
+import io
 import logging
 import os
 import platform
 import threading
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-try:
-    from .exceptions import UnsupportedFormatError
-except ImportError:
-    from exceptions import UnsupportedFormatError
-
-if __package__ in (None, ""):
-    # Running standalone (python thumbnail_engine.py): put the parent directory
-    # on sys.path and adopt the package name (PEP 366) so the lazy relative
-    # backend imports inside _create_backend resolve at call time.
-    import sys
-    from pathlib import Path
-
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    __package__ = "thumbnails"  # noqa: A001
+from .config import config
+from .exceptions import MediaProcessingError, UnsupportedFormatError
 
 logger = logging.getLogger(__name__)
 
@@ -36,25 +29,15 @@ _pdfkit_available: bool | None = None
 def macintosh_optimizations_enabled() -> bool:
     """Return True if macOS-accelerated backends may be auto-selected.
 
-    Reads settings.MACINTOSH_OPTIMIZATIONS when Django is configured. Outside a
-    Django context (standalone scripts, benchmarks, the __main__ block below) the
-    hardware backends remain selectable, since the setting is an application
-    concern. Explicit backend requests ("coreimage", "pdfkit") are never gated
-    by this — only the auto-selecting cases ("auto", "corevideo", "pdf").
+    Reads :data:`thumbnails.engine.config.config`, which the embedding
+    application sets at startup. Explicit backend requests ("coreimage",
+    "pdfkit") are never gated by this — only the auto-selecting cases
+    ("auto", "corevideo", "pdf").
 
     Returns:
         True if the macOS backends may be chosen automatically, False otherwise.
     """
-    try:
-        from django.conf import settings
-        from django.core.exceptions import ImproperlyConfigured
-
-        try:
-            return bool(getattr(settings, "MACINTOSH_OPTIMIZATIONS", False))
-        except ImproperlyConfigured:
-            return True
-    except ImportError:
-        return True
+    return config.macintosh_optimizations
 
 
 def is_apple_silicon() -> bool:
@@ -113,9 +96,105 @@ def _check_pdfkit_available() -> bool:
 if TYPE_CHECKING:
     from PIL import Image
 
-    from .Abstractbase_thumbnails import AbstractBackend
+    from .base import AbstractBackend
 
 BackendType = Literal["image", "coreimage", "auto", "video", "corevideo", "pdf", "pymupdf", "pdfkit"]
+
+# Resolved video-metadata probe, cached after the first call. Not a constant:
+# it is a mutable slot holding whichever backend function won resolution.
+_get_video_info_impl = None  # pylint: disable=invalid-name
+
+
+def _resolve_video_info_impl():
+    """Resolve and cache the video-metadata probe for this platform.
+
+    Prefers AVFoundation on macOS (no subprocess spawn, roughly 10x faster than
+    the ffmpeg probe) and falls back to the ffmpeg probe elsewhere, or when
+    pyobjc is not installed.
+
+    Returns:
+        The resolved metadata function taking a path and returning a dict.
+    """
+    global _get_video_info_impl  # pylint: disable=global-statement
+    if _get_video_info_impl is None:
+        if platform.system() == "Darwin":
+            try:
+                # Deferred: pyobjc/AVFoundation is macOS-only and expensive to
+                # import — loaded on first call, never at module import time.
+                from .avfoundation_video_thumbnails import (
+                    _get_video_info as _avf_get_video_info,
+                )
+
+                _get_video_info_impl = _avf_get_video_info
+            except ImportError:
+                pass
+        if _get_video_info_impl is None:
+            from .video_thumbnails import _get_video_info as _ffmpeg_get_video_info
+
+            _get_video_info_impl = _ffmpeg_get_video_info
+    return _get_video_info_impl
+
+
+def get_video_info(path: str) -> dict[str, Any]:
+    """Return metadata for a video file, using the fastest available probe.
+
+    Resolves the probe on first use (AVFoundation on macOS, ffmpeg elsewhere)
+    and caches it for subsequent calls.
+
+    Args:
+        path: Fully qualified path to the video file.
+
+    Returns:
+        Dictionary of video metadata: duration, width, height, fps, codec,
+        and format.
+
+    Raises:
+        MediaProcessingError: If no available probe can read the file.
+    """
+    impl = _resolve_video_info_impl()
+    try:
+        return impl(path)
+    except MediaProcessingError:
+        # AVFoundation has no decoder for some containers/codecs (e.g. WMV,
+        # FLV, MPEG-1) and reports "No video tracks found" for them. Retry
+        # with the ffmpeg probe, which supports those formats. If the resolved
+        # probe already IS the ffmpeg one, there is nothing to fall back to.
+        from .video_thumbnails import _get_video_info as _ffmpeg_get_video_info
+
+        if impl is _ffmpeg_get_video_info:
+            raise
+        return _ffmpeg_get_video_info(path)
+
+
+def is_all_white_thumbnail(small_thumb: bytes | memoryview | None) -> bool:
+    """Return True if the thumbnail blob decodes to an entirely white image.
+
+    Detects the all-white output that GPU-accelerated backends can produce
+    instead of raising — most often after a fork, when a cached Metal command
+    queue references the parent process's dead Mach ports.
+
+    Callers apply their own size prefilter; a large all-white image is
+    generally legitimate content rather than corruption.
+
+    Args:
+        small_thumb: JPEG/PNG blob of the small thumbnail (bytes or a
+            memoryview from a binary column), or None.
+
+    Returns:
+        True if every pixel is white, False for empty/None blobs, non-RGB/L
+        modes, or any non-white pixel.
+    """
+    if not small_thumb:
+        return False
+    from PIL import Image as PILImage
+
+    with PILImage.open(io.BytesIO(small_thumb)) as img:
+        extrema = img.getextrema()
+        if img.mode == "RGB":
+            return extrema == ((255, 255), (255, 255), (255, 255))
+        if img.mode == "L":
+            return extrema == (255, 255)
+    return False
 
 
 class FastImageProcessor:

@@ -69,14 +69,9 @@ except ImportError:
     CORE_IMAGE_AVAILABLE = False
     _create_metal_device = None  # type: ignore[assignment]
 
-try:
-    from .Abstractbase_thumbnails import AbstractBackend
-    from .exceptions import MediaProcessingError, UnsupportedFormatError
-    from .pil_thumbnails import convert_image_for_format
-except ImportError:
-    from Abstractbase_thumbnails import AbstractBackend
-    from exceptions import MediaProcessingError, UnsupportedFormatError
-    from pil_thumbnails import convert_image_for_format
+from .base import AbstractBackend
+from .exceptions import MediaProcessingError, UnsupportedFormatError
+from .pil_thumbnails import convert_image_for_format
 
 
 @contextmanager

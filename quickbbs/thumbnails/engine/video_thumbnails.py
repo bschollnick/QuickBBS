@@ -8,14 +8,9 @@ from typing import Any
 import ffmpeg
 from PIL import Image
 
-try:
-    from .Abstractbase_thumbnails import AbstractBackend
-    from .exceptions import UnsupportedFormatError, VideoProcessingError
-    from .pil_thumbnails import ImageBackend, convert_image_for_format
-except ImportError:
-    from Abstractbase_thumbnails import AbstractBackend
-    from exceptions import UnsupportedFormatError, VideoProcessingError
-    from pil_thumbnails import ImageBackend, convert_image_for_format
+from .base import AbstractBackend
+from .exceptions import UnsupportedFormatError, VideoProcessingError
+from .pil_thumbnails import ImageBackend, convert_image_for_format
 
 
 class VideoBackend(AbstractBackend):
