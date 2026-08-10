@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import logging
 import os
-import platform
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -33,69 +32,9 @@ from quickbbs.common import (
 )
 from quickbbs.MonitoredCache import create_cache
 from quickbbs.natsort_model import NaturalSortField
+from thumbnails.engine import get_video_info as _get_video_info
 from thumbnails.exceptions import MediaProcessingError
 from thumbnails.models import ThumbnailFiles
-
-# Lazy-loaded video info function — AVFoundation/ffmpeg imports are deferred to first call.
-# Prefer AVFoundation on macOS for video metadata (no subprocess spawn, ~10x faster).
-# Fall back to ffmpeg-based probe on other platforms.
-# invalid-name disabled: pylint sees a module-level assignment and expects UPPER_CASE,
-# but this is a mutable cache slot for the resolved backend, not a constant.
-_get_video_info_impl = None  # pylint: disable=invalid-name
-
-
-def _get_video_info(path: str) -> dict:
-    """Get video metadata. Lazily imports the appropriate backend on first call.
-
-    Args:
-        path: Fully qualified path to the video file.
-
-    Returns:
-        Dictionary containing video metadata (duration, width, height, fps,
-        codec, format).
-
-    Raises:
-        MediaProcessingError: If neither backend can extract metadata from the file.
-    """
-    global _get_video_info_impl
-    if _get_video_info_impl is None:
-        if platform.system() == "Darwin":
-            try:
-                # Deferred: pyobjc/AVFoundation is macOS-only and expensive to import —
-                # loaded on first video-metadata call, never at module import time.
-                # pylint: disable-next=import-outside-toplevel
-                from thumbnails.avfoundation_video_thumbnails import (
-                    _get_video_info as _avf_get_video_info,
-                )
-
-                _get_video_info_impl = _avf_get_video_info
-            except ImportError:
-                pass
-        if _get_video_info_impl is None:
-            # Deferred: ffmpeg probe fallback, only loaded when AVFoundation is unavailable.
-            # pylint: disable-next=import-outside-toplevel
-            from thumbnails.video_thumbnails import (
-                _get_video_info as _ffmpeg_get_video_info,
-            )
-
-            _get_video_info_impl = _ffmpeg_get_video_info
-    try:
-        return _get_video_info_impl(path)
-    except MediaProcessingError:
-        # AVFoundation has no decoder for some containers/codecs (e.g. WMV,
-        # FLV, MPEG-1) and reports "No video tracks found" for them. Retry
-        # with the ffmpeg probe, which supports those formats. If the resolved
-        # backend already IS the ffmpeg probe, there is nothing to fall back
-        # to — re-raise for the caller to log.
-        # pylint: disable-next=import-outside-toplevel
-        from thumbnails.video_thumbnails import (
-            _get_video_info as _ffmpeg_get_video_info,
-        )
-
-        if _get_video_info_impl is _ffmpeg_get_video_info:
-            raise
-        return _ffmpeg_get_video_info(path)
-
 
 # Cyclic import: .models imports from .fileindex, so this must come after the
 # module-level code above to avoid an ImportError at load time.
