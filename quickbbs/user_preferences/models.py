@@ -1,4 +1,10 @@
-"""User preferences models for QuickBBS Gallery."""
+"""User preferences models for QuickBBS Gallery.
+
+Requires Django 6.1+: `UserPreferences.user` uses `models.DB_CASCADE`, a
+DB-enforced `ON DELETE` constraint added in Django 6.1 that doesn't exist on
+6.0 or earlier. Downgrading would mean switching back to the classic
+`models.CASCADE` (app-level, not DB-enforced) and regenerating migrations.
+"""
 
 from __future__ import annotations
 
