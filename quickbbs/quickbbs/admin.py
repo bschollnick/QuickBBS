@@ -229,7 +229,6 @@ class AdminMasterDirs(admin.ModelAdmin):
 
 admin.site.register(Owners)
 admin.site.register(Favorites)
-# admin.site.register(Cache_Tracking)
 
 
 _original_admin_index = admin.site.index

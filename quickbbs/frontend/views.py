@@ -38,7 +38,6 @@ from frontend.managers import (
     layout_manager,
 )
 from frontend.utilities import (
-    convert_to_webpath,
     ensures_endswith,
     get_sort_param,
     return_breadcrumbs,
@@ -64,8 +63,6 @@ from quickbbs.models import (
 )
 from quickbbs.MonitoredCache import ThreadSafeTTLCache
 from quickbbs.tasks import generate_missing_thumbnails, snapshot_cache_statistics
-
-# download_cache = LRUCache(maxsize=1000)
 
 # =============================================================================
 # SEARCH PREFETCH_RELATED CONSTANTS
@@ -356,21 +353,6 @@ def get_search_results(  # pylint: disable=too-many-arguments
     )
 
     return dirs, files
-
-
-# https://stackoverflow.com/questions/12984426/
-
-# Sending File or zipfile - https://djangosnippets.org/snippets/365/
-
-# def favicon(request:HttpRequest) -> HttpResponse:
-#     return HttpResponse(
-#         (
-#             '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
-#             + '<text y=".9em" font-size="90">🦊</text>'
-#             + "</svg>"
-#         ),
-#         content_type="image/svg+xml",
-#     )
 
 
 def _get_paginated_search_results(
@@ -799,6 +781,13 @@ def new_viewgallery(request: WSGIRequest):
 
     # Only fetch directories if there are any on this page
     if layout["page_items"]["directory_shas"]:
+        # file_count/directory_count are intentionally NOT annotated here.
+        # metadata.jinja falls back to item.get_file_counts()/get_dir_counts()
+        # when the attributes are undefined — both are @cached per-pk
+        # (file_counts_cache/dir_counts_cache), invalidated via
+        # clear_layout_cache_for_directories() whenever directory membership
+        # changes. Warm page: 0 extra queries. Cold page: one cheap indexed
+        # COUNT per directory shown, cached thereafter. See fable_optimizations-2.md Step 4.
         dirs_to_display = list(
             directory.dirs_in_dir(
                 sort=context["sort"],
@@ -807,18 +796,6 @@ def new_viewgallery(request: WSGIRequest):
             ).filter(dir_fqpn_sha256__in=layout["page_items"]["directory_shas"])
             # REMOVED: .select_related("thumbnail__new_ftnail") - Phase 5 Fix 1
             # Thumbnails load on-demand via thumbnail2_dir() - no need for 750KB binary blobs
-            .annotate(
-                file_count=Count(
-                    "FileIndex_entries",
-                    filter=Q(FileIndex_entries__delete_pending=False),
-                    distinct=True,
-                ),
-                directory_count=Count(
-                    "parent_dir",
-                    filter=Q(parent_dir__delete_pending=False),
-                    distinct=True,
-                ),
-            )
         )
     else:
         dirs_to_display = []
@@ -844,7 +821,7 @@ def new_viewgallery(request: WSGIRequest):
 
     # Check if thumbnails are needed (computed separately from cached layout
     # to avoid invalidating layout cache when thumbnails are generated)
-    missing_count = _check_and_enqueue_missing_thumbnails(directory, context["sort"], settings.THUMBNAIL_BATCH_LIMIT)
+    _check_and_enqueue_missing_thumbnails(directory, context["sort"], settings.THUMBNAIL_BATCH_LIMIT)
 
     response = render(
         request,

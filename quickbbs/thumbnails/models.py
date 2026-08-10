@@ -54,13 +54,11 @@ from thumbnails.exceptions import (
 if TYPE_CHECKING:
     from django.db.models import QuerySet
     from django.db.models.fields.related_descriptors import RelatedManager
-    from PIL import Image
 
     # Inside the ThumbnailFiles class body, the bare name "FileIndex" in a
     # type string resolves to the reverse-manager class attribute (declared
     # below), not the model — annotations there must use this alias instead.
     from quickbbs.models import DirectoryIndex
-    from quickbbs.models import FileIndex
     from quickbbs.models import FileIndex as FileIndexModel
 
 __version__ = "4.0"
@@ -595,21 +593,6 @@ class ThumbnailFiles(models.Model):
                 FileIndex.set_generic_icon_for_sha(file_sha256, is_generic=True, clear_cache=True)
 
         return thumbnail
-
-    def number_of_indexdata_references(self) -> int:
-        """
-        Return the number of FileIndex references for this thumbnail.
-
-        Benchmark-only — no production callers as of 2026-07-06.
-
-        Returns:
-            Count of FileIndex objects referencing this thumbnail
-        """
-        from quickbbs.models import (
-            FileIndex,  # inline: circular import (fileindex.py → thumbnails.models)
-        )
-
-        return FileIndex.objects.filter(file_sha256=self.sha256_hash).count()
 
     def thumbnail_exists(self, size: str = "small") -> bool:
         """

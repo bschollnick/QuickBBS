@@ -96,8 +96,6 @@ def _check_pdfkit_available() -> bool:
 if TYPE_CHECKING:
     from PIL import Image
 
-    from .base import AbstractBackend
-
 BackendType = Literal["image", "coreimage", "auto", "video", "corevideo", "pdf", "pymupdf", "pdfkit"]
 
 # Resolved video-metadata probe, cached after the first call. Not a constant:
