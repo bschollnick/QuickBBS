@@ -1,0 +1,41 @@
+/* Styling for django-allauth pages (login, signup, password reset, MFA, etc.)
+   Bulma's .input/.textarea/.button classes can't be added to allauth's default
+   widget output without django-widget-tweaks, so these rules approximate Bulma's
+   look for bare form elements, scoped to the auth page's .box container. */
+
+.box form input[type="text"],
+.box form input[type="password"],
+.box form input[type="email"],
+.box form input[type="url"],
+.box form input[type="tel"],
+.box form input[type="number"],
+.box form textarea {
+    display: inline-block;
+    width: 100%;
+    max-width: 100%;
+    padding: 0.5em 0.75em;
+    font-size: 1rem;
+    line-height: 1.5;
+    color: #363636;
+    background-color: white;
+    border: 1px solid #dbdbdb;
+    border-radius: 4px;
+    box-shadow: inset 0 0.0625em 0.125em rgba(10, 10, 10, 0.05);
+}
+
+.box form input[type="text"]:focus,
+.box form input[type="password"]:focus,
+.box form input[type="email"]:focus,
+.box form input[type="url"]:focus,
+.box form input[type="tel"]:focus,
+.box form input[type="number"]:focus,
+.box form textarea:focus {
+    border-color: #3273dc;
+    box-shadow: 0 0 0 0.125em rgba(50, 115, 220, 0.25);
+    outline: none;
+}
+
+.box form button[type="submit"],
+.box form a.button {
+    width: 100%;
+}

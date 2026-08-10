@@ -191,7 +191,7 @@ class DirectoryIndex(models.Model):
     parent_directory = models.ForeignKey(
         "self",
         db_index=True,
-        on_delete=models.SET_NULL,
+        on_delete=models.DB_SET_NULL,
         null=True,
         default=None,
         related_name="parent_dir",
@@ -215,7 +215,7 @@ class DirectoryIndex(models.Model):
     filetype = models.ForeignKey(
         filetypes,
         to_field="fileext",
-        on_delete=models.CASCADE,
+        on_delete=models.DB_CASCADE,
         # db_index=False: every row is ".dir" — an index on a constant is never scanned.
         db_index=False,
         default=".dir",
@@ -223,7 +223,7 @@ class DirectoryIndex(models.Model):
     )
     thumbnail = models.ForeignKey(
         "FileIndex",
-        on_delete=models.SET_NULL,
+        on_delete=models.DB_SET_NULL,
         related_name="dir_thumbnail",
         null=True,
         default=None,
@@ -694,7 +694,7 @@ class DirectoryIndex(models.Model):
         avoiding redundant database lookups.
 
         FileIndex records are NOT deleted with the directory: home_directory
-        uses on_delete=SET_NULL, so the directory's files survive as orphans
+        uses on_delete=DB_SET_NULL, so the directory's files survive as orphans
         (home_directory=None). This is intentional — files can be referenced
         from multiple directories, so orphans are a legitimate state. Orphaned
         rows are cleaned up later via the OrphanedFileIndex path in
@@ -723,7 +723,7 @@ class DirectoryIndex(models.Model):
         Delete the Directory_Index data for the fqpn_directory.
 
         FileIndex records are NOT deleted with the directory: home_directory
-        uses on_delete=SET_NULL, so the directory's files survive as orphans
+        uses on_delete=DB_SET_NULL, so the directory's files survive as orphans
         (home_directory=None). This is intentional — files can be referenced
         from multiple directories, so orphans are a legitimate state. Orphaned
         rows are cleaned up later via the OrphanedFileIndex path in

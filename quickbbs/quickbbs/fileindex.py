@@ -190,14 +190,14 @@ class FileIndex(models.Model):
 
     home_directory = models.ForeignKey(
         "DirectoryIndex",
-        on_delete=models.SET_NULL,
+        on_delete=models.DB_SET_NULL,
         null=True,
         default=None,
         related_name="FileIndex_entries",
     )
     virtual_directory = models.ForeignKey(
         "DirectoryIndex",
-        on_delete=models.SET_NULL,
+        on_delete=models.DB_SET_NULL,
         null=True,
         default=None,
         related_name="Virtual_FileIndex",
@@ -211,7 +211,7 @@ class FileIndex(models.Model):
     filetype = models.ForeignKey(
         filetypes,
         to_field="fileext",
-        on_delete=models.CASCADE,
+        on_delete=models.DB_CASCADE,
         # db_index=False: fileindex_filetype_delete_idx leads on filetype_id and
         # covers both query and FK-cascade lookups.
         db_index=False,
@@ -222,7 +222,7 @@ class FileIndex(models.Model):
 
     new_ftnail = models.ForeignKey(
         ThumbnailFiles,
-        on_delete=models.SET_NULL,
+        on_delete=models.DB_SET_NULL,
         blank=True,
         default=None,
         null=True,
@@ -233,7 +233,7 @@ class FileIndex(models.Model):
 
     ownership = models.OneToOneField(
         Owners,
-        on_delete=models.CASCADE,
+        on_delete=models.DB_CASCADE,
         db_index=True,
         default=None,
         null=True,

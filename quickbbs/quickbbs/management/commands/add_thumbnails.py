@@ -67,7 +67,7 @@ def _bulk_link_fileindex_to_thumbnails(sha256_list: list[str]) -> int:
 
     # Get ThumbnailFiles records for these SHA256s — only id and sha256_hash needed;
     # FK assignment (file_record.new_ftnail = thumbnail) only writes the PK column.
-    thumbnail_map = {t.sha256_hash: t for t in ThumbnailFiles.objects.filter(sha256_hash__in=sha256_list).only("id", "sha256_hash")}
+    thumbnail_map = ThumbnailFiles.objects.filter(sha256_hash__in=sha256_list).only("id", "sha256_hash").in_bulk(field_name="sha256_hash")
 
     # Get FileIndex records that need linking
     files_to_update = list(

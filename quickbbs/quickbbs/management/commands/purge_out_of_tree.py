@@ -68,7 +68,7 @@ class Command(BaseCommand):
         self.stdout.write(f"Albums root: {DirectoryIndex.get_albums_root()}")
         self.stdout.write(f"Out-of-tree DirectoryIndex rows: {len(dir_rows)}")
         self.stdout.write(f"FileIndex rows homed in them:    {files_homed_count}")
-        self.stdout.write(f"Link files pointing at them:     {links_pointing_count}  (virtual_directory SET_NULL, re-resolved by repair)")
+        self.stdout.write(f"Link files pointing at them:     {links_pointing_count}  (virtual_directory DB_SET_NULL, re-resolved by repair)")
         self.stdout.write("-" * 70)
         for prefix, count in prefix_counts.most_common():
             self.stdout.write(f"  {count:6d}  {prefix}")
@@ -91,7 +91,7 @@ class Command(BaseCommand):
         files_homed = FileIndex.objects.filter(home_directory_id__in=dir_pks)
 
         # Link files elsewhere whose virtual_directory points at an
-        # out-of-tree row: the FK is SET_NULL on delete, after which the
+        # out-of-tree row: the FK is DB_SET_NULL on delete, after which the
         # existing virtual_directory_needs_repair() / repair_link_targets
         # machinery re-resolves them through find_by_physical_path.
         links_pointing_count = FileIndex.objects.filter(virtual_directory_id__in=dir_pks).exclude(home_directory_id__in=dir_pks).count()
@@ -107,8 +107,9 @@ class Command(BaseCommand):
             return
 
         with transaction.atomic():
-            # FileIndex.home_directory is SET_NULL — delete the files first
-            # so they are not left orphaned.
+            # FileIndex.home_directory is DB_SET_NULL — delete the files first
+            # so they are not left orphaned, and so deleted_files reflects them
+            # (database-level SET NULL happens without Django counting rows).
             deleted_files, _ = files_homed.delete()
             deleted_dirs, _ = DirectoryIndex.objects.filter(pk__in=dir_pks).delete()
 

@@ -8,8 +8,25 @@ SITE_NAME = "QuickBBS Site"
 # Files matching these names will be prioritized when selecting thumbnails for directories
 DIRECTORY_COVER_NAMES = ["cover", "title"]
 
-QUICKBBS_REQUIRE_LOGIN = 0
+# When True, gallery browsing, search, thumbnails, and downloads require an
+# authenticated user (see quickbbs.common.require_login_if_configured).
+# Anonymous users are redirected to LOGIN_URL. Login/logout/admin/static
+# asset routes are always reachable regardless of this setting.
+QUICKBBS_REQUIRE_LOGIN = True
 SITE_NAME = "The Gallery"
+
+# Header/navbar logo image, as (filename, width, height). Path is web-relative,
+# served from resources/images (see RESOURCES_PATH / IMAGES_PATH below).
+# Defaults to an existing icon; replace resources/images/open_folder_yellow.png
+# or point this at your own file. Width/height are the rendered display size.
+#
+# Alternative site headers:
+#
+# SITE_HEADER_IMAGE_SETTINGS = ("/resources/images/open_folder_yellow.png", 50, 30)
+# SITE_HEADER_IMAGE_SETTINGS = ("/resources/images/qbbs_logo_blue.png", 50, 30)
+# SITE_HEADER_IMAGE_SETTINGS = ("/resources/images/qbbs_logo_purple.png", 50, 30)
+SITE_HEADER_IMAGE_SETTINGS = ("/resources/images/qbbs_logo_brush.png", 60, 40)
+
 GALLERY_ITEMS_PER_PAGE = 30
 SEARCH_ITEMS_PER_PAGE = 30
 ARCHIVE_ITEMS_PER_PAGE = 21
@@ -117,12 +134,11 @@ CACHE_MONITORING = True
 # Minimum seconds between cache-statistics snapshots (snapshot_cache_statistics
 # in tasks.py). Counters are cumulative in-memory, so throttling only delays how
 # fresh the cache_statistics_tracking rows are — no hits/misses are lost.
+#
+# The table needs no row cap: cache_name is unique, so it holds exactly one row
+# per registered cache, and reconcile_cache_statistics_rows() (run once at
+# startup) drops rows for caches that are no longer registered.
 SNAPSHOT_MIN_INTERVAL = 60
-
-# Maximum number of rows to retain in the cache_statistics_tracking table.
-# The snapshot task trims oldest rows (by last_snapshot_at) when this limit is exceeded.
-# Set to 0 to disable trimming (keep all rows).
-CACHE_STATISTICS_MAX_RECORDS = 1000
 
 # LRU cache size constants - maximum number of entries each cache will hold
 # When a cache is full, the least recently used entry is evicted

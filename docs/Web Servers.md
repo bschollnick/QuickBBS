@@ -190,7 +190,7 @@ uvicorn quickbbs.asgi:application \
 
 ### Hypercorn (ASGI - Production) ⭐ RECOMMENDED FOR HTTP/2
 
-Hypercorn is an ASGI server with **native HTTP/2 and HTTP/3 support**. Unlike Uvicorn, Hypercorn supports HTTP/2 via ALPN negotiation.
+Hypercorn is an ASGI server with **native HTTP/2 support** via ALPN negotiation, unlike Uvicorn. Hypercorn also has HTTP/3 (QUIC) support as a library capability, but QuickBBS does not configure or test it — `start_hypercorn_http2.sh` only sets up HTTP/2.
 
 **Quick Start with HTTP/2 (Recommended):**
 ```bash
@@ -238,8 +238,54 @@ hypercorn quickbbs.asgi:application \
 - Header compression (HPACK reduces bandwidth)
 - Better performance under load
 
-**Pros:** Native HTTP/2 support, HTTP/3 support, excellent SSL/TLS, modern
+**Pros:** Native HTTP/2 support, excellent SSL/TLS, modern, HTTP/3 available as an unconfigured library capability
 **Cons:** Slightly slower than Uvicorn for HTTP/1.1 (but faster with HTTP/2)
+
+---
+
+### Granian (ASGI - Production, Tested) ⭐ RECOMMENDED
+
+Granian is a Rust-based ASGI/WSGI server with native HTTP/1, HTTP/2 (via ALPN), and multi-process worker management. It is now tested against QuickBBS and supported alongside Hypercorn and Uvicorn.
+
+**Quick Start with HTTP/2:**
+```bash
+cd quickbbs
+./start_granian_http2.sh
+```
+
+This script checks for SSL certificates under `../certs/` and installed `granian`, then starts the server with HTTP/2 enabled via ALPN.
+
+**Manual Commands:**
+
+**Basic HTTP:**
+```bash
+cd quickbbs
+granian quickbbs.asgi:application \
+    --interface asgi \
+    --host 0.0.0.0 \
+    --port 8888 \
+    --workers 4
+```
+
+**HTTPS with HTTP/2:**
+```bash
+granian quickbbs.asgi:application \
+    --interface asgi \
+    --host 0.0.0.0 \
+    --port 8888 \
+    --workers 4 \
+    --http 2 \
+    --ssl-certificate /path/to/certificate.crt \
+    --ssl-keyfile /path/to/private.key \
+    --access-log
+```
+
+**Recommended Workers:**
+- Workers: `2-4 × CPU cores`
+- For 4 cores: `--workers 8` to `--workers 16`
+
+**Pros:** Rust-based (fast), native HTTP/2 support, multi-process worker management, simple single-binary setup
+**Cons:** Newer/smaller ecosystem than Hypercorn or Uvicorn
 
 ---
 
@@ -387,9 +433,10 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 | Gunicorn (WSGI)     | WSGI     | No    | No     | No        | Legacy/stable production    |
 | Gunicorn + Uvicorn  | ASGI     | Yes   | No     | Yes       | Fast HTTP/1.1 production    |
 | Uvicorn Standalone  | ASGI     | Yes   | No     | Yes       | Fast HTTP/1.1, simple setup |
-| Hypercorn           | ASGI     | Yes   | Yes    | No        | HTTP/2 production ⭐        |
+| Hypercorn           | ASGI     | Yes   | Yes    | No        | HTTP/2 production            |
+| Granian             | ASGI     | Yes   | Yes    | No        | HTTP/2 production, tested ⭐ |
 
-**HTTP/2 Performance Impact:** 10-30% faster concurrent downloads (Hypercorn only)
+**HTTP/2 Performance Impact:** 10-30% faster concurrent downloads (Hypercorn, Granian)
 
 ---
 
@@ -402,11 +449,16 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 **Production (Recommended Order):**
 
 **For HTTP/2 Support:**
-1. **Best: Hypercorn with HTTP/2** (`./start_hypercorn_http2.sh`) ⭐
+1. **Best: Granian with HTTP/2** (`./start_granian_http2.sh`) ⭐
+   - Rust-based, tested and supported against QuickBBS
    - Native HTTP/2 support via ALPN
    - 10-30% faster for concurrent downloads
-   - Also supports HTTP/3
    - Best for modern production deployments
+2. **Alternative: Hypercorn with HTTP/2** (`./start_hypercorn_http2.sh`)
+   - Native HTTP/2 support via ALPN
+   - 10-30% faster for concurrent downloads
+   - HTTP/3 available as a library capability, but unconfigured/untested in QuickBBS
+   - Good alternative if you prefer a pure-Python server
 
 **For HTTP/1.1 Only:**
 1. **Best: Uvicorn Standalone**
@@ -426,7 +478,7 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
    - No HTTP/2
    - Use only if you need WSGI compatibility
 
-**Current Recommendation:** Use `./start_hypercorn_http2.sh` for best performance with HTTP/2 support.
+**Current Recommendation:** Use `./start_granian_http2.sh` for best performance with HTTP/2 support. `./start_hypercorn_http2.sh` remains a solid alternative if you prefer a pure-Python server.
 
 ---
 
@@ -473,12 +525,20 @@ python manage.py taskrunner -w 4
 For production, run the task worker as a persistent background process:
 
 ```bash
-# Run in background, logging to file
-nohup ./start_task_worker.sh &> logs/task_worker.log &
+# Run in background, logging this script's own stdout/stderr to file
+nohup ./start_task_worker.sh &> logs/task_worker_stdout.log &
 
 # Or with a process manager (recommended for production)
 # Add to your systemd service, supervisor config, etc.
 ```
+
+Task activity itself (dbtasks runner, task start/finish signals, and the task
+bodies in `quickbbs/tasks.py` — thumbnail generation, cleanup, vacuum checks)
+is logged separately via Django's `LOGGING` config to `logs/task_worker.log`,
+with failures also mirrored to `logs/task_worker-errors.log`. The redirect
+above only captures the wrapper script's own output (startup banner, or a
+traceback before Django logging is configured), so it uses a different
+filename to avoid colliding with those.
 
 ### Deployment Checklist
 

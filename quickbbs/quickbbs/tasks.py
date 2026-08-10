@@ -26,6 +26,12 @@ from thumbnails.thumbnail_engine import resolve_backend_name
 
 logger = logging.getLogger(__name__)
 
+# Separate logger for check_ssl_cert_expiry: certificate health is a web
+# server / deployment concern, not task-worker activity, so it's routed to
+# quickbbs.log / error.log instead of task_worker.log (see LOGGING in
+# settings.py) even though the check itself runs as a periodic task.
+ssl_logger = logging.getLogger("quickbbs.ssl_cert")
+
 
 def _collect_monitored_caches() -> list[MonitoredLRUCache]:
     """
@@ -379,15 +385,15 @@ def check_ssl_cert_expiry() -> dict | None:
     status = get_ssl_cert_status()
 
     if status is None:
-        logger.debug("SSL certificate check disabled (SSL_CERT_PATH is None)")
+        ssl_logger.debug("SSL certificate check disabled (SSL_CERT_PATH is None)")
         return None
 
     if status["error"] is not None:
-        logger.warning("SSL certificate check failed for %s: %s", status["path"], status["error"])
+        ssl_logger.warning("SSL certificate check failed for %s: %s", status["path"], status["error"])
         return status
 
     if status["expired"]:
-        logger.error(
+        ssl_logger.error(
             "SSL certificate EXPIRED: %s (expired on %s)",
             status["path"],
             status["not_valid_after"],
@@ -395,7 +401,7 @@ def check_ssl_cert_expiry() -> dict | None:
         return status
 
     if status["days_left"] <= warn_days:
-        logger.warning(
+        ssl_logger.warning(
             "SSL certificate expiring soon: %s — %d day(s) left (expires %s)",
             status["path"],
             status["days_left"],
@@ -403,7 +409,7 @@ def check_ssl_cert_expiry() -> dict | None:
         )
         return status
 
-    logger.info(
+    ssl_logger.info(
         "SSL certificate healthy: %s — %d day(s) left",
         status["path"],
         status["days_left"],
@@ -437,6 +443,48 @@ def daily_cleanup_finished_jobs() -> int:
             settings.TASK_RETAIN_DAYS,
         )
     return deleted
+
+
+def reconcile_cache_statistics_rows() -> list[str]:
+    """
+    Delete cache_statistics_tracking rows whose cache is no longer registered.
+
+    Called once at startup (quickbbs.apps.QuickbbsConfig.ready). Rows are keyed
+    by cache_name and only ever written by snapshot_cache_statistics, so a row
+    naming a cache the registry no longer resolves is a leftover from a renamed
+    or removed cache — it can never be updated again and only misleads the admin
+    statistics view.
+
+    Deliberately a no-op when the registry resolves no monitored caches at all
+    (CACHE_MONITORING disabled, or an import failure): with nothing to compare
+    against, every row would look orphaned and the whole table would be wiped.
+
+    Returns:
+        Sorted list of the cache names deleted; empty when nothing was stale.
+    """
+    # Deferred import to avoid circular dependency:
+    # cache_watcher.models → quickbbs.cache_registry → (indirectly) tasks
+    from cache_watcher.models import (
+        CacheStatisticsTracking,  # pylint: disable=import-outside-toplevel
+    )
+
+    live_names = {cache.name for cache in _collect_monitored_caches()}
+    if not live_names:
+        logger.debug("Cache statistics reconcile skipped — no monitored caches resolved")
+        return []
+
+    stale_qs = CacheStatisticsTracking.objects.exclude(cache_name__in=live_names)
+    stale_names = sorted(stale_qs.values_list("cache_name", flat=True))
+    if not stale_names:
+        return []
+
+    stale_qs.delete()
+    logger.info(
+        "Removed %d stale cache statistics row(s) for unregistered caches: %s",
+        len(stale_names),
+        ", ".join(stale_names),
+    )
+    return stale_names
 
 
 # Monotonic timestamp of the last completed snapshot; module-level so the
@@ -490,6 +538,11 @@ def snapshot_cache_statistics() -> dict[str, dict[str, int | float | str]]:
     }
 
     results: dict[str, dict[str, int | float | str]] = {}
+    to_write: list[CacheStatisticsTracking] = []
+    # last_snapshot_at is auto_now, but bulk_create/bulk_update skip pre_save —
+    # so the value is set explicitly here and listed in update_fields below.
+    # Without that the column would silently freeze at its first value.
+    snapshot_time = timezone.now()
 
     for cache in caches:
         stats = cache.stats()
@@ -500,14 +553,15 @@ def snapshot_cache_statistics() -> dict[str, dict[str, int | float | str]]:
             logger.debug("Cache snapshot [%s]: no change since last snapshot — skipping write", name)
             continue
 
-        CacheStatisticsTracking.objects.update_or_create(
-            cache_name=name,
-            defaults={
-                "hits": stats["hits"],
-                "misses": stats["misses"],
-                "current_size": stats["size"],
-                "max_size": stats["maxsize"],
-            },
+        to_write.append(
+            CacheStatisticsTracking(
+                cache_name=name,
+                hits=stats["hits"],
+                misses=stats["misses"],
+                current_size=stats["size"],
+                max_size=stats["maxsize"],
+                last_snapshot_at=snapshot_time,
+            )
         )
         results[name] = stats
         logger.info(
@@ -518,6 +572,18 @@ def snapshot_cache_statistics() -> dict[str, dict[str, int | float | str]]:
             cache.hit_rate,
             stats["size"],
             stats["maxsize"],
+        )
+
+    if to_write:
+        # One INSERT ... ON CONFLICT DO UPDATE for every changed cache, instead
+        # of a SELECT+UPDATE in its own transaction per cache. This runs on the
+        # gallery request path (new_viewgallery), so the round-trip count is
+        # what matters: 16 caches cost 64 queries before, 1 now.
+        CacheStatisticsTracking.objects.bulk_create(
+            to_write,
+            update_conflicts=True,
+            update_fields=["hits", "misses", "current_size", "max_size", "last_snapshot_at"],
+            unique_fields=["cache_name"],
         )
 
     return results

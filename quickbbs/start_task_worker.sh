@@ -23,7 +23,13 @@
 #   - Database migrations applied (python manage.py migrate)
 #
 # To run in the background:
-#   nohup ./start_task_worker.sh &> logs/task_worker.log &
+#   nohup ./start_task_worker.sh &> logs/task_worker_stdout.log &
+#
+# Note: task activity itself (dbtasks runner, django.tasks signals,
+# quickbbs.tasks job bodies) is already logged to logs/task_worker.log and
+# logs/task_worker-errors.log via LOGGING in settings.py — the redirect above
+# only captures this script's own stdout/stderr (startup banner, tracebacks
+# before Django logging is configured), so it uses a different filename.
 #
 
 # Change to the quickbbs directory (where manage.py is)

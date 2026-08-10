@@ -10,6 +10,7 @@ from django.db.models import Count
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 
+from quickbbs.common import require_login_if_configured
 from quickbbs.fileindex import FileIndex
 
 
@@ -82,6 +83,7 @@ def _get_duplicate_sha_data() -> dict:
     }
 
 
+@require_login_if_configured
 def duplicate_files_report(request: HttpRequest) -> HttpResponse:
     """
     Display a report of duplicate file SHA256 hashes with count > 5.

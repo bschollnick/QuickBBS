@@ -1,0 +1,4 @@
+{% load allauth %}
+<div class="notification {% if attrs.tags %}is-{{ attrs.tags|join:' ' }}{% else %}is-info{% endif %}">
+    {% slot message %}{% endslot %}
+</div>

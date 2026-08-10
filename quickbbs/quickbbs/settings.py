@@ -1,6 +1,8 @@
-"""
-Django settings for quickbbs project.
+"""Django settings for the quickbbs project.
 
+Site-specific constants (paths, feature toggles, per-deployment values) live in
+quickbbs_settings.py and are re-exported here via wildcard import; secrets
+(credentials, keys, allowed hosts) live in secrets.py and are imported explicitly.
 """
 
 import logging
@@ -22,7 +24,7 @@ from quickbbs.quickbbs_settings import *  # pylint: disable=wildcard-import,unus
 #   Debug, enables the debugging mode
 #
 DEBUG = False
-# DEBUG = True
+DEBUG = True
 print(f"* Debug Mode is {DEBUG}")
 
 #   Django Debug Toolbar, is controlled separately from the debug mode,
@@ -143,39 +145,32 @@ print(f"* Running on {machine_name}")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Before using the database cache, you must create the cache table with this command:
+# python manage.py createcachetable django_session_cache
 CACHES: dict[str, dict[str, Any]] = {
     "sessions": {
         "BACKEND": "django.core.cache.backends.db.DatabaseCache",
         "LOCATION": "django_session_cache",
     },
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "quickbbs-default-cache",
+        "TIMEOUT": 90,  # 1.5 minutes
+        "OPTIONS": {
+            "MAX_ENTRIES": 30000,
+            "CULL_FREQUENCY": 3,
+        },
+    },
+    "queue": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "quickbbs-queue-cache",
+        "TIMEOUT": 150,  # ~2.5 minutes
+        "OPTIONS": {
+            "MAX_ENTRIES": 15000,
+            "CULL_FREQUENCY": 3,
+        },
+    },
 }
-
-CACHES.update(
-    {
-        "default": {
-            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-            "LOCATION": "quickbbs-default-cache",
-            "TIMEOUT": 90,  # 1.5 minutes
-            "OPTIONS": {
-                "MAX_ENTRIES": 30000,
-                "CULL_FREQUENCY": 3,
-            },
-        },
-        "queue": {
-            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-            "LOCATION": "quickbbs-queue-cache",
-            "TIMEOUT": 150,  # ~2.5 minutes
-            "OPTIONS": {
-                "MAX_ENTRIES": 15000,
-                "CULL_FREQUENCY": 3,
-            },
-        },
-    }
-)
-
-# Before using the database cache, you must create the cache table with this command:
-# python manage.py createcachetable django_session_cache
-
 
 TEMPLATE_PATH = BASE_DIR / "templates"
 
@@ -187,8 +182,7 @@ MEDIA_ROOT = BASE_DIR.resolve().parent
 
 
 # Application definition
-INSTALLED_APPS = []
-INSTALLED_APPS += [
+INSTALLED_APPS = [
     "grappelli",
     "django.contrib.admin",
     "django.contrib.auth",
@@ -299,6 +293,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "quickbbs.context_processors.site_branding",
             ],
         },
     },
@@ -337,6 +332,7 @@ TEMPLATES = [
             },
             "constants": {
                 "app_version": QUICKBBS_VERSION,
+                "site_header_image_settings": SITE_HEADER_IMAGE_SETTINGS,
             },
             "bytecode_cache": {
                 "name": "default",
@@ -358,11 +354,12 @@ WSGI_APPLICATION = "quickbbs.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": DATABASE_NAME,  # Imported from secrets.py
-        "USER": DATABASE_USER,  # Imported from secrets.py
-        "PASSWORD": DATABASE_PASSWORD,  # Imported from secrets.py
-        "HOST": DATABASE_HOST,  # Imported from secrets.py
-        "PORT": DATABASE_PORT,  # Imported from secrets.py
+        # NAME, USER, PASSWORD, HOST, PORT are imported from secrets.py
+        "NAME": DATABASE_NAME,
+        "USER": DATABASE_USER,
+        "PASSWORD": DATABASE_PASSWORD,
+        "HOST": DATABASE_HOST,
+        "PORT": DATABASE_PORT,
         "CONN_MAX_AGE": 0,  # Let psycopg pool manage connection lifetime
         "OPTIONS": {
             "pool": {
@@ -440,7 +437,6 @@ MFA_PASSKEY_LOGIN_ENABLED = True
 MFA_PASSKEY_SIGNUP_ENABLED = False
 MFA_RECOVERY_CODE_COUNT = 10
 MFA_RECOVERY_CODE_DIGITS = 8
-
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -524,9 +520,9 @@ DBBACKUP_MEDIA_FILENAME_TEMPLATE = "quickbbs-media-{datetime}.{extension}"
 # Optional: Encrypt backups (requires cryptography package)
 # DBBACKUP_GPG_RECIPIENT = 'your-gpg-key-id'
 
-_cache_monitor_handlers = ["rotating_file", "console"]
+_cache_monitor_handlers: list[str] = []
 if CACHE_MONITORING:
-    _cache_monitor_handlers = ["rotating_file", "console", "cache_file"]
+    _cache_monitor_handlers = ["cache_file"]
 
 LOGGING = {
     "version": 1,
@@ -547,10 +543,23 @@ LOGGING = {
         },
     },
     "handlers": {
+        # Web server: general activity (Django, views, cache_watcher, etc.)
         "rotating_file": {
             "level": "INFO",
             "class": "quickbbs.settings.SafeTimedRotatingFileHandler",
-            "filename": os.path.join(BASE_DIR, "logs", "django.log"),
+            "filename": os.path.join(BASE_DIR, "logs", "quickbbs.log"),
+            "when": "midnight",
+            "interval": 1,
+            "backupCount": 30,
+            "formatter": "verbose",
+            "encoding": "utf-8",
+            "filters": ["suppress_cancelled"],
+        },
+        # Web server: ERROR and above only, mirrors rotating_file's records
+        "error_file": {
+            "level": "ERROR",
+            "class": "quickbbs.settings.SafeTimedRotatingFileHandler",
+            "filename": os.path.join(BASE_DIR, "logs", "error.log"),
             "when": "midnight",
             "interval": 1,
             "backupCount": 30,
@@ -574,34 +583,76 @@ LOGGING = {
             "formatter": "verbose",
             "encoding": "utf-8",
         },
+        # Task worker (taskrunner process): dbtasks runner + django.tasks signals
+        # + quickbbs.tasks job bodies (thumbnail generation, cleanup, vacuum, etc.)
+        "task_worker_file": {
+            "level": "DEBUG",
+            "class": "quickbbs.settings.SafeTimedRotatingFileHandler",
+            "filename": os.path.join(BASE_DIR, "logs", "task_worker.log"),
+            "when": "midnight",
+            "interval": 1,
+            "backupCount": 30,
+            "formatter": "verbose",
+            "encoding": "utf-8",
+        },
+        # Task worker: ERROR and above only, mirrors task_worker_file's records
+        "task_worker_error_file": {
+            "level": "ERROR",
+            "class": "quickbbs.settings.SafeTimedRotatingFileHandler",
+            "filename": os.path.join(BASE_DIR, "logs", "task_worker-errors.log"),
+            "when": "midnight",
+            "interval": 1,
+            "backupCount": 30,
+            "formatter": "verbose",
+            "encoding": "utf-8",
+        },
     },
     "root": {
-        "handlers": ["rotating_file", "console"],
+        "handlers": ["rotating_file", "error_file", "console"],
         "level": "INFO",
     },
     "loggers": {
         "django": {
-            "handlers": ["rotating_file", "console"],  # Both handlers
+            "handlers": ["rotating_file", "error_file", "console"],
             "level": "INFO",
             "propagate": False,
         },
         "django.request": {
-            "handlers": ["rotating_file", "console"],  # Both handlers
+            "handlers": ["rotating_file", "error_file", "console"],
             "level": "WARNING",
             "propagate": False,
         },
         "django.security": {
-            "handlers": ["rotating_file", "console"],
+            "handlers": ["rotating_file", "error_file", "console"],
             "level": "WARNING",
-            "propagate": False,
-        },
-        "myapp": {
-            "handlers": ["rotating_file", "console"],  # Both handlers
-            "level": "INFO",
             "propagate": False,
         },
         "cache_watcher": {
             "handlers": _cache_monitor_handlers,
+            "level": "DEBUG",
+            "propagate": False,
+        },
+        # SSL certificate expiry check: runs as a periodic task, but the
+        # certificate's health is a web server / deployment concern, so it's
+        # kept out of task_worker.log and routed here instead.
+        "quickbbs.ssl_cert": {
+            "handlers": ["rotating_file", "error_file", "console"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+        # Task worker (taskrunner process) loggers
+        "dbtasks.runner": {
+            "handlers": ["task_worker_file", "task_worker_error_file", "console"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+        "django.tasks": {
+            "handlers": ["task_worker_file", "task_worker_error_file", "console"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+        "quickbbs.tasks": {
+            "handlers": ["task_worker_file", "task_worker_error_file", "console"],
             "level": "DEBUG",
             "propagate": False,
         },

@@ -19,7 +19,7 @@ class Owners(models.Model):
 
     id = models.AutoField(primary_key=True)
     uuid = models.UUIDField(default=None, null=True, editable=False, blank=True, db_index=True)
-    ownerdetails = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, db_index=True, default=None)
+    ownerdetails = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.DB_CASCADE, db_index=True, default=None)
 
     # Reverse one-to-one relationship: accessing owners_instance.fileindex
     # returns the related FileIndex (or raises DoesNotExist). From FileIndex.ownership.

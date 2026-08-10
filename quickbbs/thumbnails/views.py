@@ -13,6 +13,7 @@ from django.db import transaction
 from django.http import Http404, HttpResponseBadRequest
 from PIL import Image
 
+from quickbbs.common import require_login_if_configured
 from quickbbs.fileindex import FILEINDEX_SR_FILETYPE_HOME_VIRTUAL
 from quickbbs.models import DirectoryIndex, FileIndex
 from thumbnails.exceptions import (
@@ -27,6 +28,7 @@ logger = logging.getLogger()
 warnings.simplefilter("ignore", Image.DecompressionBombWarning)
 
 
+@require_login_if_configured
 def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pylint: disable=unused-argument
     """
     Serve directory thumbnail using prioritized cover image selection.
@@ -185,6 +187,7 @@ def _serve_existing_thumbnail(request: WSGIRequest, sha256: str, thumbsize: str)
         return index_data_item.filetype.send_thumbnail()
 
 
+@require_login_if_configured
 def thumbnail2_file(request: WSGIRequest, sha256: str):
     """
     Create and serve a thumbnail for a specific file.

@@ -7,10 +7,12 @@ import shutil
 import tempfile
 
 import pytest
+from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
 
 from filetypes.models import filetypes
 from frontend.report_views import _get_duplicate_sha_data
+from frontend.tests.test_views import assert_not_login_redirect
 from quickbbs.models import DirectoryIndex, FileIndex
 
 
@@ -100,16 +102,37 @@ class TestGetDuplicateShaData(DuplicateReportTestBase):
 class TestDuplicateFilesReportView(DuplicateReportTestBase):
     """web-layer: duplicate_files_report via /reports/duplicate_files.html"""
 
+    REPORT_URL = "/reports/duplicate_files.html"
+
     def setUp(self) -> None:
         super().setUp()
         self.client = Client()
+        # duplicate_files_report is @require_login_if_configured; log in so
+        # these assertions target the report itself. The gate is covered by
+        # frontend.tests.test_views.TestAnonymousAccessIsGated.
+        self.user = get_user_model().objects.create_user(username="reportuser", password="pw")
+        self.client.force_login(self.user)
+
+    def _get_report(self):
+        """Return the rendered report response, guarded against the login redirect.
+
+        Returns:
+            The test-client response for REPORT_URL.
+
+        Raises:
+            AssertionError: If restricted access redirected to the login page,
+                making the caller's assertion inconclusive.
+        """
+        response = self.client.get(self.REPORT_URL, secure=True)
+        assert_not_login_redirect(response, self.REPORT_URL)
+        return response
 
     def test_report_returns_200(self):
         """The report page renders successfully."""
-        response = self.client.get("/reports/duplicate_files.html", secure=True)
+        response = self._get_report()
         assert response.status_code == 200
 
     def test_report_shows_duplicate_sha(self):
         """The rendered report includes the duplicated SHA256."""
-        response = self.client.get("/reports/duplicate_files.html", secure=True)
+        response = self._get_report()
         assert self.dup_sha.encode() in response.content

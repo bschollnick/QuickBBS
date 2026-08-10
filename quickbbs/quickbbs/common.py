@@ -8,16 +8,40 @@ import pathlib
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import TypeVar
+from typing import Callable, TypeVar
 
 from cachetools import cached
 from cachetools.keys import hashkey
 from django.conf import settings
+from django.contrib.auth.decorators import login_required
 from django.db import models
 
 from quickbbs.MonitoredCache import create_cache
 
 logger = logging.getLogger(__name__)
+
+
+def require_login_if_configured(view_func: Callable) -> Callable:
+    """Gate a view behind login when settings.QUICKBBS_REQUIRE_LOGIN is enabled.
+
+    Wraps view_func with django.contrib.auth.decorators.login_required only
+    when QUICKBBS_REQUIRE_LOGIN is truthy; otherwise returns view_func
+    unchanged so anonymous browsing works as before. Checked at decoration
+    time (import time), not per-request — changing QUICKBBS_REQUIRE_LOGIN
+    requires a server restart to take effect. Works for both sync and async
+    views, matching login_required's own behavior.
+
+    Args:
+        view_func: The view function or async view function to gate.
+
+    Returns:
+        The wrapped view (redirects anonymous users to LOGIN_URL) when
+        QUICKBBS_REQUIRE_LOGIN is enabled, otherwise view_func unchanged.
+    """
+    if settings.QUICKBBS_REQUIRE_LOGIN:
+        return login_required(view_func)
+    return view_func
+
 
 # Type variable for Django models
 T = TypeVar("T", bound=models.Model)

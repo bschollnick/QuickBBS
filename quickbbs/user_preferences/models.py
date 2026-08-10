@@ -15,7 +15,7 @@ class UserPreferences(models.Model):
         show_duplicates: Whether to show duplicate files in gallery listings
     """
 
-    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="preferences")
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.DB_CASCADE, related_name="preferences")
     show_duplicates = models.BooleanField(default=False, help_text="Show duplicate files in gallery listings")
 
     class Meta:

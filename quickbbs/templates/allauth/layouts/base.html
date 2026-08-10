@@ -1,0 +1,78 @@
+{% load i18n %}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="shortcut icon" type="image/png" href="{{ site_header_image_settings.0 }}">
+
+    <link rel="stylesheet" href="/resources/css/bulma.min.css">
+    <link rel="stylesheet" href="/resources/css/all.min.css">
+    <link rel="stylesheet" href="/resources/css/quickbbs-optimized.css?v=2">
+    <link rel="stylesheet" href="/resources/css/quickbbs-navbar.css?v=1">
+    <link rel="stylesheet" href="/resources/css/quickbbs-auth.css?v=1">
+
+    <title>{% block head_title %}{{ site_name }}{% endblock head_title %}</title>
+    {% block extra_head %}{% endblock extra_head %}
+</head>
+<body>
+    {% block body %}
+    <nav class="navbar is-light" role="navigation" aria-label="main navigation">
+        <div class="navbar-brand">
+            <a class="navbar-item" href="/albums">
+                <img src="{{ site_header_image_settings.0 }}" width="{{ site_header_image_settings.1 }}" height="{{ site_header_image_settings.2 }}" alt="Logo">
+                <span style="margin-left: 0.5rem; font-weight: 600;">{{ site_name }}</span>
+            </a>
+        </div>
+        <div class="navbar-menu">
+            <div class="navbar-end">
+                <div class="navbar-item">
+                    {% if user.is_authenticated %}
+                        <a class="button is-light" href="/albums">
+                            <span class="icon"><i class="fas fa-images"></i></span>
+                            <span>{% trans "Back to Gallery" %}</span>
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <section class="section">
+        <div class="container">
+            <div class="columns is-centered">
+                <div class="column is-half-tablet is-one-third-desktop">
+
+                    {% if messages %}
+                        {% for message in messages %}
+                            <div class="notification {% if message.tags %}is-{{ message.tags }}{% endif %}">
+                                {{ message }}
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+
+                    <div class="box">
+                        {% block content %}{% endblock content %}
+                    </div>
+
+                    <div class="has-text-centered mt-4">
+                        {% if user.is_authenticated %}
+                            <a href="{% url 'account_email' %}">{% trans "Change Email" %}</a> ·
+                            <a href="{% url 'account_change_password' %}">{% trans "Change Password" %}</a> ·
+                            <a href="{% url 'mfa_index' %}">{% trans "Two-Factor Authentication" %}</a> ·
+                            <a href="{% url 'account_logout' %}">{% trans "Sign Out" %}</a>
+                        {% else %}
+                            <a href="{% url 'account_login' %}">{% trans "Sign In" %}</a> ·
+                            <a href="{% url 'account_signup' %}">{% trans "Sign Up" %}</a>
+                        {% endif %}
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </section>
+    {% endblock body %}
+    {% block extra_body %}{% endblock extra_body %}
+</body>
+</html>

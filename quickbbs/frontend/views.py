@@ -48,6 +48,7 @@ from quickbbs.common import (
     get_dir_sha,
     normalize_fqpn,
     normalize_sha_input,
+    require_login_if_configured,
 )
 from quickbbs.directoryindex import (
     DIRECTORYINDEX_SR_FILETYPE_THUMB,
@@ -434,6 +435,7 @@ def _get_paginated_search_results(
     return dir_shas, file_shas, total
 
 
+@require_login_if_configured
 @vary_on_headers("HX-Request")
 def search_viewresults(request: WSGIRequest):
     """
@@ -715,6 +717,7 @@ def _check_and_enqueue_missing_thumbnails(directory: DirectoryIndex, sort_orderi
     return missing_count
 
 
+@require_login_if_configured
 @vary_on_headers("HX-Request")
 def new_viewgallery(request: WSGIRequest):
     """
@@ -862,6 +865,7 @@ def new_viewgallery(request: WSGIRequest):
     return response
 
 
+@require_login_if_configured
 @vary_on_headers("HX-Request")
 def htmx_view_item(request: HtmxHttpRequest, sha256: str):
     """
@@ -902,6 +906,7 @@ def htmx_view_item(request: HtmxHttpRequest, sha256: str):
     return response
 
 
+@require_login_if_configured
 async def download_file(request: WSGIRequest):  # , filename=None):
     """
     Replaces new_download (ASGI async version).

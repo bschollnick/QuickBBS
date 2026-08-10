@@ -313,7 +313,7 @@ class TestDeleteDirectoryMethods(SyncTestBase):
     def test_delete_directory_record_orphans_own_files_only(self):
         """Deleting a directory orphans its files; sibling files are untouched.
 
-        Pins current behavior: home_directory uses on_delete=SET_NULL, so the
+        Pins current behavior: home_directory uses on_delete=DB_SET_NULL, so the
         directory's FileIndex rows survive with home_directory=None (cleaned
         up later via the OrphanedFileIndex path) — they are NOT cascaded.
         """
