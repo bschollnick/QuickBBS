@@ -2,7 +2,7 @@
 
 **Companion to:** [`filetypes_design.md`](filetypes_design.md)
 **Author:** Benjamin Schollnick
-**Last Updated:** 2026-08-07
+**Last Updated:** 2026-08-10
 
 ---
 
@@ -10,60 +10,68 @@
 
 `filetypes` defines no custom exception classes. Its one deliberate exception-handling
 contract centers on
-[`load_filetypes()`](filetypes_design.md#load_filetypesforcefalse) and a Django
-framework exception it lets escape on purpose. Verified directly against
+[`load_filetypes()`](filetypes_design.md#load_filetypesforcefalse): every exception
+raised while reloading the cache — Django framework exceptions and `DatabaseError`
+alike — is left to propagate unhandled, on purpose. Verified directly against
 `filetypes/models.py`, `filetypes/middleware.py`, and
 `filetypes/management/commands/refresh_filetypes.py`.
 
 ---
 
-## `SynchronousOnlyOperation`: deliberately re-raised, never swallowed
+## Every reload failure propagates: nothing is swallowed
 
-`load_filetypes()` (`filetypes/models.py:241–283`) is a three-tier except chain around
-the call that populates the module-level filetype dict from the database:
+`load_filetypes()` (`filetypes/models.py`) does not wrap its call to
+`get_ftype_dict()` in a `try`/`except` at all:
 
 ```python
-try:
-    FILETYPE_DATA = get_ftype_dict()
-except SynchronousOnlyOperation:
-    raise
-except DatabaseError as e:
-    ...  # print instructions, swallow
-except Exception as e:  # TODO: narrow once startup failure modes are known
-    ...  # print instructions, swallow
+if not _filetypes_dict or force:
+    _filetypes_dict = None
+    print("Loading FileType data from database...")
+    return get_ftype_dict()  # any exception here propagates unhandled
+return _filetypes_dict
 ```
 
-`SynchronousOnlyOperation` (`django.core.exceptions`) is caught only to be re-raised
-unchanged — the opposite of the `DatabaseError`/`Exception` tiers below it, which both
-print operator instructions and swallow the error, returning the possibly-stale or
-empty existing cache. The function's own docstring states why: silently returning an
-empty cache here would make every filetype lookup fail while looking like an
-unpopulated table, which is a worse failure mode than letting the real error surface.
+**Reversed decision (2026-08-10):** an earlier version of this function caught
+`DatabaseError` (and a broad `Exception` tier below it), printed operator instructions
+("Please use manage.py --refresh-filetypes"), and returned the existing — possibly
+stale or empty — cache rather than raising, on the theory that a failed load at worker
+startup shouldn't crash the worker. Code review caught that the fallback was
+implemented incorrectly (it returned `None`, not the actual previous dict), and the
+user's response was to reject the swallow-and-continue strategy entirely, not just fix
+the bug in it: **a failed reload must not be recoverable in place.** In this codebase,
+a failed filetypes reload is not an expected, tolerable incident — it is a sign of
+complete system failure. There is no supported API or programmatic path where the
+filetypes table is expected to be unreloadable, so `load_filetypes()` is not designed
+to limp forward when it is. Running the scan path (`fileindex.py`) or directory
+aggregate path (`directoryindex.py`) against stale or invalid filetype data is worse
+than failing loudly: the worker process (WSGI), the request (ASGI middleware, via
+`sync_to_async`), or the `post_save`/`post_delete` signal handler that triggered the
+reload should die or fail rather than continue on data it can no longer trust.
 
-**This exception is never actually caught anywhere else in the codebase.** It is a
-documented contract, not a handled error path: an async caller is required to wrap
-`load_filetypes()` in `sync_to_async()` to avoid triggering it at all. The one caller
-that matters here,
+`SynchronousOnlyOperation` (`django.core.exceptions`) gets the same treatment as any
+other exception now — it always propagated in the prior version too, so this is not a
+behavior change for it specifically. It remains a documented contract, not a handled
+error path: an async caller is required to wrap `load_filetypes()` in `sync_to_async()`
+to avoid triggering it at all. The one caller that matters here,
 [`FiletypeLoaderMiddleware.__acall__`](filetypes_design.md#44-middlewarepy-filetypeloadermiddleware)
 (`middleware.py:63`), does exactly that (`await sync_to_async(load_filetypes)()`); its
 sync counterpart, `__call__` (`middleware.py:47`), calls `load_filetypes()` directly,
-which is safe precisely because it's the sync code path. If a future async caller
-forgot the `sync_to_async()` wrapper, `SynchronousOnlyOperation` would propagate
-uncaught up through Django/ASGI — that is the intended behavior, not a gap.
+which is safe precisely because it's the sync code path.
 
-## `DatabaseError`: two different responses depending on context
+## `DatabaseError`: now a hard stop everywhere, not just the CLI
 
-- **Request-time (worker startup):** `load_filetypes()`'s `except DatabaseError`
-  tier (`models.py:271`) prints operator instructions ("Please use manage.py
-  --refresh-filetypes") and swallows the error, returning the existing (possibly
-  empty) `FILETYPE_DATA` cache rather than raising — a failed load at worker startup
-  doesn't crash the worker.
+- **Request-time (worker startup / signal handler):** `load_filetypes()` no longer
+  catches `DatabaseError`. A failed reload propagates out of
+  `FiletypeLoaderMiddleware.__call__`/`__acall__` into the WSGI/ASGI request cycle, or
+  out of the `post_save`/`post_delete` signal handler in `apps.py` into whatever
+  save/delete triggered it (e.g. an admin edit to a `filetypes` row). This intentionally
+  crashes the worker or fails the request rather than continuing on stale data — see
+  "Reversed decision" above.
 - **CLI (management command):** `refresh_filetypes.Command.handle()`
-  (`management/commands/refresh_filetypes.py:246–259`) treats `(DatabaseError,
+  (`management/commands/refresh_filetypes.py:246–259`) already treated `(DatabaseError,
   OperationalError)` as fatal: writes to `self.stderr` via Django's command styling
-  and calls `sys.exit(1)`. This is the one place in `filetypes` where a database
-  failure is treated as a hard stop rather than a log-and-continue — appropriate for a
-  CLI invocation, where there's no running worker to keep alive.
+  and calls `sys.exit(1)`. This is unchanged — the CLI and request-time paths are now
+  consistent with each other, where before the CLI was the only hard stop.
 
 ## `KeyError`: documented, but practically unreachable
 

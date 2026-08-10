@@ -114,7 +114,7 @@ The single ORM model, keyed by `fileext`.
 |---|---|---|
 | `fileext` | `CharField(PK, max_length=10)` | Lowercase, dot-prefixed |
 | `generic` | `BooleanField` | `True` = serve a stock icon; `False` = generate/serve a real thumbnail |
-| `icon_filename` | `CharField` | Bare filename of the fallback icon, joined with `settings.IMAGES_PATH` at call time |
+| `icon_filename` | `CharField` | Bare filename of the fallback icon. Retained but currently unreferenced: `settings.IMAGES_PATH`, the path constant it was joined with, has no remaining consumer now that `return_any_icon_filename()` is gone — icons are served from the `thumbnail` blob column via `send_thumbnail()`, not from a path on disk |
 | `color` | `CharField(max_length=7)` | Hex RGB (no `#`), used by the UI |
 | `filetype` | `IntegerField` | Numeric category from `settings.FTYPES` — legacy display grouping, not the runtime capability check (§1.1) |
 | `mimetype` | `CharField` | Standard MIME type string |
@@ -166,16 +166,6 @@ raises `KeyError` if the extension is not registered.
 
 ---
 
-#### `return_any_icon_filename(fileext)`
-
-**What does this do?** Finds the fallback icon image to show for a file extension, if
-one has been set.
-
-**What is its purpose?** Returns the full path to the extension's icon file under
-`settings.IMAGES_PATH`, or `None` if the extension is unknown or has no icon set.
-
----
-
 #### `send_thumbnail()`
 
 **What does this do?** Serves the stock icon for a file type — the picture shown for
@@ -195,7 +185,7 @@ sitting in memory, so nothing has to go ask the database the same question over 
 over while the gallery is running.
 
 **What is its purpose?** Defines the module-level in-memory cache of the `filetypes`
-table — `get_ftype_dict()`, `load_filetypes()`, and the two global dicts they
+table — `get_ftype_dict()`, `load_filetypes()`, and the single global dict they
 populate — that every capability lookup reads from instead of querying the database.
 
 #### `get_ftype_dict()`
@@ -214,24 +204,36 @@ and it never queries the database a second time on its own.
 
 #### `load_filetypes(force=False)`
 
-**What does this do?** Keeps an older, separately named copy of the same registry data
-in sync for the one caller that still expects it under its original name, and is the one
-entry point that can force a reload after the table changes on disk.
+**What does this do?** Is the one entry point that can force a reload of the registry
+after the table changes on disk.
 
-**What is its purpose?** Populates `FILETYPE_DATA`, an older global kept for
-`thumbnails/image_utils.py`, by calling `get_ftype_dict()`. With `force=True`, first
-clears `_filetypes_dict` so the next `get_ftype_dict()` call reloads from the database —
-this is the only way the in-memory copy is ever refreshed (§1.2).
+**What is its purpose?** Reloads whenever the cache is falsy — either `None` (cold
+start) or `{}` (the empty-DB startup state, see below) — or when `force=True`. The
+reset of `_filetypes_dict` to `None` happens unconditionally once the decision to
+reload is made, then `get_ftype_dict()` repopulates it. This is the only way the
+in-memory copy is ever refreshed (§1.2).
 
-A `SynchronousOnlyOperation` raised inside is deliberately re-raised rather than
-swallowed: returning an empty cache here would make every lookup fail silently, looking
-exactly like an empty table rather than a call from the wrong context. A plain
-`DatabaseError` is caught and printed with a hint to run `refresh_filetypes`, since that
-error means the table itself needs attention, not the caller.
+Guarding on `not _filetypes_dict` rather than `_filetypes_dict is None` matters: the
+empty-DB startup path (`AppConfig.ready()` running against a test DB with no rows yet)
+caches `{}`, which is falsy but not `None`. A prior version of this guard checked only
+`FILETYPE_DATA` truthiness while resetting the cache only inside `if force:` — so a
+non-forced call against a cached `{}` would print its "loading" message but return the
+same empty dict unchanged, silently no-oping the reload. Fixed by making the reset
+unconditional.
 
-`FILETYPE_DATA` and `_filetypes_dict` end up pointing at the same dict object once
-loaded — two names for one piece of state, kept only because `image_utils.py` still
-reads the older one.
+A failed reload is not recoverable and is not swallowed. `SynchronousOnlyOperation` and
+`DatabaseError` (or any other exception from `get_ftype_dict()`) both propagate
+unhandled out of `load_filetypes()`, leaving `_filetypes_dict` as `None`. This is a
+deliberate reversal of an earlier draft that caught `DatabaseError` and printed a hint
+to run `refresh_filetypes` while returning the (possibly stale or empty) existing
+cache — see `filetypes_exceptions.md` for the reasoning. In this codebase a failed
+filetypes reload is not a recoverable, expected-to-occur incident; it indicates the
+table itself needs attention, and any caller — worker startup, request middleware, or
+the `post_save`/`post_delete` signal handler — should fail loudly rather than continue
+running the scan or directory-aggregate paths against stale or invalid data.
+
+The `FILETYPE_DATA` global that used to shadow `_filetypes_dict` under a second name
+has been removed; `_filetypes_dict` is the only cache now.
 
 ---
 
