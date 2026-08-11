@@ -1,0 +1,42 @@
+graph TD
+    WebRequest[WebRequest] -->|Gallery / File Path| ViewGallery[view_gallery]
+    WebRequest -->|"thumbnail_file(sha256)"| CheckFileThumb[thumbnail_file:<br/>_serve_existing_thumbnail fast path]
+    WebRequest -->|"thumbnail_dir(dir_sha256)"| CheckDirThumb[thumbnail_dir]
+
+    ViewGallery --> UpdateFromDisk[update_database_from_disk]
+    UpdateFromDisk -->|"is_cached=True"| SendGallery[Render gallery page]
+    UpdateFromDisk -->|"is_cached=False"| ScanDirectory[return_disk_listing_sync]
+    ScanDirectory --> ProcessChanges[sync_subdirectories / sync_files<br/>compare DB vs filesystem]
+    ProcessChanges --> UpdateIndex[Create/Update DirectoryIndex<br/>and FileIndex records,<br/>cache_invalidated=False]
+    UpdateIndex --> SendGallery
+    SendGallery --> EnqueueThumbs[_check_and_enqueue_missing_thumbnails<br/>generate_missing_thumbnails via django-dbtasks<br/>runs on every gallery/item-view render, not just rescans]
+
+    CheckFileThumb -->|"Found, size populated"| SendFileThumb[send_thumbnail]
+    CheckFileThumb -->|"Generic filetype / is_generic_icon"| GenericFileIcon[filetype.send_thumbnail<br/>generic icon]
+    CheckFileThumb -->|"Link with virtual_directory"| CheckDirThumb
+    CheckFileThumb -->|"Missing record / size not yet generated"| SlowPath[get_or_create_thumbnail_record]
+    SlowPath -->|"OrphanedThumbnail / OrphanedFileIndex"| DeleteOrphan[Delete stale ThumbnailFiles row,<br/>HttpResponseBadRequest]
+    SlowPath --> AdvisoryLock1[pg_advisory_xact_lock per SHA256]
+    AdvisoryLock1 --> GenerateThumb[Thumbnail pipeline<br/>generate small/medium/large blobs]
+    GenerateThumb --> StoreThumb["ThumbnailFiles row updated<br/>(small_thumb, medium_thumb, large_thumb)"]
+    StoreThumb --> LinkFK[FileIndex.new_ftnail = thumbnail]
+    LinkFK --> SendFileThumb
+    GenerateThumb -->|"ThumbnailGenerationError"| MarkGenericFile[FileIndex.set_generic_icon_for_sha]
+    MarkGenericFile --> GenericFileIcon
+
+    CheckDirThumb -->|Not Found| Display404b[Http404]
+    CheckDirThumb -->|"thumbnail set + is_cached"| SendDirThumb[send_thumbnail]
+    CheckDirThumb -->|"not cached / no thumbnail"| GetCover[DirectoryIndex.get_cover_image<br/>priority filename match]
+    GetCover -->|None found| RescanForCover[update_database_from_disk,<br/>retry get_cover_image]
+    RescanForCover -->|"still none"| GenericDirIcon[directory.filetype.send_thumbnail<br/>generic icon]
+    GetCover -->|Found| AssignCover["transaction.atomic():<br/>directory.thumbnail = cover_image,<br/>cover_image.cover_image = True"]
+    AssignCover --> AdvisoryLock2["ThumbnailFiles.get_or_create_thumbnail_record<br/>(cover_image.file_sha256)"]
+    AdvisoryLock2 -->|"OrphanedThumbnail / OrphanedFileIndex"| DeleteOrphanDir[Delete stale thumbnail,<br/>generic icon]
+    AdvisoryLock2 --> SendDirThumb
+    SendDirThumb -->|"serve error"| MarkGenericDir[directory.is_generic_icon = True]
+    MarkGenericDir --> GenericDirIcon
+
+    style WebRequest fill:#e0e0f8,stroke:#7a7ae0
+    style ViewGallery fill:#e0e0f8,stroke:#7a7ae0
+    style CheckFileThumb fill:#e0e0f8,stroke:#7a7ae0
+    style CheckDirThumb fill:#e0e0f8,stroke:#7a7ae0

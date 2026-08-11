@@ -51,6 +51,49 @@ python manage.py refresh_filetypes
 ```
 * **refresh_filetypes**  - updates the Filetypes table in the database, this controls various aspects of the importation, and display of the files (e.g. Background color, creation of thumbnails, etc.)
 
+**Configuration file:** `refresh_filetypes` reads its extension lists from
+`quickbbs/quickbbs_settings.py` — this file is the single source of truth for
+which extensions QuickBBS recognizes and how each one is categorized. The
+Django app itself never reads these lists directly at runtime; it only reads
+the `filetypes` database table, so any edit here has no effect until you
+re-run the command.
+
+Relevant settings in `quickbbs_settings.py`:
+
+| Setting | Controls |
+|---|---|
+| `GRAPHIC_FILE_TYPES` | Image extensions (`.jpg`, `.png`, `.webp`, ...) |
+| `MOVIE_FILE_TYPES` | Video extensions (`.mp4`, `.avi`, `.wmv`, ...) |
+| `AUDIO_FILE_TYPES` | Audio extensions (`.mp3`, ...) |
+| `PDF_FILE_TYPES` / `BOOK_FILE_TYPES` | PDF and EPUB |
+| `RAR_FILE_TYPES` / `ZIP_FILE_TYPES` (combined into `ARCHIVE_FILE_TYPES`) | Archive extensions (`.zip`, `.cbz`, `.rar`, `.cbr`) |
+| `HTML_FILE_TYPES` | `.html`, `.htm` |
+| `TEXT_FILE_TYPES` / `MARKDOWN_FILE_TYPES` | Plain text and markdown |
+| `LINK_FILE_TYPES` | `.link`, `.alias` |
+
+**To add support for a new extension:**
+
+1. Add the extension string to the appropriate `*_FILE_TYPES` list in
+   `quickbbs/quickbbs_settings.py`.
+2. Run `python manage.py refresh_filetypes`.
+3. The extension is inserted or updated in the `filetypes` table — safe to
+   re-run any time, existing rows are updated in place rather than duplicated.
+
+**To change a filetype's gallery background color** (see the color legend in
+[`Screenshots.md`](Screenshots.md)): edit the `"color"` value for that
+extension's block in
+`filetypes/management/commands/refresh_filetypes.py` (each block sets a hex
+color per category — movies, images, PDFs, etc.), then re-run
+`refresh_filetypes`. You can also edit a single extension's color directly in
+the Django admin under the `filetypes` app without touching any file — that
+takes effect immediately, without needing to re-run the command.
+
+> **Note:** re-running `refresh_filetypes` only updates the in-memory
+> filetype cache of the process that ran the command. Other already-running
+> server workers (e.g. your `runserver`/ASGI process) pick up the change on
+> their own next write-triggered reload, or need a restart to see it
+> immediately.
+
 #### Scanning
 While the core design of QuickBBS allows any file system changes to be detected and process in real-time, that can cause a significant penalty in browsing.  The more files in the directory, obviously the more processing that has to occur.  
 
@@ -185,7 +228,50 @@ When that directory is next accessed (via the web) the cached data will be detec
 
 Diagram source: [`request_flow_diagram.mmd`](request_flow_diagram.mmd)
 
-[![](https://mermaid.ink/img/pako:eNqVVm1v2zYQ_iuE-iXFHCcLurUIlgKpXadB07VIXOyDbBCUdJI5S6RKUl61pv-9xxdJlpsUrQEb1Jn3PPfy8MQvUSoziM5JVChWb8hyvhIEP_9AcgufGtAmHpZrcnz88v6KlSWolpyQBS-BfGBmc09mG0i3M5ZuIHZLkmvqHulSsXTLRbE-BHZgq8hsmioRjJdnNEe8I71hZ3_8-XQVBVBLsrR74hspt6SpybLzsH_pvxJ18jJpifejG6Y3P0GVcXWEX3rINudqTIYGSI1U7bXI4HNHZl3zT7UI_kjoKYcyBEoudqzkGTOQXSxVAw5AKiKkIandl1nqu5SJnii2TwOv81BgGiUwar2lJddmqOfI1ZKSD0qmoPVsw0QBOtatSKlukixs4qCxdc6a9_VLZVUzBWT-iuw0cfZWG6gCyRjSsXysbVKuKPFMAa5PvOmhijGRObE4C8G_pcp0wN4DcsCvBbas8S3XcXgiBQhQuI9WXGvMnva99Alk_2Jo8jhLDNPbDnoE5cDvQGRBv_EtrkGRIsi5ZgWsf6KLC1ZqcE0bsEbt7wXrnP_GRi9kI7J78l7VWMDXSsV-BVmvZHLisujsfa1CQL2nS2LOdV2y9tnps3gOJWDJtWF4En1dJw5Jg9qFqvGU8FSK9aMhriIX4IRo_j92t5Z1U9pUuySHE6jxaaj8jxDf-TZZpTlQlqCvsYiX2Y5rVMeNTLe_x3VBWTDQzyw1tEQzqbEvd28uA8HIw1XgKqjBR7Vg2lxX2L4gU6m8pp0q94RCcyUrWuO8CsAjGK8P1G1AXUXjOTNtnFCpVNQjO5IjXaEEPMmEVJDxpuqeSqaKwI8DpjuvPYMjvOFiu3gb9w2fCviP5sZp4oIcltrv7pXcF32kv26EHcpvkE0SvzGmxsX6MbdV5IcT-W2IgWgwnST6Mfm4Ig7whoGHmhBygLWQV2BmcgcqLsDQ1K4otw11Ja4Vx6llWjeWBKuAVMykQw-9a8hWAMl9uregcTQupPLIoXv4wxKmwWvBztNJN2BVGyDHniF-nLlliYEL8AG7g3WN5yq2YZm2hum4Fg72gQM4Cji05hIPSyF8oPiaUkxoPAtciikzsuLp0dNzP-W60TodunJB9grWy2wP0cll_wydfa9tW_de2EMO1I8Ur_Q9mqnNeXh3PnBOz3qRdjroNKpNi7Nq792MWOX5EziF0_zFRBslt3D-5Dl7zuB032NvKP-KxzCYfsWrF-8PnaIJiSpQFeMZ3qC-4P0CKneXyiBnTWmir7iBNUbe4dsW7QYvAGjxUpxzhleuajDj7MDWvgvXMXct-_oNUAFhpA?type=png)](https://mermaid.live/edit#pako:eNqVVm1v2zYQ_iuE-iXFHCcLurUIlgKpXadB07VIXOyDbBCUdJI5S6RKUl61pv-9xxdJlpsUrQEb1Jn3PPfy8MQvUSoziM5JVChWb8hyvhIEP_9AcgufGtAmHpZrcnz88v6KlSWolpyQBS-BfGBmc09mG0i3M5ZuIHZLkmvqHulSsXTLRbE-BHZgq8hsmioRjJdnNEe8I71hZ3_8-XQVBVBLsrR74hspt6SpybLzsH_pvxJ18jJpifejG6Y3P0GVcXWEX3rINudqTIYGSI1U7bXI4HNHZl3zT7UI_kjoKYcyBEoudqzkGTOQXSxVAw5AKiKkIandl1nqu5SJnii2TwOv81BgGiUwar2lJddmqOfI1ZKSD0qmoPVsw0QBOtatSKlukixs4qCxdc6a9_VLZVUzBWT-iuw0cfZWG6gCyRjSsXysbVKuKPFMAa5PvOmhijGRObE4C8G_pcp0wN4DcsCvBbas8S3XcXgiBQhQuI9WXGvMnva99Alk_2Jo8jhLDNPbDnoE5cDvQGRBv_EtrkGRIsi5ZgWsf6KLC1ZqcE0bsEbt7wXrnP_GRi9kI7J78l7VWMDXSsV-BVmvZHLisujsfa1CQL2nS2LOdV2y9tnps3gOJWDJtWF4En1dJw5Jg9qFqvGU8FSK9aMhriIX4IRo_j92t5Z1U9pUuySHE6jxaaj8jxDf-TZZpTlQlqCvsYiX2Y5rVMeNTLe_x3VBWTDQzyw1tEQzqbEvd28uA8HIw1XgKqjBR7Vg2lxX2L4gU6m8pp0q94RCcyUrWuO8CsAjGK8P1G1AXUXjOTNtnFCpVNQjO5IjXaEEPMmEVJDxpuqeSqaKwI8DpjuvPYMjvOFiu3gb9w2fCviP5sZp4oIcltrv7pXcF32kv26EHcpvkE0SvzGmxsX6MbdV5IcT-W2IgWgwnST6Mfm4Ig7whoGHmhBygLWQV2BmcgcqLsDQ1K4otw11Ja4Vx6llWjeWBKuAVMykQw-9a8hWAMl9uregcTQupPLIoXv4wxKmwWvBztNJN2BVGyDHniF-nLlliYEL8AG7g3WN5yq2YZm2hum4Fg72gQM4Cji05hIPSyF8oPiaUkxoPAtciikzsuLp0dNzP-W60TodunJB9grWy2wP0cll_wydfa9tW_de2EMO1I8Ur_Q9mqnNeXh3PnBOz3qRdjroNKpNi7Nq792MWOX5EziF0_zFRBslt3D-5Dl7zuB032NvKP-KxzCYfsWrF-8PnaIJiSpQFeMZ3qC-4P0CKneXyiBnTWmir7iBNUbe4dsW7QYvAGjxUpxzhleuajDj7MDWvgvXMXct-_oNUAFhpA?bgColor=!white)
+```mermaid
+graph TD
+    WebRequest[WebRequest] -->|Gallery / File Path| ViewGallery[view_gallery]
+    WebRequest -->|"thumbnail_file(sha256)"| CheckFileThumb[thumbnail_file:<br/>_serve_existing_thumbnail fast path]
+    WebRequest -->|"thumbnail_dir(dir_sha256)"| CheckDirThumb[thumbnail_dir]
+
+    ViewGallery --> UpdateFromDisk[update_database_from_disk]
+    UpdateFromDisk -->|"is_cached=True"| SendGallery[Render gallery page]
+    UpdateFromDisk -->|"is_cached=False"| ScanDirectory[return_disk_listing_sync]
+    ScanDirectory --> ProcessChanges[sync_subdirectories / sync_files<br/>compare DB vs filesystem]
+    ProcessChanges --> UpdateIndex[Create/Update DirectoryIndex<br/>and FileIndex records,<br/>cache_invalidated=False]
+    UpdateIndex --> SendGallery
+    SendGallery --> EnqueueThumbs[_check_and_enqueue_missing_thumbnails<br/>generate_missing_thumbnails via django-dbtasks<br/>runs on every gallery/item-view render, not just rescans]
+
+    CheckFileThumb -->|"Found, size populated"| SendFileThumb[send_thumbnail]
+    CheckFileThumb -->|"Generic filetype / is_generic_icon"| GenericFileIcon[filetype.send_thumbnail<br/>generic icon]
+    CheckFileThumb -->|"Link with virtual_directory"| CheckDirThumb
+    CheckFileThumb -->|"Missing record / size not yet generated"| SlowPath[get_or_create_thumbnail_record]
+    SlowPath -->|"OrphanedThumbnail / OrphanedFileIndex"| DeleteOrphan[Delete stale ThumbnailFiles row,<br/>HttpResponseBadRequest]
+    SlowPath --> AdvisoryLock1[pg_advisory_xact_lock per SHA256]
+    AdvisoryLock1 --> GenerateThumb[Thumbnail pipeline<br/>generate small/medium/large blobs]
+    GenerateThumb --> StoreThumb["ThumbnailFiles row updated<br/>(small_thumb, medium_thumb, large_thumb)"]
+    StoreThumb --> LinkFK[FileIndex.new_ftnail = thumbnail]
+    LinkFK --> SendFileThumb
+    GenerateThumb -->|"ThumbnailGenerationError"| MarkGenericFile[FileIndex.set_generic_icon_for_sha]
+    MarkGenericFile --> GenericFileIcon
+
+    CheckDirThumb -->|Not Found| Display404b[Http404]
+    CheckDirThumb -->|"thumbnail set + is_cached"| SendDirThumb[send_thumbnail]
+    CheckDirThumb -->|"not cached / no thumbnail"| GetCover[DirectoryIndex.get_cover_image<br/>priority filename match]
+    GetCover -->|None found| RescanForCover[update_database_from_disk,<br/>retry get_cover_image]
+    RescanForCover -->|"still none"| GenericDirIcon[directory.filetype.send_thumbnail<br/>generic icon]
+    GetCover -->|Found| AssignCover["transaction.atomic():<br/>directory.thumbnail = cover_image,<br/>cover_image.cover_image = True"]
+    AssignCover --> AdvisoryLock2["ThumbnailFiles.get_or_create_thumbnail_record<br/>(cover_image.file_sha256)"]
+    AdvisoryLock2 -->|"OrphanedThumbnail / OrphanedFileIndex"| DeleteOrphanDir[Delete stale thumbnail,<br/>generic icon]
+    AdvisoryLock2 --> SendDirThumb
+    SendDirThumb -->|"serve error"| MarkGenericDir[directory.is_generic_icon = True]
+    MarkGenericDir --> GenericDirIcon
+
+    style WebRequest fill:#e0e0f8,stroke:#7a7ae0
+    style ViewGallery fill:#e0e0f8,stroke:#7a7ae0
+    style CheckFileThumb fill:#e0e0f8,stroke:#7a7ae0
+    style CheckDirThumb fill:#e0e0f8,stroke:#7a7ae0
+```
 
 ### Supported File Types
 
