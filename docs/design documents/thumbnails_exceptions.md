@@ -110,34 +110,34 @@ a broader `except Exception` wraps anything else into a fresh `VideoProcessingEr
 **View-layer terminal handling**, in
 [`thumbnails/views.py`](thumbnails_design.md#411-viewspy--http-views):
 
-- [`thumbnail2_dir`](thumbnails_design.md#thumbnail2_dirrequest-dir_sha256) catches
+- [`thumbnail_dir`](thumbnails_design.md#thumbnail_dirrequest-dir_sha256) catches
   `(OSError, ValueError, AttributeError, ThumbnailGenerationError)` at two points
   (`:59, :126`) around calls to `send_thumbnail()`. The first (`:59`) falls through to
   the cover-image regeneration logic below it rather than returning immediately; the
   second (`:126`), after a cover image has already been selected and a
   `ThumbnailFiles` record ensured, marks the directory `is_generic_icon=True` and
   returns the filetype's generic icon.
-- `thumbnail2_dir` also catches `FileIndex.DoesNotExist` (`:63`) when the directory's
+- `thumbnail_dir` also catches `FileIndex.DoesNotExist` (`:63`) when the directory's
   cached thumbnail FK points to a deleted `FileIndex` row — clears the stale reference
   via `directory.invalidate_thumb()` and falls through to cover-image regeneration.
 - `_serve_existing_thumbnail` catches the same four-exception tuple (`:180`) around
   its fast-path serve attempt.
-- [`thumbnail2_file`](thumbnails_design.md#thumbnail2_filerequest-sha256) catches the
+- [`thumbnail_file`](thumbnails_design.md#thumbnail_filerequest-sha256) catches the
   same tuple (`:260`) around its own `send_thumbnail()` call, marking **every**
   `FileIndex` row sharing that SHA256 as generic (via
   `FileIndex.set_generic_icon_for_sha`) before returning the generic icon — a broader
-  blast radius than `thumbnail2_dir`'s single-directory flag, because a file's
+  blast radius than `thumbnail_dir`'s single-directory flag, because a file's
   generic-icon state is tracked per content hash, not per directory placement.
-- `thumbnail2_file` also catches `(AttributeError, IndexError)` (`:240`) around a
+- `thumbnail_file` also catches `(AttributeError, IndexError)` (`:240`) around a
   `.first()`-then-fallback `FileIndex` lookup, converting to
   `HttpResponseBadRequest("Error accessing file data.")`.
 
 **`OrphanedThumbnail` / `OrphanedFileIndex`**, caught independently in both
-`thumbnail2_dir` (`:110`) and `thumbnail2_file` (`:223`) around calls to
+`thumbnail_dir` (`:110`) and `thumbnail_file` (`:223`) around calls to
 [`get_or_create_thumbnail_record`](thumbnails_design.md#get_or_create_thumbnail_recordfile_sha256-suppress_save-prefetch_related_thumbnail-select_related_fileindex):
 both delete `exc.thumbnail`, but the fallback response differs —
-`thumbnail2_dir` falls back to `directory.filetype.send_thumbnail()`;
-`thumbnail2_file` returns `HttpResponseBadRequest("File no longer exists in
+`thumbnail_dir` falls back to `directory.filetype.send_thumbnail()`;
+`thumbnail_file` returns `HttpResponseBadRequest("File no longer exists in
 gallery.")`. The same two exceptions are also caught, independently, by
 [`quickbbs`](quickbbs_exceptions.md)'s background task — see
 [`high_level_exception_flow.md`](high_level_exception_flow.md) for the comparison.
@@ -150,10 +150,10 @@ raising. This is an availability probe, not error recovery from a real failure.
 
 ## Standard/Django exceptions used meaningfully
 
-- **`Http404`** — raised directly in `thumbnail2_dir` (`:52`) when the directory SHA
+- **`Http404`** — raised directly in `thumbnail_dir` (`:52`) when the directory SHA
   doesn't resolve to a record at all (before any thumbnail logic runs).
 - **`HttpResponseBadRequest`** — returned (not raised) at the `OrphanedThumbnail`/
-  `OrphanedFileIndex` catch in `thumbnail2_file` and at its `(AttributeError,
+  `OrphanedFileIndex` catch in `thumbnail_file` and at its `(AttributeError,
   IndexError)` catch, as described above.
 - **`ImportError`** — used throughout the backend-detection code purely as an
   availability probe (e.g. `thumbnail_engine.py`'s "Core Image backend not

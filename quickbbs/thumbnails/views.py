@@ -29,7 +29,7 @@ warnings.simplefilter("ignore", Image.DecompressionBombWarning)
 
 
 @require_login_if_configured
-def thumbnail2_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pylint: disable=unused-argument
+def thumbnail_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pylint: disable=unused-argument
     """
     Serve directory thumbnail using prioritized cover image selection.
 
@@ -140,7 +140,7 @@ def _serve_existing_thumbnail(request: WSGIRequest, sha256: str, thumbsize: str)
     """
     Serve an already-generated thumbnail without the generation lock.
 
-    Read-only fast path for thumbnail2_file: resolves the FileIndex via the
+    Read-only fast path for thumbnail_file: resolves the FileIndex via the
     cached get_by_sha256 lookup, honors the generic-icon and link
     short-circuits, then serves the requested blob size loaded with a single
     single-column SELECT.
@@ -166,7 +166,7 @@ def _serve_existing_thumbnail(request: WSGIRequest, sha256: str, thumbsize: str)
     # Handle link files: if this is a link type with a virtual_directory,
     # delegate to the virtual directory's thumbnail
     if index_data_item.filetype.is_link and index_data_item.virtual_directory:
-        return thumbnail2_dir(request, index_data_item.virtual_directory.dir_fqpn_sha256)
+        return thumbnail_dir(request, index_data_item.virtual_directory.dir_fqpn_sha256)
 
     existing_thumbnail = ThumbnailFiles.objects.only("id", "sha256_hash", f"{thumbsize}_thumb").filter(sha256_hash=sha256).first()
     if existing_thumbnail is None or not existing_thumbnail.retrieve_sized_tnail(size=thumbsize):
@@ -188,7 +188,7 @@ def _serve_existing_thumbnail(request: WSGIRequest, sha256: str, thumbsize: str)
 
 
 @require_login_if_configured
-def thumbnail2_file(request: WSGIRequest, sha256: str):
+def thumbnail_file(request: WSGIRequest, sha256: str):
     """
     Create and serve a thumbnail for a specific file.
 
@@ -250,7 +250,7 @@ def thumbnail2_file(request: WSGIRequest, sha256: str):
     # Handle link files: if this is a link type with a virtual_directory,
     # delegate to the virtual directory's thumbnail
     if index_data_item.filetype.is_link and index_data_item.virtual_directory:
-        return thumbnail2_dir(request, index_data_item.virtual_directory.dir_fqpn_sha256)
+        return thumbnail_dir(request, index_data_item.virtual_directory.dir_fqpn_sha256)
 
     # Try to return custom thumbnail, fall back to generic icon on error
     try:

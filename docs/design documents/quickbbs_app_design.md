@@ -747,7 +747,7 @@ of background catch-up work.
 **`snapshot_cache_statistics()` must run inside the web server process.** It reads
 in-memory counters directly off live cache objects; called from a separate
 `taskrunner` process it would see freshly-initialized, zero-count caches instead. It is
-called from `new_viewgallery()` on gallery requests when `CACHE_MONITORING` is enabled,
+called from `view_gallery()` on gallery requests when `CACHE_MONITORING` is enabled,
 but throttled to at most once per `SNAPSHOT_MIN_INTERVAL` seconds via a module-level
 monotonic timestamp — the underlying counters are cumulative, so a throttled call loses
 no data, only some freshness in the database row, and rows whose stats haven't changed
@@ -842,12 +842,12 @@ function that needs it.
 | URL pattern | View | Name |
 |---|---|---|
 | `__debug__/` (only if `settings.DEBUG_TOOLBAR`) | `debug_toolbar.urls` | — |
-| `/albums/<path>` | `frontend.views.new_viewgallery` | `directories` |
+| `/albums/<path>` | `frontend.views.view_gallery` | `directories` |
 | `/view_item/<sha256>/` | `frontend.views.htmx_view_item` | `view_item` |
 | `/download_file/` | `frontend.views.download_file` | `download_file` |
 | `/search/` | `frontend.views.search_viewresults` | `search_viewresults` |
-| `/thumbnail2_file/<sha256>` | `thumbnails.views.thumbnail2_file` | `thumbnail2_file` |
-| `/thumbnail2_directory/<dir_sha256>` | `thumbnails.views.thumbnail2_dir` | `thumbnail2_dir` |
+| `/thumbnail_file/<sha256>` | `thumbnails.views.thumbnail_file` | `thumbnail_file` |
+| `/thumbnail_directory/<dir_sha256>` | `thumbnails.views.thumbnail_dir` | `thumbnail_dir` |
 | `/resources/<path>` | `frontend.serve_up.static_or_resources` | `resources` |
 | `/static/<path>` | `frontend.serve_up.static_or_resources` | `static` |
 | `/reports/duplicate_files.html` | `frontend.report_views.duplicate_files_report` | `duplicate_files_report` |

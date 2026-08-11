@@ -55,7 +55,7 @@ erDiagram
 
 **Every box here is owned by a different app.** `frontend` is a pure consumer: it
 resolves URLs to `DirectoryIndex`/`FileIndex` rows
-([`new_viewgallery`](frontend_design.md#new_viewgalleryrequest),
+([`view_gallery`](frontend_design.md#view_galleryrequest),
 [`htmx_view_item`](frontend_design.md#htmx_view_itemrequest-sha256)), reads
 `filetypes` to decide how to render a file, and reads `UserPreferences.show_duplicates`
 to decide which cached SHA list to page through

@@ -57,16 +57,16 @@ urlpatterns += [
         frontend.views.htmx_view_item,
         name="view_item",
     ),
-    re_path("^albums/", frontend.views.new_viewgallery, name="directories"),
+    re_path("^albums/", frontend.views.view_gallery, name="directories"),
     path(
-        "thumbnail2_file/<str:sha256>",
-        thumbnails.views.thumbnail2_file,
-        name="thumbnail2_file",
+        "thumbnail_file/<str:sha256>",
+        thumbnails.views.thumbnail_file,
+        name="thumbnail_file",
     ),
     path(
-        "thumbnail2_directory/<str:dir_sha256>",
-        thumbnails.views.thumbnail2_dir,
-        name="thumbnail2_dir",
+        "thumbnail_directory/<str:dir_sha256>",
+        thumbnails.views.thumbnail_dir,
+        name="thumbnail_dir",
     ),
     path(
         "resources/<path:pathstr>",

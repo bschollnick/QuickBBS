@@ -12,7 +12,7 @@ DIRECTORY_COVER_NAMES = ["cover", "title"]
 # authenticated user (see quickbbs.common.require_login_if_configured).
 # Anonymous users are redirected to LOGIN_URL. Login/logout/admin/static
 # asset routes are always reachable regardless of this setting.
-QUICKBBS_REQUIRE_LOGIN = True
+QUICKBBS_REQUIRE_LOGIN = False
 SITE_NAME = "The Gallery"
 
 # Header/navbar logo image, as (filename, width, height). Path is web-relative,

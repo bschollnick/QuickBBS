@@ -70,8 +70,8 @@ with two different terminal handling strategies for the identical exception pair
 - In [`thumbnails/views.py`](thumbnails_exceptions.md#catch-sites-and-terminal-handling)
   itself — the app that defines these exceptions — the same delete-the-row response
   happens, but the terminal step differs by view:
-  `thumbnail2_dir` falls back to `directory.filetype.send_thumbnail()` (serves a
-  generic icon inline); `thumbnail2_file` returns `HttpResponseBadRequest("File no
+  `thumbnail_dir` falls back to `directory.filetype.send_thumbnail()` (serves a
+  generic icon inline); `thumbnail_file` returns `HttpResponseBadRequest("File no
   longer exists in gallery.")` (tells the browser outright that the file is gone). The
   same exception pair, defined once, ends up producing three distinct outcomes
   depending on which of these three call sites catches it.

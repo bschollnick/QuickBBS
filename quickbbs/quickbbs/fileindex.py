@@ -948,7 +948,7 @@ class FileIndex(models.Model):
         size = size.lower()
         if self.virtual_directory:
             return self.virtual_directory.get_thumbnail_url(size=size)
-        url = reverse(r"thumbnail2_file", args=(self.file_sha256,)) + f"?size={size}"
+        url = reverse(r"thumbnail_file", args=(self.file_sha256,)) + f"?size={size}"
         return url
 
     def get_download_url(self) -> str:

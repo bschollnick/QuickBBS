@@ -71,7 +71,7 @@ This app doesn't keep a cache of its own for thumbnail lookups; it depends on
 `FileIndex.get_by_sha256()` in `quickbbs/fileindex.py`, whose cache never stores an
 absence — a lookup that finds nothing simply isn't cached, so a thumbnail generated
 moments later by a concurrent request is found on the very next lookup rather than
-staying invisible until an entry ages out. `thumbnail2_file`'s fast path (§4.11) reads
+staying invisible until an entry ages out. `thumbnail_file`'s fast path (§4.11) reads
 through this cache on every request.
 
 ### 1.4 Identical files share one thumbnail
@@ -87,7 +87,7 @@ once per distinct piece of content, however many times that content appears.
 A gallery page shows an image for every entry on it. For an image, PDF, or video, that
 image is a real rendered thumbnail of the file's own content (§4.4–§4.9). For a
 directory, it's a cover image selected from one of the files inside it —
-`thumbnail2_dir()` (§4.11) prefers a file named `cover` or `title`, then falls back to
+`thumbnail_dir()` (§4.11) prefers a file named `cover` or `title`, then falls back to
 any thumbnailable file in the directory — so browsing a gallery of directories shows an
 actual preview of what's inside each one, not a folder icon.
 
@@ -126,7 +126,7 @@ on-disk thumbnail cache.
 
 ```
 HTTP request
-    └── thumbnail2_file(sha256)  /  thumbnail2_dir(dir_sha256)
+    └── thumbnail_file(sha256)  /  thumbnail_dir(dir_sha256)
               │
               ▼
     ThumbnailFiles.get_or_create_thumbnail_record(sha256)
@@ -511,11 +511,11 @@ empty rather than serving nothing silently.
 **What does this do?** Answers the actual web requests a browser makes when it needs
 to show a thumbnail image, for either a single file or a whole directory.
 
-**What is its purpose?** Defines the HTTP views — `thumbnail2_file` and
-`thumbnail2_dir` — that resolve a request to a stored thumbnail (generating one first
+**What is its purpose?** Defines the HTTP views — `thumbnail_file` and
+`thumbnail_dir` — that resolve a request to a stored thumbnail (generating one first
 if needed) and return it as an image response.
 
-#### `thumbnail2_file(request, sha256)`
+#### `thumbnail_file(request, sha256)`
 
 **What does this do?** Serves the thumbnail image for one specific file — the `<img>`
 `src` every gallery thumbnail actually points at — generating it first if nobody has
@@ -538,12 +538,12 @@ Splits into a read-only fast path and a generation-locked slow path:
   matters for the uncommon case (thumbnail doesn't exist yet).
 
 A link file (`.link`, `.alias`) with a `virtual_directory` is never given a thumbnail of
-its own — the request is redirected to `thumbnail2_dir()` for the directory it points
+its own — the request is redirected to `thumbnail_dir()` for the directory it points
 at, on both the fast and slow paths.
 
 ---
 
-#### `thumbnail2_dir(request, dir_sha256)`
+#### `thumbnail_dir(request, dir_sha256)`
 
 **What does this do?** Serves a directory's cover thumbnail — the image a folder shows
 in the gallery before you open it.
@@ -637,7 +637,7 @@ thumbnails/
 ├── exceptions.py                     # ORM-coupled exceptions + re-exports of engine's
 ├── apps.py                           # ThumbnailsConfig.ready() → pushes settings into engine config
 ├── models.py                         # ThumbnailFiles model + get_or_create_thumbnail_record
-├── views.py                          # thumbnail2_file, thumbnail2_dir HTTP views
+├── views.py                          # thumbnail_file, thumbnail_dir HTTP views
 ├── admin.py                          # AdminThumbnail_Files + download_thumbnails action
 ├── migrations/                       # 7 migrations (0001-0007)
 └── tests/

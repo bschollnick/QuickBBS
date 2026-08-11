@@ -185,7 +185,7 @@ class TestRootRedirect(SecureClientMixin, TestCase):
 
 
 class TestGalleryView(ViewSmokeTestBase):
-    """new_viewgallery via /albums/..."""
+    """view_gallery via /albums/..."""
 
     def test_gallery_root_returns_200(self):
         """The albums root renders the gallery template with our file listed."""
@@ -229,7 +229,7 @@ class TestGalleryView(ViewSmokeTestBase):
 
 
 class TestGalleryDirectoryRaceCondition(SecureClientMixin, TestCase):
-    """new_viewgallery's _find_directory race-condition branch: DB record exists
+    """view_gallery's _find_directory race-condition branch: DB record exists
     but the directory has been removed from disk since it was added."""
 
     def setUp(self) -> None:
@@ -347,17 +347,17 @@ class TestSearchView(ViewSmokeTestBase):
 
 
 class TestThumbnailViews(ViewSmokeTestBase):
-    """thumbnail2_file / thumbnail2_dir endpoints."""
+    """thumbnail_file / thumbnail_dir endpoints."""
 
     def test_thumbnail_file_returns_image(self):
         """A file thumbnail request returns an image payload."""
-        response = self.get(f"/thumbnail2_file/{self.file_obj.file_sha256}?size=small")
+        response = self.get(f"/thumbnail_file/{self.file_obj.file_sha256}?size=small")
         assert response.status_code == 200
         assert response["Content-Type"].startswith("image/")
 
     def test_thumbnail_directory_returns_image(self):
         """A directory thumbnail request returns an image payload."""
-        response = self.get(f"/thumbnail2_directory/{self.dir_obj.dir_fqpn_sha256}")
+        response = self.get(f"/thumbnail_directory/{self.dir_obj.dir_fqpn_sha256}")
         assert response.status_code == 200
         assert response["Content-Type"].startswith("image/")
 
@@ -374,8 +374,8 @@ class TestAnonymousAccessIsGated(ViewSmokeTestBase):
     """
 
     # Every view decorated with @require_login_if_configured, by URL.
-    # frontend/views.py: new_viewgallery, search_viewresults, htmx_view_item,
-    # download_file; thumbnails/views.py: thumbnail2_file, thumbnail2_dir;
+    # frontend/views.py: view_gallery, search_viewresults, htmx_view_item,
+    # download_file; thumbnails/views.py: thumbnail_file, thumbnail_dir;
     # frontend/report_views.py: duplicate_files_report.
     def _gated_urls(self) -> dict[str, str]:
         """Return {label: url} for every login-gated endpoint.
@@ -388,8 +388,8 @@ class TestAnonymousAccessIsGated(ViewSmokeTestBase):
             "search": "/search/?searchtext=photo",
             "view_item": f"/view_item/{self.file_obj.unique_sha256}/",
             "download": f"/download_file/?usha={self.file_obj.unique_sha256}",
-            "thumbnail_file": f"/thumbnail2_file/{self.file_obj.file_sha256}",
-            "thumbnail_dir": f"/thumbnail2_directory/{self.dir_obj.dir_fqpn_sha256}",
+            "thumbnail_file": f"/thumbnail_file/{self.file_obj.file_sha256}",
+            "thumbnail_dir": f"/thumbnail_directory/{self.dir_obj.dir_fqpn_sha256}",
             "duplicate_report": "/reports/duplicate_files.html",
         }
 
@@ -437,7 +437,7 @@ class TestPreferencesToggle(SecureClientMixin, TestCase):
 class TestPhase5ViewsAreSync(TestCase):
     """Regression guard for async_simplification.md Phase 5.
 
-    search_viewresults, new_viewgallery, htmx_view_item, and
+    search_viewresults, view_gallery, htmx_view_item, and
     duplicate_files_report were deliberately converted from async def to
     plain def (Phase 5) after production load-test data showed no latency
     benefit from keeping them async. A future edit reintroducing `async`
@@ -451,11 +451,11 @@ class TestPhase5ViewsAreSync(TestCase):
 
         assert not inspect.iscoroutinefunction(search_viewresults)
 
-    def test_new_viewgallery_is_sync(self):
-        """new_viewgallery must remain a plain function, not a coroutine."""
-        from frontend.views import new_viewgallery
+    def test_view_gallery_is_sync(self):
+        """view_gallery must remain a plain function, not a coroutine."""
+        from frontend.views import view_gallery
 
-        assert not inspect.iscoroutinefunction(new_viewgallery)
+        assert not inspect.iscoroutinefunction(view_gallery)
 
     def test_htmx_view_item_is_sync(self):
         """htmx_view_item must remain a plain function, not a coroutine."""

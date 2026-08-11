@@ -367,7 +367,7 @@ def _get_paginated_search_results(
 
     Mirrors the layout_manager pattern: COUNT first, then LIMIT/OFFSET slices
     using calculate_page_bounds(). Only fetches SHA values from the DB, then
-    hydrates full objects via __in lookups — identical to how new_viewgallery()
+    hydrates full objects via __in lookups — identical to how view_gallery()
     consumes layout_manager output.
 
     Reduces async/sync boundary crossings to 1 and avoids fetching objects
@@ -479,7 +479,7 @@ def search_viewresults(request: WSGIRequest):
     total_pages = max(1, math.ceil(total_items / items_per_page))
     current_page = max(1, min(current_page, total_pages))
 
-    # Hydrate full objects for this page only — same pattern as new_viewgallery()
+    # Hydrate full objects for this page only — same pattern as view_gallery()
     dirs_to_display = (
         list(
             DirectoryIndex.objects.filter(dir_fqpn_sha256__in=dir_shas, delete_pending=False)
@@ -701,7 +701,7 @@ def _check_and_enqueue_missing_thumbnails(directory: DirectoryIndex, sort_orderi
 
 @require_login_if_configured
 @vary_on_headers("HX-Request")
-def new_viewgallery(request: WSGIRequest):
+def view_gallery(request: WSGIRequest):
     """
     View the requested Gallery page using optimized helper functions.
 
@@ -709,7 +709,7 @@ def new_viewgallery(request: WSGIRequest):
         request: Django Request object
     Returns: Django response
     """
-    print("NEW VIEW GALLERY for ", request.path)
+    print("VIEW GALLERY for ", request.path)
     start_time = time.perf_counter()
 
     show_duplicates = _get_show_duplicates_preference(request)
@@ -795,7 +795,7 @@ def new_viewgallery(request: WSGIRequest):
                 prefetch_related=(),
             ).filter(dir_fqpn_sha256__in=layout["page_items"]["directory_shas"])
             # REMOVED: .select_related("thumbnail__new_ftnail") - Phase 5 Fix 1
-            # Thumbnails load on-demand via thumbnail2_dir() - no need for 750KB binary blobs
+            # Thumbnails load on-demand via thumbnail_dir() - no need for 750KB binary blobs
         )
     else:
         dirs_to_display = []
@@ -869,7 +869,7 @@ def htmx_view_item(request: HtmxHttpRequest, sha256: str):
     context["show_duplicates"] = show_duplicates
 
     # Proactively warm thumbnails for the directory this item belongs to.
-    # Same pattern as new_viewgallery() but with a smaller batch limit.
+    # Same pattern as view_gallery() but with a smaller batch limit.
     # Uses cached DirectoryIndex from build_context_info (avoids redundant DB fetch).
     directory = context["home_directory"]
     _check_and_enqueue_missing_thumbnails(directory, context["sort"], settings.ITEM_VIEW_THUMBNAIL_BATCH_LIMIT)

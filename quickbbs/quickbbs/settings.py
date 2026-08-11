@@ -24,7 +24,7 @@ from quickbbs.quickbbs_settings import *  # pylint: disable=wildcard-import,unus
 #   Debug, enables the debugging mode
 #
 DEBUG = False
-DEBUG = True
+# DEBUG = True
 print(f"* Debug Mode is {DEBUG}")
 
 #   Django Debug Toolbar, is controlled separately from the debug mode,

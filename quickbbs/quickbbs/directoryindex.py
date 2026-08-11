@@ -1216,7 +1216,7 @@ class DirectoryIndex(models.Model):
 
         PostgreSQL selects the winner in a single query via a priority
         annotation ordered ahead of the default name sort:
-            0 — a file already flagged cover_image=True (set by thumbnail2_dir
+            0 — a file already flagged cover_image=True (set by thumbnail_dir
                 when a cover is selected)
             1 — a filename matching DIRECTORY_COVER_NAMES (case-insensitive,
                 lazy-built query from settings)
@@ -1226,7 +1226,7 @@ class DirectoryIndex(models.Model):
         The flagged=0 tier folds the previous flagged-cover short-circuit
         under the thumbnailable filter; this is safe because cover_image is
         only ever set on files chosen from the thumbnailable set
-        (thumbnail2_dir).
+        (thumbnail_dir).
 
         Returns:
             FileIndex record if a suitable cover image is found, None otherwise
@@ -1334,7 +1334,7 @@ class DirectoryIndex(models.Model):
             Django URL object
 
         """
-        return reverse(r"thumbnail2_dir", args=(self.dir_fqpn_sha256,))
+        return reverse(r"thumbnail_dir", args=(self.dir_fqpn_sha256,))
 
     @staticmethod
     def _make_sibling_link(fqpn: str) -> dict[str, str]:

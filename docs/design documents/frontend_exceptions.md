@@ -29,7 +29,7 @@ particular response. Verified directly against `frontend/views.py`,
 Both exceptions are raised exclusively inside
 [`_find_directory(paths)`](frontend_design.md#471-helper-functions-in-viewspy)
 (`views.py:598–684`), the private helper behind
-[`new_viewgallery`](frontend_design.md#new_viewgalleryrequest):
+[`view_gallery`](frontend_design.md#view_galleryrequest):
 
 - **`DirectoryInvalidError`** — raised at `views.py:626` when
   `DirectoryIndex.is_in_albums_tree(dirpath)` is `False` (the path-traversal/escape
@@ -46,7 +46,7 @@ Both exceptions are raised exclusively inside
 Inside `_find_directory` itself, an `except (DirectoryNotFoundError,
 DirectoryInvalidError): raise` (`views.py:679`) re-raises both unchanged before the
 broader `except Exception` wraps anything else. The terminal handling happens in
-`new_viewgallery` (`views.py:751–754`):
+`view_gallery` (`views.py:751–754`):
 
 ```python
 except DirectoryNotFoundError:
@@ -89,7 +89,7 @@ fallback documented in
   defaults to page 1 (`views.py:118`).
 - `create_search_regex_pattern` catches `(TypeError, ValueError)` around
   `re.escape()` and returns an empty pattern (`views.py:214`).
-- `new_viewgallery` catches `(ValueError, UnicodeDecodeError)` around URL-decoding
+- `view_gallery` catches `(ValueError, UnicodeDecodeError)` around URL-decoding
   `request.path` and falls back to a simpler lowercase-only normalization
   (`views.py:738`).
 - [`get_sort_param`](frontend_design.md#get_sort_paramrequest) (in `utilities.py:41`)

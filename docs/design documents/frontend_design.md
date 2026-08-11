@@ -218,7 +218,7 @@ HTTP Request
     ▼
 Django URL router
     │
-    ├── new_viewgallery()        Gallery directory listing        (sync)
+    ├── view_gallery()           Gallery directory listing        (sync)
     ├── htmx_view_item()         Single-item viewer (HTMX)        (sync)
     ├── search_viewresults()     Gallery search                   (sync)
     ├── download_file()          File download / inline video     (async)
@@ -283,7 +283,7 @@ work itself.
 
 ---
 
-#### `new_viewgallery(request)`
+#### `view_gallery(request)`
 
 **What does this do?** Shows a user the contents of a directory, one page at a time.
 This is the view most requests hit, so it has to feel instant even on a directory with
@@ -499,7 +499,7 @@ preference.
 
 **Exceptions:** `DirectoryNotFoundError` (physical directory missing → 404) and
 `DirectoryInvalidError` (invalid/escaping path → 400) are defined here and caught in
-`new_viewgallery()`.
+`view_gallery()`.
 
 ---
 

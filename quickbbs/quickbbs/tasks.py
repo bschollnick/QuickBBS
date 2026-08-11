@@ -503,7 +503,7 @@ def snapshot_cache_statistics() -> dict[str, dict[str, int | float | str]]:
     are accessible — calling from a separate worker process (e.g. a dbtasks
     runner) would see freshly-initialised caches with zero counts.
 
-    Called from new_viewgallery() on gallery requests when CACHE_MONITORING is
+    Called from view_gallery() on gallery requests when CACHE_MONITORING is
     True, but writes at most once per SNAPSHOT_MIN_INTERVAL seconds — the
     counters are cumulative, so throttled calls lose no data, only DB-row
     freshness. Skips caches whose stats are unchanged since the last snapshot
@@ -577,7 +577,7 @@ def snapshot_cache_statistics() -> dict[str, dict[str, int | float | str]]:
     if to_write:
         # One INSERT ... ON CONFLICT DO UPDATE for every changed cache, instead
         # of a SELECT+UPDATE in its own transaction per cache. This runs on the
-        # gallery request path (new_viewgallery), so the round-trip count is
+        # gallery request path (view_gallery), so the round-trip count is
         # what matters: 16 caches cost 64 queries before, 1 now.
         CacheStatisticsTracking.objects.bulk_create(
             to_write,
