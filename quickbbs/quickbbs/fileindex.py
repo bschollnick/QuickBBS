@@ -517,7 +517,7 @@ class FileIndex(models.Model):
                 return None
 
             # Extract and normalize file extension
-            fileext = (fs_entry.suffix.lower() if fs_entry.suffix else "") or ".none"
+            fileext = (fs_entry.suffix if fs_entry.suffix else "") or ".none"
             fileext = ".none" if fileext == "." else fileext
 
             # Check if filetype exists

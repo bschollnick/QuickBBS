@@ -58,6 +58,14 @@ dir_counts_cache = create_cache(
     monitored=settings.CACHE_MONITORING,
 )
 
+# Per-directory file counts (gallery view subdirectory card counts)
+# Cache key: hashkey(directory_pk)
+file_counts_cache = create_cache(
+    settings.FILE_COUNTS_CACHE_SIZE,
+    "file_counts",
+    monitored=settings.CACHE_MONITORING,
+)
+
 # Ordered sibling-directory lists per parent directory (prev/next navigation
 # and layout_manager page_locale computation)
 # Cache key: hashkey(parent_pk, sort)
@@ -83,6 +91,7 @@ _MONITORED_CACHE_LOCATIONS: list[tuple[str, str, str | None]] = [
     ("quickbbs.cache_registry", "all_files_shas_cache", None),
     ("quickbbs.cache_registry", "layout_manager_cache", None),
     ("quickbbs.cache_registry", "dir_counts_cache", None),
+    ("quickbbs.cache_registry", "file_counts_cache", None),
     ("quickbbs.cache_registry", "sibling_dirs_cache", None),
     ("quickbbs.directoryindex", "directoryindex_cache", None),
     ("quickbbs.directoryindex", "get_view_url_cache", None),
@@ -132,8 +141,8 @@ def resolve_monitored_caches() -> list[tuple[str, LRUCache | Exception]]:
 def clear_layout_cache_for_directories(directory_ids: AbstractSet[int | None]) -> int:
     """
     Clear layout_manager_cache, distinct_files_cache, all_files_shas_cache,
-    dir_counts_cache, and sibling_dirs_cache entries for one or more
-    directories.
+    dir_counts_cache, file_counts_cache, and sibling_dirs_cache entries for
+    one or more directories.
 
     Shared function to ensure consistent cache clearing across:
     - Cache watcher during filesystem invalidation
@@ -166,6 +175,9 @@ def clear_layout_cache_for_directories(directory_ids: AbstractSet[int | None]) -
         stub = DirectoryIndex(pk=pk)
         # dir_counts_cache: keyed hashkey(directory_pk)
         if dir_counts_cache.pop(hashkey(pk), None) is not None:
+            count += 1
+        # file_counts_cache: keyed hashkey(directory_pk), same shape as dir_counts_cache
+        if file_counts_cache.pop(hashkey(pk), None) is not None:
             count += 1
         for sort in range(3):
             if distinct_files_cache.pop(hashkey(stub, sort), None) is not None:

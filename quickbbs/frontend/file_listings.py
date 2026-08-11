@@ -4,9 +4,9 @@ import asyncio
 import os
 from pathlib import Path
 
-import filetypes.models as filetype_models
 from django.conf import settings
 
+import filetypes.models as filetype_models
 from quickbbs.common import normalize_string_lower, normalize_string_title
 
 
@@ -42,7 +42,7 @@ def _filter_and_process_item(item, ext_ignore, files_ignore, ignore_dots):
         else:
             # Use pathlib for consistent extension extraction (matches utilities.py pattern)
             path_obj = Path(name_lower)
-            fext = path_obj.suffix.lower() if path_obj.suffix else ".none"
+            fext = path_obj.suffix if path_obj.suffix else ".none"
 
         # Skip ignored extensions and unknown filetypes
         if fext in ext_ignore or not filetype_models.filetypes.filetype_exists_by_ext(fext):

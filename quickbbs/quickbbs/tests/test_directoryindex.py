@@ -27,6 +27,11 @@ import tempfile
 import pytest
 from django.test import TestCase, override_settings
 
+from filetypes.models import filetypes
+from quickbbs.cache_registry import (
+    clear_layout_cache_for_directories,
+    file_counts_cache,
+)
 from quickbbs.common import get_dir_sha, normalize_fqpn
 from quickbbs.directoryindex import (
     DIRECTORYINDEX_SR_FILETYPE_THUMB,
@@ -34,6 +39,7 @@ from quickbbs.directoryindex import (
     DIRECTORYINDEX_SR_PARENT,
     DirectoryIndex,
 )
+from quickbbs.fileindex import FileIndex
 
 pytestmark = pytest.mark.api
 
@@ -537,6 +543,64 @@ class TestFileDirCounts(VerificationSuiteTestBase):
         """get_count_breakdown shows 0 all_files for unscanned directory."""
         breakdown = self.parent.get_count_breakdown()
         assert breakdown["all_files"] == 0
+
+    def test_get_file_counts_with_files(self) -> None:
+        """get_file_counts returns the number of non-delete_pending FileIndex rows."""
+        ft = filetypes.objects.get(fileext=".txt")
+        for i in range(3):
+            FileIndex.objects.create(
+                home_directory=self.parent,
+                name=f"file{i}.txt",
+                file_sha256=None,
+                unique_sha256=f"sha-{i}",
+                lastscan=0.0,
+                lastmod=0.0,
+                filetype=ft,
+                delete_pending=False,
+                is_generic_icon=False,
+            )
+        FileIndex.objects.create(
+            home_directory=self.parent,
+            name="pending.txt",
+            file_sha256=None,
+            unique_sha256="sha-pending",
+            lastscan=0.0,
+            lastmod=0.0,
+            filetype=ft,
+            delete_pending=True,
+            is_generic_icon=False,
+        )
+        # cachetools.cached erases the descriptor typing, see get_dir_counts above.
+        count = self.parent.get_file_counts()  # type: ignore[call-arg]
+        assert count == 3
+
+    def test_get_file_counts_cache_invalidated_on_new_file(self) -> None:
+        """A stale cached count is replaced after clear_layout_cache_for_directories.
+
+        Regression guard for Step 4 of fable_optimizations-2.md: caching
+        get_file_counts() must not serve a stale count once the directory's
+        cache is invalidated via the codebase's single shared invalidation
+        chokepoint.
+        """
+        ft = filetypes.objects.get(fileext=".txt")
+        assert self.parent.get_file_counts() == 0  # type: ignore[call-arg]  # warms the cache at 0
+
+        FileIndex.objects.create(
+            home_directory=self.parent,
+            name="new_file.txt",
+            file_sha256=None,
+            unique_sha256="sha-new",
+            lastscan=0.0,
+            lastmod=0.0,
+            filetype=ft,
+            delete_pending=False,
+            is_generic_icon=False,
+        )
+        # Without invalidation, the cached 0 would still be served.
+        assert file_counts_cache.get((self.parent.pk,)) == 0
+
+        clear_layout_cache_for_directories({self.parent.pk})
+        assert self.parent.get_file_counts() == 1  # type: ignore[call-arg]
 
 
 # ===========================================================================

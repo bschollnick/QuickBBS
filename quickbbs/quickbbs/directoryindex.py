@@ -54,13 +54,15 @@ get_view_url_cache = create_cache(settings.GET_VIEW_URL_CACHE_SIZE, "get_view_ur
 
 # These caches live in quickbbs.cache_registry (shared across apps).
 # Imported here for use by @cached decorators on get_distinct_file_shas(),
-# get_all_file_shas(), get_dir_counts(), and get_ordered_sibling_dirs().
+# get_all_file_shas(), get_dir_counts(), get_file_counts(), and
+# get_ordered_sibling_dirs().
 # Must come after module-level cache creation above to avoid a cyclic import.
 from quickbbs.cache_registry import (  # noqa: E402  # pylint: disable=wrong-import-position
     all_files_shas_cache,
     clear_layout_cache_for_directories,
     dir_counts_cache,
     distinct_files_cache,
+    file_counts_cache,
     sibling_dirs_cache,
 )
 
@@ -759,11 +761,16 @@ class DirectoryIndex(models.Model):
         additional_filters = additional_filters or {}
         return self.FileIndex_entries.filter(delete_pending=False, **additional_filters).exists()
 
+    @cached(file_counts_cache, key=lambda self: hashkey(self.pk))
     def get_file_counts(self) -> int:
         """
         Return the number of files that are in the database for the current directory
 
-        Benchmark-only — no production callers as of 2026-07-06.
+        Results are cached in file_counts_cache keyed on the bare pk (so
+        clear_layout_cache_for_directories() can construct the key without a
+        stub instance). Invalidated whenever this directory's membership
+        changes, via clear_layout_cache_for_directories() — same pattern as
+        get_dir_counts().
 
         Returns: Integer - Number of files in the database for the directory
         """
