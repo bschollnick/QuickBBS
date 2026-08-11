@@ -7,7 +7,7 @@ QuickBBS Gallery
 
 A high-performance, self-hosted Django gallery and file browser, built on a hybrid file system + database design. Point it at a directory tree of images, PDFs, archives, video, and audio, and it indexes, thumbnails, and serves them through a fast, responsive web UI.
 
-This README covers the essentials — installation, running it, and a feature overview. For architecture, deployment options, database schema, and everything else, the **[`Docs/`](Docs/) directory is the complete, authoritative reference**; start at [`Docs/QuickBBS.md`](Docs/QuickBBS.md).
+This README covers the essentials — installation, running it, and a feature overview. For architecture, deployment options, database schema, and everything else, the **[`docs/`](docs/) directory is the complete, authoritative reference**; start at [`docs/QuickBBS.md`](docs/QuickBBS.md).
 
 ## Features
 
@@ -32,16 +32,16 @@ extension (via the Django admin or the seed command) to match your taste.
 
 <table>
 <tr>
-<td><img src="Docs/images/Viewing mixed directory of content.png" alt="Mixed directory of content" width="400"></td>
-<td><img src="Docs/images/Viewing directory of PDFs.png" alt="Directory of PDFs" width="400"></td>
+<td><img src="docs/images/Viewing mixed directory of content.png" alt="Mixed directory of content" width="400"></td>
+<td><img src="docs/images/Viewing directory of PDFs.png" alt="Directory of PDFs" width="400"></td>
 </tr>
 <tr>
-<td><img src="Docs/images/Viewing directory of graphics.png" alt="Directory of graphics" width="400"></td>
-<td><img src="Docs/images/Viewing a larger movie (while playing).png" alt="Playing a movie" width="400"></td>
+<td><img src="docs/images/Viewing directory of graphics.png" alt="Directory of graphics" width="400"></td>
+<td><img src="docs/images/Viewing a larger movie (while playing).png" alt="Playing a movie" width="400"></td>
 </tr>
 </table>
 
-More screenshots — PDF viewing, thumbnails, and video playback — are in [`Docs/Screenshots.md`](Docs/Screenshots.md), including the full filetype color legend.
+More screenshots — PDF viewing, thumbnails, and video playback — are in [`docs/Screenshots.md`](docs/Screenshots.md), including the full filetype color legend.
 
 ## Quick Start
 
@@ -70,19 +70,19 @@ python manage.py runserver 0.0.0.0:8888
 python manage.py taskrunner -w 4
 ```
 
-For production, QuickBBS is tested against Granian and Hypercorn (both ASGI, native HTTP/2). Other ASGI/WSGI servers such as Uvicorn, Daphne, and Gunicorn should also work but aren't part of our regular test cycle. Large-scale deployments may instead front the app with Apache, nginx, or Caddy as a reverse proxy — see [`Docs/Web Servers.md`](Docs/Web%20Servers.md) for full deployment options, reverse proxy configs, and HTTPS setup.
+For production, QuickBBS is tested against Granian and Hypercorn (both ASGI, native HTTP/2). Other ASGI/WSGI servers such as Uvicorn, Daphne, and Gunicorn should also work but aren't part of our regular test cycle. Large-scale deployments may instead front the app with Apache, nginx, or Caddy as a reverse proxy — see [`docs/Web Servers.md`](docs/Web%20Servers.md) for full deployment options, reverse proxy configs, and HTTPS setup.
 
 ## Documentation
 
-**The [`Docs/`](Docs/) directory is where the complete documentation lives** — this README is intentionally just a quick-start. Head there for anything beyond the basics, including:
+**The [`docs/`](docs/) directory is where the complete documentation lives** — this README is intentionally just a quick-start. Head there for anything beyond the basics, including:
 
-* [Full documentation](Docs/QuickBBS.md) — start here
-* [Screenshots](Docs/Screenshots.md) — UI tour and filetype color legend
-* [Web Servers & Deployment](Docs/Web%20Servers.md)
-* [Database ERD](Docs/DATABASE_ERD.md)
-* [Links & Aliases](Docs/Links%20&%20Aliases.md)
-* [Version History](Docs/Version%20History.md)
-* [Design documents](Docs/design%20documents/) — architecture and design rationale
+* [Full documentation](docs/QuickBBS.md) — start here
+* [Screenshots](docs/Screenshots.md) — UI tour and filetype color legend
+* [Web Servers & Deployment](docs/Web%20Servers.md)
+* [Database ERD](docs/DATABASE_ERD.md)
+* [Links & Aliases](docs/Links%20&%20Aliases.md)
+* [Version History](docs/Version%20History.md)
+* [Design documents](docs/design%20documents/) — architecture and design rationale
 
 ## License
 
