@@ -1,6 +1,6 @@
 """ """
 
-__version__ = "4.00"
+__version__ = "4.1"
 
 __author__ = "Benjamin Schollnick"
 __email__ = "Benjamin@schollnick.net"

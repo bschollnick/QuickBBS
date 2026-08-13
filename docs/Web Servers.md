@@ -2,6 +2,25 @@
 
 QuickBBS supports multiple web server options for both development and production deployment. Starting with version 3.5.0, the application is fully ASGI-compatible.
 
+### Installing a Web Server
+
+`gunicorn`, `uvicorn`, `hypercorn`, and `granian` are **optional** Poetry dependencies — a plain `poetry install` installs none of them. Install only the one(s) you plan to run, via Poetry extras:
+
+```bash
+poetry install --extras uvicorn      # just Uvicorn
+poetry install --extras hypercorn    # just Hypercorn
+poetry install --extras granian      # just Granian
+poetry install --extras gunicorn     # just Gunicorn
+
+# multiple at once
+poetry install --extras "uvicorn hypercorn"
+
+# everything (previous default behavior)
+poetry install --extras all-servers
+```
+
+The Django development server (`manage.py runserver`/`runserver_plus`) needs no extra install — it ships with Django/django-extensions.
+
 ### Django Development Server (Development Only)
 
 **Basic HTTP:**
@@ -31,6 +50,8 @@ Wraps `runserver_plus` with certificate paths expected under `../certs/`. See th
 ### Gunicorn (WSGI - Production)
 
 Gunicorn is a production-ready WSGI server with excellent stability.
+
+**Install:** `poetry install --extras gunicorn`
 
 **Basic HTTP:**
 ```bash
@@ -77,6 +98,8 @@ gunicorn quickbbs.wsgi:application \
 
 Gunicorn with Uvicorn workers combines Gunicorn's process management with Uvicorn's ASGI performance and HTTP/2 support.
 
+**Install:** `poetry install --extras "gunicorn uvicorn"`
+
 **Quick Start with HTTP/2 (Recommended):**
 ```bash
 cd quickbbs
@@ -114,6 +137,8 @@ gunicorn quickbbs.asgi:application \
 ### Uvicorn (ASGI - Production) ⭐ RECOMMENDED FOR HTTP/1.1
 
 Uvicorn is a lightning-fast ASGI server with async support. **NOTE: Uvicorn does NOT support HTTP/2.** For HTTP/2 support, use Hypercorn instead.
+
+**Install:** `poetry install --extras uvicorn`
 
 **Quick Start (HTTPS, HTTP/1.1 only):**
 ```bash
@@ -192,6 +217,8 @@ uvicorn quickbbs.asgi:application \
 
 Hypercorn is an ASGI server with **native HTTP/2 support** via ALPN negotiation, unlike Uvicorn. Hypercorn also has HTTP/3 (QUIC) support as a library capability, but QuickBBS does not configure or test it — `start_hypercorn_http2.sh` only sets up HTTP/2.
 
+**Install:** `poetry install --extras hypercorn`
+
 **Quick Start with HTTP/2 (Recommended):**
 ```bash
 cd quickbbs
@@ -246,6 +273,8 @@ hypercorn quickbbs.asgi:application \
 ### Granian (ASGI - Production, Tested) ⭐ RECOMMENDED
 
 Granian is a Rust-based ASGI/WSGI server with native HTTP/1, HTTP/2 (via ALPN), and multi-process worker management. It is now tested against QuickBBS and supported alongside Hypercorn and Uvicorn.
+
+**Install:** `poetry install --extras granian`
 
 **Quick Start with HTTP/2:**
 ```bash

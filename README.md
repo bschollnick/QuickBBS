@@ -53,6 +53,8 @@ cd quickbbs
 poetry install
 ```
 
+`gunicorn`, `uvicorn`, `hypercorn`, and `granian` are optional Poetry extras — `poetry install` alone installs none of them. Add the one you plan to deploy with, e.g. `poetry install --extras granian` (or `--extras all-servers` for all four). See [`docs/Web Servers.md`](docs/Web%20Servers.md#installing-a-web-server) for details.
+
 Configure your database and gallery root, then run migrations:
 
 ```bash
@@ -70,7 +72,7 @@ python manage.py runserver 0.0.0.0:8888
 python manage.py taskrunner -w 4
 ```
 
-For production, QuickBBS is tested against Granian and Hypercorn (both ASGI, native HTTP/2). Other ASGI/WSGI servers such as Uvicorn, Daphne, and Gunicorn should also work but aren't part of our regular test cycle. Large-scale deployments may instead front the app with Apache, nginx, or Caddy as a reverse proxy — see [`docs/Web Servers.md`](docs/Web%20Servers.md) for full deployment options, reverse proxy configs, and HTTPS setup.
+For production, QuickBBS is tested against Granian and Hypercorn (both ASGI, native HTTP/2). Other ASGI/WSGI servers such as Uvicorn, Daphne, and Gunicorn should also work but aren't part of our regular test cycle. Large-scale deployments may instead front the app with Apache, nginx, or Caddy as a reverse proxy — see [`docs/Web Servers.md`](docs/Web%20Servers.md) for full deployment options, reverse proxy configs, HTTPS setup, and installing the server you choose as a Poetry extra.
 
 ## Documentation
 

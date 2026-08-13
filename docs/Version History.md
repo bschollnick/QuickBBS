@@ -460,6 +460,46 @@ Version 4.00 is a major release marking the culmination of the "march to v4" eff
 
 ---
 
+## Version 4.1 (August 13, 2026)
+**Technology**: Django 6.1+, HTMX, django-dbtasks, PostgreSQL
+
+Version 4.1 builds on the v4.00 foundation, raising the minimum Django requirement to 6.1+, splitting the thumbnail engine into its own library, and continuing the post-v4 cleanup and hardening pass.
+
+### Major Enhancements:
+
+**Django 6.1+ Requirement:**
+- **Hard Minimum Raised**: Minimum supported Django version is now 6.1+
+- **`on_delete` Syntax Updated**: Migrated model `on_delete` declarations to Django v6.1 syntax across `DirectoryIndex`, `FileIndex`, and related models
+
+**Thumbnail Engine Refactor:**
+- **Standalone Engine Library**: Split the thumbnail engine out of `thumbnails/` into its own `thumbnails/engine/` package (base classes, config, exceptions, PIL/PDF/video/AVFoundation/Core Image backends)
+- **Granian Sync/Async Switch Support**: Added support for Granian's switch-methods, reverting async functionality back to sync where async wasn't actually needed, reducing duplicated sync/async code paths
+
+**Caching & Query Improvements:**
+- **File Count Caching**: Added caching to directory file counts to reduce redundant recomputation
+- **Latent Cache Fixes**: Fixed several latent caching issues uncovered by expanded test coverage
+- **Logging Noise Reduction**: Reduced excessive/duplicate logging output
+
+**Bug Fixes:**
+- **QUICKBBS_REQUIRE_LOGIN Regression**: Fixed a regression that prevented `QUICKBBS_REQUIRE_LOGIN` from working; added test coverage to prevent recurrence
+- **Login Screen Theming**: Updated the login screen to match the current site theme
+- **Word Wrapping Fix**: Fixed word wrapping in the title display for `item_view`
+- **Edge Case Fixes**: Fixed additional edge-case bugs surfaced during real-world use
+
+**Code Quality & Cleanup:**
+- **Dead Code Removal**: Removed orphaned files/directories (stale `wsgi.py` duplicate, unused `3rd_party_libraries.py`, unwired `filter_ips` middleware, `prototypes/`/`depreciated/` scratch directories, stale `filetypes` constants file), an unused benchmark method, unused imports, and stale commented-out code blocks
+- **Filetypes Hardening**: Removed a dead dictionary alias in `filetypes`, fixed guard code, and changed a silent failure on filetype-reload failure into an explicit exception (a silent failure here could risk data corruption or unintended deletion)
+- **Naming Consistency**: Renamed `new_viewgallery` → `view_gallery`, `thumbnail2_dir` → `thumbnail_dir`, `thumbnail2_file` → `thunbmail_file` for clarity
+- **Type Hint Fixes**: Additional type hint corrections across touched modules
+- **Test Suite Expansion**: Expanded test coverage for the API, web responses, and directory/file-count caching
+
+**Documentation:**
+- **Public Design Documentation**: Released public-facing design documentation, including a request-flow diagram and expanded screenshots
+- **README Overhaul**: Fleshed out and corrected the GitHub README
+- **Admin Diagnostics**: Added better diagnostics into admin Cache Monitoring
+
+---
+
 ## Performance Evolution Summary:
 
 | Version | Release Date        | Storage                    | Thumbnails     | Monitoring             |
@@ -475,4 +515,5 @@ Version 4.00 is a major release marking the culmination of the "march to v4" eff
 | v3.90   | November 15, 2025   | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI |
 | v3.95   | December 2025       | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI + Macro Templates |
 | v4.00   | July 9, 2026        | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI + django-dbtasks  |
+| v4.1    | August 13, 2026     | PostgreSQL                 | Database BLOBs | Watchdog + HTMX + ASGI + django-dbtasks  |
 
