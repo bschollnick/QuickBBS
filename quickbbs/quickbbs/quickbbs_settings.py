@@ -193,6 +193,14 @@ DIRECTORY_SYNC_BATCH_SIZE = 250  # Batch size for bulk_update during directory s
 SHA256_MAX_WORKERS = 8  # Maximum worker processes for parallel SHA256 computation
 SHA256_PARALLEL_THRESHOLD = 5  # Minimum file count to use parallel processing
 
+# PostgreSQL maintenance thresholds
+# Dead-to-live tuple ratio that flags a table as needing a vacuum. Shared by
+# the admin index vacuum-candidates widget and the weekly_vacuum_check
+# periodic task (both call quickbbs.tasks.get_vacuum_candidates) so the two
+# agree on what counts as "needs a vacuum".
+VACUUM_DEAD_RATIO_THRESHOLD = 0.15  # 15%, triggers before autovacuum's default 20%
+VACUUM_MIN_LIVE_ROWS = 1000  # Minimum live row count before a table is considered
+
 # Batch sizes for database and I/O operations
 # These values are optimized for typical directory/file counts in gallery operations
 BATCH_SIZES = {
@@ -247,7 +255,7 @@ PDF_FILE_TYPES = [
 RAR_FILE_TYPES = [".cbr", ".rar"]
 ZIP_FILE_TYPES = [".cbz", ".zip"]
 HTML_FILE_TYPES = [".html", ".htm"]
-TEXT_FILE_TYPES = [".txt", ".markdown", ".text"]
+TEXT_FILE_TYPES = [".txt", ".markdown", ".md", ".text"]
 MOVIE_FILE_TYPES = [
     ".mp4",
     ".mpg",
@@ -267,6 +275,7 @@ BOOK_FILE_TYPES = [
 ]
 MARKDOWN_FILE_TYPES = [
     ".markdown",
+    ".md",
 ]
 
 LINK_FILE_TYPES = [".link", ".alias"]

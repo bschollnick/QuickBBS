@@ -198,8 +198,8 @@ def generate_missing_thumbnails(
 
 
 def get_vacuum_candidates(
-    scale_factor_threshold: float = 0.15,
-    min_live_rows: int = 1000,
+    scale_factor_threshold: float = settings.VACUUM_DEAD_RATIO_THRESHOLD,
+    min_live_rows: int = settings.VACUUM_MIN_LIVE_ROWS,
 ) -> list[dict]:
     """Return PostgreSQL tables where dead tuple ratio exceeds a threshold.
 
@@ -210,10 +210,12 @@ def get_vacuum_candidates(
 
     Args:
         scale_factor_threshold: Dead-to-live ratio that flags a table.
-            Defaults to 0.15 (15%), triggering before autovacuum's default 20%.
+            Defaults to settings.VACUUM_DEAD_RATIO_THRESHOLD, triggering
+            before autovacuum's default 20%.
         min_live_rows: Minimum live row count to consider. Tables below this
             are skipped — small tables with low absolute dead counts but high
-            ratios are not a meaningful vacuum concern. Defaults to 1000.
+            ratios are not a meaningful vacuum concern. Defaults to
+            settings.VACUUM_MIN_LIVE_ROWS.
 
     Returns:
         List of dicts with table_name, n_live_tup, n_dead_tup, dead_ratio,
@@ -239,6 +241,30 @@ def get_vacuum_candidates(
         cursor.execute(sql, [min_live_rows, scale_factor_threshold])
         columns = [col[0] for col in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+
+def get_table_dead_tuple_count(table_name: str) -> int | None:
+    """Return the current n_dead_tup for a single table from pg_stat_user_tables.
+
+    Used to measure how many dead tuples a vacuum actually reclaimed, by
+    calling this before and after vacuum_table(). Returns None on
+    non-PostgreSQL backends or if the table has no pg_stat_user_tables row.
+
+    Args:
+        table_name: Name of the table to check, as reported by
+            pg_stat_user_tables.relname.
+
+    Returns:
+        Current dead tuple count, or None if unavailable.
+    """
+    if connection.vendor != "postgresql":
+        return None
+
+    sql = "SELECT n_dead_tup FROM pg_stat_user_tables WHERE relname = %s;"
+    with connection.cursor() as cursor:
+        cursor.execute(sql, [table_name])
+        row = cursor.fetchone()
+        return row[0] if row else None
 
 
 def vacuum_table(table_name: str) -> None:
@@ -269,9 +295,11 @@ def weekly_vacuum_check() -> list[dict]:
     """Vacuum tables with high dead tuple ratios as a weekly maintenance pass.
 
     Calls get_vacuum_candidates() and runs VACUUM ANALYZE on each table that
-    exceeds the 15% dead-tuple threshold, logging the start and completion of
-    each vacuum. Safe on non-PostgreSQL backends (get_vacuum_candidates
-    returns an empty list, so no vacuum is attempted).
+    exceeds settings.VACUUM_DEAD_RATIO_THRESHOLD, logging the start and
+    completion of each vacuum. Completion logging includes the number of
+    dead rows reclaimed, measured via get_table_dead_tuple_count() before
+    and after vacuum_table(). Safe on non-PostgreSQL backends
+    (get_vacuum_candidates returns an empty list, so no vacuum is attempted).
 
     Registered as a periodic task via TASKS settings (runs weekly on Sundays).
 
@@ -285,8 +313,9 @@ def weekly_vacuum_check() -> list[dict]:
         return []
 
     logger.warning(
-        "Weekly vacuum check: %d table(s) exceed 15%% dead tuple threshold — starting vacuum",
+        "Weekly vacuum check: %d table(s) exceed %.0f%% dead tuple threshold — starting vacuum",
         len(candidates),
+        settings.VACUUM_DEAD_RATIO_THRESHOLD * 100,
     )
 
     for table in candidates:
@@ -306,10 +335,16 @@ def weekly_vacuum_check() -> list[dict]:
         except (DatabaseError, OperationalError):
             logger.exception("Vacuum failed: %s", table_name)
             continue
+        dead_tup_after = get_table_dead_tuple_count(table_name)
+        dead_tup_before = table["n_dead_tup"]
+        reclaimed = dead_tup_before - dead_tup_after if dead_tup_after is not None else None
         logger.warning(
-            "Vacuum complete: %s (%.1fs)",
+            "Vacuum complete: %s (%.1fs) — %s dead rows reclaimed (%d -> %s)",
             table_name,
             time.monotonic() - start_time,
+            reclaimed if reclaimed is not None else "unknown",
+            dead_tup_before,
+            dead_tup_after if dead_tup_after is not None else "unknown",
         )
 
     return candidates
