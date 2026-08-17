@@ -1,0 +1,91 @@
+<!-- Play content partial: transcript + story text + choices for the current turn. -->
+<div id="if-play-content">
+    {% if transcript and transcript|length > 1 %}
+    <div class="if-story-transcript content">
+        {% for entry in transcript[:-1] %}
+        {% if entry.chosen_label %}<p class="if-transcript-choice"><em>&gt; {{ entry.chosen_label }}</em></p>{% endif %}
+        {% for paragraph in entry.text.split('\n') %}
+        {% if paragraph %}<p>{{ paragraph }}</p>{% endif %}
+        {% endfor %}
+        {% endfor %}
+        <hr>
+    </div>
+    {% endif %}
+
+    <div id="if-current-turn">
+    {% if image_urls %}
+    <div class="if-story-images">
+        {% for url in image_urls %}
+        <img class="if-story-image" src="{{ url }}" alt="">
+        {% endfor %}
+    </div>
+    {% endif %}
+    <div class="if-story-text content">
+        {% for paragraph in text.split('\n') %}
+        {% if paragraph %}<p>{{ paragraph }}</p>{% endif %}
+        {% endfor %}
+    </div>
+    </div>
+
+    {% if done %}
+    <div class="if-story-done notification">
+        <p>The story has ended.</p>
+        <div class="buttons">
+            <a class="button" href="/if/">Back to library</a>
+            <button type="button" class="button is-warning" hx-post="/if/{{ story.slug }}/restart/" hx-target="#if-play-content" hx-swap="outerHTML" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>Play again</button>
+        </div>
+    </div>
+    {% elif choices %}
+    <hr>
+    <p class="if-choices-label"><strong>Your options</strong></p>
+    <form hx-post="/if/{{ story.slug }}/play/"
+          hx-target="#if-play-content"
+          hx-swap="outerHTML"
+          hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+          class="if-choices">
+        <input type="hidden" name="turn_count" value="{{ turn_count }}">
+        <div class="buttons">
+            {% for index, choice_text in choices %}
+            <button type="submit" name="choice" value="{{ index }}" class="button is-link if-choice-button" data-choice-key="{{ index + 1 }}">{{ choice_text }} <span class="if-choice-key tag is-light">{{ index + 1 }}</span></button>
+            {% endfor %}
+        </div>
+    </form>
+    {% else %}
+    <div class="if-story-stalled notification">
+        <p>This story has no more choices to offer right now.</p>
+    </div>
+    {% endif %}
+
+    <div class="if-play-controls buttons">
+        {% if can_undo %}
+        <button type="button" class="button is-small" hx-post="/if/{{ story.slug }}/undo/" hx-target="#if-play-content" hx-swap="outerHTML" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>Undo</button>
+        {% endif %}
+        {% if not done %}
+        <button type="button" class="button is-small" hx-post="/if/{{ story.slug }}/restart/" hx-target="#if-play-content" hx-swap="outerHTML" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}' hx-confirm="Restart this story? Your current progress in this playthrough will be lost.">Restart</button>
+        {% endif %}
+    </div>
+
+    <script>
+    (function () {
+        var content = document.getElementById("if-play-content");
+        if (!content) return;
+        function onKeydown(event) {
+            if (event.target && /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return;
+            if (!document.body.contains(content)) {
+                document.removeEventListener("keydown", onKeydown);
+                return;
+            }
+            var button = content.querySelector('.if-choice-button[data-choice-key="' + event.key + '"]');
+            if (button) button.click();
+        }
+        document.addEventListener("keydown", onKeydown);
+
+        // Jump straight to the current turn on load/swap — the transcript
+        // above it can run to hundreds of past turns (MAX_TRANSCRIPT_TURNS),
+        // and a plain page load/refresh otherwise lands at the top of that
+        // transcript instead of the live turn.
+        var currentTurn = document.getElementById("if-current-turn");
+        if (currentTurn) currentTurn.scrollIntoView({block: "start"});
+    })();
+    </script>
+</div>

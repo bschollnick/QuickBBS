@@ -1,0 +1,42 @@
+{% extends 'base.jinja' %}
+
+{% block title %}Interactive Fiction{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="/resources/css/interactive-fiction.css?v=1">
+{% endblock %}
+
+{% block content %}
+{% include 'components/navbar.jinja' %}
+{% include 'interactive_fiction/library_sidebar.jinja' %}
+
+<section class="section filetype-main-container">
+    <h1 class="title">Interactive Fiction</h1>
+    {% if user.is_staff %}
+    <a class="button is-link is-small" href="/if/upload/">Upload a story</a>
+    {% endif %}
+    {% if stories %}
+    <ul class="if-library-list">
+        {% for story in stories %}
+        <li>
+            {% if story.pk in cover_story_ids %}
+            <img class="if-library-cover" src="/if/{{ story.slug }}/cover/" alt="">
+            {% endif %}
+            <a href="/if/{{ story.slug }}/">{{ story.title }}</a>
+            {% set status = play_statuses.get(story.pk, "not_started") %}
+            {% if status == "finished" %}
+            <span class="tag is-success">Finished — play again</span>
+            {% elif status == "in_progress" %}
+            <span class="tag is-info">Continue</span>
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    {% if total_pages and total_pages > 1 %}
+    <p class="has-text-centered">Page {{ current_page }} of {{ total_pages }}</p>
+    {% endif %}
+    {% else %}
+    <p>No stories available.</p>
+    {% endif %}
+</section>
+{% endblock %}

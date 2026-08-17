@@ -1,0 +1,87 @@
+/* Interactive Fiction play view — reader display preferences (Step 8) and
+   supporting layout for transcript/choices/images introduced in Steps 3-5.
+   Scoped to interactive_fiction templates only (loaded via extra_head, not
+   base.jinja), since no other part of the site uses these classes. */
+
+.if-story-images {
+    margin-bottom: 1rem;
+}
+
+.if-story-image {
+    max-width: 100%;
+    border-radius: 4px;
+}
+
+.if-story-transcript {
+    opacity: 0.7;
+}
+
+.if-story-transcript hr {
+    margin: 1rem 0;
+}
+
+.if-transcript-choice {
+    color: hsl(0, 0%, 48%);
+}
+
+.if-choice-key {
+    margin-left: 0.5em;
+}
+
+.if-play-controls {
+    margin-top: 1.5rem;
+}
+
+.if-choices-label {
+    margin-bottom: 0.5rem;
+}
+
+.if-library-cover {
+    max-width: 4rem;
+    max-height: 4rem;
+    border-radius: 4px;
+    vertical-align: middle;
+    margin-right: 0.5rem;
+}
+
+.if-library-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0;
+}
+
+/* Reader preferences: font size */
+.if-font-small .if-story-text,
+.if-font-small .if-story-transcript {
+    font-size: 0.875rem;
+}
+
+.if-font-medium .if-story-text,
+.if-font-medium .if-story-transcript {
+    font-size: 1rem;
+}
+
+.if-font-large .if-story-text,
+.if-font-large .if-story-transcript {
+    font-size: 1.25rem;
+}
+
+/* Reader preferences: text column width */
+.if-width-narrow .if-story-text,
+.if-width-narrow .if-story-transcript,
+.if-width-narrow .if-choices {
+    max-width: 30rem;
+}
+
+.if-width-medium .if-story-text,
+.if-width-medium .if-story-transcript,
+.if-width-medium .if-choices {
+    max-width: 45rem;
+}
+
+.if-width-wide .if-story-text,
+.if-width-wide .if-story-transcript,
+.if-width-wide .if-choices {
+    max-width: 60rem;
+}

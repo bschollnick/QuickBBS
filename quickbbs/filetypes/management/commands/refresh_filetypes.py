@@ -201,6 +201,24 @@ class Command(BaseCommand):
                     },
                 },
                 {
+                    # Compiled Ink story (interactive_fiction Step 9) — an
+                    # Inky "story.ink.json" export renamed to .inkj so
+                    # Path(name).suffix recognizes it with zero scanner
+                    # changes (see interactive_fiction/ingestion.py). No
+                    # dedicated boolean column: the ingestion hook matches
+                    # on this extension string directly, same as any other
+                    # filetype-specific dispatch in this table.
+                    "fileext": ".inkj",
+                    "defaults": {
+                        "generic": True,
+                        "icon_filename": "1431973815_text.PNG",
+                        "color": "FDEDB1",
+                        "filetype": settings.FTYPES["interactive_fiction"],
+                        "mimetype": "application/json",
+                        "thumbnail": pathlib.Path(settings.ICONS_PATH, "1431973815_text.PNG").read_bytes(),
+                    },
+                },
+                {
                     "fileext": ".dir",
                     "defaults": {
                         "generic": False,

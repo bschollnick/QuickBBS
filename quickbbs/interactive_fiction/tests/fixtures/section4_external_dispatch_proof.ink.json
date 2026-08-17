@@ -1,0 +1,41 @@
+{
+  "inkVersion": 21,
+  "root": [
+    [
+      "ev",
+      false,
+      {
+        "VAR=": "ran",
+        "re": false
+      },
+      {
+        "x()": "MARK_RAN",
+        "exArgs": 0
+      },
+      "pop",
+      "/ev",
+      "end",
+      [
+        "done",
+        {
+          "#n": "g-0"
+        }
+      ],
+      null
+    ],
+    "done",
+    {
+      "MARK_RAN": [
+        "ev",
+        true,
+        {
+          "VAR=": "ran",
+          "re": true
+        },
+        "/ev",
+        null
+      ]
+    }
+  ],
+  "listDefs": {}
+}

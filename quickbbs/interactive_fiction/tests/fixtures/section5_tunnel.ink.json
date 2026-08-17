@@ -1,0 +1,1 @@
+{"inkVersion":21,"root":[["^You approach the door.","\n",{"->t->":"vestibule"},"^You go inside.","\n","done",["done",{"#n":"g-0"}],null],"done",{"vestibule":["^It's dark in here.","\n","ev","void","/ev","->->",null]}],"listDefs":{}}

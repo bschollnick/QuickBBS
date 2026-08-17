@@ -1,0 +1,1 @@
+{"inkVersion":21,"root":[["^You start the journey.","\n",{"->t->":"outer"},"^You finish the journey.","\n","done",["done",{"#n":"g-0"}],null],"done",{"outer":["^Entering the outer tunnel.","\n",{"->t->":"inner"},"^Leaving the outer tunnel.","\n","ev","void","/ev","->->",null],"inner":["^Entering the inner tunnel.","\n","ev","void","/ev","->->",null]}],"listDefs":{}}

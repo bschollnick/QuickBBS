@@ -1,0 +1,1 @@
+{"inkVersion":21,"root":[["ev",{"f()":"bump"},"pop","/ev","\n","^Score is ","ev",{"VAR?":"score"},"out","/ev","^.","\n","end",["done",{"#n":"g-0"}],null],"done",{"bump":["ev",{"VAR?":"score"},1,"+","/ev",{"VAR=":"score","re":true},null],"global decl":["ev",0,{"VAR=":"score"},"/ev","end",null]}],"listDefs":{}}

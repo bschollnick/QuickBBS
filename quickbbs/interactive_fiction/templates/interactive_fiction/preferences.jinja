@@ -1,0 +1,45 @@
+{% extends 'base.jinja' %}
+
+{% block title %}Reader Preferences{% endblock %}
+
+{% block content %}
+{% include 'components/navbar.jinja' %}
+
+<section class="section">
+    <h1 class="title">Interactive Fiction — Reader Preferences</h1>
+    <a class="button is-small" href="/if/">Back to library</a>
+
+    <form method="post" style="margin-top: 1rem;">
+        {% csrf_token %}
+        <div class="field">
+            <label class="label">Text size</label>
+            <div class="control">
+                <div class="select">
+                    <select name="if_font_size">
+                        <option value="small" {% if preferences.if_font_size == "small" %}selected{% endif %}>Small</option>
+                        <option value="medium" {% if preferences.if_font_size == "medium" %}selected{% endif %}>Medium</option>
+                        <option value="large" {% if preferences.if_font_size == "large" %}selected{% endif %}>Large</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        <div class="field">
+            <label class="label">Text column width</label>
+            <div class="control">
+                <div class="select">
+                    <select name="if_text_width">
+                        <option value="narrow" {% if preferences.if_text_width == "narrow" %}selected{% endif %}>Narrow</option>
+                        <option value="medium" {% if preferences.if_text_width == "medium" %}selected{% endif %}>Medium</option>
+                        <option value="wide" {% if preferences.if_text_width == "wide" %}selected{% endif %}>Wide</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        <div class="field">
+            <div class="control">
+                <button type="submit" class="button is-link">Save preferences</button>
+            </div>
+        </div>
+    </form>
+</section>
+{% endblock %}

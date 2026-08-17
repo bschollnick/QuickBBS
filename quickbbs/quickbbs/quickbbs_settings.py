@@ -316,6 +316,7 @@ FTYPES = {
     "audio": 10,
     "markdown": 11,
     "link": 12,
+    "interactive_fiction": 13,
 }
 
 # Filenames to skip during directory scanning (case-insensitive comparison)
@@ -343,3 +344,45 @@ EXTENSIONS_TO_IGNORE = [
 
 # When True, files and directories starting with "." are hidden from gallery views
 IGNORE_DOT_FILES = True
+
+# Interactive Fiction
+# Per-user cap on named save slots per story (each slot is an explicit,
+# player-controlled snapshot — see interactive_fiction/models.py SaveState).
+MAX_SAVE_SLOTS_PER_STORY = 5
+# Upper bound on an imported save-file upload (a JSON envelope containing
+# one SaveState.state), checked before attempting json.loads.
+MAX_SAVE_FILE_UPLOAD_BYTES = 2_000_000
+# Upper bound on an uploaded compiled Ink story (.ink.json) — larger than
+# MAX_SAVE_FILE_UPLOAD_BYTES since a full story's compiled content tree is
+# typically much bigger than one player's save-state snapshot.
+MAX_STORY_UPLOAD_BYTES = 20_000_000
+# Compiled Ink JSON "inkVersion" values this interpreter is validated
+# against — reject anything else at upload time rather than accepting a
+# story the engine was never checked against (Step 2's interpreter was
+# built and validated exclusively against inkVersion 21 output).
+SUPPORTED_INK_VERSIONS = (21,)
+# Content types a story image upload may declare — deliberately excludes
+# image/svg+xml (scriptable) since story images are served back to other
+# users under the site origin (see interactive_fiction/views.py story_image).
+STORY_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+# Upper bound on a single story image upload (per-file, and per zip member
+# when uploaded bundled with a story — see the plan's Step 5 zip-bomb guard).
+MAX_STORY_IMAGE_UPLOAD_BYTES = 8_000_000
+# Small library-grid thumbnail size for a story's cover_image, generated via
+# thumbnails/engine/engine.py's create_thumbnails_from_bytes at upload time.
+STORY_COVER_THUMB_SIZE = {"cover": (300, 300)}
+# Cap on CurrentGame.state["transcript"] entries (Step 8) — the transcript
+# is presentation history appended to the same JSONB row every turn, so it
+# needs a bound to keep that row from growing unboundedly over a very long
+# playthrough.
+MAX_TRANSCRIPT_TURNS = 200
+# Username of the dedicated account that owns every scanner-ingested story
+# (Step 9) — keeps scanned content administratively separate from any
+# person's account. Must be created as a one-time deploy step; ingestion
+# fails loudly (logged, story skipped) if this account doesn't exist,
+# rather than guessing an owner.
+IF_SCAN_DEFAULT_OWNER = "if_librarian"
+# Stories per library page — mirrors GALLERY_ITEMS_PER_PAGE's role for the
+# main gallery, so the library sidebar's pagination behaves the same way
+# once the number of stories exceeds one page.
+IF_LIBRARY_ITEMS_PER_PAGE = 30

@@ -1,0 +1,65 @@
+{% extends 'base.jinja' %}
+
+{% block title %}{{ story.title }} — Saves{% endblock %}
+
+{% block content %}
+{% include 'components/navbar.jinja' %}
+
+<section class="section">
+    <h1 class="title">{{ story.title }} — Save Slots</h1>
+    <a class="button is-small" href="/if/{{ story.slug }}/">Back to story</a>
+
+    <table class="table is-fullwidth">
+        <thead>
+            <tr>
+                <th>Slot</th>
+                <th>Label</th>
+                <th>Last updated</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for slot_number in range(max_slots) %}
+            {% set existing = slots | selectattr('slot', 'equalto', slot_number) | first %}
+            <tr>
+                <td>{{ slot_number }}</td>
+                <td>{{ existing.label if existing else '(empty)' }}</td>
+                <td>{{ existing.updated_at if existing else '' }}</td>
+                <td>
+                    <form method="post" action="/if/{{ story.slug }}/saves/{{ slot_number }}/save/" style="display:inline">
+                        {% csrf_token %}
+                        <input type="text" name="label" placeholder="Label" value="{{ existing.label if existing else '' }}">
+                        <button type="submit" class="button is-small">Save here</button>
+                    </form>
+                    {% if existing %}
+                    <form method="post" action="/if/{{ story.slug }}/saves/{{ slot_number }}/load/" style="display:inline">
+                        {% csrf_token %}
+                        <button type="submit" class="button is-small is-link">Load</button>
+                    </form>
+                    <a class="button is-small" href="/if/{{ story.slug }}/saves/{{ slot_number }}/export/">Export</a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <h2 class="subtitle">Import a save</h2>
+    <form method="post" action="/if/{{ story.slug }}/saves/import/" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="field">
+            <label class="label">Slot</label>
+            <input type="number" name="slot" min="0" max="{{ max_slots - 1 }}" value="0">
+        </div>
+        <div class="field">
+            <label class="label">Label (optional, overrides the file's own label)</label>
+            <input type="text" name="label">
+        </div>
+        <div class="field">
+            <label class="label">Save file</label>
+            <input type="file" name="save_file" accept="application/json">
+        </div>
+        <button type="submit" class="button is-link">Import</button>
+    </form>
+</section>
+{% endblock %}

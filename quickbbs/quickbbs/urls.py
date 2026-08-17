@@ -49,6 +49,12 @@ urlpatterns += [
         user_preferences.views.toggle_show_duplicates,
         name="toggle_show_duplicates",
     ),
+    path(
+        "favorite/toggle/",
+        frontend.views.toggle_favorite,
+        name="toggle_favorite",
+    ),
+    path("favorites/", frontend.views.favorites_view, name="favorites"),
     #    re_path("^download/", frontend.views.download_file, name="download"),
     # re_path("^download/", frontend.views.download_item, name="download"),
     re_path("^download_file/", frontend.views.download_file, name="download_file"),
@@ -74,6 +80,7 @@ urlpatterns += [
         name="resources",
     ),
     path("static/<path:pathstr>", frontend.serve_up.static_or_resources, name="static"),
+    path("if/", include("interactive_fiction.urls")),
     path("accounts/", include("allauth.urls")),
     path("grappelli/", include("grappelli.urls")),  # grappelli URLS
     path(r"Admin/", admin.site.urls),

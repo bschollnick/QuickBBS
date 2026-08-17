@@ -1,0 +1,16 @@
+{% extends 'base.jinja' %}
+
+{% block title %}{{ story.title }} — Saved{% endblock %}
+
+{% block content %}
+{% include 'components/navbar.jinja' %}
+
+<section class="section">
+    <h1 class="title">{{ story.title }}</h1>
+    <div class="notification is-success">
+        <p>Saved to slot {{ slot }}.</p>
+    </div>
+    <a class="button" href="/if/{{ story.slug }}/saves/">Back to saves</a>
+    <a class="button is-link" href="/if/{{ story.slug }}/">Continue playing</a>
+</section>
+{% endblock %}

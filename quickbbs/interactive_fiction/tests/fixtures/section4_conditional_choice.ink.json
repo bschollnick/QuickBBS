@@ -1,0 +1,1 @@
+{"inkVersion":21,"root":[["ev","str","^Enter","/str",{"VAR?":"unlocked"},"/ev",{"*":"0.c-0","flg":21},{"c-0":["^ You entered.","\n","done",{"->":"0.g-0"},{"#f":5}],"g-0":["done",null]}],"done",{"global decl":["ev",true,{"VAR=":"unlocked"},"/ev","end",null]}],"listDefs":{}}

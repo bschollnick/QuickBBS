@@ -1,0 +1,81 @@
+{% extends 'base.jinja' %}
+
+{% block title %}{{ story.title }} — Edit{% endblock %}
+
+{% block content %}
+{% include 'components/navbar.jinja' %}
+
+<section class="section">
+    <h1 class="title">Edit "{{ story.title }}"</h1>
+    <a class="button is-small" href="/if/{{ story.slug }}/">Back to story</a>
+
+    {% if errors %}
+    <div class="notification is-danger">
+        <ul>
+            {% for error in errors %}
+            <li>{{ error }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="field">
+            <label class="label">Title</label>
+            <div class="control">
+                <input class="input" type="text" name="title" value="{{ story.title }}">
+            </div>
+        </div>
+        <div class="field">
+            <label class="control">
+                <input type="checkbox" name="is_public" {% if story.is_public %}checked{% endif %}>
+                Public (visible to everyone, not just people you've granted access to)
+            </label>
+        </div>
+        <div class="field">
+            <label class="label">Replace compiled story (optional)</label>
+            <div class="control">
+                <input type="file" name="story_file" accept="application/json,.json">
+            </div>
+            <p class="help">
+                Leave empty to keep the current content. Uploading a revised .ink.json
+                replaces the story's content for every player — a player whose saved
+                progress no longer matches a renamed or removed section of the story
+                may see broken or unexpected behavior until they start a new game.
+            </p>
+        </div>
+        <div class="field">
+            <label class="label">Add or replace images (optional)</label>
+            <div class="control">
+                <input type="file" name="images_zip" accept="application/zip,.zip">
+            </div>
+            <p class="help">
+                A zip of JPEG/PNG/GIF/WEBP files. Each file's basename (including its extension,
+                e.g. <code>forest_clearing.jpg</code>) becomes the tag name referenced by
+                <code># image: &lt;tag_name&gt;</code> in your Ink source — uploading a file with
+                the same tag name replaces the existing image for that tag.
+            </p>
+        </div>
+        <div class="field">
+            <label class="label">Cover image (optional)</label>
+            <div class="control">
+                <input type="file" name="cover_image" accept="image/jpeg,image/png,image/gif,image/webp">
+            </div>
+            <div class="control" style="margin-top: 0.5rem;">
+                <input class="input" type="text" name="cover_tag_name" placeholder="Tag name for this image"
+                       value="{{ story.cover_image.tag_name if story.cover_image else '' }}">
+            </div>
+            <p class="help">
+                Shown on the library page. Required alongside a tag name if you're setting or
+                replacing the cover.
+            </p>
+        </div>
+        <div class="field">
+            <div class="control">
+                <button type="submit" class="button is-link">Save changes</button>
+            </div>
+        </div>
+    </form>
+</section>
+{% endblock %}

@@ -1,0 +1,1 @@
+{"inkVersion":21,"root":[[["^Visited ","ev",{"CNT?":".^"},"out","/ev","^ times.","\n","ev","str","^Again","/str","/ev",{"*":".^.c-0","flg":20},"ev","str","^Stop","/str","/ev",{"*":".^.c-1","flg":20},{"c-0":["\n",{"->":".^.^"},{"->":"0.g-0"},{"#f":5}],"c-1":["\n","done",{"->":"0.g-0"},{"#f":5}],"#f":5,"#n":"start"}],{"g-0":["done",null]}],"done",null],"listDefs":{}}

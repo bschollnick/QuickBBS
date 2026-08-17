@@ -1,0 +1,17 @@
+{% extends 'base.jinja' %}
+
+{% block title %}{{ story.title }}{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="/resources/css/interactive-fiction.css?v=1">
+{% endblock %}
+
+{% block content %}
+{% include 'components/navbar.jinja' %}
+{% include 'interactive_fiction/play_sidebar.jinja' %}
+
+<section class="section filetype-main-container if-font-{{ if_font_size|default('medium') }} if-width-{{ if_text_width|default('medium') }}">
+    <h1 class="title">{{ story.title }}</h1>
+    {% include 'interactive_fiction/play_content.jinja' %}
+</section>
+{% endblock %}

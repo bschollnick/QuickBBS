@@ -1,0 +1,1 @@
+{"inkVersion":21,"root":[[["^Hello.","\n","ev","str","^Choice","/str","/ev",{"*":".^.c-0","flg":20},{"c-0":["^ ",{"->":"0.elsewhere"},"\n",{"->":"0.elsewhere"},{"#f":5}],"#n":"start"}],{"elsewhere":["^Elsewhere.","\n","done",["done",{"#n":"g-0"}],null]}],"done",null],"listDefs":{}}

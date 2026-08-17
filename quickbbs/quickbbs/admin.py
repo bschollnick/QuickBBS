@@ -11,7 +11,7 @@ from django.tasks import TaskResultStatus
 from django.utils import timezone
 from django.utils.html import format_html
 
-from quickbbs.models import DirectoryIndex, Favorites, FileIndex, Owners
+from quickbbs.models import DirectoryIndex, Favorite, FileIndex, Owners
 from quickbbs.tasks import get_vacuum_candidates
 from thumbnails.models import ThumbnailFiles
 
@@ -228,7 +228,16 @@ class AdminMasterDirs(admin.ModelAdmin):
 
 
 admin.site.register(Owners)
-admin.site.register(Favorites)
+
+
+@admin.register(Favorite)
+class AdminFavorite(admin.ModelAdmin):
+    """Admin configuration for Favorite (per-user file/directory favorites)."""
+
+    list_display = ("id", "user", "file", "directory", "created")
+    list_filter = ["user"]
+    search_fields = ["user__username", "file__name", "directory__fqpndirectory"]
+    readonly_fields = ("created",)
 
 
 _original_admin_index = admin.site.index

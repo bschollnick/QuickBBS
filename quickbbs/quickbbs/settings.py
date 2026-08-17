@@ -209,6 +209,7 @@ INSTALLED_APPS += [
     "django_extensions",
     "filetypes",
     "frontend",
+    "interactive_fiction",
     "quickbbs",
     "thumbnails",
     "user_preferences",

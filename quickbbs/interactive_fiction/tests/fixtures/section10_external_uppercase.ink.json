@@ -1,0 +1,1 @@
+{"inkVersion":21,"root":[["ev","str","^Give me wine!","/str",{"x()":"UPPERCASE","exArgs":1},"out","/ev","\n","end",["done",{"#n":"g-0"}],null],"done",{"UPPERCASE":[{"temp=":"txt"},"ev",{"VAR?":"txt"},"out","/ev","\n",null]}],"listDefs":{}}

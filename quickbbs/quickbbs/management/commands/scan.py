@@ -27,6 +27,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import close_old_connections, transaction
 
+from interactive_fiction.ingestion import ingest_stories, verify_stories
 from quickbbs.common import normalize_fqpn
 from quickbbs.directoryindex import directoryindex_cache, update_database_from_disk
 from quickbbs.management.commands.add_directories import add_directories
@@ -542,6 +543,35 @@ def verify_thumbnails(max_count: int = 0):
     print("Corrupted thumbnails will be regenerated on next access.")
 
 
+def _report_story_verification(result: tuple[int, int, int]) -> None:
+    """Print a summary line for verify_stories()'s result, if anything changed.
+
+    Args:
+        result: (tombstoned_count, restored_count, refreshed_count), as
+            returned by interactive_fiction.ingestion.verify_stories().
+
+    Returns:
+        None.
+    """
+    tombstoned, restored, refreshed = result
+    if tombstoned or restored or refreshed:
+        print(f"Interactive Fiction: {tombstoned} tombstoned, {restored} restored, {refreshed} refreshed")
+
+
+def _report_story_ingestion(ingested: int) -> None:
+    """Print a summary line for ingest_stories()'s result, if anything was created.
+
+    Args:
+        ingested: The number of new Story rows created, as returned by
+            interactive_fiction.ingestion.ingest_stories().
+
+    Returns:
+        None.
+    """
+    if ingested:
+        print(f"Interactive Fiction: {ingested} new .inkj stories ingested")
+
+
 class Command(BaseCommand):
     """
     Django management command for file system integrity and maintenance.
@@ -674,10 +704,12 @@ class Command(BaseCommand):
             verify_directories(start_path=start_path, max_count=max_count)
         if options["verify_files"]:
             verify_files(start_path=start_path, max_count=max_count)
+            _report_story_verification(verify_stories())
         if options["add_directories"]:
             add_directories(max_count=max_count, start_path=start_path)
         if options["add_files"]:
             add_files(max_count=max_count, start_path=start_path)
+            _report_story_ingestion(ingest_stories())
         if options["add_thumbnails"]:
             add_thumbnails(max_count=max_count)
         if options["verify_thumbnails"]:

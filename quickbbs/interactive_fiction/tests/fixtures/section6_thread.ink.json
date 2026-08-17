@@ -1,0 +1,1 @@
+{"inkVersion":21,"root":[["^You are at a crossroads.","\n","thread",{"->":"side_quest"},"done",["done",{"#n":"g-0"}],null],"done",{"side_quest":["^A distant bell tolls.","\n","done",null]}],"listDefs":{}}

@@ -1,0 +1,10 @@
+<!-- Concurrent-tab guard rejection: the submitted turn_count no longer
+     matches the stored CurrentGame row, meaning another tab (or another
+     device) already moved the story on. -->
+<div id="if-play-content">
+    <div class="notification is-warning">
+        <p>This story has moved on since this page was loaded — probably
+           played from another tab or device.</p>
+        <a class="button" href="/if/{{ story.slug }}/">Refresh to continue</a>
+    </div>
+</div>

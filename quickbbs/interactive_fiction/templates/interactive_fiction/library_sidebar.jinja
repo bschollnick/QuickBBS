@@ -1,0 +1,30 @@
+{% extends 'components/sidebar_base.jinja' %}
+{% from 'macros/pagination.jinja' import show_first_page_button, show_previous_page_button, show_next_page_button, show_last_page_button, show_page_selector_standalone %}
+
+{#
+  Interactive Fiction library sidebar — the gallery's own sidebar shell
+  (components/sidebar_base.jinja), pointed at the story list instead of a
+  directory tree. No sort or download blocks (neither concept applies to
+  the library), and "up" leads back to the main gallery rather than a
+  parent directory.
+#}
+
+{% block nav_up_button %}
+<a class="button is-ghost is-fullwidth"
+   href="/albums/"
+   title="Back to gallery">
+  {{ icon("arrow-up fa-2x") }}
+</a>
+{% endblock %}
+
+{% block first_page_button %}{{ show_first_page_button(first_url) }}{% endblock %}
+{% block previous_page_button %}{{ show_previous_page_button(prev_url) }}{% endblock %}
+
+{% block page_selector %}
+{{ show_page_selector_standalone(current_page, total_pages, 0, request.path) }}
+{% endblock %}
+
+{% block next_page_button %}{{ show_next_page_button(next_url) }}{% endblock %}
+{% block last_page_button %}{{ show_last_page_button(last_url) }}{% endblock %}
+
+{% block sort_options %}{% endblock %}

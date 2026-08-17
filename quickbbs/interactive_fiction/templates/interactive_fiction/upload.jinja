@@ -1,0 +1,59 @@
+{% extends 'base.jinja' %}
+
+{% block title %}Upload a Story{% endblock %}
+
+{% block content %}
+{% include 'components/navbar.jinja' %}
+
+<section class="section">
+    <h1 class="title">Upload a Story</h1>
+
+    {% if errors %}
+    <div class="notification is-danger">
+        <ul>
+            {% for error in errors %}
+            <li>{{ error }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="field">
+            <label class="label">Title</label>
+            <div class="control">
+                <input class="input" type="text" name="title" required>
+            </div>
+        </div>
+        <div class="field">
+            <label class="label">Compiled story (.ink.json)</label>
+            <div class="control">
+                <input type="file" name="story_file" accept="application/json,.json" required>
+            </div>
+            <p class="help">
+                Compile your .ink source with Inky (File &rarr; Export &rarr; JSON) or
+                <code>inklecate story.ink</code> and upload the resulting .ink.json here.
+                Any EXTERNAL function must have a same-named ink fallback (<code>=== function name(...) ===</code>)
+                defined in the story — QuickBBS always runs the fallback, never a bound host function.
+            </p>
+        </div>
+        <div class="field">
+            <label class="label">Images (optional)</label>
+            <div class="control">
+                <input type="file" name="images_zip" accept="application/zip,.zip">
+            </div>
+            <p class="help">
+                A zip of JPEG/PNG/GIF/WEBP files. Each file's basename (including its extension,
+                e.g. <code>forest_clearing.jpg</code>) becomes the tag name referenced by
+                <code># image: &lt;tag_name&gt;</code> in your Ink source.
+            </p>
+        </div>
+        <div class="field">
+            <div class="control">
+                <button type="submit" class="button is-link">Upload</button>
+            </div>
+        </div>
+    </form>
+</section>
+{% endblock %}

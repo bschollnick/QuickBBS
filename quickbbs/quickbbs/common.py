@@ -8,7 +8,7 @@ import pathlib
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Callable, TypeVar
+from typing import TYPE_CHECKING, Callable, TypeVar
 
 from cachetools import cached
 from cachetools.keys import hashkey
@@ -17,6 +17,9 @@ from django.contrib.auth.decorators import login_required
 from django.db import models
 
 from quickbbs.MonitoredCache import create_cache
+
+if TYPE_CHECKING:
+    from django.contrib.auth.models import AbstractUser, AnonymousUser
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +46,26 @@ def require_login_if_configured(view_func: Callable) -> Callable:
     return view_func
 
 
+def can_upload_story(user: "AbstractUser | AnonymousUser") -> bool:
+    """Return whether the given user may upload/edit interactive_fiction stories.
+
+    Gated to staff/superuser for now (2026-08-16 plan decision) — a single
+    predicate rather than inlined `is_staff` checks scattered across
+    interactive_fiction/views.py, so loosening this later (e.g. to a
+    per-user flag or a dedicated permission/group) is a one-line change
+    here rather than a hunt through view logic.
+
+    Args:
+        user: The requesting user, possibly an `AnonymousUser`.
+
+    Returns:
+        True if the user is authenticated and staff (or a superuser, which
+        Django's is_staff already covers for superusers created with
+        is_staff=True — no separate is_superuser check needed here).
+    """
+    return user.is_authenticated and user.is_staff
+
+
 # Type variable for Django models
 T = TypeVar("T", bound=models.Model)
 
@@ -53,23 +76,31 @@ normalized_paths_cache = create_cache(settings.NORMALIZED_PATHS_CACHE_SIZE, "nor
 
 # Sort matrix for file/directory listings
 # Defines ordering for different sort modes:
-#   0: Name (default) - directories first, then by name with modification time tiebreaker
-#   1: Date - directories first, then by modification time with name tiebreaker
-#   2: Name only - directories first, then by name (no secondary sort)
+#   0: Name (default) - favorited first, directories first, then by name with modification time tiebreaker
+#   1: Date - favorited first, directories first, then by modification time with name tiebreaker
+#   2: Name only - favorited first, directories first, then by name (no secondary sort)
+# -is_favorited leads every mode: same leading-key precedent as
+# -filetype__is_dir/-filetype__is_link below. Callers that don't annotate
+# is_favorited onto the queryset (no user, or anonymous) get it as a
+# Value(False, ...) constant column instead — see dirs_in_dir()/
+# files_in_dir()/_distinct_file_pks() in DirectoryIndex.py — so this key is
+# always a no-op tiebreaker rather than requiring per-call conditional
+# sort lists.
 SORT_MATRIX = {
-    0: ["-filetype__is_dir", "-filetype__is_link", "name_sort", "lastmod"],
-    1: ["-filetype__is_dir", "-filetype__is_link", "lastmod", "name_sort"],
-    2: ["-filetype__is_dir", "-filetype__is_link", "name_sort"],
+    0: ["-is_favorited", "-filetype__is_dir", "-filetype__is_link", "name_sort", "lastmod"],
+    1: ["-is_favorited", "-filetype__is_dir", "-filetype__is_link", "lastmod", "name_sort"],
+    2: ["-is_favorited", "-filetype__is_dir", "-filetype__is_link", "name_sort"],
 }
 
 # Sort matrix for directory-only queries (used by dirs_in_dir).
 # Omits -filetype__is_dir and -filetype__is_link since all directories have
 # filetype=".dir", making those sort fields constant. This avoids an
-# unnecessary JOIN to the filetypes table.
+# unnecessary JOIN to the filetypes table. See SORT_MATRIX above for the
+# -is_favorited leading-key rationale.
 DIR_SORT_MATRIX = {
-    0: ["name_sort", "lastmod"],
-    1: ["lastmod", "name_sort"],
-    2: ["name_sort"],
+    0: ["-is_favorited", "name_sort", "lastmod"],
+    1: ["-is_favorited", "lastmod", "name_sort"],
+    2: ["-is_favorited", "name_sort"],
 }
 
 

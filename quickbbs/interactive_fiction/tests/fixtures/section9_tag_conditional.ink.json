@@ -1,0 +1,1 @@
+{"inkVersion":21,"root":[["#","^image: ","ev",{"VAR?":"use_alt"},"/ev",[{"->":".^.b","c":true},{"b":["^alt.jpg",{"->":"0.7"},null]}],[{"->":".^.b"},{"b":["^main.jpg",{"->":"0.7"},null]}],"nop","/#","^You step into a clearing.","\n","end",["done",{"#n":"g-0"}],null],"done",{"global decl":["ev",true,{"VAR=":"use_alt"},"/ev","end",null]}],"listDefs":{}}

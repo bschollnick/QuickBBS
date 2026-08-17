@@ -1,0 +1,43 @@
+{% extends 'components/sidebar_base.jinja' %}
+
+{#
+  Interactive Fiction play-session sidebar — the gallery's own sidebar
+  shell (components/sidebar_base.jinja), repurposed for the play view: no
+  pagination (a single story isn't paged), "up" leads back to the story's
+  originating gallery item when it has one (scanner-ingested), otherwise
+  the library, and the session-specific actions (save/load, reader
+  settings, edit) take the sort/download slots.
+#}
+
+{% block nav_up_button %}
+<a class="button is-ghost is-fullwidth"
+   href="{% if gallery_item_sha256 %}/view_item/{{ gallery_item_sha256 }}/{% else %}/if/{% endif %}"
+   title="{% if gallery_item_sha256 %}View in gallery{% else %}Back to library{% endif %}">
+  {{ icon("arrow-up fa-2x") }}
+</a>
+{% if gallery_item_sha256 %}
+<a class="button is-ghost is-fullwidth" href="/if/" title="Library">
+  {{ icon("list fa-2x") }}
+</a>
+{% endif %}
+{% endblock %}
+
+{% block first_page_button %}{% endblock %}
+{% block previous_page_button %}{% endblock %}
+{% block page_selector %}{% endblock %}
+{% block next_page_button %}{% endblock %}
+{% block last_page_button %}{% endblock %}
+
+{% block sort_options %}
+<a class="button is-ghost is-fullwidth" href="/if/{{ story.slug }}/saves/" title="Save / Load">
+  {{ icon("save fa-2x") }}
+</a>
+<a class="button is-ghost is-fullwidth" href="/if/preferences/" title="Reader settings">
+  {{ icon("cog fa-2x") }}
+</a>
+{% if user.is_authenticated and (story.owner_id == user.pk or user.is_superuser) %}
+<a class="button is-ghost is-fullwidth" href="/if/{{ story.slug }}/edit/" title="Edit story">
+  {{ icon("edit fa-2x") }}
+</a>
+{% endif %}
+{% endblock %}

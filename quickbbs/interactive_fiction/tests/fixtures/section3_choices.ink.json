@@ -1,0 +1,1 @@
+{"inkVersion":21,"root":[["^Hello, traveler.","\n","ev","str","^Go north","/str","/ev",{"*":"0.c-0","flg":20},"ev","str","^Go south","/str","/ev",{"*":"0.c-1","flg":20},{"c-0":["^ You went north.","\n",{"->":"0.g-0"},{"#f":5}],"c-1":["^ You went south.","\n","^You made your choice.","\n","end",{"->":"0.g-0"},{"#f":5}],"g-0":["done",null]}],"done",null],"listDefs":{}}

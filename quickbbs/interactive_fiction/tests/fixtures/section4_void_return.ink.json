@@ -1,0 +1,43 @@
+{
+  "inkVersion": 21,
+  "root": [
+    [
+      "ev",
+      "str",
+      "^Give me wine!",
+      "/str",
+      {
+        "f()": "say",
+        "exArgs": 1
+      },
+      "out",
+      "/ev",
+      "\n",
+      "end",
+      [
+        "done",
+        {
+          "#n": "g-0"
+        }
+      ],
+      null
+    ],
+    "done",
+    {
+      "say": [
+        {
+          "temp=": "txt"
+        },
+        "ev",
+        {
+          "VAR?": "txt"
+        },
+        "out",
+        "/ev",
+        "\n",
+        null
+      ]
+    }
+  ],
+  "listDefs": {}
+}

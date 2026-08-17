@@ -1,0 +1,1 @@
+{"inkVersion":21,"root":[["ev",42,"srnd","pop","/ev","\n","ev",{"VAR?":"w"},"lrnd","out","/ev","\n","end",["done",{"#n":"g-0"}],null],"done",{"global decl":["ev",{"list":{},"origins":["Fruit"]},{"VAR=":"Fruit"},{"list":{"Fruit.Apple":1,"Fruit.Banana":2,"Fruit.Cherry":3}},{"VAR=":"w"},"/ev","end",null]}],"listDefs":{"Fruit":{"Apple":1,"Banana":2,"Cherry":3}}}

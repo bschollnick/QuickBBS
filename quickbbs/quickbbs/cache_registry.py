@@ -25,7 +25,8 @@ from quickbbs.MonitoredCache import create_cache
 # ---------------------------------------------------------------------------
 
 # Per-directory distinct file SHA lists (for pagination efficiency)
-# Cache key: hashkey(directory_instance, sort_ordering)
+# Cache key: hashkey(directory_instance, sort_ordering, user_pk)
+# user_pk is None for anonymous/no-user calls (unaffected by favorites).
 distinct_files_cache = create_cache(
     settings.DISTINCT_FILES_CACHE_SIZE,
     "distinct_files",
@@ -35,7 +36,8 @@ distinct_files_cache = create_cache(
 # Per-directory full (non-distinct) file SHA lists — the show_duplicates
 # counterpart of distinct_files_cache, shared by item-view navigation and
 # layout_manager pagination
-# Cache key: hashkey(directory_instance, sort_ordering)
+# Cache key: hashkey(directory_instance, sort_ordering, user_pk)
+# user_pk is None for anonymous/no-user calls (unaffected by favorites).
 all_files_shas_cache = create_cache(
     settings.ALL_FILES_SHAS_CACHE_SIZE,
     "all_files_shas",
@@ -138,7 +140,7 @@ def resolve_monitored_caches() -> list[tuple[str, LRUCache | Exception]]:
 # ---------------------------------------------------------------------------
 
 
-def clear_layout_cache_for_directories(directory_ids: AbstractSet[int | None]) -> int:
+def clear_layout_cache_for_directories(directory_ids: AbstractSet[int | None]) -> int:  # pylint: disable=too-many-branches
     """
     Clear layout_manager_cache, distinct_files_cache, all_files_shas_cache,
     dir_counts_cache, file_counts_cache, and sibling_dirs_cache entries for
@@ -159,20 +161,9 @@ def clear_layout_cache_for_directories(directory_ids: AbstractSet[int | None]) -
     if not directory_ids:
         return 0
 
-    # Deferred import to avoid circular dependency at module load time.
-    # DirectoryIndex is only needed to construct stub instances for hashkey
-    # lookups; the import resolves fine at call time.
-    from quickbbs.models import (
-        DirectoryIndex,  # pylint: disable=import-outside-toplevel
-    )
-
     count = 0
 
-    # distinct_files_cache: direct pop via constructed hashkeys
-    # Keys are hashkey(directory_instance, sort) — sort is always 0, 1, or 2
-    # Django models with same PK hash equally, so a stub instance matches cached entries
     for pk in directory_ids:
-        stub = DirectoryIndex(pk=pk)
         # dir_counts_cache: keyed hashkey(directory_pk)
         if dir_counts_cache.pop(hashkey(pk), None) is not None:
             count += 1
@@ -180,19 +171,29 @@ def clear_layout_cache_for_directories(directory_ids: AbstractSet[int | None]) -
         if file_counts_cache.pop(hashkey(pk), None) is not None:
             count += 1
         for sort in range(3):
-            if distinct_files_cache.pop(hashkey(stub, sort), None) is not None:
-                count += 1
-            # all_files_shas_cache: keyed hashkey(directory_instance, sort),
-            # same shape as distinct_files_cache
-            if all_files_shas_cache.pop(hashkey(stub, sort), None) is not None:
-                count += 1
             # sibling_dirs_cache: keyed hashkey(parent_pk, sort) — the pk being
             # invalidated is the parent of the cached sibling list
             if sibling_dirs_cache.pop(hashkey(pk, sort), None) is not None:
                 count += 1
 
+    # distinct_files_cache/all_files_shas_cache: scan keys (user_pk is
+    # unbounded — one favoriting user's toggle must not require enumerating
+    # every user to construct a matching key — so this scans rather than
+    # constructs, same rationale as layout_manager_cache below). cachetools'
+    # hashkey() is a tuple subclass, so key[0] (the directory instance) is
+    # directly indexable and comparable via Django's pk-based model __eq__.
+    # Keys are hashkey(directory_instance, sort, user_pk).
+    for cache in (distinct_files_cache, all_files_shas_cache):
+        for key in list(cache.keys()):
+            try:
+                if key[0].pk in directory_ids:
+                    cache.pop(key, None)
+                    count += 1
+            except (IndexError, AttributeError, TypeError):
+                continue
+
     # layout_manager_cache: scan keys (page_number is unbounded, can't construct keys)
-    # Keys are hashkey(page_number, directory_pk, sort_ordering, show_duplicates)
+    # Keys are hashkey(page_number, directory_pk, sort_ordering, show_duplicates, user_pk)
     # key[1] is directory pk (int); page_number is unbounded so we scan rather than construct.
     for key in list(layout_manager_cache.keys()):
         try:
