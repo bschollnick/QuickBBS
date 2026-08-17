@@ -33,6 +33,7 @@ class QuickbbsConfig(AppConfig):
             None
         """
         self._register_scheduled_task_admin()
+        self._connect_favorite_delete_logging()
 
         is_manage_py = sys.argv[0].endswith("manage.py") and len(sys.argv) > 1
         is_dev_server_cmd = is_manage_py and sys.argv[1] in ("runserver", "runserver_plus")
@@ -72,6 +73,21 @@ class QuickbbsConfig(AppConfig):
         if admin.site.is_registered(ScheduledTask):
             admin.site.unregister(ScheduledTask)
         admin.site.register(ScheduledTask, ScheduledTaskAdmin)
+
+    @staticmethod
+    def _connect_favorite_delete_logging() -> None:
+        """Connect pre_delete diagnostic logging for Favorite and its cascade sources.
+
+        Runs for every process (dev server, management commands, production
+        workers) so a Favorite loss via any path — direct delete, admin
+        action, or DB_CASCADE from a DirectoryIndex/FileIndex/user delete —
+        leaves a trail in logs/quickbbs.log. See favorite_delete_logging.py.
+        """
+        from quickbbs.favorite_delete_logging import (  # pylint: disable=import-outside-toplevel
+            connect,
+        )
+
+        connect()
 
     @staticmethod
     def _check_ssl_cert_expiry() -> None:

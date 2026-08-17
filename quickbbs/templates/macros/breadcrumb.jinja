@@ -8,6 +8,8 @@
       {% from 'macros/breadcrumb.jinja' import show_breadcrumb_nav %}
 #}
 
+{% from 'macros/favorite.jinja' import show_favorite_star %}
+
 {#
   Breadcrumb Navigation Macro
 
@@ -19,12 +21,22 @@
       breadcrumbs (list): List of breadcrumb objects with .url and .name attributes
       current_name (str): Name of the current page (shown as active)
       max_visible (int): Maximum breadcrumbs before truncation (default: 4)
+      dir_sha256 (str): dir_fqpn_sha256 of the current directory, for the
+          favorite star next to the title. None (default) renders no star —
+          used by contexts with no single current directory (search results),
+          and by the item view, which shows its own star on the item title
+          instead (title_display.jinja) rather than duplicating it here.
+      is_favorited (bool): Current directory's favorite state
+      user_authenticated (bool): Whether the requesting user is logged in
+      csrf_token: Request's CSRF token, forwarded to the favorite star control
 
   Usage:
       show_breadcrumb_nav(breadcrumbs, gallery_name)
 
-      With custom max_visible:
-      show_breadcrumb_nav(breadcrumbs, gallery_name, max_visible=6)
+      With the favorite star (gallery listing only):
+      show_breadcrumb_nav(breadcrumbs, gallery_name, dir_sha256=gallery_dir_sha256,
+                           is_favorited=gallery_is_favorited, user_authenticated=user.is_authenticated,
+                           csrf_token=csrf_token)
 
   Output:
       <nav class="breadcrumb">
@@ -35,7 +47,7 @@
           </ul>
       </nav>
 #}
-{% macro show_breadcrumb_nav(breadcrumbs, current_name, max_visible=4) %}
+{% macro show_breadcrumb_nav(breadcrumbs, current_name, max_visible=4, dir_sha256=None, is_favorited=False, user_authenticated=False, csrf_token=None) %}
 <nav hx-boost="true" class="breadcrumb is-small breadcrumb-compact" aria-label="breadcrumbs">
     <ul>
         {% if breadcrumbs|length > max_visible %}
@@ -60,7 +72,12 @@
 
 {# Current page title - its own paragraph below the breadcrumb trail. #}
 {% if current_name %}
-<p class="gallery-title" title="{{ current_name }}"><b>{{ current_name }}</b></p>
+<p class="gallery-title" title="{{ current_name }}">
+    {% if dir_sha256 %}
+    {{ show_favorite_star(dir_sha256, True, is_favorited, user_authenticated, csrf_token) }}
+    {% endif %}
+    <b>{{ current_name }}</b>
+</p>
 {% endif %}
 {% endmacro %}
 

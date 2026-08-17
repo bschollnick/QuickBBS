@@ -38,7 +38,7 @@ def saves(request: WSGIRequest, slug: str) -> HttpResponse:
     Raises:
         Http404: If no accessible Story matches slug.
     """
-    story = get_object_or_404(Story, slug=slug, is_available=True)
+    story = get_object_or_404(Story.objects.defer("compiled_json"), slug=slug, is_available=True)
     if not user_can_access(story, request.user):
         return HttpResponse(status=403)
 
@@ -78,7 +78,7 @@ def saves_save(request: WSGIRequest, slug: str, slot: int) -> HttpResponse:
     Raises:
         Http404: If no accessible Story or CurrentGame exists.
     """
-    story = get_object_or_404(Story, slug=slug, is_available=True)
+    story = get_object_or_404(Story.objects.defer("compiled_json"), slug=slug, is_available=True)
     if not user_can_access(story, request.user):
         return HttpResponse(status=403)
     if slot < 0 or slot >= settings.MAX_SAVE_SLOTS_PER_STORY:
@@ -119,7 +119,7 @@ def saves_load(request: WSGIRequest, slug: str, slot: int) -> HttpResponse:
     Raises:
         Http404: If no accessible Story or matching SaveState exists.
     """
-    story = get_object_or_404(Story, slug=slug, is_available=True)
+    story = get_object_or_404(Story.objects.defer("compiled_json"), slug=slug, is_available=True)
     if not user_can_access(story, request.user):
         return HttpResponse(status=403)
 
@@ -152,7 +152,7 @@ def saves_export(request: WSGIRequest, slug: str, slot: int) -> HttpResponse:
         A JSON attachment download, or 404 if no accessible Story or
         matching SaveState exists.
     """
-    story = get_object_or_404(Story, slug=slug, is_available=True)
+    story = get_object_or_404(Story.objects.defer("compiled_json"), slug=slug, is_available=True)
     if not user_can_access(story, request.user):
         return HttpResponse(status=403)
 
@@ -234,7 +234,7 @@ def saves_import(request: WSGIRequest, slug: str) -> HttpResponse:
     Raises:
         Http404: If no accessible Story matches slug.
     """
-    story = get_object_or_404(Story, slug=slug, is_available=True)
+    story = get_object_or_404(Story.objects.defer("compiled_json"), slug=slug, is_available=True)
     if not user_can_access(story, request.user):
         return HttpResponse(status=403)
 

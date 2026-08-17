@@ -621,6 +621,42 @@
         window.QuickBBS = new QuickBBSApp();
     }
 
+    // Navbar user menu + mobile burger: delegated on document so it keeps
+    // working after HTMX swaps replace the navbar markup (inline <script>
+    // tags injected via innerHTML swaps never re-execute in the browser).
+    document.addEventListener('click', (e) => {
+        const trigger = e.target.closest('#user-menu-trigger');
+        const dropdown = document.getElementById('user-menu-dropdown');
+
+        if (trigger) {
+            e.stopPropagation();
+            if (dropdown) {
+                const open = dropdown.classList.toggle('is-active');
+                trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+            }
+            return;
+        }
+
+        const burger = e.target.closest('.navbar-burger');
+        if (burger) {
+            const target = document.getElementById(burger.dataset.target);
+            burger.classList.toggle('is-active');
+            if (target) {
+                target.classList.toggle('is-active');
+            }
+            return;
+        }
+
+        // Click outside: close the user menu if open
+        if (dropdown && dropdown.classList.contains('is-active') && !e.target.closest('#user-menu-dropdown')) {
+            dropdown.classList.remove('is-active');
+            const t = document.getElementById('user-menu-trigger');
+            if (t) {
+                t.setAttribute('aria-expanded', 'false');
+            }
+        }
+    });
+
     // Expose utilities globally for templates
     window.QuickBBSUtils = {
         updateFiletypeColor: (color) => {

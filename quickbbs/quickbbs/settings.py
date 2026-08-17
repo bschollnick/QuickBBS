@@ -639,6 +639,14 @@ LOGGING = {
             "level": "DEBUG",
             "propagate": False,
         },
+        # Diagnostic: every Favorite deletion (direct or DB_CASCADE from its
+        # user/file/directory being deleted) with a captured call stack.
+        # See quickbbs/favorite_delete_logging.py.
+        "quickbbs.favorite_deletes": {
+            "handlers": ["rotating_file", "error_file", "console"],
+            "level": "INFO",
+            "propagate": False,
+        },
         # Task worker (taskrunner process) loggers
         "dbtasks.runner": {
             "handlers": ["task_worker_file", "task_worker_error_file", "console"],

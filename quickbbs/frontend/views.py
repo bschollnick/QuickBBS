@@ -29,7 +29,7 @@ from django.http import (
     HttpResponseBadRequest,
     HttpResponseNotFound,
 )
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.views.decorators.http import require_POST
 from django.views.decorators.vary import vary_on_headers
 from django_htmx.middleware import HtmxDetails
@@ -901,6 +901,8 @@ def view_gallery(request: WSGIRequest):
         "thumbpath": ensures_endswith(request.path.replace(r"/albums/", r"/thumbnails/"), "/"),
     }
 
+    request.session["gallery_last_viewed"] = request.path
+
     # Get directory and handle errors via exceptions
     try:
         directory = _find_directory(paths)
@@ -922,6 +924,8 @@ def view_gallery(request: WSGIRequest):
             "breadcrumbs": return_breadcrumbs(paths["webpath"])[:-1],
             "thumbpath": paths["thumbpath"],
             "gallery_name": pathlib.Path(paths["webpath"]).name,
+            "gallery_dir_sha256": directory.dir_fqpn_sha256,
+            "gallery_is_favorited": Favorite.is_favorited(request.user, dir_sha256=directory.dir_fqpn_sha256),
             "up_uri": str(pathlib.Path(paths["webpath"]).parent),
             "search": False,
             "prev_uri": None,
@@ -1013,6 +1017,21 @@ def view_gallery(request: WSGIRequest):
     print("Gallery View, processing time: ", time.perf_counter() - start_time)
 
     return response
+
+
+def gallery_home(request: WSGIRequest) -> HttpResponse:
+    """Redirect to the last gallery directory the user viewed this session.
+
+    Falls back to /albums/ when the session has no recorded gallery view
+    (e.g. a fresh session, or the user has never browsed the gallery).
+
+    Args:
+        request: Django Request object.
+
+    Returns:
+        Redirect response to the last-viewed gallery path or /albums/.
+    """
+    return redirect(request.session.get("gallery_last_viewed") or "/albums/")
 
 
 @require_login_if_configured

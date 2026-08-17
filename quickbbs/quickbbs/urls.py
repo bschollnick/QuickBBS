@@ -55,6 +55,7 @@ urlpatterns += [
         name="toggle_favorite",
     ),
     path("favorites/", frontend.views.favorites_view, name="favorites"),
+    path("gallery/", frontend.views.gallery_home, name="gallery_home"),
     #    re_path("^download/", frontend.views.download_file, name="download"),
     # re_path("^download/", frontend.views.download_item, name="download"),
     re_path("^download_file/", frontend.views.download_file, name="download_file"),

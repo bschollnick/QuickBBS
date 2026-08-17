@@ -20,6 +20,7 @@ stored as a story.
 from __future__ import annotations
 
 import logging
+import os
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -58,9 +59,11 @@ def _get_scan_owner():
 def live_inkj_files() -> dict[str, FileIndex]:
     """Return every current .inkj FileIndex row, keyed by full file path.
 
-    Public: also used by interactive_fiction.views._source_gallery_item_sha256
-    to resolve a scanner-ingested story back to its originating gallery item
-    (the mirror image of ingest_stories()'s file -> story direction).
+    Used by ingest_stories()/verify_stories() below, which genuinely need
+    every candidate at once for a batch pass. A single-file lookup (e.g.
+    resolving one Story's source_fqfn back to its FileIndex row) should use
+    find_inkj_file_by_path() instead — that one query is indexed, whereas
+    this function loads and dict-keys every live .inkj row in the gallery.
 
     Args:
         None.
@@ -73,6 +76,46 @@ def live_inkj_files() -> dict[str, FileIndex]:
     """
     candidates = FileIndex.objects.filter(filetype__fileext__iexact=".inkj", ignore=False, delete_pending=False).select_related("home_directory")
     return {entry.full_filepathname: entry for entry in candidates if entry.home_directory is not None}
+
+
+def find_inkj_file_by_path(full_filepathname: str) -> FileIndex | None:
+    """Resolve one .inkj file's full path directly to its live FileIndex row.
+
+    Used by interactive_fiction.views._source_gallery_item_sha256 to resolve
+    a scanner-ingested story back to its originating gallery item (the
+    mirror image of ingest_stories()'s file -> story direction) — a single
+    indexed lookup rather than live_inkj_files()'s full-table scan, since
+    that function needs to check only one path, not enumerate every
+    candidate.
+
+    full_filepathname is FileIndex.full_filepathname's own concatenation
+    (home_directory.fqpndirectory + name) with no separator recorded
+    between them, but fqpndirectory always ends in a path separator (see
+    quickbbs.common.normalize_fqpn()), so splitting at the last separator
+    reliably recovers the directory/name pair the original concatenation
+    was built from.
+
+    Args:
+        full_filepathname: The full path to look up (e.g. Story.source_fqfn).
+
+    Returns:
+        The matching live FileIndex row (filetype .inkj, not ignored, not
+        delete_pending), or None if no such row exists.
+    """
+    directory_path, _sep, name = full_filepathname.rpartition(os.sep)
+    if not directory_path:
+        return None
+    return (
+        FileIndex.objects.filter(
+            home_directory__fqpndirectory=directory_path + os.sep,
+            name=name,
+            filetype__fileext__iexact=".inkj",
+            ignore=False,
+            delete_pending=False,
+        )
+        .select_related("home_directory")
+        .first()
+    )
 
 
 def ingest_stories() -> int:
@@ -186,7 +229,7 @@ def verify_stories() -> tuple[int, int, int]:
     live_files = live_inkj_files()
     tombstoned = restored = refreshed = 0
 
-    for story in Story.objects.exclude(source_fqfn=""):
+    for story in Story.objects.exclude(source_fqfn="").defer("compiled_json"):
         file_entry = live_files.get(story.source_fqfn)
         if file_entry is None:
             if story.is_available:

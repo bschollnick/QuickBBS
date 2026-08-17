@@ -14,8 +14,18 @@
 
   <div id="navbarBasicExample" class="navbar-menu">
     <div class="navbar-start">
-      <a class="navbar-item">
-        File
+      <a class="navbar-item" href="{{ url('gallery_home') }}">
+        Gallery
+      </a>
+      <a class="navbar-item" href="{{ url('favorites') }}"
+         hx-get="{{ url('favorites') }}"
+         hx-target="body"
+         hx-swap="innerHTML show:window:top transition:true"
+         hx-push-url="true">
+        Favorites
+      </a>
+      <a class="navbar-item" href="{{ url('if_library') }}">
+        IF
       </a>
     </div>
 
@@ -49,15 +59,5 @@
   </div>
 </nav>
 
-<script>
-document.addEventListener('DOMContentLoaded', () => {
-  const $navbarBurgers = Array.prototype.slice.call(document.querySelectorAll('.navbar-burger'), 0);
-  $navbarBurgers.forEach(el => {
-    el.addEventListener('click', () => {
-      const $target = document.getElementById(el.dataset.target);
-      el.classList.toggle('is-active');
-      $target.classList.toggle('is-active');
-    });
-  });
-});
-</script>
+{# Burger toggle behavior lives in resources/javascript/quickbbs-optimized.js,
+   delegated on document — inline scripts here would not survive HTMX innerHTML swaps. #}

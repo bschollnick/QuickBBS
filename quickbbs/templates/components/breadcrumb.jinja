@@ -8,4 +8,14 @@
 #}
 {% from 'macros/breadcrumb.jinja' import show_breadcrumb_nav %}
 {# TEMP: {% cache %} wrapper disabled for breadcrumb/title layout work. #}
-{{ show_breadcrumb_nav(breadcrumbs, gallery_name)|safe }}
+{# gallery_dir_sha256/gallery_is_favorited are only set by view_gallery() —
+   absent (None/undefined) in item view and search, where no star renders
+   here (item view shows its own star on the item title instead). #}
+{{ show_breadcrumb_nav(
+    breadcrumbs,
+    gallery_name,
+    dir_sha256=gallery_dir_sha256|default(None),
+    is_favorited=gallery_is_favorited|default(False),
+    user_authenticated=user.is_authenticated,
+    csrf_token=csrf_token
+)|safe }}

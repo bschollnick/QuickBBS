@@ -90,30 +90,5 @@
     </div>
   </div>
 {% endif %}
-
-<script>
-(function() {
-  function initUserMenu() {
-    var dropdown = document.getElementById('user-menu-dropdown');
-    var trigger = document.getElementById('user-menu-trigger');
-    if (!dropdown || !trigger) return;
-
-    // Toggle on click/tap
-    trigger.addEventListener('click', function(e) {
-      e.stopPropagation();
-      var open = dropdown.classList.toggle('is-active');
-      trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
-    });
-
-    // Close when clicking outside
-    document.addEventListener('click', function() {
-      dropdown.classList.remove('is-active');
-      trigger.setAttribute('aria-expanded', 'false');
-    });
-  }
-
-  // Re-init after HTMX swaps (navbar is included in every partial)
-  document.addEventListener('DOMContentLoaded', initUserMenu);
-  document.addEventListener('htmx:afterSwap', initUserMenu);
-})();
-</script>
+{# Toggle/outside-click behavior lives in resources/javascript/quickbbs-optimized.js,
+   delegated on document — inline scripts here would not survive HTMX innerHTML swaps. #}

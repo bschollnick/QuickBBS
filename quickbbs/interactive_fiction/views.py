@@ -40,7 +40,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from interactive_fiction.engine import InkRuntimeState, load_list_defs, load_story_root
-from interactive_fiction.ingestion import live_inkj_files
+from interactive_fiction.ingestion import find_inkj_file_by_path
 from interactive_fiction.models import (
     CurrentGame,
     SaveState,
@@ -303,7 +303,7 @@ def _source_gallery_item_sha256(story: Story) -> str | None:
     """
     if not story.source_fqfn:
         return None
-    file_entry = live_inkj_files().get(story.source_fqfn)
+    file_entry = find_inkj_file_by_path(story.source_fqfn)
     return file_entry.unique_sha256 if file_entry is not None else None
 
 
@@ -330,7 +330,7 @@ def library(request: WSGIRequest) -> HttpResponse:
         story_qs = Story.objects.filter(Q(owner=request.user) | Q(is_public=True) | Q(grants__user=request.user), is_available=True).distinct()
     else:
         story_qs = Story.objects.filter(is_public=True, is_available=True)
-    story_qs = story_qs.order_by("title", "pk")
+    story_qs = story_qs.defer("compiled_json").order_by("title", "pk")
 
     per_page = settings.IF_LIBRARY_ITEMS_PER_PAGE
     total_stories = story_qs.count()

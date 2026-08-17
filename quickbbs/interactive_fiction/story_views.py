@@ -53,7 +53,7 @@ def story_image(request: WSGIRequest, slug: str, tag_name: str) -> HttpResponse:
     Raises:
         Http404: If no accessible Story or matching StoryImage exists.
     """
-    story = get_object_or_404(Story, slug=slug, is_available=True)
+    story = get_object_or_404(Story.objects.defer("compiled_json"), slug=slug, is_available=True)
     if not user_can_access(story, request.user):
         return HttpResponse(status=403)
 
@@ -89,7 +89,7 @@ def story_cover(request: WSGIRequest, slug: str) -> HttpResponse:
         Http404: If no accessible Story matches slug, or it has no
             cover_image / the cover's blob has no generated thumbnail yet.
     """
-    story = get_object_or_404(Story, slug=slug, is_available=True)
+    story = get_object_or_404(Story.objects.defer("compiled_json"), slug=slug, is_available=True)
     if not user_can_access(story, request.user):
         return HttpResponse(status=403)
     cover = story.cover_image
@@ -326,7 +326,7 @@ def edit(request: WSGIRequest, slug: str) -> HttpResponse:
     Raises:
         Http404: If no Story matches slug.
     """
-    story = get_object_or_404(Story, slug=slug)
+    story = get_object_or_404(Story.objects.defer("compiled_json"), slug=slug)
     if story.owner_id != request.user.pk and not request.user.is_superuser:
         return HttpResponse(status=403)
 
