@@ -53,6 +53,8 @@ fileindex_cache = create_cache(settings.FILEINDEX_CACHE_SIZE, "fileindex", monit
 fileindex_download_cache = create_cache(settings.FILEINDEX_DOWNLOAD_CACHE_SIZE, "fileindex_download", monitored=settings.CACHE_MONITORING)
 
 if TYPE_CHECKING:
+    from django.contrib.auth.base_user import AbstractBaseUser
+    from django.contrib.auth.models import AnonymousUser
     from django.db.models.fields.related_descriptors import RelatedManager
 
     from .directoryindex import DirectoryIndex
@@ -278,7 +280,12 @@ class FileIndex(models.Model):
         )
 
     @staticmethod
-    def return_by_sha256_list(sha256_list: list[str], sort: int, select_related: list[str]) -> "QuerySet[FileIndex]":
+    def return_by_sha256_list(
+        sha256_list: list[str],
+        sort: int,
+        select_related: list[str],
+        user: "AbstractBaseUser | AnonymousUser | None" = None,
+    ) -> "QuerySet[FileIndex]":
         """
         Return files matching the provided SHA256 list
 
@@ -286,15 +293,22 @@ class FileIndex(models.Model):
             sha256_list: List of file SHA256 hashes to filter by
             sort: The sort order of the files (0-2)
             select_related: List of related fields to select (required)
+            user: Requesting user for favorite-first ordering (SORT_MATRIX's
+                leading -is_favorited key). None (default) — byte-identical
+                to the query before this parameter existed.
 
         Returns: The sorted query of files matching the SHA256 list
         """
         if select_related is None:
             raise ValueError("select_related parameter is required")
-        files = (
-            FileIndex.objects.select_related(*select_related).filter(file_sha256__in=sha256_list, delete_pending=False).order_by(*SORT_MATRIX[sort])
-        )
-        return files
+        # Deferred: avoids a module-load-time cycle — .favorite imports back
+        # into this chain via quickbbs.models.
+        # pylint: disable-next=import-outside-toplevel
+        from .favorite import Favorite
+
+        files = FileIndex.objects.select_related(*select_related).filter(file_sha256__in=sha256_list, delete_pending=False)
+        files = Favorite.annotate_is_favorited(files, user, target_field="file")
+        return files.order_by(*SORT_MATRIX[sort])
 
     @staticmethod
     def get_by_sha256(sha_value: str, unique: bool, select_related: list[str] | tuple[str, ...]) -> "FileIndex | None":

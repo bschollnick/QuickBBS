@@ -67,6 +67,8 @@ from quickbbs.cache_registry import (  # noqa: E402  # pylint: disable=wrong-imp
 )
 
 if TYPE_CHECKING:
+    from django.contrib.auth.base_user import AbstractBaseUser
+    from django.contrib.auth.models import AnonymousUser
     from django.db.models.fields.related_descriptors import RelatedManager
 
     from .fileindex import FileIndex
@@ -984,7 +986,11 @@ class DirectoryIndex(models.Model):
 
     @staticmethod
     def return_by_sha256_list(
-        sha256_list: list[str], sort: int, select_related: list[str], prefetch_related: list[str]
+        sha256_list: list[str],
+        sort: int,
+        select_related: list[str],
+        prefetch_related: list[str],
+        user: "AbstractBaseUser | AnonymousUser | None" = None,
     ) -> "QuerySet[DirectoryIndex]":
         """
         Return directories matching the provided SHA256 list
@@ -994,6 +1000,9 @@ class DirectoryIndex(models.Model):
             sort: The sort order of the dirs (0-2)
             select_related: List of related fields to select (required)
             prefetch_related: List of related fields to prefetch (required)
+            user: Requesting user for favorite-first ordering (SORT_MATRIX's
+                leading -is_favorited key). None (default) — byte-identical
+                to the query before this parameter existed.
 
         Returns: The sorted query of directories matching the SHA256 list
         """
@@ -1001,15 +1010,25 @@ class DirectoryIndex(models.Model):
             raise ValueError("select_related parameter is required")
         if prefetch_related is None:
             raise ValueError("prefetch_related parameter is required")
-        dirs = (
-            DirectoryIndex.objects.select_related(*select_related)
-            .prefetch_related(*prefetch_related)
-            .filter(dir_fqpn_sha256__in=sha256_list, delete_pending=False)
-            .order_by(*SORT_MATRIX[sort])
-        )
-        return dirs
+        # Deferred: avoids a module-load-time cycle — .favorite imports back
+        # into this chain via quickbbs.models.
+        # pylint: disable-next=import-outside-toplevel
+        from .favorite import Favorite
 
-    def _distinct_file_pks(self, sort: int, additional_filters: dict[str, Any] | None = None) -> "QuerySet":
+        dirs = DirectoryIndex.objects.filter(dir_fqpn_sha256__in=sha256_list, delete_pending=False)
+        if select_related:
+            dirs = dirs.select_related(*select_related)
+        if prefetch_related:
+            dirs = dirs.prefetch_related(*prefetch_related)
+        dirs = Favorite.annotate_is_favorited(dirs, user, target_field="directory")
+        return dirs.order_by(*SORT_MATRIX[sort])
+
+    def _distinct_file_pks(
+        self,
+        sort: int,
+        additional_filters: dict[str, Any] | None = None,
+        user: "AbstractBaseUser | AnonymousUser | None" = None,
+    ) -> "QuerySet":
         """
         Return a values("pk") queryset of this directory's files, deduplicated by file_sha256.
 
@@ -1029,26 +1048,35 @@ class DirectoryIndex(models.Model):
         Args:
             sort: Sort order to apply (0-2)
             additional_filters: Additional Django ORM filters to apply
+            user: Requesting user for favorite-first ordering (SORT_MATRIX's
+                leading -is_favorited key), or None for the no-favorite path.
+                When a file_sha256 has duplicate rows across directories,
+                DISTINCT ON's leading (file_sha256, -is_favorited, ...)
+                ordering means the favorited instance is preferred as the
+                representative row.
 
         Returns:
             QuerySet selecting one PK per distinct file_sha256, for use as a
             pk__in subquery.
         """
         additional_filters = additional_filters or {}
-        return (
-            self.FileIndex_entries.filter(delete_pending=False, **additional_filters)
-            .order_by("file_sha256", *SORT_MATRIX[sort])
-            .distinct("file_sha256")
-            .values("pk")
-        )
+        # Deferred: avoids a module-load-time cycle — .favorite imports back
+        # into this chain via quickbbs.models.
+        # pylint: disable-next=import-outside-toplevel
+        from .favorite import Favorite
 
-    def files_in_dir(
+        queryset = self.FileIndex_entries.filter(delete_pending=False, **additional_filters)
+        queryset = Favorite.annotate_is_favorited(queryset, user, target_field="file")
+        return queryset.order_by("file_sha256", *SORT_MATRIX[sort]).distinct("file_sha256").values("pk")
+
+    def files_in_dir(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         sort: int = 0,
         distinct: bool = False,
         additional_filters: dict[str, Any] | None = None,
         fields_only: list[str] | tuple[str, ...] | None = None,
         select_related: list[str] | tuple[str, ...] | None = None,
+        user: "AbstractBaseUser | AnonymousUser | None" = None,
     ) -> "QuerySet[FileIndex] | list[FileIndex]":
         """
         Return the files in the current directory
@@ -1063,6 +1091,9 @@ class DirectoryIndex(models.Model):
                         use filetype relations, so step 2 falls back to full rows;
                         step 1 always selects PKs only regardless of this parameter.
             select_related: List of related fields to select (required)
+            user: Requesting user for favorite-first ordering (SORT_MATRIX's
+                leading -is_favorited key). None (default) — the query is
+                byte-identical to before this parameter existed.
 
         Returns: QuerySet[FileIndex] when distinct=False, list[FileIndex] when distinct=True
 
@@ -1091,12 +1122,17 @@ class DirectoryIndex(models.Model):
 
         files = self.FileIndex_entries.filter(delete_pending=False, **additional_filters)
 
+        # Deferred: avoids a module-load-time cycle — .favorite imports back
+        # into this chain via quickbbs.models.
+        # pylint: disable-next=import-outside-toplevel
+        from .favorite import Favorite
+
         if distinct:
             # Step 1: Deduplicated-PK subquery (PostgreSQL DISTINCT ON requires
             # file_sha256 as first ORDER BY field, disrupting user's sort order).
             # _distinct_file_pks selects only the PK column — the ORDER BY joins
             # need no select_related/only decoration.
-            distinct_pks = self._distinct_file_pks(sort, additional_filters)
+            distinct_pks = self._distinct_file_pks(sort, additional_filters, user=user)
 
             # Step 2: Wrap the subquery with the user's sort order — a single
             # round-trip; the deduplicated PK set never leaves the database.
@@ -1109,6 +1145,7 @@ class DirectoryIndex(models.Model):
             from .fileindex import FileIndex as FileIndexModel
 
             resorted_qs = FileIndexModel.objects.filter(pk__in=distinct_pks)
+            resorted_qs = Favorite.annotate_is_favorited(resorted_qs, user, target_field="file")
             if select_related:
                 resorted_qs = resorted_qs.select_related(*select_related)
             if fields_only and not any("__" in f.lstrip("-") for f in SORT_MATRIX[sort]):
@@ -1118,20 +1155,25 @@ class DirectoryIndex(models.Model):
             return list(resorted_qs)
 
         # Non-distinct: apply the field loading strategy directly
+        files = Favorite.annotate_is_favorited(files, user, target_field="file")
         if fields_only:
             files = files.only(*fields_only)
-        else:
+        elif select_related:
             files = files.select_related(*select_related)
 
         files = files.order_by(*SORT_MATRIX[sort])
         return files
 
-    # Explicit key normalizes keyword and positional calls to hashkey(self, sort);
+    # Explicit key normalizes keyword and positional calls to hashkey(self, sort, user);
     # cachetools' default key would store get_distinct_file_shas(sort=1) under
     # hashkey(self, sort=1), which clear_layout_cache_for_directories() (which
-    # pops the positional hashkey(stub, sort)) could never find.
-    @cached(distinct_files_cache, key=lambda self, sort=0: hashkey(self, sort))
-    def get_distinct_file_shas(self, sort: int = 0) -> list[str]:
+    # pops the positional hashkey(stub, sort, user_pk)) could never find.
+    # user_pk (not the user object) keys the cache: user objects aren't stably
+    # hashable/comparable across requests the way a pk int is.
+    @cached(
+        distinct_files_cache, key=lambda self, sort=0, user=None: hashkey(self, sort, user.pk if user is not None and user.is_authenticated else None)
+    )
+    def get_distinct_file_shas(self, sort: int = 0, user: "AbstractBaseUser | AnonymousUser | None" = None) -> list[str]:
         """
         Get distinct file SHA256s for this directory with caching.
 
@@ -1139,7 +1181,10 @@ class DirectoryIndex(models.Model):
         Instead of caching full FileIndex objects (~1KB each), it caches only SHA256 strings
         (~64 bytes each), reducing memory usage by ~94%.
 
-        Cache key: (self, sort) - directory instance and sort order
+        Cache key: (self, sort, user.pk) - directory instance, sort order,
+        and requesting user (None for anonymous/no-user calls, which are
+        byte-identical to the pre-favorites query and share one cache entry
+        across all anonymous requests).
         Allows efficient pagination across multiple pages without re-fetching distinct files.
 
         Performance Impact:
@@ -1147,16 +1192,21 @@ class DirectoryIndex(models.Model):
           inside the outer SHA256 values_list query, so no FileIndex objects,
           joined rows, or PK lists are materialized in Python
         - Subsequent calls: Returns cached list (instant, no DB query)
-        - Memory: ~64KB per 1,000 files (just SHA256 strings)
+        - Memory: ~64KB per 1,000 files (just SHA256 strings), multiplied by
+          active authenticated-user count now that the key includes user.pk
 
         Cache Invalidation:
         Automatically cleared by clear_layout_cache_for_directories() when:
         - Directory contents change (cache_watcher)
         - Thumbnails are generated (web views)
         - File properties change (management commands)
+        - A favorite affecting this directory is toggled (Favorite.toggle())
 
         Args:
             sort: Sort order to apply (0-2)
+            user: Requesting user for favorite-first ordering (SORT_MATRIX's
+                leading -is_favorited key). None (default) — byte-identical
+                to the query before this parameter existed.
 
         Returns:
             List of unique_sha256 strings for distinct files in the directory,
@@ -1168,21 +1218,27 @@ class DirectoryIndex(models.Model):
         # FileIndex objects, joined rows, or PK lists materialized in Python.
         # Import here to avoid circular import at module level
         # pylint: disable-next=import-outside-toplevel
+        # pylint: disable-next=import-outside-toplevel
+        from .favorite import Favorite
         from .fileindex import FileIndex as FileIndexModel
 
-        distinct_pks = self._distinct_file_pks(sort)
+        distinct_pks = self._distinct_file_pks(sort, user=user)
+        queryset = FileIndexModel.objects.filter(pk__in=distinct_pks)
+        queryset = Favorite.annotate_is_favorited(queryset, user, target_field="file")
         # cast: unique_sha256 is nullable in the schema (django-stubs types the
         # values_list element as str | None), but scanned files carry a SHA and
         # existing behavior keeps any transient NULL rows in the list rather
         # than silently changing pagination counts.
         return cast(
             "list[str]",
-            list(FileIndexModel.objects.filter(pk__in=distinct_pks).order_by(*SORT_MATRIX[sort]).values_list("unique_sha256", flat=True)),
+            list(queryset.order_by(*SORT_MATRIX[sort]).values_list("unique_sha256", flat=True)),
         )
 
     # Same key normalization as get_distinct_file_shas — see the note there.
-    @cached(all_files_shas_cache, key=lambda self, sort=0: hashkey(self, sort))
-    def get_all_file_shas(self, sort: int = 0) -> list[str]:
+    @cached(
+        all_files_shas_cache, key=lambda self, sort=0, user=None: hashkey(self, sort, user.pk if user is not None and user.is_authenticated else None)
+    )
+    def get_all_file_shas(self, sort: int = 0, user: "AbstractBaseUser | AnonymousUser | None" = None) -> list[str]:
         """
         Get all file SHA256s for this directory (duplicates included) with caching.
 
@@ -1191,23 +1247,31 @@ class DirectoryIndex(models.Model):
         navigation (build_context_info) and gallery pagination (layout_manager)
         share this list, so prev/next ordering and page boundaries agree even
         for rows with tied sort keys — the DB is consulted once per
-        (directory, sort) instead of re-deriving positions per request.
+        (directory, sort, user) instead of re-deriving positions per request.
 
-        Cache key: (self, sort) — directory instance and sort order, identical
-        shape to distinct_files_cache, and invalidated alongside it by
-        clear_layout_cache_for_directories().
+        Cache key: (self, sort, user.pk) — directory instance, sort order,
+        and requesting user, identical shape to distinct_files_cache, and
+        invalidated alongside it by clear_layout_cache_for_directories().
 
         Args:
             sort: Sort order to apply (0-2)
+            user: Requesting user for favorite-first ordering (SORT_MATRIX's
+                leading -is_favorited key). None (default) — byte-identical
+                to the query before this parameter existed.
 
         Returns:
             List of unique_sha256 strings for all non-deleted files in the
             directory, sorted according to sort order
         """
+        # pylint: disable-next=import-outside-toplevel
+        from .favorite import Favorite
+
+        queryset = self.FileIndex_entries.filter(delete_pending=False)
+        queryset = Favorite.annotate_is_favorited(queryset, user, target_field="file")
         # cast: same nullable unique_sha256 rationale as get_distinct_file_shas.
         return cast(
             "list[str]",
-            list(self.FileIndex_entries.filter(delete_pending=False).order_by(*SORT_MATRIX[sort]).values_list("unique_sha256", flat=True)),
+            list(queryset.order_by(*SORT_MATRIX[sort]).values_list("unique_sha256", flat=True)),
         )
 
     def get_cover_image(self) -> FileIndex | None:
@@ -1259,6 +1323,7 @@ class DirectoryIndex(models.Model):
         fields_only: list[str] | tuple[str, ...] | None = None,
         select_related: list[str] | tuple[str, ...] | None = None,
         prefetch_related: list[str] | tuple[str, ...] | None = None,
+        user: "AbstractBaseUser | AnonymousUser | None" = None,
     ) -> "QuerySet[DirectoryIndex]":
         """
         Return the directories in the current directory
@@ -1270,6 +1335,9 @@ class DirectoryIndex(models.Model):
                         Useful when only paths or IDs are needed for comparison.
             select_related: List of related fields to select (required)
             prefetch_related: List of related fields to prefetch (required)
+            user: Requesting user for favorite-first ordering (DIR_SORT_MATRIX's
+                leading -is_favorited key). None (default) — the query is
+                byte-identical to before this parameter existed.
 
         Returns: The sorted query of directories
 
@@ -1284,7 +1352,13 @@ class DirectoryIndex(models.Model):
             raise ValueError("select_related parameter is required")
         if prefetch_related is None:
             raise ValueError("prefetch_related parameter is required")
+        # Deferred: avoids a module-load-time cycle — .favorite imports back
+        # into this chain via quickbbs.models.
+        # pylint: disable-next=import-outside-toplevel
+        from .favorite import Favorite
+
         queryset = DirectoryIndex.objects.filter(parent_directory=self.pk, delete_pending=False)
+        queryset = Favorite.annotate_is_favorited(queryset, user, target_field="directory")
 
         if fields_only:
             # Lightweight query - only load specified fields, skip related objects
@@ -1850,17 +1924,30 @@ def get_ordered_sibling_dirs(parent_pk: int, sort: int) -> list[tuple[str, str]]
     Returns:
         Ordered list of (dir_fqpn_sha256, fqpndirectory) tuples for the
         parent's subdirectories, excluding delete-pending rows.
+
+    Note:
+        Sibling navigation order is intentionally NOT favorite-aware (out of
+        scope — see claude_docs/plans/favorites_redesign.md Testing
+        Checklist, which limits favorite-first ordering to gallery listing
+        display). DIR_SORT_MATRIX's leading -is_favorited key still requires
+        an is_favorited annotation to exist on any queryset it orders, so
+        this always annotates the Value(False, ...) no-op constant (never a
+        user-correlated Exists) — same query shape/result as before the
+        favorites feature existed, just satisfying the new sort key.
     """
+    # Deferred: avoids a module-load-time cycle — .favorite imports back
+    # into this chain via quickbbs.models.
+    # pylint: disable-next=import-outside-toplevel
+    from .favorite import Favorite
+
+    queryset = DirectoryIndex.objects.filter(parent_directory=parent_pk, delete_pending=False)
+    queryset = Favorite.annotate_is_favorited(queryset, None, target_field="directory")
     # cast: dir_fqpn_sha256 is nullable in the schema (django-stubs types the
     # tuple element as str | None), but add_directory() always computes it, so
     # every stored row carries a SHA.
     return cast(
         "list[tuple[str, str]]",
-        list(
-            DirectoryIndex.objects.filter(parent_directory=parent_pk, delete_pending=False)
-            .order_by(*DIR_SORT_MATRIX[sort])
-            .values_list("dir_fqpn_sha256", "fqpndirectory")
-        ),
+        list(queryset.order_by(*DIR_SORT_MATRIX[sort]).values_list("dir_fqpn_sha256", "fqpndirectory")),
     )
 
 

@@ -23,6 +23,22 @@ class UserPreferences(models.Model):
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.DB_CASCADE, related_name="preferences")
     show_duplicates = models.BooleanField(default=False, help_text="Show duplicate files in gallery listings")
+    # Interactive Fiction reader display preferences (interactive_fiction
+    # Step 8) — extends this existing per-user mechanism (auto-create
+    # signal already in place, see signals.py) rather than inventing an
+    # IF-local preferences model.
+    if_font_size = models.CharField(
+        max_length=10,
+        choices=[("small", "Small"), ("medium", "Medium"), ("large", "Large")],
+        default="medium",
+        help_text="Text size for the Interactive Fiction play view",
+    )
+    if_text_width = models.CharField(
+        max_length=10,
+        choices=[("narrow", "Narrow"), ("medium", "Medium"), ("wide", "Wide")],
+        default="medium",
+        help_text="Text column width for the Interactive Fiction play view",
+    )
 
     class Meta:
         """Model metadata."""

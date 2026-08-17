@@ -69,6 +69,20 @@
     {% endwith %}
 
     <!-- Gallery Grid -->
+    {# The fragment cache below has no user dimension: it is only safe for
+       anonymous traffic, where the favorite star always renders the same
+       disabled/login-prompt state regardless of visitor. An authenticated
+       user's per-user favorite state (star fill, favorite-first item order)
+       must render fresh every request, so authenticated requests skip the
+       cache entirely. Revisit if this becomes a measured perf cost — see
+       claude_docs/plans/favorites_redesign.md. #}
+    {% if user.is_authenticated %}
+    <div class="gallery-grid">
+        {%- for item in items_to_display -%}
+            {{ show_gallery_item_card(item, loop.index, sort, fromtimestamp, csrf_token, True) }}
+        {% endfor %}
+    </div>
+    {% else %}
     {% cache 120 "gallery_grid" webpath current_page sort searchtext|default('') show_duplicates|default(False) %}
     <div class="gallery-grid">
         {%- for item in items_to_display -%}
@@ -76,4 +90,5 @@
         {% endfor %}
     </div>
     {% endcache %}
+    {% endif %}
 </div>

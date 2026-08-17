@@ -11,16 +11,22 @@ import datetime
 import logging
 import math
 import time
+from typing import TYPE_CHECKING
 
 from cachetools import cached
 from cachetools.keys import hashkey
 from django.conf import settings
 from django.http import HttpResponseBadRequest
 
+if TYPE_CHECKING:
+    from django.contrib.auth.base_user import AbstractBaseUser
+    from django.contrib.auth.models import AnonymousUser
+
 from frontend.utilities import (
     convert_to_webpath,
     return_breadcrumbs,
 )
+from interactive_fiction.models import Story
 from quickbbs.cache_registry import layout_manager_cache
 from quickbbs.common import normalize_sha_input
 from quickbbs.directoryindex import get_ordered_sibling_dirs
@@ -131,6 +137,16 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
         "page_locale": (dirs_count + current_page - 1) // settings.GALLERY_ITEMS_PER_PAGE + 1,
         # DEPRECATED: dir_link is unused by templates. Remove after 2026-06-01.
         # "dir_link": f"{webpath}{entry.name}?sort={sort_order_value}",
+        # Interactive Fiction (Step 9): a scanner-ingested .inkj file's item
+        # view links to its play page. None for every other filetype, and
+        # for an .inkj file whose Story row hasn't been created yet (e.g.
+        # scanned but not yet ingested, or ingestion rejected it) — the
+        # template only renders the link when this is set.
+        "if_story_slug": (
+            Story.objects.filter(source_fqfn=entry.full_filepathname).values_list("slug", flat=True).first()
+            if entry.filetype.fileext == ".inkj"
+            else None
+        ),
     }
 
     build_time = time.perf_counter() - start_time
@@ -193,7 +209,7 @@ def calculate_page_bounds(page_number: int, chunk_size: int, dirs_count: int) ->
     }
 
 
-def _layout_manager_key(page_number: int, directory, sort_ordering: int, show_duplicates: bool):
+def _layout_manager_key(page_number: int, directory, sort_ordering: int, show_duplicates: bool, user=None):
     """
     Build the cache key for layout_manager using directory.pk instead of the full model instance.
 
@@ -203,18 +219,31 @@ def _layout_manager_key(page_number: int, directory, sort_ordering: int, show_du
     - The key is stable across different query paths that load the same directory —
       no risk of identity vs. equality mismatches if Django's __hash__ behaviour changes.
 
+    user.pk is appended last (not inserted earlier in the tuple) so
+    key[1] (directory pk) stays at its existing position —
+    clear_layout_cache_for_directories() reads it by that fixed index.
+
     Args:
         page_number: Current page number (1-indexed)
         directory: DirectoryIndex object (only .pk is used in the key)
         sort_ordering: Sort order to apply (0-2)
         show_duplicates: Whether duplicate files are included
+        user: Requesting user for favorite-first ordering. None/anonymous
+            collapses to the same key as before this parameter existed.
     Returns: cachetools hashkey tuple
     """
-    return hashkey(page_number, directory.pk if directory is not None else None, sort_ordering, show_duplicates)
+    user_pk = user.pk if user is not None and user.is_authenticated else None
+    return hashkey(page_number, directory.pk if directory is not None else None, sort_ordering, show_duplicates, user_pk)
 
 
 @cached(layout_manager_cache, key=_layout_manager_key)
-def layout_manager(page_number: int = 1, directory=None, sort_ordering: int = 0, show_duplicates: bool = False) -> dict:
+def layout_manager(  # pylint: disable=too-many-locals
+    page_number: int = 1,
+    directory=None,
+    sort_ordering: int = 0,
+    show_duplicates: bool = False,
+    user: "AbstractBaseUser | AnonymousUser | None" = None,
+) -> dict:
     """
     Manage gallery layout with optimized database-level pagination.
 
@@ -230,6 +259,11 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int = 0,
         directory: DirectoryIndex object representing the directory to layout
         sort_ordering: Sort order to apply (0-2), defaults to 0 (name)
         show_duplicates: Whether to show duplicate files
+        user: Requesting user for favorite-first ordering (threaded into
+            dirs_in_dir()/get_all_file_shas()/get_distinct_file_shas(), whose
+            SORT_MATRIX/DIR_SORT_MATRIX leading -is_favorited key needs it).
+            None (default) — byte-identical to the query before this
+            parameter existed.
     Returns: Dictionary containing pagination data and current page items
     Raises:
         ValueError: If directory parameter is None
@@ -241,7 +275,7 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int = 0,
     items_per_page = settings.GALLERY_ITEMS_PER_PAGE
 
     # Get base querysets first
-    directories_qs = directory.dirs_in_dir(sort=sort_ordering, fields_only=("dir_fqpn_sha256",), select_related=(), prefetch_related=())
+    directories_qs = directory.dirs_in_dir(sort=sort_ordering, fields_only=("dir_fqpn_sha256",), select_related=(), prefetch_related=(), user=user)
     # Reads through dir_counts_cache (invalidated with the layout cache) —
     # directories_qs is still needed below for the page slice.
     dirs_count = directory.get_dir_counts()
@@ -251,10 +285,10 @@ def layout_manager(page_number: int = 1, directory=None, sort_ordering: int = 0,
     # prev/next agree even for rows with tied sort keys.
     if show_duplicates:
         # Include duplicates - cached full SHA list (all_files_shas_cache)
-        all_shas = directory.get_all_file_shas(sort=sort_ordering)
+        all_shas = directory.get_all_file_shas(sort=sort_ordering, user=user)
     else:
         # Deduplicate - cached distinct SHA list (distinct_files_cache)
-        all_shas = directory.get_distinct_file_shas(sort=sort_ordering)
+        all_shas = directory.get_distinct_file_shas(sort=sort_ordering, user=user)
     files_count = len(all_shas)
 
     total_items = dirs_count + files_count

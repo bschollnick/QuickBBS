@@ -11,8 +11,8 @@ from user_preferences.models import UserPreferences
 class UserPreferencesAdmin(admin.ModelAdmin):
     """Admin interface for UserPreferences model."""
 
-    list_display = ("user", "show_duplicates")
-    list_filter = ("show_duplicates",)
+    list_display = ("user", "show_duplicates", "if_font_size", "if_text_width")
+    list_filter = ("show_duplicates", "if_font_size", "if_text_width")
     search_fields = ("user__username", "user__email")
     readonly_fields = ("user",)
 

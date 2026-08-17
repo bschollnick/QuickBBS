@@ -1,0 +1,53 @@
+{#
+  Favorite Star Control Macro for QuickBBS
+
+  Renders the favorite/unfavorite toggle star, shared by gallery item cards,
+  the item detail view, and the toggle endpoint's own HTMX-swapped response
+  (so all three render identical markup).
+
+  Usage:
+      {% from 'macros/favorite.jinja' import show_favorite_star %}
+#}
+
+{#
+  Favorite Star Macro
+
+  Args:
+      sha256 (str): unique_sha256 (file) or dir_fqpn_sha256 (directory) identifying the target
+      is_dir (bool): True for a directory target, False for a file target
+      is_favorited (bool): Current favorite state
+      user_authenticated (bool): Whether the requesting user is logged in
+      csrf_token (str): Request's CSRF token (CSRF_COOKIE_HTTPONLY=True means
+          JS cannot read the cookie itself, so the token must be inlined from
+          the template context rather than read client-side)
+
+  Output:
+      A button that POSTs to the toggle endpoint and swaps itself with the
+      server's response (same macro, updated state) via hx-swap="outerHTML".
+      Anonymous users get a disabled button that surfaces a login prompt
+      instead of posting.
+#}
+{% macro show_favorite_star(sha256, is_dir, is_favorited, user_authenticated, csrf_token) %}
+{% if user_authenticated %}
+<button type="button"
+        class="favorite-star{{ ' is-favorited' if is_favorited else '' }}"
+        hx-post="{{ url('toggle_favorite') }}"
+        hx-vals='{"sha256": "{{ sha256 }}", "is_dir": {{ "true" if is_dir else "false" }}}'
+        hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+        hx-swap="outerHTML"
+        hx-target="this"
+        aria-pressed="{{ 'true' if is_favorited else 'false' }}"
+        aria-label="{{ 'Remove favorite' if is_favorited else 'Add favorite' }}"
+        title="{{ 'Remove favorite' if is_favorited else 'Add favorite' }}">
+    <i class="{{ 'fas' if is_favorited else 'far' }} fa-star"></i>
+</button>
+{% else %}
+<button type="button"
+        class="favorite-star favorite-star-disabled"
+        aria-label="Log in to favorite"
+        title="Log in to favorite this item"
+        onclick="window.location.href='{{ url('account_login') }}'; return false;">
+    <i class="far fa-star"></i>
+</button>
+{% endif %}
+{% endmacro %}

@@ -139,6 +139,12 @@
     margin-top: 0.0rem;
 }
 
+.item-index-group {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
 .item-index {
     font-weight: bold;
     margin-right: 0.5rem;
@@ -158,6 +164,37 @@
 .item-title a {
     color: black !important;
     text-decoration: none;
+}
+
+/* Favorite Star Control (templates/macros/favorite.jinja) */
+.favorite-star {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    margin-right: 0.35rem;
+    font-size: 1rem;
+    line-height: 1;
+    color: #b5b5b5;
+    flex-shrink: 0;
+}
+
+.favorite-star:hover {
+    color: #ffdd57;
+}
+
+.favorite-star.is-favorited {
+    color: #ffdd57;
+}
+
+.favorite-star-disabled {
+    cursor: pointer;
+    opacity: 0.5;
+}
+
+.favorite-star-disabled:hover {
+    color: #b5b5b5;
+    opacity: 0.8;
 }
 
 /* Gallery Item Link */

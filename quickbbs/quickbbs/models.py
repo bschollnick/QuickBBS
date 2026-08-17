@@ -37,15 +37,6 @@ class Owners(models.Model):
         verbose_name_plural = "Ownership"
 
 
-class Favorites(models.Model):
-    """
-    Start of setting up a users based favorites for gallery items
-    """
-
-    id = models.AutoField(primary_key=True)
-    uuid = models.UUIDField(default=None, null=True, editable=False, blank=True, db_index=True)
-
-
 # OLD CONSTANTS REMOVED - Phase 4 cleanup
 # These constants have been replaced by granular tuple-based constants in the model files:
 # - FileIndex constants: See quickbbs/fileindex.py (FILEINDEX_SR_*)
@@ -66,6 +57,13 @@ from .directoryindex import (  # noqa: E402  # pylint: disable=wrong-import-posi
     get_view_url_cache,
 )
 
+# favorite.py references "FileIndex"/"DirectoryIndex" as lazy FK strings
+# (resolved via the app registry, not Python import order) and only imports
+# them for real inside method bodies, so it has no ordering dependency on
+# the .fileindex import below — kept after .directoryindex for readability,
+# matching the module's dependency direction.
+from .favorite import Favorite  # noqa: E402  # pylint: disable=wrong-import-position
+
 # Import and re-export main models (allows: from quickbbs.models import DirectoryIndex, FileIndex)
 from .fileindex import (  # noqa: E402  # pylint: disable=wrong-import-position
     FileIndex,
@@ -75,7 +73,7 @@ from .fileindex import (  # noqa: E402  # pylint: disable=wrong-import-position
 
 __all__ = [
     "Owners",
-    "Favorites",
+    "Favorite",
     "DirectoryIndex",
     "FileIndex",
     "directoryindex_cache",

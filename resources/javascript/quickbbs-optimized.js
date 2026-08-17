@@ -15,10 +15,24 @@
     };
 
     // Spinner Management with HTMX Content Replacement Handling
+    //
+    // Tracks in-flight requests by identity (a Set), not a plain counter.
+    // A single HTMX request can legitimately trigger multiple show()/hide()
+    // calls from different listeners (click, htmx:trigger, htmx:beforeRequest
+    // all fire for one submit; htmx:afterRequest AND htmx:afterSettle both
+    // fire on completion) - a counter double-counts those and drifts above
+    // zero forever, leaving the overlay stuck visible after the first HTMX
+    // request completes (found 2026-08-16). show()/hide() take an optional
+    // request key (evt.detail.xhr, stable per actual XHR) so redundant calls
+    // for the same request are idempotent instead of each adding/removing
+    // one from the count. Calls with no key (plain link clicks, which have
+    // no associated xhr yet) fall back to a synthetic per-call key, which is
+    // still safe since those sites only ever call show() once.
     class SpinnerManager {
         constructor() {
             this.spinnerTimeout = null;
-            this.requestCount = 0;
+            this.inFlight = new Set();
+            this.anonymousKeyCounter = 0;
         }
 
         getSpinner() {
@@ -50,8 +64,11 @@
             return spinner;
         }
 
-        show() {
-            this.requestCount++;
+        show(key) {
+            const requestKey = key || `anon-${++this.anonymousKeyCounter}`;
+            if (this.inFlight.has(requestKey)) return;
+            this.inFlight.add(requestKey);
+
             clearTimeout(this.spinnerTimeout);
             const spinnerElement = this.getSpinner();
             if (spinnerElement) {
@@ -59,22 +76,35 @@
             }
         }
 
-        hide() {
-            this.requestCount = Math.max(0, this.requestCount - 1);
-            if (this.requestCount > 0) return;
+        hide(key) {
+            // Every real call site passes a key (evt.detail.xhr); an
+            // unkeyed call is a no-op unless nothing else is tracked, so it
+            // can't accidentally clear an unrelated in-flight request.
+            if (key) {
+                this.inFlight.delete(key);
+            } else if (this.inFlight.size > 0) {
+                return;
+            }
+            if (this.inFlight.size > 0) return;
 
             clearTimeout(this.spinnerTimeout);
             this.spinnerTimeout = setTimeout(() => {
                 const spinnerElement = document.getElementById("spinner-overlay");
-                if (spinnerElement && this.requestCount === 0) {
+                if (spinnerElement && this.inFlight.size === 0) {
                     spinnerElement.style.display = "none";
                 }
             }, CONFIG.SPINNER_DELAY);
         }
 
         forceHide() {
-            // Force hide spinner and reset state (for navigation events)
-            this.requestCount = 0;
+            // Force hide spinner and reset state - used for navigation
+            // events (pageshow/pagehide/htmx:historyRestore), including
+            // the browser back/forward button restoring a page from
+            // bfcache with a spinner left mid-flight from before
+            // navigation away; there is no XHR to key off at that point,
+            // so this unconditionally clears all tracked state rather
+            // than trying to resolve individual keys.
+            this.inFlight.clear();
             clearTimeout(this.spinnerTimeout);
             const spinnerElement = document.getElementById("spinner-overlay");
             if (spinnerElement) {
@@ -309,34 +339,32 @@
         }
 
         setupEventListeners() {
-            // HTMX Events - Handle both real requests and cached responses
+            // HTMX Events - htmx:beforeRequest/htmx:afterRequest are HTMX's
+            // own request lifecycle events and are guaranteed to pair up
+            // exactly 1:1 per real XHR (afterRequest always fires, success
+            // or error) - evt.detail.xhr is the same object instance for
+            // both events of one request, so it's used as SpinnerManager's
+            // request key. Deliberately NOT also calling show() from
+            // "click" or "htmx:trigger", and NOT also calling hide() from
+            // "htmx:afterSettle" - those used to each add/remove their own
+            // count on top of this pair, so a single request could net a
+            // positive count that never returned to zero, leaving the
+            // overlay stuck visible after the very first HTMX request
+            // completed (found 2026-08-16). afterSettle still handles its
+            // own (non-spinner) cleanup below.
             document.addEventListener("htmx:beforeRequest", (evt) => {
                 evt.detail.requestConfig.startTime = this.performance.startRequest();
-                this.spinner.show();
-            });
-
-            // Also show spinner on any HTMX trigger (including cached responses)
-            document.addEventListener("htmx:trigger", (evt) => {
-                this.spinner.show();
-            });
-
-            // Show spinner on any element with HTMX attribute clicked
-            document.addEventListener("click", (evt) => {
-                const target = evt.target.closest('[hx-get], [hx-post], [hx-put], [hx-delete], [hx-patch]');
-                if (target) {
-                    this.spinner.show();
-                }
+                this.spinner.show(evt.detail.xhr);
             });
 
             document.addEventListener("htmx:afterRequest", (evt) => {
                 if (evt.detail.requestConfig.startTime) {
                     this.performance.endRequest(evt.detail.requestConfig.startTime);
                 }
-                this.spinner.hide();
+                this.spinner.hide(evt.detail.xhr);
             });
 
             document.addEventListener("htmx:afterSettle", () => {
-                this.spinner.hide();
                 this.lazyLoader.refresh();
                 this.nativeLazyLoader.refresh();
                 this.reloadVideos();
@@ -349,7 +377,11 @@
                 this.teardownVideos(evt.detail.target);
             });
 
-            // Regular link clicks (non-HTMX)
+            // Regular link clicks (non-HTMX) - a full page navigation, so
+            // there's no xhr/htmx:afterRequest to pair this with; it's
+            // shown unkeyed and cleared by the page's own "load" below
+            // (the current page unloads and a new one loads in its place)
+            // or forceHide() on back/forward navigation.
             document.addEventListener("click", (evt) => {
                 const target = evt.target.closest('a');
                 if (target && target.href && !this.isHTMXElement(target)) {
@@ -359,11 +391,16 @@
                 }
             });
 
-            // Cleanup events
-            window.addEventListener("load", () => this.spinner.hide());
+            // Cleanup events - unconditional forceHide, not hide(): this is
+            // "the page finished loading" / "tab became visible again",
+            // not the completion of one specific tracked request, so any
+            // spinner still showing at this point (e.g. from the unkeyed
+            // link-click show() above) should be cleared outright rather
+            // than decremented against a specific key.
+            window.addEventListener("load", () => this.spinner.forceHide());
             document.addEventListener("visibilitychange", () => {
                 if (document.visibilityState === 'visible') {
-                    this.spinner.hide();
+                    this.spinner.forceHide();
                 }
             });
 
@@ -389,24 +426,35 @@
                 this.reloadVideos();
             });
 
-            // Additional safety net - check for stuck spinners periodically
+            // Additional safety net - check for stuck spinners periodically.
+            // inFlight.size === 0 with the overlay still visible means every
+            // tracked request already resolved but something left the
+            // overlay's display style behind (e.g. the SPINNER_DELAY timeout
+            // firing just as a new show() raced in and then also completed) -
+            // this is a genuinely-stuck overlay, not a request still running,
+            // so forceHide() here is correct rather than masking a real bug.
             setInterval(() => {
                 const spinnerElement = document.getElementById("spinner-overlay");
-                if (spinnerElement && spinnerElement.style.display === "flex" && this.spinner.requestCount === 0) {
+                if (spinnerElement && spinnerElement.style.display === "flex" && this.spinner.inFlight.size === 0) {
                     this.spinner.forceHide();
                 }
             }, 5000); // Check every 5 seconds
 
-            // Error handling
+            // Error handling - htmx:responseError and htmx:timeout are
+            // sub-cases HTMX fires *in addition to* the always-firing
+            // htmx:afterRequest (which already calls spinner.hide(xhr)
+            // above), so no further hide() call is needed here - only the
+            // error-modal/logging side effect. htmx:sendError (the request
+            // never went out at all, e.g. offline) is the one case
+            // htmx:afterRequest may not follow, so it still explicitly
+            // hides, keyed the same way.
             document.addEventListener("htmx:responseError", (evt) => {
                 console.error('HTMX Response Error:', evt.detail);
-                this.spinner.hide();
                 this.showErrorModal(evt.detail);
             });
 
             document.addEventListener("htmx:timeout", (evt) => {
                 console.warn('HTMX Request Timeout:', evt.detail);
-                this.spinner.hide();
                 this.showErrorModal({
                     error: 'Request Timeout',
                     statusCode: 408
@@ -415,7 +463,7 @@
 
             document.addEventListener("htmx:sendError", (evt) => {
                 console.error('HTMX Network Error:', evt.detail);
-                this.spinner.hide();
+                this.spinner.hide(evt.detail.xhr);
                 this.showErrorModal({
                     error: 'Network Error - Unable to connect to server',
                     statusCode: 0

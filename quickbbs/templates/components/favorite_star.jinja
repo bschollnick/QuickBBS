@@ -1,0 +1,13 @@
+{#
+  Favorite star toggle response — rendered by frontend.views.toggle_favorite
+  and swapped into place by HTMX (hx-swap="outerHTML") over the button that
+  triggered the toggle.
+
+  Context variables expected:
+  - sha256: unique_sha256 (file) or dir_fqpn_sha256 (directory)
+  - is_dir: bool
+  - is_favorited: bool (new state after the toggle)
+  - user_authenticated: bool (always True here — toggle_favorite requires login)
+#}
+{% from 'macros/favorite.jinja' import show_favorite_star %}
+{{ show_favorite_star(sha256, is_dir, is_favorited, user_authenticated, csrf_token) }}

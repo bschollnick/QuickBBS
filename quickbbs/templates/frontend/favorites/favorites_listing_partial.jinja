@@ -1,0 +1,8 @@
+{# Favorites Listing Partial - HTMX Content Only #}
+{% from 'macros/htmx.jinja' import show_partial_wrapper %}
+
+{% call show_partial_wrapper(show_title_update=True, title=gallery_name, request=request) %}
+{% include 'components/navbar.jinja' %}
+{% include 'frontend/favorites/favorites_listing_sidebar.jinja' %}
+{% include 'frontend/favorites/favorites_listing_images.jinja' %}
+{% endcall %}

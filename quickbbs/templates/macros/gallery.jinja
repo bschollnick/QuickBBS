@@ -9,6 +9,7 @@
 
 {% from 'macros/htmx.jinja' import show_htmx_attrs %}
 {% from 'macros/metadata.jinja' import show_item_metadata %}
+{% from 'macros/favorite.jinja' import show_favorite_star %}
 
 {#
   Gallery Item Card Macro
@@ -20,10 +21,13 @@
       index (int): Item position in the list (from loop.index)
       sort (int): Current sort parameter (default: 0)
       fromtimestamp: Date formatting function (optional, for metadata display)
+      csrf_token: Request's CSRF token, forwarded to the favorite star control
+      user_authenticated (bool): Whether the requesting user is logged in
+          (favorite star renders disabled/login-prompt when False)
 
   Usage:
       {% for item in items_to_display %}
-          show_gallery_item_card(item, loop.index, sort, fromtimestamp)
+          show_gallery_item_card(item, loop.index, sort, fromtimestamp, csrf_token, user.is_authenticated)
       {% endfor %}
 
   Output:
@@ -33,16 +37,22 @@
           <!-- Metadata section -->
       </div>
 #}
-{% macro show_gallery_item_card(item, index, sort=0, fromtimestamp=None) %}
+{% macro show_gallery_item_card(item, index, sort=0, fromtimestamp=None, csrf_token=None, user_authenticated=False) %}
 {% with
     item_url = item.virtual_directory.get_view_url() if (item.filetype.is_link and item.virtual_directory) else (item.get_view_url() + "?sort=" + sort|string),
-    htmx_attrs = show_htmx_attrs(swap='outerHTML transition:true')
+    htmx_attrs = show_htmx_attrs(swap='outerHTML transition:true'),
+    item_sha256 = item.dir_fqpn_sha256 if item.filetype.is_dir else item.unique_sha256
 %}
 {# Using CSS custom property for dynamic filetype color - more performant than inline background-color #}
 <div class="gallery-item" style="--item-bg-color: #{{ item.filetype.color }};">
     <!-- Item Header -->
     <div class="item-header">
-        <span class="item-index">{{ index }}</span>
+        <span class="item-index-group">
+            {% if item_sha256 %}
+            {{ show_favorite_star(item_sha256, item.filetype.is_dir, item.is_favorited, user_authenticated, csrf_token) }}
+            {% endif %}
+            <span class="item-index">{{ index }}</span>
+        </span>
         <div class="item-title">
             <a href="{{ item_url }}"
                hx-get="{{ item_url }}"

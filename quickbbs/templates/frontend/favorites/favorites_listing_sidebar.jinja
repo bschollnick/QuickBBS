@@ -1,0 +1,14 @@
+{# Favorites Listing Sidebar - Uses unified pagination sidebar component #}
+
+{% set show_page_selector = true %}
+{% set show_next_tab = false %}
+{% set show_download = false %}
+{% set disable_pagination_cache = true %}
+
+{% set up_url = up_uri %}
+{% set first_url = "?page=1&sort=" ~ sort %}
+{% set prev_url = ("?page=" ~ (current_page - 1) ~ "&sort=" ~ sort) if current_page > 1 else None %}
+{% set next_url = ("?page=" ~ (current_page + 1) ~ "&sort=" ~ sort) if current_page < total_pages else None %}
+{% set last_url = "?page=" ~ total_pages ~ "&sort=" ~ sort %}
+
+{% include 'components/pagination_sidebar.jinja' %}

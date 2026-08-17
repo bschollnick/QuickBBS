@@ -43,6 +43,10 @@
                             </a>
                         </figure>
                     </div>
+                {% elif if_story_slug %}
+                    <div class="has-text-centered">
+                        <a class="button is-link" href="/if/{{ if_story_slug }}/">Play</a>
+                    </div>
                 {% elif filetype.is_image or filetype.is_dir or filetype.is_link or filetype.is_archive %}
                     <div class="has-text-centered">
                         <figure class="image">

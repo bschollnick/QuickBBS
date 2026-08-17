@@ -18,16 +18,19 @@ import urllib.parse
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
+from django.contrib.auth.decorators import login_required
 from django.core.handlers.wsgi import WSGIRequest
-from django.db.models import Count, Q
+from django.db.models import BooleanField, Count, Q, Value
 from django.db.utils import DatabaseError, OperationalError
 from django.http import (
     Http404,
     HttpRequest,
+    HttpResponse,
     HttpResponseBadRequest,
     HttpResponseNotFound,
 )
 from django.shortcuts import render
+from django.views.decorators.http import require_POST
 from django.views.decorators.vary import vary_on_headers
 from django_htmx.middleware import HtmxDetails
 
@@ -43,6 +46,7 @@ from frontend.utilities import (
     return_breadcrumbs,
 )
 from quickbbs.common import (
+    DIR_SORT_MATRIX,
     SORT_MATRIX,
     get_dir_sha,
     normalize_fqpn,
@@ -59,6 +63,7 @@ from quickbbs.fileindex import (
 )
 from quickbbs.models import (
     DirectoryIndex,
+    Favorite,
     FileIndex,
 )
 from quickbbs.MonitoredCache import ThreadSafeTTLCache
@@ -192,6 +197,47 @@ def _get_show_duplicates_preference(request: WSGIRequest) -> bool:
     return result
 
 
+@login_required
+@require_POST
+def toggle_favorite(request: WSGIRequest) -> HttpResponse:
+    """
+    Toggle the requesting user's favorite for a file or directory.
+
+    Called via HTMX (hx-post) from the favorite star control
+    (templates/macros/favorite.jinja). Renders the same macro with the
+    new favorite state so HTMX can swap the button in place.
+
+    Args:
+        request: Django WSGIRequest object. POST body carries "sha256"
+            (unique_sha256 for a file, dir_fqpn_sha256 for a directory) and
+            "is_dir" ("true"/"false" string, as sent by hx-vals).
+
+    Returns:
+        Rendered favorite star partial reflecting the new state, or
+        HttpResponseBadRequest if sha256 is missing or the target doesn't exist.
+    """
+    sha256 = request.POST.get("sha256")
+    if not sha256:
+        return HttpResponseBadRequest(content="No sha256 provided.")
+    is_dir = request.POST.get("is_dir") == "true"
+
+    try:
+        if is_dir:
+            new_state = Favorite.toggle(request.user, dir_sha256=sha256)
+        else:
+            new_state = Favorite.toggle(request.user, file_sha256=sha256)
+    except ValueError:
+        return HttpResponseBadRequest(content="Unknown favorite target.")
+
+    context = {
+        "sha256": sha256,
+        "is_dir": is_dir,
+        "is_favorited": new_state,
+        "user_authenticated": True,
+    }
+    return render(request, "components/favorite_star.jinja", context, using="Jinja2")
+
+
 def create_search_regex_pattern(text: str) -> str:
     """
     Create a regex pattern for separator-agnostic search.
@@ -312,22 +358,32 @@ def get_search_results(  # pylint: disable=too-many-arguments
     base_filters = {"delete_pending": False}
     order_by = SORT_MATRIX[sort_order_value]
 
-    dir_annotations = (
-        {
-            "file_count": Count(
-                "FileIndex_entries",
-                filter=Q(FileIndex_entries__delete_pending=False),
-                distinct=True,
-            ),
-            "directory_count": Count(
-                "parent_dir",
-                filter=Q(parent_dir__delete_pending=False),
-                distinct=True,
-            ),
-        }
-        if include_annotations
-        else {}
-    )
+    # SORT_MATRIX's leading -is_favorited key (favorites feature) requires
+    # an is_favorited annotation on any queryset ordered by it. Search
+    # results are intentionally NOT favorite-aware (out of scope — see
+    # claude_docs/plans/favorites_redesign.md) — this is always the
+    # Value(False, ...) no-op constant, never a user-correlated Exists.
+    favorite_annotation = {"is_favorited": Value(False, output_field=BooleanField())}
+
+    dir_annotations = {
+        **favorite_annotation,
+        **(
+            {
+                "file_count": Count(
+                    "FileIndex_entries",
+                    filter=Q(FileIndex_entries__delete_pending=False),
+                    distinct=True,
+                ),
+                "directory_count": Count(
+                    "parent_dir",
+                    filter=Q(parent_dir__delete_pending=False),
+                    distinct=True,
+                ),
+            }
+            if include_annotations
+            else {}
+        ),
+    }
 
     # Directory search with optimized prefetching
     dirs = _safe_regex_search(
@@ -349,6 +405,7 @@ def get_search_results(  # pylint: disable=too-many-arguments
         searchtext,
         order_by,
         prefetch_fields=prefetch_files,
+        annotate_kwargs=favorite_annotation,
         **base_filters,
     )
 
@@ -547,13 +604,123 @@ def search_viewresults(request: WSGIRequest):
     return response
 
 
+@login_required
+@vary_on_headers("HX-Request")
+def favorites_view(request: WSGIRequest) -> HttpResponse:  # pylint: disable=too-many-locals
+    """
+    View the requesting user's favorited directories and files.
+
+    Lists every directory/file the user has favorited, regardless of which
+    directory it lives in — not routed through DirectoryIndex.dirs_in_dir()/
+    files_in_dir()'s per-directory is_favorited annotation (see
+    Favorite.for_user()). Ordered the same way any other gallery listing is
+    (SORT_MATRIX/DIR_SORT_MATRIX, respecting ?sort=): directories then
+    files, name/date order — every item is favorited, so the
+    -is_favorited leading key is a no-op tiebreaker here, matching the
+    precedent SORT_MATRIX already establishes for alias/link files.
+
+    Args:
+        request: Django Request object
+
+    Returns:
+        response: Django response
+    """
+    start_time = time.perf_counter()
+
+    show_duplicates = _get_show_duplicates_preference(request)
+    template_name = _determine_template(request, "favorites")
+    current_page = get_page_param(request)
+
+    context = _create_base_context(request)
+    context["show_duplicates"] = show_duplicates
+    context.update(
+        {
+            "gallery_name": "Favorites",
+            "search": False,
+            "prev_uri": "",
+            "next_uri": "",
+            "breadcrumbs": [{"name": "Favorites", "url": request.path}],
+            "webpath": "/favorites/",
+            "up_uri": "/albums/",
+        }
+    )
+
+    dirs_qs, files_qs = Favorite.for_user(request.user)
+    # Every row here is already known to be favorited (that's what
+    # Favorite.for_user() selects), so is_favorited is a constant True —
+    # not a correlated Exists lookup — just enough to satisfy
+    # SORT_MATRIX/DIR_SORT_MATRIX's leading -is_favorited sort key.
+    dirs_qs = (
+        dirs_qs.select_related(*DIRECTORYINDEX_SR_FILETYPE_THUMB)
+        .annotate(
+            is_favorited=Value(True, output_field=BooleanField()),
+            file_count=Count(
+                "FileIndex_entries",
+                filter=Q(FileIndex_entries__delete_pending=False),
+                distinct=True,
+            ),
+            directory_count=Count(
+                "parent_dir",
+                filter=Q(parent_dir__delete_pending=False),
+                distinct=True,
+            ),
+        )
+        .order_by(*DIR_SORT_MATRIX[context["sort"]])
+    )
+    files_qs = (
+        files_qs.select_related(*FILEINDEX_SR_FILETYPE_HOME_VIRTUAL)
+        .annotate(is_favorited=Value(True, output_field=BooleanField()))
+        .order_by(*SORT_MATRIX[context["sort"]])
+    )
+
+    items_per_page = settings.GALLERY_ITEMS_PER_PAGE
+    dirs_count = dirs_qs.count()
+    files_count = files_qs.count()
+    total_items = dirs_count + files_count
+    total_pages = max(1, math.ceil(total_items / items_per_page))
+    current_page = max(1, min(current_page, total_pages))
+
+    bounds = calculate_page_bounds(current_page, items_per_page, dirs_count)
+
+    dirs_to_display = []
+    if bounds["dirs_slice"]:
+        start, end = bounds["dirs_slice"]
+        dirs_to_display = list(dirs_qs[start:end])
+
+    files_to_display = []
+    if bounds["files_slice"]:
+        start, end = bounds["files_slice"]
+        files_to_display = list(files_qs[start:end])
+
+    context.update(
+        {
+            "page_range": list(range(1, total_pages + 1)),
+            "total_pages": total_pages,
+            "total_items": total_items,
+            "current_page": current_page,
+            "has_previous": current_page > 1,
+            "has_next": current_page < total_pages,
+            "items_to_display": dirs_to_display + files_to_display,
+            "files_needing_thumbnails": FileIndex.objects.none(),
+        }
+    )
+
+    response = render(request, template_name, context, using="Jinja2")
+
+    if request.user.is_authenticated:
+        response["Cache-Control"] = "private, no-cache, must-revalidate"
+
+    print("Favorites View, processing time: ", time.perf_counter() - start_time)
+    return response
+
+
 def _determine_template(request: WSGIRequest, template_type: str = "gallery") -> str:
     """
     Determine which template to use based on HTMX request type.
 
     Args:
         request: Django WSGIRequest object
-        template_type: Type of template ("gallery", "search", "item")
+        template_type: Type of template ("gallery", "search", "item", "favorites")
 
     Returns:
         Template name string
@@ -572,6 +739,10 @@ def _determine_template(request: WSGIRequest, template_type: str = "gallery") ->
         "item": {
             "partial": "frontend/item/gallery_htmx_partial.jinja",
             "complete": "frontend/item/gallery_htmx_complete.jinja",
+        },
+        "favorites": {
+            "partial": "frontend/favorites/favorites_listing_partial.jinja",
+            "complete": "frontend/favorites/favorites_listing_complete.jinja",
         },
     }
 
@@ -765,6 +936,7 @@ def view_gallery(request: WSGIRequest):
         directory=directory,
         sort_ordering=context["sort"],
         show_duplicates=show_duplicates,
+        user=request.user,
     )
 
     # Update context with layout data efficiently
@@ -793,6 +965,7 @@ def view_gallery(request: WSGIRequest):
                 sort=context["sort"],
                 select_related=DIRECTORYINDEX_SR_FILETYPE_THUMB,
                 prefetch_related=(),
+                user=request.user,
             ).filter(dir_fqpn_sha256__in=layout["page_items"]["directory_shas"])
             # REMOVED: .select_related("thumbnail__new_ftnail") - Phase 5 Fix 1
             # Thumbnails load on-demand via thumbnail_dir() - no need for 750KB binary blobs
@@ -805,7 +978,7 @@ def view_gallery(request: WSGIRequest):
         # Fetch and separate files and links in one pass
         # Note: select_related already handled by files_in_dir() - no need to duplicate
         all_items = list(
-            directory.files_in_dir(sort=context["sort"], select_related=FILEINDEX_SR_FILETYPE_HOME_VIRTUAL).filter(
+            directory.files_in_dir(sort=context["sort"], select_related=FILEINDEX_SR_FILETYPE_HOME_VIRTUAL, user=request.user).filter(
                 unique_sha256__in=layout["page_items"]["file_shas"]
             )
         )
@@ -867,6 +1040,7 @@ def htmx_view_item(request: HtmxHttpRequest, sha256: str):
     # Ensure user is in context (standardized pattern)
     context["user"] = request.user
     context["show_duplicates"] = show_duplicates
+    context["is_favorited"] = Favorite.is_favorited(request.user, file_sha256=context["sha"])
 
     # Proactively warm thumbnails for the directory this item belongs to.
     # Same pattern as view_gallery() but with a smaller batch limit.

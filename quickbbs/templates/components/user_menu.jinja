@@ -38,6 +38,19 @@
         </span>
       </a>
       <hr class="navbar-divider">
+      <a class="navbar-item" href="{{ url('favorites') }}"
+         hx-get="{{ url('favorites') }}"
+         hx-target="body"
+         hx-swap="innerHTML show:window:top transition:true"
+         hx-push-url="true">
+        <span class="icon-text">
+          <span class="icon">
+            <i class="fas fa-star"></i>
+          </span>
+          <span>My Favorites</span>
+        </span>
+      </a>
+      <hr class="navbar-divider">
       <button
         onclick="window.location.href='{{ url('toggle_show_duplicates') }}'; return false;"
         class="navbar-item"
