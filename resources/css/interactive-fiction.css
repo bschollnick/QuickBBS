@@ -7,48 +7,163 @@
     margin-bottom: 1rem;
 }
 
+/* Sidebar buttons (nav, save/load, settings, edit, undo/restart) show an
+   icon with a text label stacked below it, since the IF sidebar's actions
+   aren't self-explanatory from the icon alone the way gallery paging is. */
+.if-sidebar-label {
+    display: block;
+    font-size: 0.65rem;
+    line-height: 1.2;
+    margin-top: 0.25rem;
+    white-space: normal;
+    text-align: center;
+}
+
+.button.is-ghost:has(.if-sidebar-label) {
+    flex-direction: column;
+}
+
 .if-story-image {
     max-width: 100%;
     border-radius: 4px;
 }
 
-.if-story-transcript {
-    opacity: 0.7;
+.if-story-transcript-panel {
+    margin-bottom: 1rem;
 }
 
-.if-story-transcript hr {
+.if-story-transcript {
+    opacity: 0.7;
+    display: block;
+    width: 100%;
+}
+
+.if-transcript-turn-divider {
     margin: 1rem 0;
+    border: none;
+    border-top: 1px dashed hsl(0, 0%, 60%);
 }
 
 .if-transcript-choice {
     color: hsl(0, 0%, 48%);
 }
 
+.if-current-turn-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 1.5rem 0;
+    color: hsl(0, 0%, 48%);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.if-current-turn-divider::before,
+.if-current-turn-divider::after {
+    content: "";
+    flex: 1;
+    border-top: 2px solid hsl(217, 71%, 53%);
+}
+
 .if-choice-key {
     margin-left: 0.5em;
 }
 
-.if-play-controls {
-    margin-top: 1.5rem;
+.if-save-slot-actions {
+    margin-bottom: 0;
 }
 
-.if-choices-label {
-    margin-bottom: 0.5rem;
+.if-save-slot-actions .input {
+    width: 8rem;
 }
 
-.if-library-cover {
-    max-width: 4rem;
-    max-height: 4rem;
-    border-radius: 4px;
-    vertical-align: middle;
-    margin-right: 0.5rem;
+.if-choices-message {
+    margin-top: 2rem;
 }
 
-.if-library-list li {
+@keyframes if-turn-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.if-current-turn-fade {
+    animation: if-turn-fade-in 2s ease-in;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .if-current-turn-fade {
+        animation: none;
+    }
+}
+
+.if-choices-message .message-header {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.9rem;
+    background-color: hsl(233, 55%, 45%);
+}
+
+.if-choices-message .if-choices .buttons {
+    margin-bottom: 0;
+}
+
+/* Library grid — tiled cards, laid out the same way as the main gallery
+   grid (resources/css/gallery-grid.css's .gallery-grid/.gallery-item):
+   wrapping flex tiles rather than a single-column list. */
+.if-library-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.if-library-card {
+    flex: 1 1 calc(25% - 0.75rem);
+    min-width: 180px;
+    max-width: 220px;
+}
+
+.if-library-card-link {
+    color: inherit;
+    display: block;
+}
+
+.if-library-card-link:hover .title {
+    text-decoration: underline;
+}
+
+.if-library-card-image {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.25rem 0;
+    justify-content: center;
+    height: 180px;
+    background-color: hsl(0, 0%, 96%);
+}
+
+.if-library-card-image img {
+    max-height: 180px;
+    width: auto;
+    object-fit: contain;
+}
+
+.if-library-card-placeholder {
+    color: hsl(0, 0%, 71%);
+}
+
+.if-library-card .card-content {
+    padding: 0.75rem;
+}
+
+.if-library-card .card-content .title {
+    margin-bottom: 0;
+    word-wrap: break-word;
+}
+
+.if-library-card .card-footer-item {
+    border-radius: 0;
+    border: none;
+    justify-content: center;
 }
 
 /* Reader preferences: font size */
@@ -69,19 +184,19 @@
 
 /* Reader preferences: text column width */
 .if-width-narrow .if-story-text,
-.if-width-narrow .if-story-transcript,
+.if-width-narrow .if-story-transcript-panel,
 .if-width-narrow .if-choices {
     max-width: 30rem;
 }
 
 .if-width-medium .if-story-text,
-.if-width-medium .if-story-transcript,
+.if-width-medium .if-story-transcript-panel,
 .if-width-medium .if-choices {
     max-width: 45rem;
 }
 
 .if-width-wide .if-story-text,
-.if-width-wide .if-story-transcript,
+.if-width-wide .if-story-transcript-panel,
 .if-width-wide .if-choices {
     max-width: 60rem;
 }

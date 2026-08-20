@@ -35,7 +35,12 @@ from quickbbs.models import FileIndex
 from thumbnails.models import ThumbnailFiles
 
 
-def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_duplicates: bool = False) -> dict | HttpResponseBadRequest:
+def build_context_info(
+    unique_file_sha256: str,
+    sort_order_value: int = 0,
+    show_duplicates: bool = False,
+    user: "AbstractBaseUser | AnonymousUser | None" = None,
+) -> dict | HttpResponseBadRequest:
     """
     Build context information for item view using optimized single-pass dictionary creation.
 
@@ -54,6 +59,9 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
         unique_file_sha256: The unique SHA256 hash of the item
         sort_order_value: Sort order to apply (0=name, 1=date, 2=name only)
         show_duplicates: Whether to show duplicate files (affects navigation list)
+        user: Requesting user for favorite-first ordering (SORT_MATRIX's
+            leading -is_favorited key). None (default) omits favorites from
+            the ordering, matching layout_manager's anonymous-user behavior.
     Returns: Dictionary containing context data or HttpResponseBadRequest on error
     """
     if not unique_file_sha256:
@@ -75,10 +83,10 @@ def build_context_info(unique_file_sha256: str, sort_order_value: int = 0, show_
     # page order agree even for rows with tied sort keys.
     if show_duplicates:
         # Include duplicates - cached full SHA list (all_files_shas_cache)
-        all_shas = directory_entry.get_all_file_shas(sort=sort_order_value)
+        all_shas = directory_entry.get_all_file_shas(sort=sort_order_value, user=user)
     else:
         # Deduplicate - cached distinct SHA list (distinct_files_cache)
-        all_shas = directory_entry.get_distinct_file_shas(sort=sort_order_value)
+        all_shas = directory_entry.get_distinct_file_shas(sort=sort_order_value, user=user)
 
     # Get pagination data inline
     try:

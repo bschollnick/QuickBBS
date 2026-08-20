@@ -3,7 +3,7 @@
 {% block title %}Interactive Fiction{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="/resources/css/interactive-fiction.css?v=1">
+<link rel="stylesheet" href="/resources/css/interactive-fiction.css?v=5">
 {% endblock %}
 
 {% block content %}
@@ -16,22 +16,36 @@
     <a class="button is-link is-small" href="/if/upload/">Upload a story</a>
     {% endif %}
     {% if stories %}
-    <ul class="if-library-list">
+    <div class="if-library-grid">
         {% for story in stories %}
-        <li>
-            {% if story.pk in cover_story_ids %}
-            <img class="if-library-cover" src="/if/{{ story.slug }}/cover/" alt="">
-            {% endif %}
-            <a href="/if/{{ story.slug }}/">{{ story.title }}</a>
-            {% set status = play_statuses.get(story.pk, "not_started") %}
-            {% if status == "finished" %}
-            <span class="tag is-success">Finished — play again</span>
-            {% elif status == "in_progress" %}
-            <span class="tag is-info">Continue</span>
-            {% endif %}
-        </li>
+        {% set status = play_statuses.get(story.pk, "not_started") %}
+        <div class="card if-library-card">
+            <a href="/if/{{ story.slug }}/" class="if-library-card-link">
+                <div class="card-image if-library-card-image">
+                    {% if story.pk in cover_story_ids %}
+                    <figure class="image">
+                        <img src="/if/{{ story.slug }}/cover/" alt="">
+                    </figure>
+                    {% else %}
+                    <span class="icon is-large if-library-card-placeholder"><i class="fas fa-book fa-2x"></i></span>
+                    {% endif %}
+                </div>
+                <div class="card-content">
+                    <p class="title is-5">{{ story.title }}</p>
+                </div>
+                {% if status == "finished" %}
+                <footer class="card-footer">
+                    <span class="card-footer-item tag is-success">Finished — play again</span>
+                </footer>
+                {% elif status == "in_progress" %}
+                <footer class="card-footer">
+                    <span class="card-footer-item tag is-info">Continue</span>
+                </footer>
+                {% endif %}
+            </a>
+        </div>
         {% endfor %}
-    </ul>
+    </div>
     {% if total_pages and total_pages > 1 %}
     <p class="has-text-centered">Page {{ current_page }} of {{ total_pages }}</p>
     {% endif %}

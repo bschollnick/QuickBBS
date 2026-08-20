@@ -30,7 +30,7 @@ from interactive_fiction.story_views import (
     create_story_from_compiled_json,
     validate_story_upload,
 )
-from quickbbs.models import FileIndex
+from quickbbs.models import DirectoryIndex, FileIndex
 
 logger = logging.getLogger(__name__)
 
@@ -84,9 +84,20 @@ def find_inkj_file_by_path(full_filepathname: str) -> FileIndex | None:
     Used by interactive_fiction.views._source_gallery_item_sha256 to resolve
     a scanner-ingested story back to its originating gallery item (the
     mirror image of ingest_stories()'s file -> story direction) — a single
-    indexed lookup rather than live_inkj_files()'s full-table scan, since
-    that function needs to check only one path, not enumerate every
-    candidate.
+    indexed directory lookup plus a filtered in-directory query, rather than
+    live_inkj_files()'s full-table scan, since that function needs to check
+    only one path, not enumerate every candidate.
+
+    Resolves in two steps, both through existing DirectoryIndex machinery
+    rather than a bespoke FileIndex query: first the containing directory,
+    via DirectoryIndex.search_for_directory() (cached, keyed on the
+    directory's own indexed dir_fqpn_sha256 — see
+    quickbbs.directoryindex.search_for_directory_by_sha()'s docstring),
+    then the file within it, via that directory's own
+    DirectoryIndex.files_in_dir(additional_filters=...) — the same method
+    every other directory-scoped file lookup in the codebase uses, rather
+    than a filter reimplementing what files_in_dir() already does
+    (delete_pending exclusion, FileIndex_entries reverse-FK scoping).
 
     full_filepathname is FileIndex.full_filepathname's own concatenation
     (home_directory.fqpndirectory + name) with no separator recorded
@@ -100,22 +111,56 @@ def find_inkj_file_by_path(full_filepathname: str) -> FileIndex | None:
 
     Returns:
         The matching live FileIndex row (filetype .inkj, not ignored, not
-        delete_pending), or None if no such row exists.
+        delete_pending), or None if no such row exists (including when the
+        containing directory itself has no DirectoryIndex row).
     """
     directory_path, _sep, name = full_filepathname.rpartition(os.sep)
     if not directory_path:
         return None
-    return (
-        FileIndex.objects.filter(
-            home_directory__fqpndirectory=directory_path + os.sep,
-            name=name,
-            filetype__fileext__iexact=".inkj",
-            ignore=False,
-            delete_pending=False,
-        )
-        .select_related("home_directory")
-        .first()
+
+    found, directory = DirectoryIndex.search_for_directory(directory_path + os.sep)
+    if not found or directory is None:
+        return None
+
+    matches = directory.files_in_dir(
+        additional_filters={"name": name, "filetype__fileext__iexact": ".inkj", "ignore": False},
+        select_related=("home_directory",),
     )
+    return matches.first()
+
+
+def _ingest_one_file(owner, fqfn: str, file_entry: FileIndex) -> bool:
+    """Create a Story from a single unlinked .inkj FileIndex row, if valid.
+
+    Shared by ingest_stories() (full-gallery batch scan) and
+    ingest_stories_in_directory() (single-directory, called live from the
+    web view path) — both need the same read/validate/create sequence per
+    candidate file, just scoped to a different set of candidates.
+
+    Args:
+        owner: The scanner-ingestion owner account (see _get_scan_owner()).
+        fqfn: The candidate file's full path (becomes Story.source_fqfn).
+        file_entry: The candidate's live FileIndex row.
+
+    Returns:
+        True if a Story row was created; False if the file couldn't be
+        read or failed validate_story_upload() (logged either way).
+    """
+    try:
+        with open(fqfn, "rb") as story_file:
+            raw_bytes = story_file.read()
+    except OSError as exc:
+        logger.warning("Could not read candidate story file '%s': %s", fqfn, exc)
+        return False
+
+    data, errors = validate_story_upload(raw_bytes)
+    if data is None:
+        logger.warning("Skipping invalid story file '%s': %s", fqfn, "; ".join(errors))
+        return False
+
+    title = file_entry.name.rsplit(".", 1)[0]
+    create_story_from_compiled_json(owner, title, data, source_fqfn=fqfn, source_sha256=file_entry.file_sha256 or "")
+    return True
 
 
 def ingest_stories() -> int:
@@ -144,22 +189,46 @@ def ingest_stories() -> int:
     for fqfn, file_entry in live_inkj_files().items():
         if fqfn in existing_fqfns:
             continue
+        if _ingest_one_file(owner, fqfn, file_entry):
+            created += 1
 
-        try:
-            with open(fqfn, "rb") as story_file:
-                raw_bytes = story_file.read()
-        except OSError as exc:
-            logger.warning("Could not read candidate story file '%s': %s", fqfn, exc)
+    return created
+
+
+def ingest_stories_in_directory(directory: DirectoryIndex) -> int:
+    """Create a Story for every unlinked .inkj FileIndex row in one directory.
+
+    The live-web counterpart to ingest_stories(): called from
+    update_database_from_disk() right after sync_files() so a .inkj file
+    dropped into the Albums tree becomes playable the moment its directory
+    is next viewed, matching how any other file type is picked up live —
+    instead of requiring a separate `manage.py scan --add_files` batch run.
+    Scoped to one directory's own FileIndex rows (via files_in_dir()) rather
+    than live_inkj_files()'s full-gallery scan, since a single directory
+    view has no reason to pay for a gallery-wide query.
+
+    Args:
+        directory: The DirectoryIndex just synced by update_database_from_disk().
+
+    Returns:
+        The number of Story rows created.
+    """
+    owner = _get_scan_owner()
+    if owner is None:
+        return 0
+
+    candidates = directory.files_in_dir(
+        additional_filters={"filetype__fileext__iexact": ".inkj", "ignore": False},
+        select_related=("home_directory",),
+    )
+
+    created = 0
+    for file_entry in candidates:
+        fqfn = file_entry.full_filepathname
+        if Story.objects.filter(source_fqfn=fqfn).exists():
             continue
-
-        data, errors = validate_story_upload(raw_bytes)
-        if data is None:
-            logger.warning("Skipping invalid story file '%s': %s", fqfn, "; ".join(errors))
-            continue
-
-        title = file_entry.name.rsplit(".", 1)[0]
-        create_story_from_compiled_json(owner, title, data, source_fqfn=fqfn, source_sha256=file_entry.file_sha256 or "")
-        created += 1
+        if _ingest_one_file(owner, fqfn, file_entry):
+            created += 1
 
     return created
 

@@ -14,10 +14,12 @@
    href="{% if gallery_item_sha256 %}/view_item/{{ gallery_item_sha256 }}/{% else %}/if/{% endif %}"
    title="{% if gallery_item_sha256 %}View in gallery{% else %}Back to library{% endif %}">
   {{ icon("arrow-up fa-2x") }}
+  <span class="if-sidebar-label">{% if gallery_item_sha256 %}Gallery{% else %}Library{% endif %}</span>
 </a>
 {% if gallery_item_sha256 %}
 <a class="button is-ghost is-fullwidth" href="/if/" title="Library">
   {{ icon("list fa-2x") }}
+  <span class="if-sidebar-label">Library</span>
 </a>
 {% endif %}
 {% endblock %}
@@ -31,13 +33,22 @@
 {% block sort_options %}
 <a class="button is-ghost is-fullwidth" href="/if/{{ story.slug }}/saves/" title="Save / Load">
   {{ icon("save fa-2x") }}
+  <span class="if-sidebar-label">Save / Load</span>
 </a>
 <a class="button is-ghost is-fullwidth" href="/if/preferences/" title="Reader settings">
   {{ icon("cog fa-2x") }}
+  <span class="if-sidebar-label">Settings</span>
 </a>
 {% if user.is_authenticated and (story.owner_id == user.pk or user.is_superuser) %}
 <a class="button is-ghost is-fullwidth" href="/if/{{ story.slug }}/edit/" title="Edit story">
   {{ icon("edit fa-2x") }}
+  <span class="if-sidebar-label">Edit</span>
 </a>
 {% endif %}
+{% endblock %}
+
+{% block download_button %}
+<div class="sidebar-section" id="if-sidebar-actions">
+  {% include 'interactive_fiction/play_sidebar_actions.jinja' %}
+</div>
 {% endblock %}

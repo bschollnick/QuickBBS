@@ -1,18 +1,24 @@
 <!-- Play content partial: transcript + story text + choices for the current turn. -->
 <div id="if-play-content">
     {% if transcript and transcript|length > 1 %}
-    <div class="if-story-transcript content">
-        {% for entry in transcript[:-1] %}
-        {% if entry.chosen_label %}<p class="if-transcript-choice"><em>&gt; {{ entry.chosen_label }}</em></p>{% endif %}
-        {% for paragraph in entry.text.split('\n') %}
-        {% if paragraph %}<p>{{ paragraph }}</p>{% endif %}
-        {% endfor %}
-        {% endfor %}
-        <hr>
+    <nav class="panel if-story-transcript-panel">
+        <p class="panel-heading">Story so far</p>
+        <div class="panel-block if-story-transcript content">
+            {% for entry in transcript[:-1] %}
+            {% if not loop.first %}<hr class="if-transcript-turn-divider">{% endif %}
+            {% if entry.chosen_label %}<p class="if-transcript-choice"><em>&gt; {{ entry.chosen_label }}</em></p>{% endif %}
+            {% for paragraph in entry.text.split('\n') %}
+            {% if paragraph %}<p>{{ paragraph }}</p>{% endif %}
+            {% endfor %}
+            {% endfor %}
+        </div>
+    </nav>
+    <div class="if-current-turn-divider">
+        <span>Current turn</span>
     </div>
     {% endif %}
 
-    <div id="if-current-turn">
+    <div id="if-current-turn" class="if-current-turn-fade">
     {% if image_urls %}
     <div class="if-story-images">
         {% for url in image_urls %}
@@ -32,43 +38,49 @@
         <p>The story has ended.</p>
         <div class="buttons">
             <a class="button" href="/if/">Back to library</a>
-            <button type="button" class="button is-warning" hx-post="/if/{{ story.slug }}/restart/" hx-target="#if-play-content" hx-swap="outerHTML" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>Play again</button>
         </div>
     </div>
     {% elif choices %}
-    <hr>
-    <p class="if-choices-label"><strong>Your options</strong></p>
-    <form hx-post="/if/{{ story.slug }}/play/"
-          hx-target="#if-play-content"
-          hx-swap="outerHTML"
-          hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
-          class="if-choices">
-        <input type="hidden" name="turn_count" value="{{ turn_count }}">
-        <div class="buttons">
-            {% for index, choice_text in choices %}
-            <button type="submit" name="choice" value="{{ index }}" class="button is-link if-choice-button" data-choice-key="{{ index + 1 }}">{{ choice_text }} <span class="if-choice-key tag is-light">{{ index + 1 }}</span></button>
-            {% endfor %}
+    <article class="message is-link if-choices-message if-current-turn-fade">
+        <div class="message-header">
+            <p>Your Choices</p>
         </div>
-    </form>
+        <div class="message-body">
+            <form hx-post="/if/{{ story.slug }}/play/"
+                  hx-target="#if-play-content"
+                  hx-swap="outerHTML"
+                  hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+                  class="if-choices">
+                <input type="hidden" name="turn_count" value="{{ turn_count }}">
+                <div class="buttons">
+                    {% for index, choice_text in choices %}
+                    <button type="submit" name="choice" value="{{ index }}" class="button is-link if-choice-button" data-choice-key="{{ index + 1 }}">{{ choice_text }} <span class="if-choice-key tag is-light">{{ index + 1 }}</span></button>
+                    {% endfor %}
+                </div>
+            </form>
+        </div>
+    </article>
     {% else %}
     <div class="if-story-stalled notification">
         <p>This story has no more choices to offer right now.</p>
     </div>
     {% endif %}
 
-    <div class="if-play-controls buttons">
-        {% if can_undo %}
-        <button type="button" class="button is-small" hx-post="/if/{{ story.slug }}/undo/" hx-target="#if-play-content" hx-swap="outerHTML" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>Undo</button>
-        {% endif %}
-        {% if not done %}
-        <button type="button" class="button is-small" hx-post="/if/{{ story.slug }}/restart/" hx-target="#if-play-content" hx-swap="outerHTML" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}' hx-confirm="Restart this story? Your current progress in this playthrough will be lost.">Restart</button>
-        {% endif %}
+    {% if request.htmx %}
+    <div id="if-sidebar-actions" class="sidebar-section" hx-swap-oob="true">
+        {% include 'interactive_fiction/play_sidebar_actions.jinja' %}
     </div>
+    {% endif %}
 
     <script>
     (function () {
         var content = document.getElementById("if-play-content");
         if (!content) return;
+
+        // The browser's own scroll restoration (history.scrollRestoration
+        // === "auto") runs after this script and would otherwise override
+        // the jump-to-current-turn behavior below on a plain reload.
+        if ("scrollRestoration" in history) history.scrollRestoration = "manual";
         function onKeydown(event) {
             if (event.target && /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return;
             if (!document.body.contains(content)) {
@@ -83,9 +95,30 @@
         // Jump straight to the current turn on load/swap — the transcript
         // above it can run to hundreds of past turns (MAX_TRANSCRIPT_TURNS),
         // and a plain page load/refresh otherwise lands at the top of that
-        // transcript instead of the live turn.
-        var currentTurn = document.getElementById("if-current-turn");
-        if (currentTurn) currentTurn.scrollIntoView({block: "start"});
+        // transcript instead of the live turn. Scroll to the "Current turn"
+        // divider (if present) rather than the text below it, and account
+        // for the sticky navbar so the divider itself isn't hidden behind
+        // it — plain scrollIntoView() aligns to the viewport top, which
+        // sits underneath the fixed navbar.
+        var anchor = document.querySelector(".if-current-turn-divider") || document.getElementById("if-current-turn");
+        function scrollToAnchor() {
+            if (!anchor) return;
+            var navbar = document.querySelector(".navbar");
+            var navbarHeight = navbar ? navbar.getBoundingClientRect().height : 0;
+            var top = anchor.getBoundingClientRect().top + window.scrollY - navbarHeight - 8;
+            window.scrollTo({top: Math.max(top, 0), behavior: "instant"});
+        }
+        scrollToAnchor();
+        // Re-run after full page load (fonts/images settled, and after
+        // the browser would otherwise have applied its own scroll
+        // restoration on a plain reload) and once more after any story
+        // images finish loading, since those shift layout further down
+        // the page and can leave the divider scrolled out again.
+        window.addEventListener("load", scrollToAnchor, {once: true});
+        var images = content.querySelectorAll("#if-current-turn img");
+        images.forEach(function (img) {
+            if (!img.complete) img.addEventListener("load", scrollToAnchor, {once: true});
+        });
     })();
     </script>
 </div>

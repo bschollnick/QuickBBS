@@ -211,11 +211,29 @@ class Command(BaseCommand):
                     "fileext": ".inkj",
                     "defaults": {
                         "generic": True,
-                        "icon_filename": "1431973815_text.PNG",
+                        "icon_filename": "pen-inkwell-icon.png",
                         "color": "FDEDB1",
                         "filetype": settings.FTYPES["interactive_fiction"],
                         "mimetype": "application/json",
-                        "thumbnail": pathlib.Path(settings.ICONS_PATH, "1431973815_text.PNG").read_bytes(),
+                        "thumbnail": pathlib.Path(settings.ICONS_PATH, "pen-inkwell-icon.png").read_bytes(),
+                    },
+                },
+                {
+                    # Raw (uncompiled) Ink source. Not ingested as a story —
+                    # only .inkj (compiled) files are (see
+                    # interactive_fiction/ingestion.py) — this entry exists
+                    # so .ink files are recognized and display a matching
+                    # icon in the gallery rather than falling through to the
+                    # generic ".none" icon.
+                    "fileext": ".ink",
+                    "defaults": {
+                        "generic": True,
+                        "icon_filename": "pen-inkwell-icon.png",
+                        "color": "FDEDB1",
+                        "filetype": settings.FTYPES["text"],
+                        "is_text": True,
+                        "mimetype": "text/plain",
+                        "thumbnail": pathlib.Path(settings.ICONS_PATH, "pen-inkwell-icon.png").read_bytes(),
                     },
                 },
                 {

@@ -26,18 +26,30 @@
                 <td>{{ existing.label if existing else '(empty)' }}</td>
                 <td>{{ existing.updated_at if existing else '' }}</td>
                 <td>
-                    <form method="post" action="/if/{{ story.slug }}/saves/{{ slot_number }}/save/" style="display:inline">
+                    <form method="post" action="/if/{{ story.slug }}/saves/{{ slot_number }}/save/" id="if-save-slot-form-{{ slot_number }}">
                         {% csrf_token %}
-                        <input type="text" name="label" placeholder="Label" value="{{ existing.label if existing else '' }}">
-                        <button type="submit" class="button is-small">Save here</button>
                     </form>
                     {% if existing %}
-                    <form method="post" action="/if/{{ story.slug }}/saves/{{ slot_number }}/load/" style="display:inline">
+                    <form method="post" action="/if/{{ story.slug }}/saves/{{ slot_number }}/load/" id="if-load-slot-form-{{ slot_number }}">
                         {% csrf_token %}
-                        <button type="submit" class="button is-small is-link">Load</button>
                     </form>
-                    <a class="button is-small" href="/if/{{ story.slug }}/saves/{{ slot_number }}/export/">Export</a>
                     {% endif %}
+                    <div class="field has-addons if-save-slot-actions">
+                        <div class="control">
+                            <input class="input is-small" type="text" name="label" form="if-save-slot-form-{{ slot_number }}" placeholder="Label" value="{{ existing.label if existing else '' }}">
+                        </div>
+                        <div class="control">
+                            <button type="submit" form="if-save-slot-form-{{ slot_number }}" class="button is-small">Save here</button>
+                        </div>
+                        {% if existing %}
+                        <div class="control">
+                            <button type="submit" form="if-load-slot-form-{{ slot_number }}" class="button is-small is-link">Load</button>
+                        </div>
+                        <div class="control">
+                            <a class="button is-small" href="/if/{{ story.slug }}/saves/{{ slot_number }}/export/">Export</a>
+                        </div>
+                        {% endif %}
+                    </div>
                 </td>
             </tr>
             {% endfor %}

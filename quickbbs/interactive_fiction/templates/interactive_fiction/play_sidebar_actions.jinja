@@ -1,0 +1,13 @@
+<!-- Undo/Restart sidebar actions — re-rendered via hx-swap-oob from
+     play_content.jinja on every turn so can_undo/done stay in sync with
+     the story state without a full sidebar re-render. -->
+{% if can_undo %}
+<button type="button" class="button is-ghost is-fullwidth" title="Undo" hx-post="/if/{{ story.slug }}/undo/" hx-target="#if-play-content" hx-swap="outerHTML" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+  {{ icon("undo fa-2x") }}
+  <span class="if-sidebar-label">Undo</span>
+</button>
+{% endif %}
+<button type="button" class="button is-ghost is-fullwidth" title="Restart" hx-post="/if/{{ story.slug }}/restart/" hx-target="#if-play-content" hx-swap="outerHTML" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}' hx-confirm="Restart this story? Your current progress in this playthrough will be lost.">
+  {{ icon("redo fa-2x") }}
+  <span class="if-sidebar-label">Restart</span>
+</button>

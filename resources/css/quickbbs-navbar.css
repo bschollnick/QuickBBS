@@ -2,6 +2,9 @@
 
 .navbar {
     min-height: 3.25rem;
+    position: sticky;
+    top: 0;
+    z-index: 40;
 }
 
 .navbar-brand {

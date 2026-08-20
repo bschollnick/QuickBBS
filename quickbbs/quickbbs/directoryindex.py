@@ -2031,6 +2031,19 @@ def update_database_from_disk(directory_record: "DirectoryIndex") -> "DirectoryI
     dirs_changed = directory_record.sync_subdirectories(fs_entries)
     files_changed = directory_record.sync_files(fs_entries, bulk_size)
 
+    # A newly-appeared .inkj file gets its FileIndex row from sync_files()
+    # above, same as any other file type, but still needs turning into a
+    # playable Story — the live-web counterpart to `manage.py scan
+    # --add_files`'s ingest_stories() pass, scoped to just this directory.
+    # Only worth the query when something on disk actually changed.
+    # Inline import: quickbbs -> interactive_fiction would otherwise be a
+    # reverse dependency (interactive_fiction already imports quickbbs.models).
+    if files_changed:
+        # pylint: disable-next=import-outside-toplevel
+        from interactive_fiction.ingestion import ingest_stories_in_directory
+
+        ingest_stories_in_directory(directory_record)
+
     # Cache the result using the directory record
     directory_record.mark_scanned()
     rescan_elapsed = time.perf_counter() - rescan_start

@@ -1052,7 +1052,7 @@ def htmx_view_item(request: HtmxHttpRequest, sha256: str):
 
     # Use managers.py for context building.
     # Pass show_duplicates to ensure navigation uses same distinct mode as gallery
-    context = build_context_info(sha256, get_sort_param(request), show_duplicates)
+    context = build_context_info(sha256, get_sort_param(request), show_duplicates, user=request.user)
     if isinstance(context, HttpResponseBadRequest):
         return context
 

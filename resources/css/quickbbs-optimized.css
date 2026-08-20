@@ -40,7 +40,7 @@
 
 /* Title and Text Styles */
 #title, .title, h1, h2, h3, h4, h5, h6 {
-    color: black !important;
+    color: var(--bulma-text-strong) !important;
 }
 
 /* Gallery Container */
