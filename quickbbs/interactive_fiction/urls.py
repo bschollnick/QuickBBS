@@ -24,5 +24,6 @@ urlpatterns: list[URLPattern] = [
     path("<slug:slug>/saves/<int:slot>/load/", save_views.saves_load, name="if_saves_load"),
     path("<slug:slug>/saves/<int:slot>/export/", save_views.saves_export, name="if_saves_export"),
     path("<slug:slug>/image/<str:tag_name>/", story_views.story_image, name="if_story_image"),
+    path("<slug:slug>/video/<str:tag_name>/", story_views.story_video, name="if_story_video"),
     path("<slug:slug>/cover/", story_views.story_cover, name="if_story_cover"),
 ]

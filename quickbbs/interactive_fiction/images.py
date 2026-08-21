@@ -1,194 +1,110 @@
-"""Story image handling for the interactive_fiction app (Step 5).
+"""Story image/video linking for the interactive_fiction app.
 
-Decode-and-verify, content-addressed storage, and zip-bundle extraction for
-the images an Ink author tags with `# image: <tag_name>`. See the plan's
-Step 5 section for the model shape (StoryImageBlob/StoryImage) and the
-security rationale for the whitelist/verify/nosniff steps below — the
-serving path is a stored-XSS surface unless constrained, since the blob and
-its content type are author-supplied and served back to other users under
-the site origin.
+`# image: <tag_name>` and `# video: <tag_name>` Ink tags map to a real
+`FileIndex` row already synced into the gallery by the normal scanner
+(`quickbbs/management/commands/scan.py`) — this app never stores or decodes
+any bytes of its own. See `claude_docs/plans/interactive_fiction_fileindex_mapping.md`
+for the design this module implements.
 """
 
 from __future__ import annotations
 
-import hashlib
-import zipfile
-from dataclasses import dataclass
-from io import BytesIO
+import os
 
-from django.conf import settings
 from django.db import transaction
-from PIL import Image, UnidentifiedImageError
 
-from interactive_fiction.models import Story, StoryImage, StoryImageBlob
-from thumbnails.engine.engine import create_thumbnails_from_bytes
-
-# Zip-bundle upload hygiene (Step 5's zip-bomb guard): cap member count so a
-# crafted archive can't force thousands of decode attempts.
-MAX_ZIP_MEMBERS = 200
+from interactive_fiction.models import Story, StoryImage
+from quickbbs.models import DirectoryIndex, FileIndex
+from thumbnails.models import THUMBNAILFILES_PR_FILEINDEX_FILETYPE, ThumbnailFiles
 
 
-@dataclass
-class DecodedImage:
-    """The result of a successful decode-and-verify pass on raw image bytes."""
+def find_file_by_path(full_filepathname: str, *, additional_filters: dict[str, object] | None = None) -> FileIndex | None:
+    """Resolve a gallery file's full path directly to its live FileIndex row.
 
-    content_type: str
-    width: int
-    height: int
-    sha256_hash: str
+    Shared by story_views.py's upload()/edit() (resolving a "reference an
+    existing gallery file" image/video field, no filetype restriction),
+    interactive_fiction.ingestion.find_inkj_file_by_path (which passes
+    additional_filters to also require a .inkj filetype), and any
+    ASFA-conversion ingestion tooling resolving a `# image:`/`# video:`
+    tag's on-disk path to a FileIndex row to link via link_story_image()
+    below. Lives here rather than in ingestion.py to avoid a circular
+    import (ingestion.py already imports from story_views.py, which needs
+    this function).
 
+    Resolves in two steps, both through existing DirectoryIndex machinery
+    rather than a bespoke FileIndex query: first the containing directory,
+    via DirectoryIndex.search_for_directory() (cached, keyed on the
+    directory's own indexed dir_fqpn_sha256), then the file within it, via
+    that directory's own DirectoryIndex.files_in_dir(additional_filters=...)
+    — the same method every other directory-scoped file lookup in the
+    codebase uses.
 
-def decode_and_verify_image(raw_bytes: bytes) -> DecodedImage | None:
-    """Decode, verify, and fingerprint an uploaded image.
-
-    The stored content_type always comes from what Pillow identified, never
-    from the client's declared MIME type (per the plan's Step 5 security
-    rules) — a mismatched or absent declared type can't smuggle a
-    non-whitelisted format through.
+    full_filepathname is FileIndex.full_filepathname's own concatenation
+    (home_directory.fqpndirectory + name) with no separator recorded
+    between them, but fqpndirectory always ends in a path separator (see
+    quickbbs.common.normalize_fqpn()), so splitting at the last separator
+    reliably recovers the directory/name pair the original concatenation
+    was built from.
 
     Args:
-        raw_bytes: The raw uploaded image content.
+        full_filepathname: The full path to look up.
+        additional_filters: Extra FileIndex field filters beyond `name` and
+            `ignore=False` (e.g. a filetype restriction) — merged into the
+            same files_in_dir() call rather than filtered afterward.
 
     Returns:
-        A DecodedImage, or None if the bytes don't decode as a whitelisted
-        image format (settings.STORY_IMAGE_CONTENT_TYPES).
+        The matching live FileIndex row (not ignored, not delete_pending,
+        and matching any additional_filters), or None if no such row
+        exists (including when the containing directory itself has no
+        DirectoryIndex row).
     """
-    try:
-        with Image.open(BytesIO(raw_bytes)) as image:
-            image.verify()
-        with Image.open(BytesIO(raw_bytes)) as image:
-            width, height = image.size
-            pillow_format = image.format
-    except (UnidentifiedImageError, OSError, ValueError):
+    directory_path, _sep, name = full_filepathname.rpartition(os.sep)
+    if not directory_path:
         return None
 
-    content_type = Image.MIME.get(pillow_format or "", "")
-    if content_type not in settings.STORY_IMAGE_CONTENT_TYPES:
+    found, directory = DirectoryIndex.search_for_directory(directory_path + os.sep)
+    if not found or directory is None:
         return None
 
-    return DecodedImage(
-        content_type=content_type,
-        width=width,
-        height=height,
-        sha256_hash=hashlib.sha256(raw_bytes).hexdigest(),
-    )
+    filters: dict[str, object] = {"name": name, "ignore": False}
+    if additional_filters:
+        filters.update(additional_filters)
+
+    matches = directory.files_in_dir(additional_filters=filters, select_related=("home_directory",))
+    return matches.first()
 
 
-def get_or_create_blob(raw_bytes: bytes, decoded: DecodedImage, *, is_cover: bool = False) -> StoryImageBlob:
-    """Get or create the content-addressed StoryImageBlob for the given bytes.
+def link_story_image(story: Story, tag_name: str, file_index: FileIndex, *, is_cover: bool = False) -> None:
+    """Map a story's Ink tag to a real gallery file, replacing any prior mapping.
 
-    Matches the ThumbnailFiles dedup pattern: identical bytes uploaded again
-    (by any story, any tag) reuse the same row instead of violating a
-    per-story unique constraint. `cover_thumb` is filled the first time the
-    blob is used as a cover image; an already-existing blob later used as a
-    cover gets its thumbnail backfilled rather than left null.
-
-    Args:
-        raw_bytes: The raw image content (already verified by the caller).
-        decoded: The result of decode_and_verify_image(raw_bytes).
-        is_cover: Whether this upload is being used as a story's cover_image
-            — triggers cover_thumb generation.
-
-    Returns:
-        The StoryImageBlob row (existing or newly created).
-    """
-    blob, created = StoryImageBlob.objects.get_or_create(
-        sha256_hash=decoded.sha256_hash,
-        defaults={
-            "content_type": decoded.content_type,
-            "image_blob": raw_bytes,
-            "width": decoded.width,
-            "height": decoded.height,
-        },
-    )
-    if is_cover and blob.cover_thumb is None:
-        thumbs = create_thumbnails_from_bytes(raw_bytes, settings.STORY_COVER_THUMB_SIZE, output="JPEG")
-        blob.cover_thumb = thumbs["cover"]
-        blob.save(update_fields=["cover_thumb"])
-    del created
-    return blob
-
-
-def set_story_image(story: Story, tag_name: str, raw_bytes: bytes, *, is_cover: bool = False) -> str | None:
-    """Validate and attach an image to a story's `tag_name`, replacing any prior mapping.
+    Eagerly generates the linked file's thumbnail (via the same
+    content-addressed `ThumbnailFiles` pipeline every other gallery file
+    already uses) as part of linking, rather than leaving thumbnail
+    generation to the first play-time request — see the design plan's
+    "Resolution" step 4 for the tradeoff this accepts (more ingestion-time
+    work, no first-request latency).
 
     Args:
-        story: The story the image belongs to.
-        tag_name: The Ink `# image: <tag_name>` value this upload maps to.
-        raw_bytes: The raw uploaded image content.
+        story: The story the image/video belongs to.
+        tag_name: The Ink `# image: <tag_name>` or `# video: <tag_name>`
+            value this file maps to.
+        file_index: The gallery file this tag resolves to.
         is_cover: Whether to mark the resulting StoryImage as this story's
-            cover (see StoryImage.is_cover) and generate its library-grid
-            thumbnail.
-
-    Returns:
-        None on success, or an error message if raw_bytes did not decode as
-        a whitelisted image format.
+            cover (see StoryImage.is_cover) — the library-grid thumbnail
+            comes from the linked file's own ThumbnailFiles row.
     """
-    decoded = decode_and_verify_image(raw_bytes)
-    if decoded is None:
-        return f"Image for '{tag_name}' is not a valid JPEG/PNG/GIF/WEBP file."
-
     with transaction.atomic():
-        blob = get_or_create_blob(raw_bytes, decoded, is_cover=is_cover)
         if is_cover:
             StoryImage.objects.filter(story=story, is_cover=True).exclude(tag_name=tag_name).update(is_cover=False)
-        defaults: dict[str, object] = {"blob_id": blob.pk}
+        defaults: dict[str, object] = {"file_index": file_index}
         if is_cover:
             defaults["is_cover"] = True
         StoryImage.objects.update_or_create(story=story, tag_name=tag_name, defaults=defaults)
-    return None
 
-
-def delete_orphaned_blobs() -> int:
-    """Delete every StoryImageBlob with no remaining StoryImage reference.
-
-    The application-level equivalent of PROTECT's enforcement (see
-    StoryImage's docstring for why blob_id can't be a real FK with a
-    DB-level PROTECT constraint) — call this after a story or a per-tag
-    image is deleted/replaced, never implicitly mid-delete.
-
-    Returns:
-        The number of orphaned blob rows deleted.
-    """
-    referenced_ids = set(StoryImage.objects.values_list("blob_id", flat=True))
-    orphaned = StoryImageBlob.objects.exclude(pk__in=referenced_ids)
-    count = orphaned.count()
-    orphaned.delete()
-    return count
-
-
-def extract_image_zip(story: Story, zip_bytes: bytes) -> list[str]:
-    """Extract a zip of story images, mapping each basename (minus extension) to a tag_name.
-
-    Member paths are never interpreted as directories (basenames only, per
-    the plan's Step 5 path-traversal guard) — a member named `../../evil` is
-    stored under the tag name `evil`, never written to any filesystem path.
-
-    Args:
-        story: The story the images belong to.
-        zip_bytes: The raw uploaded zip file content.
-
-    Returns:
-        A list of error messages (empty on full success). Errors from
-        individual bad members don't stop the rest of the archive.
-    """
-    errors: list[str] = []
-    try:
-        with zipfile.ZipFile(BytesIO(zip_bytes)) as archive:
-            members = [info for info in archive.infolist() if not info.is_dir()]
-            if len(members) > MAX_ZIP_MEMBERS:
-                return [f"Zip archive has too many files (max {MAX_ZIP_MEMBERS})."]
-
-            for info in members:
-                basename = info.filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
-                if not basename:
-                    continue
-                if info.file_size > settings.MAX_STORY_IMAGE_UPLOAD_BYTES:
-                    errors.append(f"'{basename}' is too large (max {settings.MAX_STORY_IMAGE_UPLOAD_BYTES:,} bytes).")
-                    continue
-                error = set_story_image(story, basename, archive.read(info))
-                if error:
-                    errors.append(error)
-    except zipfile.BadZipFile:
-        return ["File is not a valid zip archive."]
-    return errors
+    if file_index.file_sha256:
+        ThumbnailFiles.get_or_create_thumbnail_record(
+            file_index.file_sha256,
+            suppress_save=False,
+            prefetch_related_thumbnail=THUMBNAILFILES_PR_FILEINDEX_FILETYPE,
+            select_related_fileindex=("filetype",),
+        )

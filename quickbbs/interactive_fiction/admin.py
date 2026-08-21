@@ -10,7 +10,6 @@ from interactive_fiction.models import (
     Story,
     StoryAccess,
     StoryImage,
-    StoryImageBlob,
 )
 
 
@@ -71,39 +70,13 @@ class CurrentGameAdmin(admin.ModelAdmin):
         return super().get_queryset(request).defer("state")
 
 
-@admin.register(StoryImageBlob)
-class StoryImageBlobAdmin(admin.ModelAdmin):
-    """Admin interface for shared image blobs.
-
-    `image_blob`/`cover_thumb` are excluded from the list view — binary
-    columns, same "don't render large blobs in a table" reasoning as
-    CurrentGame/SaveState's `state` deferral above.
-    """
-
-    list_display = ("sha256_hash", "content_type", "width", "height")
-    search_fields = ("sha256_hash",)
-    readonly_fields = ("sha256_hash", "content_type", "width", "height")
-
-    def get_queryset(self, request):
-        """
-        Return the list-view queryset with binary fields deferred.
-
-        Args:
-            request: The current admin request.
-
-        Returns:
-            The default queryset with `.defer("image_blob", "cover_thumb")` applied.
-        """
-        return super().get_queryset(request).defer("image_blob", "cover_thumb")
-
-
 @admin.register(StoryImage)
 class StoryImageAdmin(admin.ModelAdmin):
-    """Admin interface for story image tag mappings."""
+    """Admin interface for story image/video tag mappings."""
 
-    list_display = ("story", "tag_name", "is_cover", "blob_id")
+    list_display = ("story", "tag_name", "is_cover", "file_index")
     search_fields = ("story__title", "tag_name")
-    autocomplete_fields = ("story",)
+    autocomplete_fields = ("story", "file_index")
 
 
 @admin.register(SaveState)

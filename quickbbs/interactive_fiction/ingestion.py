@@ -20,11 +20,11 @@ stored as a story.
 from __future__ import annotations
 
 import logging
-import os
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
 
+from interactive_fiction.images import find_file_by_path
 from interactive_fiction.models import Story
 from interactive_fiction.story_views import (
     create_story_from_compiled_json,
@@ -86,25 +86,9 @@ def find_inkj_file_by_path(full_filepathname: str) -> FileIndex | None:
     mirror image of ingest_stories()'s file -> story direction) — a single
     indexed directory lookup plus a filtered in-directory query, rather than
     live_inkj_files()'s full-table scan, since that function needs to check
-    only one path, not enumerate every candidate.
-
-    Resolves in two steps, both through existing DirectoryIndex machinery
-    rather than a bespoke FileIndex query: first the containing directory,
-    via DirectoryIndex.search_for_directory() (cached, keyed on the
-    directory's own indexed dir_fqpn_sha256 — see
-    quickbbs.directoryindex.search_for_directory_by_sha()'s docstring),
-    then the file within it, via that directory's own
-    DirectoryIndex.files_in_dir(additional_filters=...) — the same method
-    every other directory-scoped file lookup in the codebase uses, rather
-    than a filter reimplementing what files_in_dir() already does
-    (delete_pending exclusion, FileIndex_entries reverse-FK scoping).
-
-    full_filepathname is FileIndex.full_filepathname's own concatenation
-    (home_directory.fqpndirectory + name) with no separator recorded
-    between them, but fqpndirectory always ends in a path separator (see
-    quickbbs.common.normalize_fqpn()), so splitting at the last separator
-    reliably recovers the directory/name pair the original concatenation
-    was built from.
+    only one path, not enumerate every candidate. A thin, .inkj-filtered
+    wrapper over interactive_fiction.images.find_file_by_path's shared
+    two-step DirectoryIndex-then-files_in_dir resolution.
 
     Args:
         full_filepathname: The full path to look up (e.g. Story.source_fqfn).
@@ -114,19 +98,7 @@ def find_inkj_file_by_path(full_filepathname: str) -> FileIndex | None:
         delete_pending), or None if no such row exists (including when the
         containing directory itself has no DirectoryIndex row).
     """
-    directory_path, _sep, name = full_filepathname.rpartition(os.sep)
-    if not directory_path:
-        return None
-
-    found, directory = DirectoryIndex.search_for_directory(directory_path + os.sep)
-    if not found or directory is None:
-        return None
-
-    matches = directory.files_in_dir(
-        additional_filters={"name": name, "filetype__fileext__iexact": ".inkj", "ignore": False},
-        select_related=("home_directory",),
-    )
-    return matches.first()
+    return find_file_by_path(full_filepathname, additional_filters={"filetype__fileext__iexact": ".inkj"})
 
 
 def _ingest_one_file(owner, fqfn: str, file_entry: FileIndex) -> bool:

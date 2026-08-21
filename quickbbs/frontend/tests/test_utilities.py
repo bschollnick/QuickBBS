@@ -100,6 +100,16 @@ class TestConvertToWebpathGreen(TestCase):
         full = f"{settings.ALBUMS_PATH}/foo/bar.jpg".lower()
         assert convert_to_webpath(full, None) == convert_to_webpath(full)
 
+    def test_none_and_omitted_share_cache_entry(self):
+        """Calls with explicit None and omitted directory share one cache
+        entry rather than wasting a slot on two keys for the same result
+        (the cache key function normalizes both to the same
+        (full_path, None) key — see _webpath_cache_key)."""
+        full = f"{settings.ALBUMS_PATH}/shared/cache/test.jpg".lower()
+        convert_to_webpath(full)
+        convert_to_webpath(full, None)
+        assert webpaths_cache.currsize == 1
+
     def test_result_is_cached(self):
         """Second call with same args returns cached value without recomputing."""
         full = f"{settings.ALBUMS_PATH}/cache/test.jpg".lower()
@@ -114,13 +124,10 @@ class TestConvertToWebpathGreen(TestCase):
 # ===========================================================================
 
 
-class TestConvertToWebpathRed(TestCase):
-    """
-    RED: convert_to_webpath — desired behaviour not yet implemented.
-
-    These tests are marked xfail. They document the bugs from the code review
-    and define the contract the fixed implementation must satisfy.
-    """
+class TestConvertToWebpathEdgeCases(TestCase):
+    """convert_to_webpath — edge cases from code review (formerly the RED
+    class; all issues covered here are now fixed and passing, including
+    the cache-key normalization now tested in TestConvertToWebpathGreen)."""
 
     def setUp(self):
         _clear_caches()
@@ -148,23 +155,6 @@ class TestConvertToWebpathRed(TestCase):
         result = convert_to_webpath(nested)
         # Only the leading prefix should be stripped; the remainder keeps the second occurrence
         assert result == f"{albums}/nested.jpg"
-
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Issue #7: convert_to_webpath(path) and convert_to_webpath(path, None) "
-            "produce different cache keys but identical results, wasting cache slots. "
-            "Desired: both calls share the same cache entry."
-        ),
-    )
-    def test_none_and_omitted_share_cache_entry(self):
-        """Calls with explicit None and omitted directory must share a cache entry."""
-        full = f"{settings.ALBUMS_PATH}/shared/cache/test.jpg".lower()
-        convert_to_webpath(full)  # populates cache with key (full,)
-        convert_to_webpath(full, None)  # should hit the same cache entry
-
-        # Cache should contain exactly one entry for this path, not two
-        assert webpaths_cache.currsize == 1
 
     def test_prefix_miss_does_not_pollute_cache(self):
         """A ValueError on prefix miss must leave the cache empty."""

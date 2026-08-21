@@ -153,3 +153,98 @@ class ControlCommandMarkerTests(SimpleTestCase):
         text += state.continue_story()
         self.assertEqual(text, "Test.\nDone.\n")
         self.assertTrue(state.done)
+
+    def test_operator_inside_choice_text_string_capture_does_not_leak(self):
+        """A native-function operator token (e.g. "==") inside an active
+        str/../str capture must be evaluated, not captured as literal text.
+
+        Regression coverage for a real bug found 2026-08-20 while
+        hand-converting batch 2 of claude_docs/plans/a_spell_for_all.md
+        (tammy.ink): a choice-text inline conditional whose CONDITION is a
+        comparison, not a bare bool var (`* [{lvl == 2:"Fuck"|Other text}]`,
+        section13_operator_in_choice_text_string_capture.ink, real
+        inklecate-compiled output), compiles to a NESTED "ev"/"/ev" pair
+        *inside* the outer choice-text "str"/"/str" capture — the inner
+        eval run's own operator token ("==") is eval-stack machinery
+        belonging to the condition check, not text content, but
+        _handle_string_capture_command's `if self._string_capture_stack:`
+        branch was unconditionally capturing every non-marker token as
+        literal text once a capture was active (the same bug class as the
+        "nop" leak above, but for NATIVE_FUNCTION_ARITY/story-metadata/RNG
+        markers rather than CONTROL_COMMAND_MARKERS), producing
+        '=="Fuck"' instead of '"Fuck"'. Fixed by also checking
+        NATIVE_FUNCTION_ARITY/CHOICE_COUNT/TURNS/TURNS_SINCE/READ_COUNT/
+        VISIT_INDEX/rnd/srnd/seq/lrnd before falling through to the
+        unconditional text-capture branch, routing them to
+        _apply_operator_defensively/_handle_story_metadata_command/
+        _handle_rng_command exactly like at eval-run depth 0.
+        """
+        state = InkRuntimeState(
+            load_story_root(_load("section13_operator_in_choice_text_string_capture.ink.json"))
+        )
+        text = state.continue_story()
+        self.assertEqual(text, "Test.\n")
+        self.assertEqual([c.text for c in state.current_choices], ['"Fuck"'])
+        state.choose(0)
+        text += state.continue_story()
+        self.assertEqual(text, "Test.\nDone.\n")
+        self.assertTrue(state.done)
+
+    def test_var_interpolation_inside_choice_text_string_capture_does_not_truncate(self):
+        """A plain `{var}` interpolation inside an active str/../str
+        choice-text capture must be evaluated AND leave the literal text
+        that follows it (in the same capture) intact.
+
+        Regression coverage for a real bug found 2026-08-20 while
+        hand-converting batch 3 of claude_docs/plans/a_spell_for_all.md
+        (officerkhan.ink): `* [Obey the {officer_title}?]`
+        (section14_var_interpolation_in_choice_text_string_capture.ink,
+        real inklecate-compiled output) compiles the choice text's
+        str/../str capture as `"str", "^Obey the ", "ev",
+        {"VAR?": "officer_title"}, "out", "/ev", "^?", "/str"` — a NESTED
+        "ev"/"/ev" pair around the VariableReference, same shape as the
+        operator case fixed above (2026-08-16, tammy.ink), but for a bare
+        variable read rather than a comparison. Two distinct bugs were
+        found isolating this:
+
+        (1) `_handle_string_capture_command`'s CONTROL_COMMAND_MARKERS
+        fast path unconditionally swallowed "out" (EVAL_OUTPUT is
+        literally a member of that frozenset) and returned True before
+        ever reaching `_handle_eval_run_command`'s real EVAL_OUTPUT
+        handling, discarding the interpolated value entirely.
+
+        (2) Once "out" was excluded from that fast path, the literal `?`
+        character immediately following the nested ev/../ev block (back
+        at the capture's own base eval-run depth, which is itself already
+        > 0 since the whole capture sits inside the choice's own
+        surrounding "ev") still matched — this capture's own operator/
+        native-function check was gated on a bare `self._eval_run_depth >
+        0`, but `?` collides with LIST_NATIVE_FUNCTION_ARITY's "?" (the
+        LIST "contains" operator, merged into NATIVE_FUNCTION_ARITY at
+        module scope), and depth was still 1 (the capture's own base
+        level), not 0. Fixed by recording each string capture's own
+        baseline `_eval_run_depth` in a new parallel
+        `_string_capture_eval_depth` stack when the capture opens, and
+        comparing against THAT baseline (not a bare 0) to distinguish
+        "genuinely inside the nested eval run this capture opened" from
+        "back at this capture's own text level" — both EVAL_OUTPUT's
+        CONTROL_COMMAND_MARKERS exclusion and the operator/native-function
+        check now use this baseline comparison.
+
+        Before both fixes: choice text was `"Obey the"` (missing both the
+        interpolated "Officer" and the trailing "?"). After fixing bug (1)
+        alone: `"Obey the Officer"` (interpolation restored, but "?" still
+        swallowed as a false-positive LIST operator). After both fixes:
+        `"Obey the Officer?"`, matching inklecate's own -p transcript for
+        the identical compiled JSON exactly.
+        """
+        state = InkRuntimeState(
+            load_story_root(_load("section14_var_interpolation_in_choice_text_string_capture.ink.json"))
+        )
+        text = state.continue_story()
+        self.assertEqual(text, "Hub.\n")
+        self.assertEqual([c.text for c in state.current_choices], ["Obey the Officer?"])
+        state.choose(0)
+        text += state.continue_story()
+        self.assertEqual(text, "Hub.\nDone.\n")
+        self.assertTrue(state.done)

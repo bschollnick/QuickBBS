@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING
 from django.conf import settings
 from django.db import models
 
+from quickbbs.models import FileIndex
+
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser, AnonymousUser
 
@@ -52,10 +54,9 @@ class Story(models.Model):
     def cover_image(self) -> "StoryImage | None":
         """Return this story's cover StoryImage, if one is set.
 
-        Not a stored FK (see StoryImage.is_cover's docstring for why) — one
-        query here, plus one more inside the returned row's own `blob`
-        property (blob_id isn't a real FK either, so select_related can't
-        join it in).
+        Not a stored FK on Story itself (see StoryImage.is_cover's docstring
+        for why) — one query here; the underlying gallery file is reachable
+        via the returned row's own `file_index` FK.
 
         Returns:
             The StoryImage row with is_cover=True, or None.
@@ -88,66 +89,38 @@ class StoryAccess(models.Model):
         return f"{self.user} -> {self.story}"
 
 
-class StoryImageBlob(models.Model):
-    """One row per unique image content, shared across stories (the
-    ThumbnailFiles content-addressing pattern — see thumbnails/models.py).
-
-    A story image is never stored per-story: two stories (or two tags in
-    the same story) uploading identical bytes reuse the same row via
-    ``StoryImage.blob``, matching ``ThumbnailFiles.sha256_hash``'s existing
-    dedup precedent.
-    """
-
-    sha256_hash = models.CharField(max_length=64, unique=True, db_index=True)
-    content_type = models.CharField(max_length=100)
-    image_blob = models.BinaryField()
-    cover_thumb = models.BinaryField(null=True, blank=True, default=None)
-    width = models.PositiveIntegerField()
-    height = models.PositiveIntegerField()
-
-    def __str__(self) -> str:
-        """
-        Return a human-readable description of this blob.
-
-        Returns:
-            A string of the form "<sha256 prefix> (<width>x<height>)".
-        """
-        return f"{self.sha256_hash[:12]} ({self.width}x{self.height})"
-
-
 class StoryImage(models.Model):
-    """Maps a story's '# image: <tag_name>' Ink tag to a shared blob.
+    """Maps a story's '# image: <tag_name>' or '# video: <tag_name>' Ink tag
+    to a real gallery file.
 
-    ``blob`` uses app-level PROTECT while ``story`` uses DB-level CASCADE
-    (see the plan's Step 5 section): deleting a Story cascades away its
-    StoryImage rows without consulting PROTECT, so the mapping dies with
-    the story while the blob survives until an explicit orphan-cleanup pass
-    (interactive_fiction.images.delete_orphaned_blobs) removes
-    StoryImageBlob rows with no remaining StoryImage.blob_id reference.
+    ``file_index`` is a real ForeignKey into the main gallery's own
+    `FileIndex` — a story image/video is never stored per-story, and never
+    stores any bytes of its own at all: the underlying file already lives on
+    disk and is already tracked by the normal scanner
+    (`quickbbs/management/commands/scan.py`), exactly like every other file
+    in the gallery. Serving reuses `FileIndex.inline_sendfile`/
+    `async_inline_sendfile` and `ThumbnailFiles.send_thumbnail` directly —
+    see `interactive_fiction/story_views.py`'s `story_image`/`story_video`/
+    `story_cover`.
+
+    ``on_delete=DB_SET_NULL`` (not PROTECT) is deliberate and matches
+    `FileIndex.home_directory`/`FileIndex.new_ftnail`'s own on_delete choice:
+    if the underlying gallery file is ever removed/rescanned away, this
+    mapping should simply go stale (`file_index=None`), not block the
+    delete — there's no shared-blob lifetime to protect here the way an
+    earlier, now-removed `StoryImageBlob` design needed, so this FK doesn't
+    hit the same DB-level/Python-level on_delete mixing restriction that
+    design worked around (Django 6.1 forbids mixing them in one connected FK
+    graph — `FileIndex`/`ThumbnailFiles` already use DB-level `on_delete`
+    throughout, matching every other FK in this file).
 
     ``is_cover`` (not a Story.cover_image FK) identifies the library-grid
     cover image, avoiding a typed FK from Story into this model.
-
-    ``blob_id`` is a plain integer, not a real ForeignKey, by necessity:
-    Django 6.1 rejects mixing DB-level and Python-level on_delete anywhere
-    in a connected FK graph (fields.E323/models.E050 — confirmed transitive
-    across the whole graph via reverse relations too, with no exemption
-    mechanism). This field needs PROTECT semantics (a shared blob must
-    survive until an explicit orphan-cleanup pass, never vanish out from
-    under another story/tag using it), but there is no DB-level PROTECT
-    variant to pair with ``story`` matching Story.owner's DB_CASCADE — and
-    ``story`` cannot go Python-level without forcing Story.owner and every
-    other FK touching Story (StoryAccess, CurrentGame, SaveState) to also
-    convert, an unacceptable blast radius for this feature. Referential
-    integrity and PROTECT-like delete-guard behavior for blob_id are
-    enforced in application code instead (see get_or_create_blob() and the
-    orphan-cleanup pass in interactive_fiction/images.py) — always inside
-    transaction.atomic(), matching how blob rows are created/attached.
     """
 
     story = models.ForeignKey(Story, on_delete=models.DB_CASCADE, related_name="images")
     tag_name = models.CharField(max_length=255, db_index=True)
-    blob_id = models.PositiveIntegerField(db_index=True)  # StoryImageBlob.pk — see class docstring for why this isn't a real FK
+    file_index = models.ForeignKey(FileIndex, on_delete=models.DB_SET_NULL, null=True, related_name="story_images")
     is_cover = models.BooleanField(default=False)
 
     class Meta:
@@ -168,25 +141,6 @@ class StoryImage(models.Model):
             A string of the form "<story title>: <tag_name>".
         """
         return f"{self.story}: {self.tag_name}"
-
-    @property
-    def blob(self) -> StoryImageBlob:
-        """Look up the StoryImageBlob referenced by blob_id.
-
-        blob_id is a plain integer, not a real ForeignKey (see this
-        model's docstring) — this property is the one place that
-        translates it back into a model instance.
-
-        Returns:
-            The referenced StoryImageBlob.
-
-        Raises:
-            StoryImageBlob.DoesNotExist: If blob_id doesn't (or no longer)
-                resolve — should not happen in practice since blob rows are
-                only ever removed by the explicit orphan-cleanup pass,
-                which checks for zero remaining StoryImage references first.
-        """
-        return StoryImageBlob.objects.get(pk=self.blob_id)
 
 
 class CurrentGame(models.Model):

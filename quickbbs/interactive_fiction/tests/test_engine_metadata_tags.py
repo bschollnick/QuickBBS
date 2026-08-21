@@ -178,3 +178,27 @@ class TagTests(SimpleTestCase):
         state.choose(0)
         state.continue_story()
         self.assertEqual(state.current_tags, ["image: b.jpg"])
+
+    def test_plain_variable_interpolation_inside_a_tag_does_not_leak_into_output(self):
+        """A tag whose text interpolates a plain VAR (`# image: {model}/x.jpg`,
+        no conditional) must resolve entirely inside the tag, not leak the
+        interpolated value onto the front of the next visible line.
+
+        Regression coverage for a real bug found 2026-08-20 during the
+        ASFA batch-conversion shakedown (claude_docs/plans/a_spell_for_all.md
+        Section 13, esmeralda.ink): unlike the conditional-tag-content case
+        above (test_conditional_tag_content_does_not_leak_a_nop_marker),
+        this construct DOES run inside an "ev"/"/ev" eval run (a bare
+        `{var}` interpolation always does), so it reaches
+        _handle_eval_run_command's own EVAL_OUTPUT ("out") branch — which
+        unconditionally wrote the popped value to self.output regardless of
+        self._in_tag, instead of routing it into self._tag_buffer like
+        every other tag-content token already does. Confirmed against
+        inklecate -p's real transcript: "You step into a clearing." with a
+        separate "# tags: image: Anna/gypsy0.jpg" line, no leaked "Anna"
+        prefix and no empty model in the tag.
+        """
+        state = _run("section11_tag_variable_interpolation.ink.json")
+        text = state.continue_story()
+        self.assertEqual(text, "You step into a clearing.\n")
+        self.assertEqual(state.current_tags, ["image: Anna/gypsy0.jpg"])

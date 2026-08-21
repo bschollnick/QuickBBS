@@ -39,14 +39,15 @@
             </p>
         </div>
         <div class="field">
-            <label class="label">Images (optional)</label>
+            <label class="label">Cover image (optional)</label>
             <div class="control">
-                <input type="file" name="images_zip" accept="application/zip,.zip">
+                <input class="input" type="text" name="cover_gallery_path" placeholder="Full gallery path to an existing image file">
             </div>
             <p class="help">
-                A zip of JPEG/PNG/GIF/WEBP files. Each file's basename (including its extension,
-                e.g. <code>forest_clearing.jpg</code>) becomes the tag name referenced by
-                <code># image: &lt;tag_name&gt;</code> in your Ink source.
+                The full path (as shown in the gallery) of an image already in your Albums
+                tree — this app doesn't accept new uploads directly, only references to files
+                already synced in by the normal gallery scan. Shown on the library page. The
+                file's own basename becomes its tag name.
             </p>
         </div>
         <div class="field">

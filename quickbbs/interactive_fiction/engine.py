@@ -1976,6 +1976,24 @@ class InkRuntimeState:  # pylint: disable=too-many-instance-attributes
         self.temps: dict[str, Any] = {}
         self.eval_stack: list[Any] = []
         self._string_capture_stack: list[OutputStream] = []
+        # Parallel to _string_capture_stack: the value of _eval_run_depth
+        # at the moment each entry's "str" marker was processed — needed
+        # to tell a literal text character that happens to collide with an
+        # operator/native-function/EVAL_OUTPUT token's own bare string
+        # (e.g. "?", "out") apart from that same token used as REAL eval-
+        # run machinery, both of which can appear inside one active
+        # string capture (see _handle_string_capture_command's own
+        # docstring note, added 2026-08-20 fixing officerkhan.ink's
+        # `* [Obey the {officer_title}?]`). A plain `self._eval_run_depth
+        # > 0` check is not enough: the capture's own baseline eval-run
+        # depth is already > 0 whenever the capture is itself nested
+        # inside a choice/tag's surrounding "ev" (the common case), so
+        # depth stays > 0 even for literal text that follows a NESTED
+        # "ev"/"/ev" pair back out to the capture's own base level.
+        # Comparing against the recorded baseline instead of a bare 0
+        # correctly distinguishes "inside the nested eval run this
+        # capture opened" from "back at this capture's own text level".
+        self._string_capture_eval_depth: list[int] = []
         self.tunnel_stack: list[Pointer] = []
         self.call_stack: list[CallFrame] = []
         self._pending_thread = False
@@ -2668,13 +2686,15 @@ class InkRuntimeState:  # pylint: disable=too-many-instance-attributes
             # stream, then closed into a single string value pushed onto
             # eval_stack when /str arrives.
             self._string_capture_stack.append(OutputStream())
+            self._string_capture_eval_depth.append(self._eval_run_depth)
             return True
         if content == STRING_END:
             captured = self._string_capture_stack.pop()
+            self._string_capture_eval_depth.pop()
             self.eval_stack.append(captured.get_text())
             return True
         if self._string_capture_stack:
-            if content in CONTROL_COMMAND_MARKERS:
+            if content in CONTROL_COMMAND_MARKERS and content != EVAL_OUTPUT:
                 # A bare "nop" (and any other still-unimplemented control
                 # command) can appear *inside* an active str/../str capture,
                 # not just at the main-stream level — confirmed a real bug
@@ -2687,7 +2707,98 @@ class InkRuntimeState:  # pylint: disable=too-many-instance-attributes
                 # the choice label (e.g. "Angelanop"). Must be silently
                 # consumed here exactly like the main-stream branch in
                 # _handle_string_content already does, not captured as text.
+                # Unlike the operator/native-function check just below,
+                # EVAL_OUTPUT ("out") is explicitly EXCLUDED from this
+                # unconditional CONTROL_COMMAND_MARKERS fast path even
+                # though it is technically a member of that frozenset —
+                # confirmed a real bug 2026-08-20 via officerkhan.ink's
+                # `* [Obey the {officer_title}?]`: "out" is not like "nop"
+                # (which can never legally appear as literal text), it is
+                # the SAME depth-sensitive marker as the operator/native-
+                # function tokens handled in the block below (it always
+                # marks a nested eval run's own output, only ever reachable
+                # while self._eval_run_depth > 0), so it must fall through
+                # to that same depth-gated check rather than being
+                # unconditionally swallowed here. Before this fix, "out"
+                # was consumed by this branch and returned True without
+                # ever reaching _handle_eval_run_command's real EVAL_OUTPUT
+                # handling, silently discarding the interpolated VAR's
+                # value.
+                # "nop" is a genuine, unambiguous Ink control command at
+                # ANY depth — real choice/tag text can never contain a bare
+                # "nop" token — so this check does not need to be gated on
+                # _eval_run_depth.
                 return True
+            if self._eval_run_depth > self._string_capture_eval_depth[-1] and (
+                content in NATIVE_FUNCTION_ARITY
+                or content
+                in (
+                    CHOICE_COUNT,
+                    TURNS,
+                    TURNS_SINCE,
+                    READ_COUNT,
+                    VISIT_INDEX,
+                    EVAL_OUTPUT,
+                    "rnd",
+                    "srnd",
+                    "seq",
+                    "lrnd",
+                )
+            ):
+                # A choice-text conditional's own inline condition check
+                # (`{lvl == 2:"A"|B}` inside `* [...]`) OR a plain
+                # `{var}`/`{expr}` interpolation (`* [Obey the
+                # {officer_title}?]`) compiles to a NESTED "ev"/"/ev" pair
+                # *inside* the outer choice-text "str"/"/str" capture
+                # (confirmed 2026-08-16 against real compiled output for a
+                # batch-2 conversion file, tammy.ink's `{tammy_charmed_level
+                # == 2:"..."|...}` choice-text construct, and again
+                # 2026-08-20 for a bare VAR interpolation via
+                # officerkhan.ink's `{officer_title}` case) — the operator/
+                # EVAL_OUTPUT tokens belonging to that inner eval run (e.g.
+                # the bare string "==", or "out") are eval-stack machinery,
+                # not text content, and must reach
+                # _apply_operator_defensively/_handle_story_metadata_command/
+                # _handle_rng_command/_handle_eval_run_command's own
+                # EVAL_OUTPUT branch exactly like at eval-run depth 0 with
+                # no active capture, never captured as literal text.
+                #
+                # CRITICAL: this must be gated on self._eval_run_depth
+                # exceeding the BASELINE depth recorded for this specific
+                # capture (self._string_capture_eval_depth[-1]), not a bare
+                # `> 0` check — several of these same bare-string markers
+                # are also valid LITERAL TEXT CHARACTERS at the capture's
+                # own base level, which is itself commonly > 0 already
+                # (a choice/tag's surrounding "ev" run). Confirmed a real
+                # bug 2026-08-20, found via officerkhan.ink's `* [Obey the
+                # {officer_title}?]`: the compiled JSON's choice-text
+                # capture is `"str", "^Obey the ", "ev", {VAR?:...}, "out",
+                # "/ev", "^?", "/str"` — both this "str" and its surrounding
+                # choice-text machinery already sit inside an outer "ev",
+                # so _eval_run_depth is 1 (not 0) at the capture's own base
+                # level, and only rises to 2 while inside the NESTED
+                # "ev"/"/ev" around the VAR reference. A bare `> 0` check
+                # (tried first, and insufficient) let the literal "?"
+                # AFTER the nested ev/../ev block — back at depth 1, same
+                # as the capture's base level — still match, because it
+                # collides with LIST_NATIVE_FUNCTION_ARITY's "?" (the LIST
+                # "contains" operator, merged into NATIVE_FUNCTION_ARITY at
+                # module scope) even though it is plain punctuation text at
+                # that point. Comparing against the recorded per-capture
+                # baseline instead correctly routes the literal "?" to
+                # plain-text capture (the branch below) while still routing
+                # "out"/"==" to eval-stack handling while truly inside the
+                # nested eval run. Before this fix, the unconditional/
+                # under-gated membership check treated "out"/"?" as
+                # operators whenever depth was nonzero, either swallowing
+                # them into _handle_eval_run_command's dispatch when no
+                # nested eval run was actually active (discarding the
+                # interpolated VAR's value and the
+                # trailing "?") or (for the "==" case fixed 2026-08-16)
+                # producing `'=="Fuck"'` instead of `'Fuck'`. Confirmed
+                # against inklecate's own -p transcript, which renders the
+                # identical compiled JSON as "Obey the Officer?".
+                return False
             self._handle_string_in_capture(content)
             return True
         return False
@@ -2711,7 +2822,40 @@ class InkRuntimeState:  # pylint: disable=too-many-instance-attributes
             if self.eval_stack:
                 value = self._pop_eval_stack()
                 if not isinstance(value, Void):
-                    self.output.push_text(_display_string(value))
+                    # A `{var}`/`{expr}` interpolation inside an active
+                    # str/../str capture (e.g. a choice-text VAR
+                    # interpolation, `* [Obey the {officer_title}?]`) must
+                    # write into that capture's OutputStream, not the main
+                    # output stream — confirmed a real bug 2026-08-20 via
+                    # this shakedown's own conversion batch
+                    # (officerkhan.ink): the popped value was written to
+                    # self.output whenever _in_tag was False, even while a
+                    # string-capture run was active, so the interpolated
+                    # VAR text ("Officer") and everything captured AFTER it
+                    # in the same str/../str run (the literal "?") never
+                    # reached the choice's own text — inklecate's own -p
+                    # transcript for the identical compiled JSON shows the
+                    # correct "Obey the Officer?", isolating this to
+                    # QuickBBS's interpreter. Same bug class/fix shape as
+                    # the tag-capture fix directly above (2026-08-16,
+                    # esmeralda.ink) and the CONTROL_COMMAND_MARKERS leaks
+                    # fixed in _handle_string_capture_command — a write
+                    # destination that must check for an active capture
+                    # context before falling back to the main stream, and
+                    # this is a THIRD such destination (tag buffer, main
+                    # stream, string-capture stream) that needed the same
+                    # active-capture check. String-capture takes priority
+                    # over tag capture: a VAR interpolation can occur
+                    # inside a str/../str run that is itself being captured
+                    # as part of a tag's own text (e.g. a tag whose body is
+                    # `{cond:"a {var}"|"b"}`), so the innermost active
+                    # context must win.
+                    if self._string_capture_stack:
+                        self._handle_string_in_capture(_display_string(value))
+                    elif self._in_tag:
+                        self._tag_buffer.push_text(_display_string(value))
+                    else:
+                        self.output.push_text(_display_string(value))
             return True
         if content == VOID_POP:
             # A void function call (e.g. `~ bump()`, no `~return`) always
@@ -3631,6 +3775,7 @@ class InkRuntimeState:  # pylint: disable=too-many-instance-attributes
             "in_tag": self._in_tag,
             "tag_buffer_tokens": list(self._tag_buffer.tokens),
             "string_capture_stack": [list(capture.tokens) for capture in self._string_capture_stack],
+            "string_capture_eval_depth": list(self._string_capture_eval_depth),
             "last_turn_text": self.last_turn_text,
         }
 
@@ -3702,5 +3847,14 @@ class InkRuntimeState:  # pylint: disable=too-many-instance-attributes
             capture = OutputStream()
             capture.tokens = list(tokens)
             state._string_capture_stack.append(capture)
+        # Falls back to _eval_run_depth (post-restore) for any entry a
+        # pre-fix save blob doesn't have, rather than 0 — an all-zero
+        # baseline would make every capture think it started at eval-run
+        # depth 0, silently reintroducing this same bug for stories
+        # resumed from a save taken before this field existed. Depth 0 is
+        # also the correct fallback for a save that genuinely has no
+        # active capture (the list is simply empty in that case).
+        fallback_depths = [state._eval_run_depth] * len(state._string_capture_stack)
+        state._string_capture_eval_depth = [int(depth) for depth in data.get("string_capture_eval_depth", fallback_depths)]
         state.last_turn_text = str(data.get("last_turn_text", ""))
         return state

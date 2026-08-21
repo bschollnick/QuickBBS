@@ -46,29 +46,16 @@
             </p>
         </div>
         <div class="field">
-            <label class="label">Add or replace images (optional)</label>
-            <div class="control">
-                <input type="file" name="images_zip" accept="application/zip,.zip">
-            </div>
-            <p class="help">
-                A zip of JPEG/PNG/GIF/WEBP files. Each file's basename (including its extension,
-                e.g. <code>forest_clearing.jpg</code>) becomes the tag name referenced by
-                <code># image: &lt;tag_name&gt;</code> in your Ink source — uploading a file with
-                the same tag name replaces the existing image for that tag.
-            </p>
-        </div>
-        <div class="field">
             <label class="label">Cover image (optional)</label>
             <div class="control">
-                <input type="file" name="cover_image" accept="image/jpeg,image/png,image/gif,image/webp">
-            </div>
-            <div class="control" style="margin-top: 0.5rem;">
-                <input class="input" type="text" name="cover_tag_name" placeholder="Tag name for this image"
-                       value="{{ story.cover_image.tag_name if story.cover_image else '' }}">
+                <input class="input" type="text" name="cover_gallery_path" placeholder="Full gallery path to an existing image file">
             </div>
             <p class="help">
-                Shown on the library page. Required alongside a tag name if you're setting or
-                replacing the cover.
+                The full path (as shown in the gallery) of an image already in your Albums
+                tree — this app doesn't accept new uploads directly, only references to files
+                already synced in by the normal gallery scan. Shown on the library page. The
+                file's own basename becomes its tag name.
+                {% if story.cover_image %}Current cover tag: <code>{{ story.cover_image.tag_name }}</code>.{% endif %}
             </p>
         </div>
         <div class="field">

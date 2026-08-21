@@ -12,6 +12,7 @@ from urllib.parse import quote
 
 # Third-party imports
 from cachetools import cached
+from cachetools.keys import hashkey
 from django.conf import settings
 
 # First-party imports
@@ -79,7 +80,15 @@ def ensures_endswith(string_to_check: str, value: str) -> str:
     return string_to_check if string_to_check.endswith(value) else string_to_check + value
 
 
-@cached(webpaths_cache)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
+def _webpath_cache_key(full_path: str, directory: str | None = None):
+    """Cache key for convert_to_webpath: normalizes an omitted `directory`
+    and an explicit `directory=None` to the same key — cachetools' default
+    hashkey() hashes the raw call-site arguments, so the two calls would
+    otherwise populate two separate cache entries for the same result."""
+    return hashkey(full_path, directory)
+
+
+@cached(webpaths_cache, key=_webpath_cache_key)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
 def convert_to_webpath(full_path: str, directory: str | None = None) -> str:
     """
     Convert a full filesystem path to a web-relative path by stripping the albums prefix.

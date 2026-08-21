@@ -10,17 +10,45 @@ rows through the actual view/model layer, not just engine.py in isolation.
 from __future__ import annotations
 
 import json
+import shutil
+import tempfile
 from pathlib import Path as FilePath
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase, override_settings
 
+from interactive_fiction.images import link_story_image
 from interactive_fiction.models import CurrentGame, SaveState, Story, StoryImage
-from interactive_fiction.tests.image_test_utils import make_image_bytes, make_image_zip
+from interactive_fiction.tests.image_test_utils import make_gallery_image
+from quickbbs.models import DirectoryIndex
 from user_preferences.models import UserPreferences
 
 FIXTURES = FilePath(__file__).parent / "fixtures"
+
+
+class _AlbumsRootMixin:
+    """Points ALBUMS_PATH at a temp dir for the duration of the test, per
+    quickbbs/tests/test_fileindex.py's own pattern — DirectoryIndex.add_directory()
+    rejects any path outside the configured albums root. Call
+    _enable_albums_root() from setUp() and it self-registers cleanup."""
+
+    def _enable_albums_root(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.albums_dir = FilePath(self.temp_dir) / "albums"
+        self.albums_dir.mkdir(exist_ok=True)
+        settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
+        settings_override.enable()
+        DirectoryIndex._albums_prefix = None
+        DirectoryIndex._albums_root = None
+
+        def _cleanup():
+            settings_override.disable()
+            DirectoryIndex._albums_prefix = None
+            DirectoryIndex._albums_root = None
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+        self.addCleanup(_cleanup)
 
 
 def _load_compiled_json() -> dict:
@@ -413,25 +441,20 @@ class EditViewTests(TestCase):
         self.assertEqual(self.story.compiled_json, original_json)
 
 
-class StoryImageViewTests(TestCase):
-    """GET /if/<slug>/image/<tag_name>/ — Step 5: serving a story image blob."""
+class StoryImageViewTests(_AlbumsRootMixin, TestCase):
+    """GET /if/<slug>/image/<tag_name>/ — serving a story's linked gallery image."""
 
     def setUp(self):
+        self._enable_albums_root()
         self.client = Client()
         self.owner = get_user_model().objects.create_user(username="imgowner", password="pw", is_staff=True)
         self.other_user = get_user_model().objects.create_user(username="imgother", password="pw")
         self.story = Story.objects.create(
             owner=self.owner, title="Tagged", slug="tagged-story", compiled_json=_load_tagged_story_json(), is_public=False
         )
+        file_index = make_gallery_image(self.albums_dir, "cover.jpg")
+        link_story_image(self.story, "cover.jpg", file_index)
         self.client.force_login(self.owner)
-        self.client.post(
-            f"/if/{self.story.slug}/edit/",
-            {
-                "title": "Tagged",
-                "images_zip": SimpleUploadedFile("images.zip", make_image_zip({"cover.jpg": make_image_bytes()}), content_type="application/zip"),
-            },
-            secure=True,
-        )
 
     def test_owner_can_fetch_a_tagged_image(self):
         """The owner can fetch an image they uploaded for a known tag."""
@@ -467,10 +490,11 @@ class StoryImageViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
 
 
-class StoryCoverViewTests(TestCase):
-    """GET /if/<slug>/cover/ — Step 5: serving a story's library-grid cover thumbnail."""
+class StoryCoverViewTests(_AlbumsRootMixin, TestCase):
+    """GET /if/<slug>/cover/ — serving a story's library-grid cover thumbnail."""
 
     def setUp(self):
+        self._enable_albums_root()
         self.client = Client()
         self.owner = get_user_model().objects.create_user(username="coverowner", password="pw", is_staff=True)
         self.story = Story.objects.create(
@@ -483,17 +507,13 @@ class StoryCoverViewTests(TestCase):
         self.assertEqual(response.status_code, 404)
 
     def test_story_with_a_cover_serves_a_jpeg_thumbnail(self):
-        """A story with a cover set via edit()'s cover_image/cover_tag_name
-        fields serves the generated thumbnail, always as JPEG."""
+        """A story with a cover set via edit()'s cover_gallery_path field
+        serves the generated thumbnail, always as JPEG."""
         self.client.force_login(self.owner)
+        file_index = make_gallery_image(self.albums_dir, "cover.jpg")
         self.client.post(
             f"/if/{self.story.slug}/edit/",
-            {
-                "title": "Covered",
-                "is_public": "on",
-                "cover_tag_name": "cover.jpg",
-                "cover_image": SimpleUploadedFile("cover.jpg", make_image_bytes(), content_type="image/jpeg"),
-            },
+            {"title": "Covered", "is_public": "on", "cover_gallery_path": file_index.full_filepathname},
             secure=True,
         )
         self.client.logout()
@@ -502,77 +522,62 @@ class StoryCoverViewTests(TestCase):
         self.assertEqual(response["Content-Type"], "image/jpeg")
 
 
-class UploadWithImagesTests(TestCase):
-    """POST /if/upload/ with an "images_zip" — Step 5."""
+class UploadWithImagesTests(_AlbumsRootMixin, TestCase):
+    """POST /if/upload/ with a "cover_gallery_path" — referencing an existing gallery file."""
 
     def setUp(self):
+        self._enable_albums_root()
         self.client = Client()
         self.staff_user = get_user_model().objects.create_user(username="imgstaff", password="pw", is_staff=True)
 
-    def test_uploading_with_an_images_zip_attaches_the_images(self):
-        """An images_zip uploaded alongside a new story attaches its
-        members as StoryImage rows on the newly created story."""
+    def test_uploading_with_a_cover_gallery_path_attaches_the_cover(self):
+        """A cover_gallery_path referencing a real gallery file, submitted
+        alongside a new story, attaches it as a StoryImage row on the
+        newly created story."""
         self.client.force_login(self.staff_user)
+        file_index = make_gallery_image(self.albums_dir, "cover.jpg")
         with open(FIXTURES / "section9_tags.ink.json", "rb") as story_file:
             response = self.client.post(
                 "/if/upload/",
-                {
-                    "title": "Story With Images",
-                    "story_file": story_file,
-                    "images_zip": SimpleUploadedFile("images.zip", make_image_zip({"cover.jpg": make_image_bytes()}), content_type="application/zip"),
-                },
+                {"title": "Story With Images", "story_file": story_file, "cover_gallery_path": file_index.full_filepathname},
                 secure=True,
             )
         story = Story.objects.get(title="Story With Images")
         self.assertRedirects(response, f"/if/{story.slug}/", fetch_redirect_response=False)
         self.assertTrue(StoryImage.objects.filter(story=story, tag_name="cover.jpg").exists())
 
+    def test_uploading_with_an_unknown_gallery_path_is_rejected(self):
+        """A cover_gallery_path with no matching gallery file is a
+        validation error, not a silent no-op."""
+        self.client.force_login(self.staff_user)
+        with open(FIXTURES / "section9_tags.ink.json", "rb") as story_file:
+            response = self.client.post(
+                "/if/upload/",
+                {"title": "Story With Bad Cover", "story_file": story_file, "cover_gallery_path": "/nonexistent/path.jpg"},
+                secure=True,
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"no gallery file found", response.content.lower())
+        self.assertFalse(Story.objects.filter(title="Story With Bad Cover").exists())
 
-class EditWithImagesTests(TestCase):
-    """POST /if/<slug>/edit/ with "images_zip"/"cover_image" — Step 5."""
+
+class EditWithImagesTests(_AlbumsRootMixin, TestCase):
+    """POST /if/<slug>/edit/ with "cover_gallery_path" — referencing an existing gallery file."""
 
     def setUp(self):
+        self._enable_albums_root()
         self.client = Client()
         self.owner = get_user_model().objects.create_user(username="editimgowner", password="pw", is_staff=True)
         self.story = Story.objects.create(owner=self.owner, title="Edit Images", slug="edit-images-story", compiled_json=_load_compiled_json())
         self.client.force_login(self.owner)
 
-    def test_images_zip_attaches_new_images(self):
-        """An images_zip uploaded via edit() attaches its members without
-        requiring a story_file replacement in the same request."""
+    def test_cover_gallery_path_sets_the_cover(self):
+        """A cover_gallery_path referencing a real gallery file sets the
+        story's cover and redirects on success."""
+        file_index = make_gallery_image(self.albums_dir, "cover.jpg")
         response = self.client.post(
             f"/if/{self.story.slug}/edit/",
-            {
-                "title": "Edit Images",
-                "images_zip": SimpleUploadedFile("images.zip", make_image_zip({"forest.jpg": make_image_bytes()}), content_type="application/zip"),
-            },
-            secure=True,
-        )
-        self.assertEqual(response.status_code, 302)
-        self.assertTrue(StoryImage.objects.filter(story=self.story, tag_name="forest.jpg").exists())
-
-    def test_cover_image_without_a_tag_name_is_rejected(self):
-        """Uploading cover_image without cover_tag_name is a validation
-        error, not a silent no-op or a crash."""
-        response = self.client.post(
-            f"/if/{self.story.slug}/edit/",
-            {"title": "Edit Images", "cover_image": SimpleUploadedFile("cover.jpg", make_image_bytes(), content_type="image/jpeg")},
-            secure=True,
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(b"tag name is required", response.content.lower())
-        self.assertIsNone(self.story.cover_image)
-
-    def test_cover_image_with_a_tag_name_sets_the_cover(self):
-        """A cover_image plus cover_tag_name sets the story's cover and
-        redirects on success."""
-        response = self.client.post(
-            f"/if/{self.story.slug}/edit/",
-            {
-                "title": "Edit Images",
-                "cover_tag_name": "cover.jpg",
-                "cover_image": SimpleUploadedFile("cover.jpg", make_image_bytes(), content_type="image/jpeg"),
-            },
+            {"title": "Edit Images", "cover_gallery_path": file_index.full_filepathname},
             secure=True,
         )
         self.assertEqual(response.status_code, 302)
@@ -581,11 +586,24 @@ class EditWithImagesTests(TestCase):
         self.assertIsNotNone(cover)
         self.assertEqual(cover.tag_name, "cover.jpg")
 
+    def test_unknown_gallery_path_is_rejected(self):
+        """A cover_gallery_path with no matching gallery file is a
+        validation error, not a silent no-op or a crash."""
+        response = self.client.post(
+            f"/if/{self.story.slug}/edit/",
+            {"title": "Edit Images", "cover_gallery_path": "/nonexistent/path.jpg"},
+            secure=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"no gallery file found", response.content.lower())
+        self.assertIsNone(self.story.cover_image)
 
-class PlayViewImageTagTests(TestCase):
-    """GET /if/<slug>/ and POST .../play/ — Step 5: image: tags render as image_urls."""
+
+class PlayViewImageTagTests(_AlbumsRootMixin, TestCase):
+    """GET /if/<slug>/ and POST .../play/ — image: tags render as image_urls."""
 
     def setUp(self):
+        self._enable_albums_root()
         self.client = Client()
         self.owner = get_user_model().objects.create_user(username="playimgowner", password="pw", is_staff=True)
         self.story = Story.objects.create(
@@ -602,16 +620,10 @@ class PlayViewImageTagTests(TestCase):
         self.assertNotIn(b"if-story-images", response.content)
 
     def test_image_tag_with_a_matching_story_image_renders_an_img_tag(self):
-        """Once cover.jpg is uploaded, the same tag resolves to a servable
+        """Once cover.jpg is linked, the same tag resolves to a servable
         image URL and an <img> appears in the play page."""
-        self.client.post(
-            f"/if/{self.story.slug}/edit/",
-            {
-                "title": "Tagged Play",
-                "images_zip": SimpleUploadedFile("images.zip", make_image_zip({"cover.jpg": make_image_bytes()}), content_type="application/zip"),
-            },
-            secure=True,
-        )
+        file_index = make_gallery_image(self.albums_dir, "cover.jpg")
+        link_story_image(self.story, "cover.jpg", file_index)
         response = self.client.get(f"/if/{self.story.slug}/", secure=True)
         self.assertEqual(response.status_code, 200)
         self.assertIn(f"/if/{self.story.slug}/image/cover.jpg/".encode(), response.content)
