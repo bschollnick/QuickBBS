@@ -26,6 +26,7 @@ shared engine-state plumbing every view in the app needs.
 
 from __future__ import annotations
 
+import copy
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
@@ -40,6 +41,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from interactive_fiction.engine import InkRuntimeState, load_list_defs, load_story_root
+from interactive_fiction.engine_services import bindings_for
 from interactive_fiction.ingestion import find_inkj_file_by_path
 from interactive_fiction.models import (
     CurrentGame,
@@ -64,24 +66,34 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser, AnonymousUser
 
 
-def _new_game_state(story: Story) -> InkRuntimeState:
+def _new_game_state(story: Story, engine_state: dict[str, Any]) -> InkRuntimeState:
     """Build a fresh InkRuntimeState for a story, run to its first stop point.
 
     Args:
         story: The story to start.
+        engine_state: The session's own mutable `engine_state` dict (see
+            `_build_current_game_state()`) — passed straight through to
+            `engine_services.bindings_for()`, and mutated in place by any
+            stateful API's own `init_state()`/bound closures, so the
+            caller's own reference already reflects the new game's
+            initial per-API state once this returns.
 
     Returns:
-        A new InkRuntimeState, already advanced through its first
+        A new InkRuntimeState, given real EXTERNAL bindings
+        (engine_services.bindings_for(story, engine_state),
+        claude_docs/plans/external_expansion_IF_engine.md Step 3, extended
+        2026-08-23 for stateful APIs) only if story is marked
+        Story.is_engine_trusted, and already advanced through its first
         continue_story() call so it's ready to display.
     """
     root = load_story_root(story.compiled_json)
     list_defs = load_list_defs(story.compiled_json)
-    state = InkRuntimeState(root, list_defs)
+    state = InkRuntimeState(root, list_defs, engine_bindings=bindings_for(story, engine_state))
     state.continue_story()
     return state
 
 
-def _load_game_state(story: Story, saved: CurrentGame | SaveState | dict[str, Any]) -> InkRuntimeState:
+def _load_game_state(story: Story, saved: CurrentGame | SaveState | dict[str, Any], engine_state: dict[str, Any]) -> InkRuntimeState:
     """Rebuild an InkRuntimeState from a stored CurrentGame/SaveState row or raw state dict.
 
     Args:
@@ -92,19 +104,28 @@ def _load_game_state(story: Story, saved: CurrentGame | SaveState | dict[str, An
             identical shape) or a raw state dict directly (Step 8's
             play_undo() passes CurrentGame.state["previous_state"] this way
             — it's already the same shape, with no row to wrap it in).
+        engine_state: The session's own mutable `engine_state` dict,
+            typically read straight out of the same `saved` dict/row this
+            call is rebuilding from (see `_build_current_game_state()`) —
+            passed straight through to `engine_services.bindings_for()`.
 
     Returns:
-        The rebuilt InkRuntimeState. A path in saved.state that no longer
-        resolves against story.compiled_json degrades per
-        InkRuntimeState.from_dict()'s own rules (a dropped choice, a null
-        pointer) rather than raising — full save-compatibility repair
-        (detecting this and recovering to the nearest valid point) is
-        Step 4 scope, not attempted here.
+        The rebuilt InkRuntimeState, given the same real EXTERNAL bindings
+        (engine_services.bindings_for(story, engine_state),
+        claude_docs/plans/external_expansion_IF_engine.md Step 3, extended
+        2026-08-23 for stateful APIs) a fresh game for this same story
+        would get — re-derived from story.is_engine_trusted on every
+        load, never itself part of the saved state (only each stateful
+        API's own DATA is). A path in saved.state that no longer resolves
+        against story.compiled_json degrades per InkRuntimeState.from_dict()'s
+        own rules (a dropped choice, a null pointer) rather than raising —
+        full save-compatibility repair (detecting this and recovering to
+        the nearest valid point) is Step 4 scope, not attempted here.
     """
     root = load_story_root(story.compiled_json)
     list_defs = load_list_defs(story.compiled_json)
     raw_state = saved if isinstance(saved, dict) else saved.state
-    return InkRuntimeState.from_dict(root, raw_state, list_defs)
+    return InkRuntimeState.from_dict(root, raw_state, list_defs, engine_bindings=bindings_for(story, engine_state))
 
 
 _MEDIA_TAG_URL_NAMES = {"image:": "if_story_image", "video:": "if_story_video"}
@@ -214,28 +235,37 @@ def _render_play_content(
 
 
 def _build_current_game_state(
-    state: InkRuntimeState, previous_raw_state: dict[str, Any] | None, transcript: list[dict[str, object]]
+    state: InkRuntimeState, previous_raw_state: dict[str, Any] | None, transcript: list[dict[str, object]], engine_state: dict[str, Any]
 ) -> dict[str, Any]:
     """Build the dict written into CurrentGame.state, layering Step 8's
     presentation-history keys on top of InkRuntimeState.to_dict().
 
-    "transcript" and "previous_state" are QuickBBS-level bookkeeping, not
-    engine state — InkRuntimeState.to_dict()/from_dict() know nothing about
-    them (from_dict() ignores unrecognized keys via its own data.get()
-    reads, and to_dict() naturally omits them), so this function is the one
-    place that layers them onto the engine's own serialized dict before it
-    goes to the database, and _load_game_state()/the views read them back
-    out of the same dict by key.
+    "transcript", "previous_state", and "engine_state" are QuickBBS-level
+    bookkeeping, not core engine state — InkRuntimeState.to_dict()/
+    from_dict() know nothing about them (from_dict() ignores unrecognized
+    keys via its own data.get() reads, and to_dict() naturally omits
+    them), so this function is the one place that layers them onto the
+    engine's own serialized dict before it goes to the database, and
+    _load_game_state()/the views read them back out of the same dict by
+    key.
 
     Args:
         state: The current InkRuntimeState, already advanced to this turn.
         previous_raw_state: The raw dict CurrentGame.state held *before*
             this turn was applied (i.e. before calling state.choose()) —
             stored verbatim so Undo can restore it exactly, including its
-            own transcript/previous_state keys. None for a fresh game (no
-            undo target yet).
+            own transcript/previous_state/engine_state keys. None for a
+            fresh game (no undo target yet).
         transcript: The rolling list of past turns (see
             _append_transcript_entry()), already capped.
+        engine_state: The per-API state dict built/mutated by this same
+            turn's own `bindings_for(story, engine_state)` call (see
+            `_new_game_state()`/`_load_game_state()`) — e.g. whatever a
+            stateful API's own `bind_stateful` closures wrote via
+            `set_location()`-style calls during `state.continue_story()`.
+            Stored verbatim; `_load_game_state()`'s own caller reads it
+            back out under this same key to rebuild the next turn's
+            bindings from.
 
     Returns:
         The dict to store in CurrentGame.state.
@@ -243,6 +273,7 @@ def _build_current_game_state(
     data = state.to_dict()
     data["transcript"] = transcript
     data["previous_state"] = previous_raw_state
+    data["engine_state"] = engine_state
     return data
 
 
@@ -401,16 +432,17 @@ def play(request: WSGIRequest, slug: str) -> HttpResponse:
 
     current_game = CurrentGame.objects.filter(user=request.user, story=story).first()
     if current_game is None:
-        state = _new_game_state(story)
+        engine_state: dict[str, Any] = {}
+        state = _new_game_state(story, engine_state)
         transcript = _append_transcript_entry([], state.last_turn_text, chosen_label=None)
         CurrentGame.objects.create(
             user=request.user,
             story=story,
-            state=_build_current_game_state(state, previous_raw_state=None, transcript=transcript),
+            state=_build_current_game_state(state, previous_raw_state=None, transcript=transcript, engine_state=engine_state),
             turn_count=state.turn_count,
         )
     else:
-        state = _load_game_state(story, current_game)
+        state = _load_game_state(story, current_game, current_game.state.get("engine_state", {}))
         transcript = current_game.state.get("transcript", [])
 
     user_prefs, _created = UserPreferences.objects.get_or_create(user=request.user)
@@ -477,16 +509,21 @@ def play_submit(request: WSGIRequest, slug: str) -> HttpResponse:
                 status=409,
             )
 
-        state = _load_game_state(story, current_game)
+        previous_raw_state = current_game.state
+        # Deep-copied, not the same dict object previous_raw_state holds:
+        # bindings_for()'s stateful bindings mutate this dict in place as
+        # the turn plays out, and previous_raw_state must stay exactly as
+        # it was before this turn so play_undo() can restore it verbatim.
+        engine_state = copy.deepcopy(previous_raw_state.get("engine_state", {}))
+        state = _load_game_state(story, current_game, engine_state)
         if choice_index < 0 or choice_index >= len(state.current_choices):
             return HttpResponse(status=400)
-        previous_raw_state = current_game.state
         chosen_label = state.current_choices[choice_index].text
         state.choose(choice_index)
         state.continue_story()
 
         transcript = _append_transcript_entry(previous_raw_state.get("transcript", []), state.last_turn_text, chosen_label)
-        current_game.state = _build_current_game_state(state, previous_raw_state=previous_raw_state, transcript=transcript)
+        current_game.state = _build_current_game_state(state, previous_raw_state=previous_raw_state, transcript=transcript, engine_state=engine_state)
         current_game.turn_count = state.turn_count
         current_game.save(update_fields=["state", "turn_count", "updated_at"])
 
@@ -527,7 +564,11 @@ def play_undo(request: WSGIRequest, slug: str) -> HttpResponse:
         if not previous_raw_state:
             return HttpResponse(status=400)
 
-        state = _load_game_state(story, previous_raw_state)
+        # Deep-copied for the same reason as play_submit() above: this
+        # dict is about to become the new current_game.state verbatim, so
+        # nothing built from it (bindings_for()'s stateful closures) may
+        # mutate the very dict being restored.
+        state = _load_game_state(story, previous_raw_state, copy.deepcopy(previous_raw_state.get("engine_state", {})))
         current_game.state = previous_raw_state
         current_game.turn_count = state.turn_count
         current_game.save(update_fields=["state", "turn_count", "updated_at"])
@@ -564,12 +605,16 @@ def play_restart(request: WSGIRequest, slug: str) -> HttpResponse:
     if not user_can_access(story, request.user):
         return HttpResponse(status=403)
 
-    state = _new_game_state(story)
+    engine_state: dict[str, Any] = {}
+    state = _new_game_state(story, engine_state)
     transcript = _append_transcript_entry([], state.last_turn_text, chosen_label=None)
     CurrentGame.objects.update_or_create(
         user=request.user,
         story=story,
-        defaults={"state": _build_current_game_state(state, previous_raw_state=None, transcript=transcript), "turn_count": state.turn_count},
+        defaults={
+            "state": _build_current_game_state(state, previous_raw_state=None, transcript=transcript, engine_state=engine_state),
+            "turn_count": state.turn_count,
+        },
     )
 
     return HttpResponse(_render_play_content(request, story, state, transcript=transcript, can_undo=False))

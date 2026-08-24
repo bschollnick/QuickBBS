@@ -11,6 +11,7 @@ downloadable JSON envelope.
 
 from __future__ import annotations
 
+import copy
 import json
 
 from django.conf import settings
@@ -124,7 +125,10 @@ def saves_load(request: WSGIRequest, slug: str, slot: int) -> HttpResponse:
         return HttpResponse(status=403)
 
     save_state = get_object_or_404(SaveState, user=request.user, story=story, slot=slot)
-    state = _load_game_state(story, save_state)
+    # Deep-copied for the same reason as views.py's play_undo(): save_state.state
+    # is about to become the new current_game.state verbatim, so nothing
+    # built from it (bindings_for()'s stateful closures) may mutate it.
+    state = _load_game_state(story, save_state, copy.deepcopy(save_state.state.get("engine_state", {})))
     current_game, _ = CurrentGame.objects.get_or_create(
         user=request.user, story=story, defaults={"state": save_state.state, "turn_count": state.turn_count}
     )

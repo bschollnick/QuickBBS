@@ -8,11 +8,16 @@ earlier (matching the precedent in `quickbbs/models.py` and
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.base import ModelBase
 
+from interactive_fiction.engine_api import discover_api_descriptors
+from interactive_fiction.engine_config_schemas import SystemConfigValidationError
 from quickbbs.models import FileIndex
 
 if TYPE_CHECKING:
@@ -33,6 +38,18 @@ class Story(models.Model):
     source_fqfn = models.CharField(max_length=1024, blank=True, default="")
     source_sha256 = models.CharField(max_length=64, blank=True, default="")
     is_available = models.BooleanField(default=True)
+    # Engine-service trust gate (claude_docs/plans/external_expansion_IF_engine.md):
+    # default False for every story, including every scanner-ingested `.inkj`
+    # file and every user upload. Only a superuser flipping this explicitly in
+    # Django admin (see StoryAdmin) makes engine.py's `_call_function()` ever
+    # dispatch this story's EXTERNAL calls to a real Python callable instead of
+    # the story's own compiled-in Ink fallback function. Getting this default
+    # wrong in either direction reopens the exact remote-code-execution risk
+    # the 2026-08-15 "QuickBBS never binds host functions" decision closed for
+    # arbitrary third-party uploaded Ink content — this field exists
+    # specifically so that decision keeps holding for every story except ones
+    # this project itself authors and a human explicitly marks as trusted.
+    is_engine_trusted = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -141,6 +158,180 @@ class StoryImage(models.Model):
             A string of the form "<story title>: <tag_name>".
         """
         return f"{self.story}: {self.tag_name}"
+
+
+class EngineAPI(models.Model):
+    """One discovered engine API — a reusable system Python module
+    exposing an `interactive_fiction.engine_api.EngineAPIDescriptor`
+    (claude_docs/plans/external_expansion_IF_engine.md's plugin-discovery
+    redesign, 2026-08-22).
+
+    One row per real discovered `EngineAPIDescriptor.name`, populated by
+    the `sync_engine_apis` management command (never by hand — this is
+    metadata ABOUT a scanned-and-found Python module, not story-author
+    data). ``is_enabled`` gates whether the API is available to any story
+    at all — a separate axis from a specific story's own `is_engine_trusted`
+    flag and its `StorySystemConfig`/binding registration, which decide
+    whether and how THAT story actually uses an enabled API. Disabling an
+    API already in use by some story does not error at disable-time (a
+    real "who's using this" check was explicitly decided against as
+    unneeded complexity for this admin action) — the effect happens the
+    next time that story's own bindings are resolved (see
+    `engine_services.bindings_for()`'s own real handling and logging of a
+    disabled/missing API).
+
+    New for a given API name always starts disabled (`is_enabled=False`
+    default) — same safe-by-default posture as `Story.is_engine_trusted`.
+    """
+
+    name = models.SlugField(unique=True, max_length=64)
+    display_name = models.CharField(max_length=128)
+    is_enabled = models.BooleanField(default=False)
+    discovered_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        """Model metadata: admin display ordering."""
+
+        verbose_name_plural = "Engine APIs"
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        """
+        Return a human-readable description of this engine API.
+
+        Returns:
+            A string of the form "<display name> (enabled|disabled)".
+        """
+        return f"{self.display_name} ({'enabled' if self.is_enabled else 'disabled'})"
+
+
+def sync_engine_apis() -> tuple[int, int]:
+    """Scan for real API files and upsert an `EngineAPI` row for each.
+
+    Called by the `sync_engine_apis` management command. Never removes a
+    row for an API that's disappeared from disk (e.g. a third-party
+    package temporarily uninstalled) — a missing-but-still-enabled API
+    degrades the same real, logged way a disabled one does (see
+    `engine_services.bindings_for()`), rather than silently vanishing
+    from the admin listing along with any story config still referencing
+    it by name.
+
+    Returns:
+        A tuple of (number of newly-discovered APIs created, number of
+        already-known APIs whose display_name/last_seen_at was refreshed).
+    """
+    descriptors = discover_api_descriptors()
+    created_count = 0
+    updated_count = 0
+    for name, descriptor in descriptors.items():
+        _, created = EngineAPI.objects.update_or_create(name=name, defaults={"display_name": descriptor.display_name})
+        if created:
+            created_count += 1
+        else:
+            updated_count += 1
+    return created_count, updated_count
+
+
+class StorySystemConfig(models.Model):
+    """One reusable engine system's own config for one story
+    (claude_docs/plans/external_expansion_IF_engine.md Step 4, reworked
+    2026-08-22 for real plugin discovery).
+
+    Mirrors `StoryImage`'s existing "narrow, per-story side-table" shape —
+    one row per (story, system_name), not one shared JSONField on `Story`
+    merging every system's config together — so a future system can be
+    added with zero migration on `Story` itself, and each system's config
+    can be validated/versioned independently of the others.
+
+    ``system_name`` is a plain, validated string (NOT a closed
+    `TextChoices` enum, corrected 2026-08-22) — an enum baked into
+    QuickBBS's own model can never represent an API discovered later via
+    the scan-based plugin mechanism without a migration, which defeats the
+    entire "third parties add APIs without touching QuickBBS source"
+    goal. `clean()` instead checks `system_name` against the LIVE set of
+    real `EngineAPIDescriptor` names discovered on disk (regardless of
+    that API's own `EngineAPI.is_enabled` state — a story may declare
+    config for an API that exists but isn't enabled yet, the same way a
+    Story may be created before ever being marked `is_engine_trusted`),
+    then runs that specific API's own `validate_config` against `config`.
+    This config surface is a real, separate risk from the EXTERNAL
+    binding-trust question `Story.is_engine_trusted` already gates
+    (Step 2/3) — a story does NOT need to be engine-trusted for this
+    validation to matter, since even an untrusted story's config could
+    otherwise become an injection surface if a future system read it
+    carelessly.
+    """
+
+    story = models.ForeignKey(Story, on_delete=models.DB_CASCADE, related_name="system_configs")
+    system_name = models.CharField(max_length=64)
+    # Defaults to {} (not nullable) -- a config-less API (validate_config is
+    # None, e.g. engine_systems/scheduling.py's is_day binding) still needs
+    # a real row to signal "this story wants this API's bindings" (see
+    # engine_services.bindings_for()), even though there's nothing to
+    # actually validate for it.
+    config = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        """Model metadata: at most one config row per (story, system_name)."""
+
+        constraints = [models.UniqueConstraint(fields=["story", "system_name"], name="unique_story_system_config")]
+
+    def clean(self) -> None:
+        """Validate `system_name` against the live API registry, then
+        `config` against that API's own schema.
+
+        Raises:
+            django.core.exceptions.ValidationError: If `system_name` names
+                no real, currently-discoverable `EngineAPIDescriptor`, or
+                `config` doesn't match that API's own registered schema.
+        """
+        descriptors = discover_api_descriptors()
+        descriptor = descriptors.get(self.system_name)
+        if descriptor is None:
+            raise ValidationError({"system_name": f"'{self.system_name}' is not a real, currently-discoverable engine API"})
+        if descriptor.validate_config is not None:
+            try:
+                descriptor.validate_config(self.config)
+            except SystemConfigValidationError as exc:
+                raise ValidationError({"config": str(exc)}) from exc
+
+    def save(
+        self,
+        *,
+        force_insert: bool | tuple[ModelBase, ...] = False,
+        force_update: bool = False,
+        using: str | None = None,
+        update_fields: Iterable[str] | None = None,
+    ) -> None:
+        """Save, always running `full_clean()` first.
+
+        Django does NOT call `clean()` automatically on `.save()` by
+        default — only `ModelForm`/admin flows call `full_clean()` for
+        you. Overriding `save()` here means every caller (management
+        commands, a future config-loading admin action, `.objects.create()`
+        calls) gets real schema enforcement, not just callers that happen
+        to go through a form; skipping this would make the "closed,
+        validated schema" plan requirement decorative rather than real.
+
+        Args:
+            force_insert: Forwarded to the real `Model.save()`.
+            force_update: Forwarded to the real `Model.save()`.
+            using: Forwarded to the real `Model.save()`.
+            update_fields: Forwarded to the real `Model.save()`.
+        """
+        self.full_clean()
+        super().save(force_insert=force_insert, force_update=force_update, using=using, update_fields=update_fields)
+
+    def __str__(self) -> str:
+        """
+        Return a human-readable description of this system config.
+
+        Returns:
+            A string of the form "<story title>: <system_name>".
+        """
+        return f"{self.story}: {self.system_name}"
 
 
 class CurrentGame(models.Model):

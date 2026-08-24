@@ -66,6 +66,7 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -557,10 +558,21 @@ class FunctionCall:
             actually resolves, without also flagging an ordinary internal
             "f()" call to a genuinely broken/typo'd path as an "unbound
             EXTERNAL" error).
+        external_arg_count: The declared arity from "exArgs" on a real
+            "x()" call, or None for an ordinary "f()" call (which never
+            carries this key). Unused by _call_function's existing
+            Ink-fallback dispatch (arity there is self-describing via
+            what's already on eval_stack, per the parser's own prior
+            comment) but required by claude_docs/plans/
+            external_expansion_IF_engine.md's real Python-callable dispatch
+            branch: a bound Python callable has no Ink-side `temp=` header
+            to consume eval_stack itself, so the interpreter must know the
+            real count to pop before invoking it.
     """
 
     target_path: Path
     is_external: bool = False
+    external_arg_count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -1022,10 +1034,13 @@ _DICT_OBJECT_BUILDERS: list[tuple[str, Any]] = [
     # down to "call this top-level function by name" (confirmed 2026-08-16:
     # x()'s target is always a bare declared name, never a relative path,
     # so _resolve_target's existing absolute-path handling is sufficient).
-    # "exArgs" (the declared external's arity) is intentionally unused, same
-    # reasoning as "f()": arity is self-describing via what's already on
-    # eval_stack when the call is reached.
-    ("x()", lambda obj: FunctionCall(target_path=Path.parse(str(obj["x()"])), is_external=True)),
+    # "exArgs" is parsed into external_arg_count (added
+    # claude_docs/plans/external_expansion_IF_engine.md, 2026-08-22): still
+    # unused by this dispatch path's own Ink-fallback handling (arity there
+    # remains self-describing via what's already on eval_stack), but
+    # required by that plan's real Python-callable dispatch branch, which
+    # has no Ink-side `temp=` header to consume eval_stack on its own.
+    ("x()", lambda obj: FunctionCall(target_path=Path.parse(str(obj["x()"])), is_external=True, external_arg_count=obj.get("exArgs"))),
     ("list", _load_list_value),
     ("^->", lambda obj: DivertTargetValue(target_path=Path.parse(str(obj["^->"])))),
     ("CNT?", lambda obj: ReadCountTarget(target_path=Path.parse(str(obj["CNT?"])))),
@@ -1956,11 +1971,29 @@ class InkRuntimeState:  # pylint: disable=too-many-instance-attributes
         list_defs: The story's LIST definitions (from load_list_defs()),
             {list_name: {item_name: int_value}}. Defaults to {} for
             stories with no LIST declarations.
+        engine_bindings: Real Python callables to dispatch EXTERNAL calls
+            to, keyed by the exact function name declared in the story
+            (claude_docs/plans/external_expansion_IF_engine.md Step 3).
+            None/empty for every story by default — this interpreter has
+            no notion of "trusted" on its own; the caller (the Django view
+            layer, which already loaded the real Story row) is solely
+            responsible for deciding whether to pass real bindings here at
+            all, based on Story.is_engine_trusted. Every bound callable
+            must be stateless (see _call_function's own docstring) — this
+            dict itself is never queried for anything OTHER than a plain
+            function-name lookup at call time, and is never mutated by
+            this class.
     """
 
-    def __init__(self, root: Container, list_defs: dict[str, dict[str, int]] | None = None) -> None:
+    def __init__(
+        self,
+        root: Container,
+        list_defs: dict[str, dict[str, int]] | None = None,
+        engine_bindings: dict[str, Callable[..., Any]] | None = None,
+    ) -> None:
         self.root = root
         self.list_defs = list_defs or {}
+        self.engine_bindings = engine_bindings or {}
         self.pointer: Pointer | None = Pointer.start_of(root)
         self.previous_pointer: Pointer | None = None
         self.output = OutputStream()
@@ -2484,11 +2517,46 @@ class InkRuntimeState:  # pylint: disable=too-many-instance-attributes
         every recursive/sibling function call, since no Section 6 fixture
         happened to exercise recursion.
 
+        **EXTERNAL dispatch (added 2026-08-22, claude_docs/plans/
+        external_expansion_IF_engine.md Step 3)**: if `call.is_external`
+        and `self.engine_bindings` has a real Python callable registered
+        under this call's target name, invoke it directly instead of
+        resolving into the story's own Ink fallback container — pop
+        `call.external_arg_count` values off eval_stack (Step 1's real
+        arity, required here since a Python callable has no Ink-side
+        `temp=` header to consume the stack itself), call it positionally
+        in push order, push its return value, advance the pointer. This
+        interpreter has no Story/trust-flag awareness of its own — the
+        caller (the Django view layer, which already loads the real Story
+        row) decides whether to pass real bindings in at all via the
+        `engine_bindings` constructor/from_dict() parameter; an untrusted
+        story is simply never given any, so this branch is unreachable for
+        it and every EXTERNAL call falls through to the unchanged Ink-
+        fallback path below, exactly as before this dispatch existed.
+        Every bound callable MUST be stateless per claude_docs/plans/
+        external_expansion_IF_engine.md's per-session isolation
+        requirement — it receives only the popped argument values (never
+        `self`/this InkRuntimeState, and never any implicit shared state)
+        and returns one value, mirroring an ordinary Ink function's own
+        args-in/one-value-out shape exactly, so nothing about a specific
+        game session can leak into module-level/shared Python state.
+
         Args:
             call: The function call being processed.
             holder: The container directly holding this call (used to
                 resolve its target path if relative).
         """
+        if call.is_external and self.engine_bindings:
+            binding = self.engine_bindings.get(str(call.target_path))
+            if binding is not None:
+                arg_count = call.external_arg_count or 0
+                args = [self.eval_stack.pop() for _ in range(arg_count)]
+                args.reverse()
+                self.eval_stack.append(binding(*args))
+                assert self.pointer is not None
+                self.pointer = self._advance_past(self.pointer)
+                return
+
         target = self._resolve_target(holder, self.root, call.target_path)
         if not isinstance(target, Container):
             # An unresolvable function name is a story error in real Ink;
@@ -3780,7 +3848,13 @@ class InkRuntimeState:  # pylint: disable=too-many-instance-attributes
         }
 
     @classmethod
-    def from_dict(cls, root: Container, data: dict[str, Any], list_defs: dict[str, dict[str, int]] | None = None) -> "InkRuntimeState":
+    def from_dict(
+        cls,
+        root: Container,
+        data: dict[str, Any],
+        list_defs: dict[str, dict[str, int]] | None = None,
+        engine_bindings: dict[str, Callable[..., Any]] | None = None,
+    ) -> "InkRuntimeState":
         """Rebuild an InkRuntimeState from a to_dict() result.
 
         Args:
@@ -3799,11 +3873,17 @@ class InkRuntimeState:  # pylint: disable=too-many-instance-attributes
                 _run_global_decl()) runs identically to a fresh
                 construction, before this method overwrites the fields
                 that actually hold save data.
+            engine_bindings: Same as the constructor's own parameter —
+                resuming a saved game must be given the same bindings a
+                fresh game for the same Story would get (the caller
+                re-derives this from Story.is_engine_trusted on every
+                load, exactly as for a new game; nothing about which
+                functions are bound is itself part of the saved state).
 
         Returns:
             A new InkRuntimeState with every field from data restored.
         """
-        state = cls(root, list_defs)
+        state = cls(root, list_defs, engine_bindings)
         state.pointer = state._deserialize_pointer(data.get("pointer"))
         state.previous_pointer = state._deserialize_pointer(data.get("previous_pointer"))
         state.output = OutputStream()
