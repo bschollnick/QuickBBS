@@ -20,6 +20,8 @@ from pathlib import Path as FilePath
 from django.test import SimpleTestCase
 
 from interactive_fiction.engine import (
+    Container,
+    FunctionCall,
     InkRuntimeState,
     find_unbound_externals,
     load_list_defs,
@@ -95,6 +97,59 @@ class ExternalCallDispatchTests(SimpleTestCase):
         state = _run("section4_external_dispatch_proof.ink.json")
         state.continue_story()
         self.assertEqual(state.globals.get("ran"), True)
+
+
+class ExternalArgCountTests(SimpleTestCase):
+    """claude_docs/plans/external_expansion_IF_engine.md Step 1: a real
+    "x()" call's "exArgs" key must parse into FunctionCall.external_arg_count
+    — previously silently discarded (this dispatch path's own Ink-fallback
+    handling never needed arity, since it's self-describing via what's
+    already on eval_stack), but required by that plan's real Python-callable
+    dispatch branch, which has no Ink-side `temp=` header to consume
+    eval_stack on its own."""
+
+    def test_real_exargs_value_round_trips_onto_the_function_call(self):
+        """A compiled "x()" call declaring "exArgs": 3 parses with
+        external_arg_count == 3, found by walking the compiled tree for the
+        one real FunctionCall node (external_expansion_exargs_proof.ink)."""
+        root = load_story_root(_load("external_expansion_exargs_proof.ink.json"))
+        found = []
+
+        def walk(container: Container) -> None:
+            for item in container.content:
+                if isinstance(item, FunctionCall):
+                    found.append(item)
+                elif isinstance(item, Container):
+                    walk(item)
+
+        walk(root)
+        self.assertEqual(len(found), 1)
+        self.assertTrue(found[0].is_external)
+        self.assertEqual(found[0].external_arg_count, 3)
+
+    def test_ordinary_internal_call_has_no_arg_count(self):
+        """An ordinary "f()" call (is_external=False) never carries
+        "exArgs" in real compiled output — external_arg_count must stay
+        None, not default to some other sentinel, so a future dispatch
+        branch can tell "not an external call at all" (None) apart from "a
+        real external declared with zero arguments" (0, e.g.
+        section4_external_dispatch_proof.ink.json's MARK_RAN() call)
+        (section6_recursive_function.ink, a real internal self-recursive
+        function call, is_external=False)."""
+        root = load_story_root(_load("section6_recursive_function.ink.json"))
+        found = []
+
+        def walk(container: Container) -> None:
+            for item in container.content:
+                if isinstance(item, FunctionCall):
+                    found.append(item)
+                elif isinstance(item, Container):
+                    walk(item)
+
+        walk(root)
+        self.assertEqual(len(found), 1)
+        self.assertFalse(found[0].is_external)
+        self.assertIsNone(found[0].external_arg_count)
 
 
 class UnboundExternalTests(SimpleTestCase):

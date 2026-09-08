@@ -64,15 +64,30 @@ paths for now.
 
 from __future__ import annotations
 
+import functools
 import math
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
 
 class InkPathError(ValueError):
     """Raised when a path string cannot be resolved against a container tree."""
+
+
+class _Unresolved:  # pylint: disable=too-few-public-methods
+    """Sentinel distinguishing "never resolved" from a real cached `None`
+    (a target path that genuinely fails to resolve) on
+    Divert/ChoicePoint/FunctionCall's own `_resolved_target_cache` field
+    (2026-09-05) — a real resolution failure must still be cached (so a
+    story with a broken target doesn't pay the walk again on every visit),
+    but that cached failure must be distinguishable from "not looked up
+    yet" so `_resolve_target()` knows whether to trust the cache at all.
+    """
+
+
+_UNRESOLVED = _Unresolved()
 
 
 def _container_path(container: "Container") -> str:
@@ -393,6 +408,24 @@ class Divert:
     is_conditional: bool = False
     pushes_tunnel: bool = False
     is_variable_target: bool = False
+    # Populated on first resolution by `_resolve_target()`, reused on
+    # every later hit (2026-09-05). Safe because the compiled story tree
+    # is built once by `load_story_root()` and never mutated afterward
+    # (confirmed: `Container.content`/`.named_content` are only ever
+    # written from `_load_container`, itself only reachable from
+    # `load_story_root` — no other code path appends/removes/reassigns
+    # either), so a given Divert instance's own `holder` — its fixed
+    # position in that tree — never changes across the life of the
+    # InkRuntimeState that loaded it. `target_path` itself is likewise
+    # fixed once compiled. `None` (the field's own default) and "not yet
+    # resolved" are distinguished by a dedicated `_UNRESOLVED` sentinel,
+    # since a real resolution failure legitimately caches as `None` too
+    # (an unresolvable path stays unresolvable) and must not be retried
+    # every call. NEVER used for an `is_variable_target=True` divert —
+    # its real destination is read from a variable at follow-time, so it
+    # is never passed through `_resolve_target()` at all (see
+    # `_follow_divert`'s own early-return branch).
+    _resolved_target_cache: Any = _UNRESOLVED
 
 
 @dataclass
@@ -413,6 +446,9 @@ class ChoicePoint:
 
     target_path: Path
     flags: int = 0
+    # See Divert._resolved_target_cache's own comment — identical caching,
+    # same safety argument (fixed position in the never-mutated tree).
+    _resolved_target_cache: Any = _UNRESOLVED
 
     @property
     def has_condition(self) -> bool:
@@ -480,6 +516,9 @@ class DivertTargetValue:
     """
 
     target_path: Path
+    # See Divert._resolved_target_cache's own comment — identical caching,
+    # same safety argument (fixed position in the never-mutated tree).
+    _resolved_target_cache: Any = _UNRESOLVED
 
 
 @dataclass
@@ -530,6 +569,9 @@ class ReadCountTarget:
     """
 
     target_path: Path
+    # See Divert._resolved_target_cache's own comment — identical caching,
+    # same safety argument (fixed position in the never-mutated tree).
+    _resolved_target_cache: Any = _UNRESOLVED
 
 
 @dataclass
@@ -573,6 +615,27 @@ class FunctionCall:
     target_path: Path
     is_external: bool = False
     external_arg_count: int | None = None
+    # See Divert._resolved_target_cache's own comment — identical caching,
+    # same safety argument (fixed position in the never-mutated tree).
+    _resolved_target_cache: Any = _UNRESOLVED
+
+
+@functools.lru_cache(maxsize=4096)
+def _list_value_entries_as_dict(entries: tuple[tuple[tuple[str, str], int], ...]) -> dict[tuple[str, str], int]:
+    """Build the {(origin_name, item_name): int_value} dict for a ListValue's entries.
+
+    Cached on the entries tuple itself: ListValue is frozen/hashable, and the
+    same value is often checked repeatedly in one turn (e.g. several
+    `characters_here ? X` choice conditions against the same LIST), so this
+    avoids rebuilding an identical dict on every `?`/`==`/`!=`/`&&`/`||` call.
+
+    Args:
+        entries: A ListValue's entries tuple.
+
+    Returns:
+        {(origin_name, item_name): int_value}.
+    """
+    return dict(entries)
 
 
 @dataclass(frozen=True)
@@ -624,7 +687,7 @@ class ListValue:
         Returns:
             {(origin_name, item_name): int_value}.
         """
-        return dict(self.entries)
+        return _list_value_entries_as_dict(self.entries)
 
     @property
     def ordered_entries(self) -> list[tuple[tuple[str, str], int]]:
@@ -799,6 +862,66 @@ def load_list_defs(story_json: dict[str, Any]) -> dict[str, dict[str, int]]:
         confirmed 2026-08-16 against every bundled example story).
     """
     return story_json.get("listDefs", {})
+
+
+def retrieve_python_list(list_defs: dict[str, dict[str, int]], list_name: str) -> dict[str, int]:
+    """Return one declared LIST's own item table, as plain Python.
+
+    An EXTERNAL binding that wants to build a `ListValue` in bulk (see
+    `store_python_list`) needs to know which item names that LIST
+    declares and each one's own integer value — this is that lookup,
+    scoped to the one LIST asked for rather than handing over every LIST
+    the story declares (`load_list_defs`'s own full result), since a
+    binding only ever builds one LIST-typed value at a time and has no
+    use for the others.
+
+    Args:
+        list_defs: A `load_list_defs()` result — every LIST the story
+            declares.
+        list_name: The one LIST whose item table is wanted, e.g.
+            "AllCharacters".
+
+    Returns:
+        {item_name: int_value} for that LIST, or {} if the story declares
+        no LIST by that name.
+    """
+    return list_defs.get(list_name, {})
+
+
+def store_python_list(list_name: str, item_names: Iterable[str], item_values: dict[str, int]) -> ListValue:
+    """Build a real `ListValue` from a plain Python collection of item names.
+
+    The write-side counterpart to `retrieve_python_list`: a binding that
+    computed a set of item names in bulk (in ordinary Python, with no
+    per-item round trip through Ink) uses this to turn that computation
+    into the one native value Ink's own LIST operators
+    (`?`/`+`/`-`/comparisons — see `_list_binary_op`) already understand,
+    rather than returning a comma-joined string for `.ink` content to
+    parse itself (which this engine has no native primitive for — see
+    `_apply_string_native_function`, only `+`/`==`/`!=` are defined on
+    strings). This engine departs from the Ink spec here: an EXTERNAL
+    binding's raw Python return value is pushed straight onto the eval
+    stack with no coercion (`_call_function`), so a `ListValue` built this
+    way works everywhere a value built by ordinary Ink `LIST` syntax
+    would.
+
+    Args:
+        list_name: The LIST these items belong to, e.g. "AllCharacters" —
+            becomes the built value's own `origin_names`.
+        item_names: The item names to include. Any name not present in
+            `item_values` is skipped rather than raising, since a caller
+            building this from live session data (e.g. "who is present
+            right now") may legitimately name a character the story's own
+            LIST declaration does not carry.
+        item_values: That LIST's own item table — a `retrieve_python_list`
+            result — supplying each included item's real integer value.
+
+    Returns:
+        A `ListValue` with one entry per name in `item_names` that
+        `item_values` recognizes.
+    """
+    entries = tuple((list_name, name) for name in item_names if name in item_values)
+    return ListValue(entries=tuple((entry, item_values[entry[1]]) for entry in entries), origin_names=(list_name,))
 
 
 def find_unbound_externals(root: Container) -> list[str]:
@@ -1182,6 +1305,25 @@ class OutputStream:
 
     def __init__(self) -> None:
         self.tokens: list[str] = []
+        # Caches `_latest_glue_index()`'s own answer, invalidated (not
+        # just "possibly wrong") whenever `self.tokens` shrinks or is
+        # reassigned wholesale from outside `push()` (2026-09-05):
+        # `_glue_cache_len` is the length `self.tokens` had the last time
+        # `_glue_cache_index` was known correct. `_latest_glue_index()`
+        # only needs to rescan the SUFFIX appended since then (or redo a
+        # full scan if the list ever got shorter than that -- the only
+        # way this engine's own code shrinks `tokens` from outside
+        # `push()` is a full external reassignment via `.tokens = list(
+        # ...)`, e.g. `continue_story()`'s per-turn slice or
+        # `from_dict()`'s restore, both of which replace the whole list
+        # rather than removing a suffix -- so "shorter than last time"
+        # reliably means "stale, do a real scan," never a false negative).
+        # This turns push()'s dominant per-call cost (a full backward scan
+        # of every token pushed so far, real O(k²) total for a k-token
+        # turn -- ordinary prose has no active glue, so the scan runs to
+        # the very start every time) into amortized O(1) per push.
+        self._glue_cache_len = 0
+        self._glue_cache_index = -1
 
     @property
     def ends_in_newline(self) -> bool:
@@ -1221,8 +1363,26 @@ class OutputStream:
         a glue-trim is active — that text has "consumed" the glue's join,
         so the glue marker itself is no longer needed in the stream.
         """
+        removed = False
         while self.tokens and self.tokens[-1] == GLUE:
             self.tokens.pop()
+            removed = True
+        if removed:
+            # Explicit invalidation, not left to `_latest_glue_index()`'s
+            # own shrink-detection (2026-09-05, fixing a real regression
+            # this introduced): a pop() here is immediately followed by an
+            # append() back in `push()`'s own caller, which can leave
+            # `len(self.tokens)` EQUAL TO what it was before this ran —
+            # shrink-detection alone would then never notice the cached
+            # `_glue_cache_index` now points at a token that no longer
+            # exists, and `push()` would keep treating stale glue as still
+            # active forever (confirmed: this exact bug swallowed every
+            # ordinary newline in `test_matches_inklecate_play_transcript`
+            # before this fix). Resetting the cache length below `pop()`'s
+            # own floor forces a real rescan on the next read, regardless
+            # of what the length looks like afterward.
+            self._glue_cache_len = min(self._glue_cache_len, len(self.tokens))
+            self._glue_cache_index = -1
 
     def _trim_newlines_from_end(self) -> None:
         """Remove a trailing run of newline/whitespace text, per
@@ -1252,15 +1412,37 @@ class OutputStream:
         tokens in the stream (those are opaque/out of scope), so unlike
         the C# source this never has a BeginString boundary to stop at.
 
+        Cached incrementally (2026-09-05): `self.tokens` only ever grows
+        by appending, one token at a time, within this class's own
+        methods (`push()`/glue-trim helpers) — no code path here removes
+        from the middle. So once the answer is known for a given length,
+        a longer `tokens` only needs its own newly appended SUFFIX
+        checked for a glue token; if it has none, the previously known
+        answer is still correct, since nothing before it changed. If
+        `tokens` is ever SHORTER than the cached length (only possible
+        via an external `.tokens = list(...)` reassignment — `pop()`/
+        `del tokens[i:]` inside this class always update the cache
+        alongside the mutation, see `_remove_existing_glue`/
+        `_trim_newlines_from_end`), the cache is stale and a full rescan
+        runs, matching the original always-rescan behavior exactly for
+        that case.
+
         Returns:
             The index of the most recent glue token, or -1 if the stream
             has no trailing glue (i.e. it was already closed off by real
             text, or none was ever pushed).
         """
-        for i in range(len(self.tokens) - 1, -1, -1):
-            if self.tokens[i] == GLUE:
-                return i
-        return -1
+        length = len(self.tokens)
+        if length < self._glue_cache_len:
+            self._glue_cache_index = -1
+            self._glue_cache_len = 0
+        if length > self._glue_cache_len:
+            for i in range(length - 1, self._glue_cache_len - 1, -1):
+                if self.tokens[i] == GLUE:
+                    self._glue_cache_index = i
+                    break
+            self._glue_cache_len = length
+        return self._glue_cache_index
 
     def push(self, token: str) -> None:
         """Push one leaf token (text, newline, or glue) onto the stream.
@@ -2254,6 +2436,58 @@ class InkRuntimeState:  # pylint: disable=too-many-instance-attributes
             components = components[1:]
         return resolve_path(holder, Path(components=components, is_relative=True))
 
+    def _resolve_target_cached(self, owner: "Divert | ChoicePoint | FunctionCall | ReadCountTarget | DivertTargetValue", holder: Container, path: Path) -> Any | None:
+        """Resolve `owner.target_path` (== `path`), memoized on `owner` itself.
+
+        The cached counterpart to `_resolve_target()` above, for the
+        common case of resolving an object's OWN `target_path` rather
+        than a derived one (2026-09-05) — a divert inside a knot that is
+        re-entered many times over a playthrough (an ASFA-style location
+        hub, or any frequently revisited choice list) would otherwise
+        re-walk the same path from `holder`/`root` on every single visit,
+        even though the answer can never change: `owner`'s position in
+        the compiled tree (`holder`) and its `target_path` are both fixed
+        once the story loads, and the tree itself is never mutated after
+        `load_story_root()` builds it (confirmed: `Container.content`/
+        `.named_content` are only ever written from `_load_container`,
+        itself only reachable from that one load call — no other code
+        path appends/removes/reassigns either).
+
+        A resolution FAILURE (the underlying `_resolve_target()` call
+        returning `None`) is cached too, not just a success — a broken
+        target stays broken for the life of the loaded tree, so retrying
+        the walk on every visit would be pure waste for that case as
+        well.
+
+        Not used for `Divert.is_variable_target=True` (its real
+        destination comes from a variable at follow-time, never from
+        `target_path` itself, so it never calls this at all — see
+        `_follow_divert`'s own early-return branch) or for the
+        `parent_path`-derived lookup in `_follow_divert`'s own
+        is_index handling (a DIFFERENT path than `owner.target_path`,
+        so `owner`'s cache would answer the wrong question for it — that
+        call site still uses the uncached `_resolve_target()` directly).
+
+        Args:
+            owner: The Divert/ChoicePoint/FunctionCall/ReadCountTarget/
+                DivertTargetValue whose OWN `target_path` is being
+                resolved — `path` must be `owner.target_path` itself, not
+                a path derived from it.
+            holder: The container directly holding `owner` (see
+                `_resolve_target()`'s own docstring).
+            path: `owner.target_path`.
+
+        Returns:
+            The resolved content, or None if resolution fails — either
+            way, cached on `owner` for every later call.
+        """
+        cached = owner._resolved_target_cache  # pylint: disable=protected-access
+        if cached is not _UNRESOLVED:
+            return cached
+        resolved = self._resolve_target(holder, self.root, path)
+        owner._resolved_target_cache = resolved  # pylint: disable=protected-access
+        return resolved
+
     def _visit_changed_containers_due_to_divert(self) -> None:
         """Record visits for ancestor containers newly entered by a jump.
 
@@ -2359,7 +2593,7 @@ class InkRuntimeState:  # pylint: disable=too-many-instance-attributes
                 return Pointer(None)
             return Pointer.start_of(value.container)
 
-        target = self._resolve_target(holder, self.root, divert.target_path)
+        target = self._resolve_target_cached(divert, holder, divert.target_path)
         if isinstance(target, Container):
             return Pointer.start_of(target)
 
@@ -2444,7 +2678,7 @@ class InkRuntimeState:  # pylint: disable=too-many-instance-attributes
             holder: The container directly holding this divert (used to
                 resolve its target path if relative).
         """
-        target = self._resolve_target(holder, self.root, divert.target_path)
+        target = self._resolve_target_cached(divert, holder, divert.target_path)
         if not isinstance(target, Container):
             return
 
@@ -2557,7 +2791,7 @@ class InkRuntimeState:  # pylint: disable=too-many-instance-attributes
                 self.pointer = self._advance_past(self.pointer)
                 return
 
-        target = self._resolve_target(holder, self.root, call.target_path)
+        target = self._resolve_target_cached(call, holder, call.target_path)
         if not isinstance(target, Container):
             # An unresolvable function name is a story error in real Ink;
             # degrade gracefully rather than crash, matching this
@@ -2714,7 +2948,7 @@ class InkRuntimeState:  # pylint: disable=too-many-instance-attributes
         if not show_choice:
             return
 
-        target = self._resolve_target(holder, self.root, choice_point.target_path)
+        target = self._resolve_target_cached(choice_point, holder, choice_point.target_path)
         if not isinstance(target, Container):
             return
 
@@ -3445,7 +3679,7 @@ class InkRuntimeState:  # pylint: disable=too-many-instance-attributes
             # Resolved eagerly using holder for the same reason as
             # DivertTargetValue below — the path can be relative
             # (confirmed: {"CNT?": ".^"}).
-            resolved = self._resolve_target(holder, self.root, content.target_path)
+            resolved = self._resolve_target_cached(content, holder, content.target_path)
             self.eval_stack.append(self._visit_count(resolved) if isinstance(resolved, Container) else 0)
         elif isinstance(content, DivertTargetValue):
             # A `-> knot_name` literal used as an expression: e.g.
@@ -3466,7 +3700,7 @@ class InkRuntimeState:  # pylint: disable=too-many-instance-attributes
             # (`{"CNT?": ".^"}`), so resolution needs the same
             # holder-container context every other relative-path
             # resolution in this module already requires.
-            resolved = self._resolve_target(holder, self.root, content.target_path)
+            resolved = self._resolve_target_cached(content, holder, content.target_path)
             self.eval_stack.append(ResolvedDivertTarget(container=resolved if isinstance(resolved, Container) else None))
         # else: an opaque/unrecognised leaf token (control commands,
         # values, etc. outside a choice-text run) is skipped — out of
@@ -3541,7 +3775,7 @@ class InkRuntimeState:  # pylint: disable=too-many-instance-attributes
         # current_tags is per-turn, like current_choices above, not
         # cumulative across the whole playthrough — confirmed a real bug
         # 2026-08-16 (found while wiring image tags into a real converted
-        # story, claude_docs/plans/asfa_ink_conversions/julie.ink) via
+        # story's own .ink file) via
         # inklecate -p's own transcript: a second tagged turn's "# tags:"
         # line shows only that turn's tags, not every tag seen so far.
         # Without this reset, _handle_tag_command's append-only current_tags
@@ -3554,11 +3788,29 @@ class InkRuntimeState:  # pylint: disable=too-many-instance-attributes
         while not self.done:
             if self._step():
                 break
+        # A `list[start_length:]` slice is already a fresh, independent
+        # list — the loop this used to run (`turn_stream = OutputStream();
+        # for token in new_tokens: turn_stream.tokens.append(token)`) just
+        # copied that same slice a second time, one token at a time, to
+        # reach a real `OutputStream` instance `get_text()` could be
+        # called on. `get_text()` only ever reads `self.tokens` (a plain
+        # list) and doesn't touch the glue cache, so assigning the slice
+        # directly is behaviorally identical and skips both the O(k)
+        # token-by-token copy and the SEPARATE `list(new_tokens)` copy
+        # this method used to do right afterward to reset `self.output`
+        # (2026-09-05).
         new_tokens = self.output.tokens[start_length:]
         turn_stream = OutputStream()
-        for token in new_tokens:
-            turn_stream.tokens.append(token)
+        turn_stream.tokens = new_tokens
         self.last_turn_text = turn_stream.get_text()
+        # Keep ONLY this turn's tokens. Nothing reads the accumulated
+        # prefix -- each turn slices from its own start_length, and the
+        # only other consumer is from_dict() restoring the buffer -- but
+        # to_dict() re-serialized the whole history every turn, so the
+        # saved state grew linearly and without bound. `new_tokens` is
+        # never referenced again after this, so `self.output` can safely
+        # take ownership of it directly instead of copying it again.
+        self.output.tokens = new_tokens
         return self.last_turn_text
 
     def choose(self, index: int) -> None:
@@ -3737,12 +3989,20 @@ class InkRuntimeState:  # pylint: disable=too-many-instance-attributes
         walk(self.root)
         return index
 
-    def _id_keyed_dict_to_path_keyed(self, id_keyed: dict[int, int]) -> dict[str, int]:
+    def _id_keyed_dict_to_path_keyed(self, id_keyed: dict[int, int], by_id: dict[int, Container] | None = None) -> dict[str, int]:
         """Convert an id(Container)-keyed dict (visit_counts/visit_turns'
         own storage shape) to a path-keyed dict, for serialization.
 
         Args:
             id_keyed: {id(container): int_value}.
+            by_id: A `_container_by_id_index()` result to reuse, or None
+                to build a fresh one. `to_dict()` calls this twice
+                (visit_counts, then visit_turns) in one serialization —
+                passing one shared index built once, rather than each
+                call re-walking the whole compiled tree from `self.root`
+                to build its own copy (2026-09-05), halves that walk's
+                real cost per `to_dict()` invocation (at least once per
+                HTTP request: new game, every turn, undo).
 
         Returns:
             {path_string: int_value}, one entry per id_keyed key whose
@@ -3753,7 +4013,7 @@ class InkRuntimeState:  # pylint: disable=too-many-instance-attributes
             rather than raised, matching this module's degrade-not-crash
             philosophy).
         """
-        by_id = self._container_by_id_index()
+        by_id = self._container_by_id_index() if by_id is None else by_id
         result: dict[str, int] = {}
         for container_id, value in id_keyed.items():
             container = by_id.get(container_id)
@@ -3815,13 +4075,17 @@ class InkRuntimeState:  # pylint: disable=too-many-instance-attributes
         Returns:
             The serialized state.
         """
+        # Built once and shared by both calls below (2026-09-05) — each
+        # otherwise independently re-walked the whole compiled tree from
+        # `self.root` to build its own identical copy of the same index.
+        by_id = self._container_by_id_index()
         return {
             "pointer": self._serialize_pointer(self.pointer),
             "previous_pointer": self._serialize_pointer(self.previous_pointer),
             "output_tokens": list(self.output.tokens),
             "current_choices": [{"text": choice.text, "target_path": _container_path(choice.target)} for choice in self.current_choices],
-            "visit_counts": self._id_keyed_dict_to_path_keyed(self.visit_counts),
-            "visit_turns": self._id_keyed_dict_to_path_keyed(self.visit_turns),
+            "visit_counts": self._id_keyed_dict_to_path_keyed(self.visit_counts, by_id),
+            "visit_turns": self._id_keyed_dict_to_path_keyed(self.visit_turns, by_id),
             "current_tags": list(self.current_tags),
             "done": self.done,
             "globals": {name: self._serialize_value(value) for name, value in self.globals.items()},

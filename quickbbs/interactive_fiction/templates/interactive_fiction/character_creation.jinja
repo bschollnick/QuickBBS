@@ -1,0 +1,53 @@
+{% extends 'base.jinja' %}
+
+{% block title %}{{ story.title }} — New Adventure{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="/resources/css/interactive-fiction.css?v=7">
+{% endblock %}
+
+{% block content %}
+{% include 'components/navbar.jinja' %}
+
+<section class="section filetype-main-container">
+    <h1 class="title">{{ story.title }}</h1>
+    <p class="subtitle">Before you begin, tell us about your character.</p>
+
+    <form method="post" class="if-character-creation-form" action="{{ url('if_character_creation_submit', kwargs={'slug': story.slug}) }}">
+        {% csrf_token %}
+        {% for field in story.game_new_game_fields %}
+        <div class="field{% if field.type == 'checkbox' %} if-character-creation-checkbox-row{% endif %}">
+            <label class="label">{{ field.label }}</label>
+            {% if field.type == 'text' %}
+            <div class="control">
+                <input class="input" type="text" name="{{ field.var }}" value="{{ field.default }}">
+            </div>
+            {% elif field.type == 'radio_image' %}
+            <div class="control if-character-creation-options">
+                {% for option in field.options %}
+                <label class="if-character-creation-option">
+                    <input type="radio" name="{{ field.var }}" value="{{ loop.index0 }}"
+                        {% if option.value == field.default %}checked{% endif %}>
+                    <img src="{{ url('if_story_image', kwargs={'slug': story.slug, 'tag_name': 'newgame:' ~ option.image}) }}" alt="{{ option.label }}" title="{{ option.label }}">
+                    <span>{{ option.label }}</span>
+                </label>
+                {% endfor %}
+            </div>
+            {% elif field.type == 'checkbox' %}
+            <div class="control">
+                <label class="checkbox">
+                    <input type="checkbox" name="{{ field.var }}" {% if field.default %}checked{% endif %}>
+                    Yes
+                </label>
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+        <div class="field">
+            <div class="control">
+                <button type="submit" class="button is-link">Start the Game</button>
+            </div>
+        </div>
+    </form>
+</section>
+{% endblock %}

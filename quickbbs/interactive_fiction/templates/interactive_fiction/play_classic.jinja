@@ -1,0 +1,16 @@
+{#
+  The "classic" play layout — left sidebar of controls, story filling the
+  rest of the page.
+
+  This is the default, and the shape every story had before layouts
+  existed: a story that names no layout, or names one this engine version
+  does not ship, renders exactly like this.
+#}
+{% extends 'interactive_fiction/play_base.jinja' %}
+
+{% block play_columns %}
+<section class="section filetype-main-container if-font-{{ if_font_size|default('medium') }} if-width-{{ if_text_width|default('medium') }}">
+    <h1 class="title">{{ story.title }}</h1>
+    {% include 'interactive_fiction/play_content.jinja' %}
+</section>
+{% endblock %}

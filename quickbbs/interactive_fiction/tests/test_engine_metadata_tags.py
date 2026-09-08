@@ -140,8 +140,7 @@ class TagTests(SimpleTestCase):
 
         Regression coverage for a third instance of the same bug class
         found 2026-08-16 while adding image tags to a real hand-converted
-        story (claude_docs/plans/asfa_ink_conversions/julie.ink,
-        claude_docs/plans/a_spell_for_all.md): unlike a conditional
+        story: unlike a conditional
         inside choice-only text (wrapped in ev/../ev, see
         test_engine_choices.py's ControlCommandMarkerTests), the compiler
         does not wrap a conditional inside a tag in ev/../ev at all — it
@@ -163,7 +162,7 @@ class TagTests(SimpleTestCase):
 
         Regression coverage for a real bug found 2026-08-16 alongside the
         two "nop" leak fixes above, while wiring image tags into a real
-        converted story (claude_docs/plans/asfa_ink_conversions/julie.ink):
+        converted story:
         continue_story() reset current_choices at its start but never
         current_tags, so interactive_fiction.views._current_image_urls()
         (which iterates state.current_tags every turn, expecting only the
@@ -184,8 +183,8 @@ class TagTests(SimpleTestCase):
         no conditional) must resolve entirely inside the tag, not leak the
         interpolated value onto the front of the next visible line.
 
-        Regression coverage for a real bug found 2026-08-20 during the
-        ASFA batch-conversion shakedown (claude_docs/plans/a_spell_for_all.md
+        Regression coverage for a real bug found 2026-08-20 during a real
+        batch-conversion shakedown (claude_docs/plans/a_spell_for_all.md
         Section 13, esmeralda.ink): unlike the conditional-tag-content case
         above (test_conditional_tag_content_does_not_leak_a_nop_marker),
         this construct DOES run inside an "ev"/"/ev" eval run (a bare

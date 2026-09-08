@@ -1,0 +1,50 @@
+{#
+  The "three_column" play layout — controls left, story centre, a game's
+  own panel right.
+
+  For a game carrying content that belongs BESIDE the prose rather than
+  inside it: an inventory listing, a device the player opens, a status
+  line. The centre column is still the engine's own story text and
+  choices; a game contributes the right panel, plus optional header/footer
+  rows around the story.
+
+  The game supplies DATA for all of it (see engine_services.
+  game_panel_context) — never markup and never a template path, because a
+  game folder lives in the untrusted Albums tree.
+#}
+{% extends 'interactive_fiction/play_base.jinja' %}
+
+{% block play_columns %}
+<section class="section filetype-main-container if-three-column if-font-{{ if_font_size|default('medium') }} if-width-{{ if_text_width|default('medium') }}">
+    <h1 class="title">{{ story.title }}</h1>
+
+    {% if centre_header %}
+    {# A status line above the story: time, resources, whatever the game
+       tracks. Rows are label/value pairs so the engine needs no idea what
+       any of them mean. #}
+    <div class="if-centre-header">
+      {% for row in centre_header %}
+      <span class="if-centre-stat">
+        {% if row.label %}<span class="if-centre-stat-label">{{ row.label }}</span>{% endif %}
+        <span class="if-centre-stat-value">{{ row.value }}</span>
+      </span>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% include 'interactive_fiction/play_content.jinja' %}
+
+    {% if centre_footer %}
+    <div class="if-centre-footer">
+      {% for row in centre_footer %}
+      <span class="if-centre-stat">
+        {% if row.label %}<span class="if-centre-stat-label">{{ row.label }}</span>{% endif %}
+        <span class="if-centre-stat-value">{{ row.value }}</span>
+      </span>
+      {% endfor %}
+    </div>
+    {% endif %}
+</section>
+
+{% include 'interactive_fiction/play_panel.jinja' %}
+{% endblock %}

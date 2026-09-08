@@ -1,0 +1,17 @@
+{#
+  One item's description, written into the game panel's detail area by
+  play_panel_action. Examining never advances the story, so this replaces
+  only the panel fragment and leaves the scene untouched.
+
+  play_panel_command (Use/Cast) does NOT use this template directly — its
+  response re-renders the whole panel (play_panel.jinja) via one OOB swap,
+  passing its own result text through as that same template's
+  `panel_detail` context var, so the detail area, item rows, and any other
+  panel content the command affected all update together.
+
+  `detail_text` comes from the game's own item catalog, which carries the
+  original's inline markup (<i>, <br>) — rendered rather than escaped for
+  the same reason the story text itself is, and from the same trusted
+  game-folder source.
+#}
+<p class="if-panel-detail-text">{{ detail_text|safe }}</p>

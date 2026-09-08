@@ -1,0 +1,26 @@
+{#
+  Shared skeleton for every play-page layout.
+
+  A layout template extends this and fills `play_columns` with whatever
+  column structure it wants. Everything common to playing a story — the
+  page chrome, the reader's own font/width preferences, the left sidebar
+  of controls — lives here once, so a new layout only has to describe how
+  the story area is arranged.
+
+  Layouts are named in models.PLAY_LAYOUTS and chosen by a game's manifest
+  (`PLAY_LAYOUT`). A game never names a template path, only a layout, so
+  nothing under the untrusted Albums tree can steer this.
+#}
+{% extends 'base.jinja' %}
+
+{% block title %}{{ story.title }}{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="/resources/css/interactive-fiction.css?v=7">
+{% endblock %}
+
+{% block content %}
+{% include 'components/navbar.jinja' %}
+{% include 'interactive_fiction/play_sidebar.jinja' %}
+{% block play_columns %}{% endblock %}
+{% endblock %}

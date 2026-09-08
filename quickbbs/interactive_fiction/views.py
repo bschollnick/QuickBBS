@@ -19,9 +19,12 @@ Story upload/authoring (Step 4/5: upload(), edit(), story_image(),
 story_cover()) lives in story_views.py; named save-slot management (Step 3:
 saves(), saves_save(), saves_load(), saves_export(), saves_import()) lives
 in save_views.py — both split out of this module 2026-08-16 once it passed
-pylint's 1000-line module threshold. _load_game_state()/_render_play_content()
-stay here and are imported by both sibling modules, since they're the
-shared engine-state plumbing every view in the app needs.
+pylint's 1000-line module threshold. A game's own side panel (play_panel_tab(),
+play_panel_action(), play_panel_command()) lives in panel_views.py, split
+out the same way 2026-09-04. _load_game_state()/_render_play_content()/
+_build_current_game_state() stay here and are imported by every sibling
+module, since they're the shared engine-state plumbing every view in the
+app needs.
 """
 
 from __future__ import annotations
@@ -41,7 +44,11 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from interactive_fiction.engine import InkRuntimeState, load_list_defs, load_story_root
-from interactive_fiction.engine_services import bindings_for
+from interactive_fiction.engine_services import (
+    bindings_for,
+    game_panel_context,
+    play_layout_for,
+)
 from interactive_fiction.ingestion import find_inkj_file_by_path
 from interactive_fiction.models import (
     CurrentGame,
@@ -66,7 +73,7 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser, AnonymousUser
 
 
-def _new_game_state(story: Story, engine_state: dict[str, Any]) -> InkRuntimeState:
+def _new_game_state(story: Story, engine_state: dict[str, Any], initial_globals: dict[str, Any] | None = None) -> InkRuntimeState:
     """Build a fresh InkRuntimeState for a story, run to its first stop point.
 
     Args:
@@ -77,6 +84,14 @@ def _new_game_state(story: Story, engine_state: dict[str, Any]) -> InkRuntimeSta
             stateful API's own `init_state()`/bound closures, so the
             caller's own reference already reflects the new game's
             initial per-API state once this returns.
+        initial_globals: Real Ink VAR values to set before the story's
+            own opening `continue_story()` call runs — e.g. a
+            character-creation answer (`player_name`, `player_gender`)
+            collected by `character_creation_submit()` for a game whose
+            manifest declares `Story.game_new_game_fields`. None (the
+            default, and the case for every story without such fields)
+            leaves the compiled story's own declared VAR defaults
+            untouched.
 
     Returns:
         A new InkRuntimeState, given real EXTERNAL bindings
@@ -89,8 +104,261 @@ def _new_game_state(story: Story, engine_state: dict[str, Any]) -> InkRuntimeSta
     root = load_story_root(story.compiled_json)
     list_defs = load_list_defs(story.compiled_json)
     state = InkRuntimeState(root, list_defs, engine_bindings=bindings_for(story, engine_state))
+    if initial_globals:
+        state.globals.update(initial_globals)
     state.continue_story()
     return state
+
+
+# Titles/words derived purely from the one gender value a "radio_image"
+# character-creation field can set — real formulas straight from a
+# converted game's own VAR citation comment. The real game asks ONE
+# question ("are you a man or a woman?"), never seven — these are computed
+# automatically whenever a submitted field sets `player_gender`, not asked
+# as separate form fields.
+def _compute_derived_gender_vars(gender: str) -> dict[str, Any]:
+    """Compute every gender-only title/word VAR derived from one gender choice.
+
+    Args:
+        gender: The player's own gender value — the original's `sGender`
+            string, one of "man", "woman" or "futa".
+
+    Returns:
+        The 6 derived VAR values a game folder's `_globals.ink` (or
+        equivalent) declares alongside its own gender value:
+        `player_master_title`, `player_lord_title`, `player_sir_title`,
+        `player_miss_title`, `player_man_woman_word`, `player_sex_word`.
+
+        All six are "man vs. not a man", and futa counts as not-a-man:
+        source's own `getManWoman()` (`people.js:859`) collapses futa to
+        "woman". The sex-organ question ("is this body male-sexed?", true
+        for a futa too) is NOT derived here — it is a formula over the
+        gender value, which the story asks directly.
+    """
+    is_man = gender == "man"
+    return {
+        "player_master_title": "Master" if is_man else "Mistress",
+        "player_lord_title": "My Lord" if is_man else "My Lady",
+        "player_sir_title": "Sir" if is_man else "Ma'am",
+        "player_miss_title": "Mr" if is_man else "Miss",
+        "player_man_woman_word": "man" if is_man else "woman",
+        "player_sex_word": "boy" if is_man else "girl",
+    }
+
+
+def _resolve_radio_image_choice(field: dict[str, Any], post_data: dict[str, str]) -> dict[str, Any]:
+    """Resolve one submitted `radio_image` field to its chosen `value` dict.
+
+    Args:
+        field: The field's own manifest entry (`options`, `default`).
+        post_data: The submitted form data, keyed by the field's own
+            `var` name.
+
+    Returns:
+        The chosen option's own `value` dict (e.g.
+        `{"player_gender": "futa"}`), or an empty dict if the field
+        declares no options at all.
+    """
+    options = field.get("options", [])
+    submitted_index = post_data.get(field["var"])
+    if submitted_index is not None and submitted_index.isdigit() and int(submitted_index) < len(options):
+        return dict(options[int(submitted_index)]["value"])
+    default_option = next((opt for opt in options if opt["value"] == field.get("default")), options[0] if options else None)
+    return dict(default_option["value"]) if default_option is not None else {}
+
+
+def _character_creation_globals(story: Story, post_data: dict[str, str], base_globals: dict[str, Any]) -> dict[str, Any]:
+    """Resolve one submitted character-creation form into real Ink globals.
+
+    Args:
+        story: The story whose `game_new_game_fields` describes the form
+            that was submitted.
+        post_data: The submitted form data (`request.POST`), keyed by
+            each field's own `var` name.
+        base_globals: The compiled story's own already-initialized VAR
+            defaults (a fresh `InkRuntimeState.globals`, built before
+            calling `continue_story()`) — read by an `add_to` checkbox
+            field (e.g. a lottery-cash bonus) so it adds to the story's
+            REAL declared starting value, not a guessed `0`, in case a
+            future field ever changes the base value first.
+
+    Returns:
+        Every Ink global to set before the story's first turn: each
+        field's own chosen value (a `radio_image` field's `value` is
+        itself a dict of `{var_name: value}` pairs, merged in directly),
+        plus, for any `radio_image` field whose chosen value sets
+        `player_gender`, the 6 real derived title/word VARs
+        (`_compute_derived_gender_vars()`) computed automatically — never
+        asked as their own separate fields, matching the real game's own
+        single gender question. A
+        missing/invalid submission for a field falls back to that
+        field's own declared `default`.
+    """
+    result: dict[str, Any] = {}
+    additive_fields: list[dict[str, Any]] = []
+    for field in story.game_new_game_fields:
+        var_name = field["var"]
+        field_type = field["type"]
+        if field_type == "text":
+            result[var_name] = post_data.get(var_name, field.get("default", ""))
+        elif field_type == "radio_image":
+            result.update(_resolve_radio_image_choice(field, post_data))
+        elif field_type == "checkbox":
+            submitted = post_data.get(var_name)
+            checked = submitted == "on" if submitted is not None else bool(field.get("default", False))
+            if "add_to" in field:
+                # Deferred until every other field's own value is resolved
+                # (see below) so an additive field can add to a base value
+                # another field just set, not just the manifest's own
+                # static default.
+                additive_fields.append({"checked": checked, "add_to": field["add_to"]})
+                continue
+            result[var_name] = checked
+            for linked_var, value_map in field.get("linked_vars", {}).items():
+                result[linked_var] = value_map[str(checked)]
+    for additive in additive_fields:
+        if not additive["checked"]:
+            continue
+        for target_var, amount in additive["add_to"].items():
+            result[target_var] = result.get(target_var, base_globals.get(target_var, 0)) + amount
+    if "player_gender" in result:
+        result.update(_compute_derived_gender_vars(str(result["player_gender"])))
+    return result
+
+
+@login_required
+def character_creation(request: WSGIRequest, slug: str) -> HttpResponse:
+    """Show a game's own character-creation form (Step: new-game questions).
+
+    Only reached for a story whose manifest declares
+    `Story.game_new_game_fields` (the normal case, no such fields, skips
+    straight to `play()`'s existing fresh-game branch) and only before
+    that player's first `CurrentGame` row for this story exists —
+    matching the real original game's own one-time "before the
+    adventure starts" form (a converted game's own real start-screen HTML).
+
+    Args:
+        request: The incoming request.
+        slug: The story's slug.
+
+    Returns:
+        The character-creation form page.
+
+    Raises:
+        Http404: If no accessible Story matches slug.
+    """
+    story = get_object_or_404(Story, slug=slug, is_available=True)
+    if not user_can_access(story, request.user):
+        return HttpResponse(status=403)
+    return render(request, "interactive_fiction/character_creation.jinja", {"story": story, "user": request.user}, using="Jinja2")
+
+
+@login_required
+@require_POST
+def character_creation_submit(request: WSGIRequest, slug: str) -> HttpResponse:
+    """Process a submitted character-creation form and start the game.
+
+    Args:
+        request: The incoming request (POST body: one form field per
+            `Story.game_new_game_fields` entry, keyed by that field's own
+            `var` name).
+        slug: The story's slug.
+
+    Returns:
+        A redirect to the normal play page, now with a fresh CurrentGame
+        row whose opening turn already reflects every submitted answer.
+
+    Raises:
+        Http404: If no accessible Story matches slug.
+    """
+    story = get_object_or_404(Story, slug=slug, is_available=True)
+    if not user_can_access(story, request.user):
+        return HttpResponse(status=403)
+
+    # A bare, binding-less state to read the story's own real starting
+    # global values from (no EXTERNAL calls fire, no continue_story() —
+    # constructing InkRuntimeState only runs its global-decl container),
+    # so an "add_to" checkbox field can add to the ACTUAL declared
+    # default rather than guessing 0.
+    base_globals = InkRuntimeState(load_story_root(story.compiled_json), load_list_defs(story.compiled_json)).globals
+    initial_globals = _character_creation_globals(story, request.POST, base_globals)
+    engine_state: dict[str, Any] = {}
+    state = _new_game_state(story, engine_state, initial_globals=initial_globals)
+    transcript = _append_transcript_entry([], state.last_turn_text, chosen_label=None)
+    CurrentGame.objects.update_or_create(
+        user=request.user,
+        story=story,
+        defaults={
+            "state": _build_current_game_state(state, previous_raw_state=None, transcript=transcript, engine_state=engine_state),
+            "turn_count": state.turn_count,
+        },
+    )
+    return redirect("if_play", slug=story.slug)
+
+
+def _stale_turn_response(request: WSGIRequest, story: Story) -> HttpResponse:
+    """Render the concurrent-tab guard's 409 partial.
+
+    Shared by every view that enforces the "turn_count" guard
+    (`play_submit`, `panel_views.play_panel_command`) — the message a
+    submitting tab sees when the row it targeted has already moved on
+    under it, so a stale submission is refused rather than silently
+    applied on top of state the tab never actually saw.
+
+    Args:
+        request: The incoming request.
+        story: The story the stale submission targeted.
+
+    Returns:
+        The rendered play_stale.jinja partial, status 409.
+    """
+    return HttpResponse(
+        render_to_string("interactive_fiction/play_stale.jinja", {"story": story, "user": request.user}, request=request, using="Jinja2"),
+        status=409,
+    )
+
+
+def _current_game_for_turn(
+    request: WSGIRequest, story: Story, submitted_turn_count: int
+) -> tuple[CurrentGame, dict[str, Any], InkRuntimeState] | HttpResponse:
+    """Row-lock a story's CurrentGame, enforce the concurrent-tab guard, and rebuild its InkRuntimeState.
+
+    The read-check-load half of the "turn_count" guard both `play_submit`
+    and `panel_views.play_panel_command` need before they can each do
+    their own different write. MUST be called from inside a
+    `transaction.atomic()` block — `select_for_update()` requires one, and
+    the caller's own write happens inside the same block this locked the
+    row for.
+
+    Args:
+        request: The incoming request.
+        story: The story being played.
+        submitted_turn_count: The turn_count the submitting tab last
+            rendered (the guard token).
+
+    Returns:
+        `(current_game, engine_state, state)` on success — `engine_state`
+        is a deep copy the caller may mutate freely (bindings_for()'s
+        stateful closures write into it in place; `current_game.state`
+        itself must stay untouched until the caller commits, so
+        `play_undo()` can restore it verbatim), and `state` is already
+        rebuilt with real bindings over that same `engine_state`. On a
+        stale turn_count, `_stale_turn_response(request, story)` instead —
+        the caller must check `isinstance(result, HttpResponse)` and
+        return it as-is rather than unpacking.
+    """
+    current_game = get_object_or_404(CurrentGame.objects.select_for_update(), user=request.user, story=story)
+    if current_game.turn_count != submitted_turn_count:
+        return _stale_turn_response(request, story)
+
+    previous_raw_state = current_game.state
+    # Deep-copied, not the same dict object previous_raw_state holds:
+    # bindings_for()'s stateful bindings mutate this dict in place as the
+    # turn plays out, and previous_raw_state must stay exactly as it was
+    # before this turn so play_undo() can restore it verbatim.
+    engine_state = copy.deepcopy(previous_raw_state.get("engine_state", {}))
+    state = _load_game_state(story, previous_raw_state, engine_state)
+    return current_game, engine_state, state
 
 
 def _load_game_state(story: Story, saved: CurrentGame | SaveState | dict[str, Any], engine_state: dict[str, Any]) -> InkRuntimeState:
@@ -421,7 +689,10 @@ def play(request: WSGIRequest, slug: str) -> HttpResponse:
         slug: The story's slug.
 
     Returns:
-        The play page, or a 404-equivalent access-denied response.
+        The play page, a redirect to that game's own character-creation
+        form (Story.game_new_game_fields non-empty and no CurrentGame
+        row exists for this player yet), or a 404-equivalent
+        access-denied response.
 
     Raises:
         Http404: If no accessible Story matches slug (via get_object_or_404).
@@ -431,6 +702,8 @@ def play(request: WSGIRequest, slug: str) -> HttpResponse:
         return HttpResponse(status=403)
 
     current_game = CurrentGame.objects.filter(user=request.user, story=story).first()
+    if current_game is None and story.game_new_game_fields:
+        return redirect("if_character_creation", slug=story.slug)
     if current_game is None:
         engine_state: dict[str, Any] = {}
         state = _new_game_state(story, engine_state)
@@ -452,8 +725,18 @@ def play(request: WSGIRequest, slug: str) -> HttpResponse:
     context["if_font_size"] = user_prefs.if_font_size
     context["if_text_width"] = user_prefs.if_text_width
     context["gallery_item_sha256"] = _source_gallery_item_sha256(story)
+    # A game picks one of the engine's own play layouts in its manifest
+    # (PLAY_LAYOUT); a story that names none gets the classic single-column
+    # page, exactly as before layouts existed.
+    layout = play_layout_for(story)
+    # A layout with a side panel needs the game to fill it. A game that
+    # supplies none simply renders empty sections rather than erroring, so
+    # the two choices stay independent of each other.
+    panel = game_panel_context(story, current_game.state.get("engine_state", {}) if current_game else {}, state.globals)
+    if panel is not None:
+        context.update(panel)
 
-    return render(request, "interactive_fiction/play.jinja", context, using="Jinja2")
+    return render(request, layout, context, using="Jinja2")
 
 
 @login_required
@@ -497,25 +780,12 @@ def play_submit(request: WSGIRequest, slug: str) -> HttpResponse:
         return HttpResponse(status=400)
 
     with transaction.atomic():
-        current_game = get_object_or_404(CurrentGame.objects.select_for_update(), user=request.user, story=story)
-        if current_game.turn_count != submitted_turn_count:
-            return HttpResponse(
-                render_to_string(
-                    "interactive_fiction/play_stale.jinja",
-                    {"story": story, "user": request.user},
-                    request=request,
-                    using="Jinja2",
-                ),
-                status=409,
-            )
-
+        turn = _current_game_for_turn(request, story, submitted_turn_count)
+        if isinstance(turn, HttpResponse):
+            return turn
+        current_game, engine_state, state = turn
         previous_raw_state = current_game.state
-        # Deep-copied, not the same dict object previous_raw_state holds:
-        # bindings_for()'s stateful bindings mutate this dict in place as
-        # the turn plays out, and previous_raw_state must stay exactly as
-        # it was before this turn so play_undo() can restore it verbatim.
-        engine_state = copy.deepcopy(previous_raw_state.get("engine_state", {}))
-        state = _load_game_state(story, current_game, engine_state)
+
         if choice_index < 0 or choice_index >= len(state.current_choices):
             return HttpResponse(status=400)
         chosen_label = state.current_choices[choice_index].text
@@ -596,7 +866,11 @@ def play_restart(request: WSGIRequest, slug: str) -> HttpResponse:
         slug: The story's slug.
 
     Returns:
-        The rendered play-content partial for the story's fresh opening turn.
+        The rendered play-content partial for the story's fresh opening
+        turn, or (Story.game_new_game_fields non-empty) an HTMX redirect
+        to that game's own character-creation form instead — a restart
+        is a genuine fresh start, so it re-asks the same questions
+        play()'s own first-visit branch would.
 
     Raises:
         Http404: If no accessible Story matches slug.
@@ -604,6 +878,12 @@ def play_restart(request: WSGIRequest, slug: str) -> HttpResponse:
     story = get_object_or_404(Story, slug=slug, is_available=True)
     if not user_can_access(story, request.user):
         return HttpResponse(status=403)
+
+    if story.game_new_game_fields:
+        CurrentGame.objects.filter(user=request.user, story=story).delete()
+        response = HttpResponse(status=204)
+        response["HX-Redirect"] = reverse("if_character_creation", args=[story.slug])
+        return response
 
     engine_state: dict[str, Any] = {}
     state = _new_game_state(story, engine_state)

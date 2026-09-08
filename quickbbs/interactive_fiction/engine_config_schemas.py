@@ -60,10 +60,233 @@ def _require_bool(value: Any, path: str) -> bool:
     return value
 
 
+# What `details` may hold beyond the keys the engine defines. Narrow on
+# purpose: this whole module exists so a story's config cannot become an
+# injection surface, and a game's own per-location facts are values to
+# store and hand back, never anything to interpret.
+GameDetailValue = bool | int | float | str
+
+# The terrain types the engine knows, each with the movement cost a story
+# may charge for arriving there. Modelled as terrain rather than an
+# indoor/outdoor boolean because that is what mature systems converged on
+# (ROM's sector types carry exactly this cost), and a two-value game is
+# simply one that uses two of these. `indoor`/`outdoor` alone cover the
+# reference game; the rest are here so a story needing them does not have
+# to reach for the game bag to say something this ordinary.
+TERRAIN_MOVEMENT_COST: dict[str, int] = {
+    "indoor": 1,
+    "outdoor": 2,
+    "city": 2,
+    "field": 2,
+    "forest": 3,
+    "hills": 4,
+    "mountain": 6,
+    "water": 4,
+    "desert": 9,
+}
+
+
+def _require_int(value: Any, path: str) -> int:
+    """Return `value` if it is a real int, else raise.
+
+    Args:
+        value: The value to check.
+        path: Dotted config path, for the error message.
+
+    Returns:
+        The value, unchanged.
+
+    Raises:
+        SystemConfigValidationError: If it is not an int. `bool` is
+            rejected explicitly: it is an int subclass in Python, and a
+            `true` where a count belongs is a mistake worth catching.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise SystemConfigValidationError(f"{path} must be an integer")
+    return value
+
+
+def _require_number(value: Any, path: str) -> float:
+    """Return `value` if it is a real number, else raise.
+
+    Args:
+        value: The value to check.
+        path: Dotted config path, for the error message.
+
+    Returns:
+        The value, unchanged.
+
+    Raises:
+        SystemConfigValidationError: If it is not an int or float. `bool`
+            is rejected explicitly, being an int subclass in Python.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise SystemConfigValidationError(f"{path} must be a number")
+    return value
+
+
+def validate_cost_table(config: Any) -> None:
+    """Validate a `cost_table` system config.
+
+    ```json
+    {
+        "costs": {
+            "spell.transform": {
+                "resource": "mana",
+                "amount": 20,
+                "variants": {"first": 10}
+            }
+        }
+    }
+    ```
+
+    A cost names the RESOURCE it is paid in and the AMOUNT. `variants`
+    are named alternatives a caller selects when its condition holds — a
+    first cast, a discount a skill grants — so a conditional price stays
+    data instead of becoming a rules engine here. The condition itself is
+    never declared: it lives wherever the fact does, and the caller names
+    the variant.
+
+    An empty table is valid. A story may declare the system, opt into its
+    bindings, and price nothing yet.
+
+    Args:
+        config: The already-JSON-decoded config value to validate.
+
+    Raises:
+        SystemConfigValidationError: If the shape doesn't match.
+    """
+    root = _require_dict(config, "cost_table config")
+    costs = _require_dict(root.get("costs", {}), "cost_table.costs")
+    for key, cost in costs.items():
+        _require_str(key, "cost_table.costs key")
+        path = f"cost_table.costs.{key}"
+        cost_dict = _require_dict(cost, path)
+        _require_str(cost_dict.get("resource"), f"{path}.resource")
+        _require_number(cost_dict.get("amount"), f"{path}.amount")
+        variants = cost_dict.get("variants", {})
+        if not isinstance(variants, dict):
+            raise SystemConfigValidationError(f"{path}.variants must be a dictionary of name -> amount")
+        for name, amount in variants.items():
+            _require_str(name, f"{path}.variants key")
+            _require_number(amount, f"{path}.variants.{name}")
+
+
+def _validate_terrain(terrain: Any, path: str) -> None:
+    """Validate a location's declared terrain.
+
+    Args:
+        terrain: The declared value.
+        path: Dotted config path, for the error message.
+
+    Raises:
+        SystemConfigValidationError: If it is not one the engine knows.
+            A closed set on purpose: terrain fixes the movement cost of
+            arriving, so an unrecognised one would silently charge the
+            default rather than what the story meant.
+    """
+    name = _require_str(terrain, path)
+    if name not in TERRAIN_MOVEMENT_COST:
+        raise SystemConfigValidationError(
+            f"{path} '{name}' is not a known terrain (expected one of {', '.join(sorted(TERRAIN_MOVEMENT_COST))})"
+        )
+
+
+def _validate_external_identifier(identifiers: Any, path: str) -> None:
+    """Validate a location's identifiers in whatever it was converted from.
+
+    Args:
+        identifiers: The declared value.
+        path: Dotted config path, for error messages.
+
+    Raises:
+        SystemConfigValidationError: If it is not a list of strings or
+            integers. `bool` is rejected for the same reason as
+            elsewhere here — it is an int subclass, and a `true` in a
+            list of identifiers is a mistake, not an identifier.
+    """
+    if not isinstance(identifiers, list):
+        raise SystemConfigValidationError(f"{path} must be a list")
+    for index, identifier in enumerate(identifiers):
+        if isinstance(identifier, bool) or not isinstance(identifier, (int, str)):
+            raise SystemConfigValidationError(f"{path}[{index}] must be a string or an integer")
+
+
+def _validate_location_details(details: Any, path: str) -> None:
+    """Validate one location's `details` dictionary.
+
+    The engine defines the keys below and validates each one's type; any
+    other key is the story's own, and is kept as-is provided its value is
+    a plain JSON-safe scalar. That split is the point of the field: the
+    reference game stores its source place numbers and per-location scene
+    data here rather than in a parallel structure of its own, which is
+    how three separate vocabularies drifted apart before.
+
+    Engine-defined keys, all optional:
+
+    - `name` — the location's display name, distinct from its id.
+    - `description` — its default description. Optional because a story
+      whose descriptions vary with world state renders them itself.
+    - `external_identifier` — the id this location has in whatever the
+      story was converted FROM. A list, because one location can be
+      several ids upstream: a room and that same room in a particular
+      scene are one place to stand.
+    - `terrain` — one of `TERRAIN_MOVEMENT_COST`, which also fixes the
+      movement cost of arriving.
+    - `region` — the larger area this location belongs to, as a plain
+      name. Not a location id: a region is a grouping, not a place.
+    - `lit` — whether the location is lit by default.
+    - `visits` — how many times a new game starts having visited it,
+      normally 0. A COUNTER, not a flag, because a story that only ever
+      asks "has the player been here" can derive that from the count,
+      while a story counting entries cannot recover the count from a
+      flag. `visited` is that derived boolean and is therefore rejected
+      here as a declared key.
+
+    Args:
+        details: The already-decoded `details` value.
+        path: Dotted config path, for error messages.
+
+    Raises:
+        SystemConfigValidationError: If a key the engine defines holds
+            the wrong type, if `visited` is declared (it is derived), or
+            if a story's own key holds anything but a JSON-safe scalar.
+    """
+    details_dict = _require_dict(details, path)
+    if "name" in details_dict:
+        _require_str(details_dict["name"], f"{path}.name")
+    if "description" in details_dict:
+        _require_str(details_dict["description"], f"{path}.description")
+    if "region" in details_dict:
+        _require_str(details_dict["region"], f"{path}.region")
+    if "lit" in details_dict:
+        _require_bool(details_dict["lit"], f"{path}.lit")
+    if "visits" in details_dict and _require_int(details_dict["visits"], f"{path}.visits") < 0:
+        raise SystemConfigValidationError(f"{path}.visits cannot be negative")
+    if "visited" in details_dict:
+        raise SystemConfigValidationError(
+            f"{path}.visited is derived from {path}.visits and cannot be declared; set visits instead"
+        )
+    if "terrain" in details_dict:
+        _validate_terrain(details_dict["terrain"], f"{path}.terrain")
+    if "external_identifier" in details_dict:
+        _validate_external_identifier(details_dict["external_identifier"], f"{path}.external_identifier")
+    for key, value in details_dict.items():
+        if key in _ENGINE_DETAIL_KEYS:
+            continue
+        _require_str(key, f"{path} key")
+        if not isinstance(value, (bool, int, float, str)):
+            raise SystemConfigValidationError(f"{path}.{key} must be a string, number, or boolean")
+
+
+_ENGINE_DETAIL_KEYS = frozenset({"name", "description", "external_identifier", "terrain", "region", "lit", "visits"})
+
+
 def validate_location_graph(config: Any) -> None:
+
     """Validate a `location_graph` system config.
 
-    Real shape, grounded in `claude_docs/plans/asfa_ink_conversions/
+    Real shape, grounded in a converted game's own
     location_scenes.ink`'s own established pattern (a named location, a
     "known" gate, real outgoing edges to other named locations, each
     edge optionally gated on the destination's own known-flag):
@@ -73,6 +296,11 @@ def validate_location_graph(config: Any) -> None:
         "locations": {
             "<location_id>": {
                 "known_by_default": false,
+                "details": {
+                    "name": "Police Station - Jail Cell",
+                    "terrain": "indoor",
+                    "external_identifier": [260, 261]
+                },
                 "edges": [
                     {"to": "<other_location_id>", "requires_known": true}
                 ]
@@ -80,6 +308,12 @@ def validate_location_graph(config: Any) -> None:
         }
     }
     ```
+
+    `details` is where everything ELSE about a location lives — the keys
+    the engine defines (see `_validate_location_details()`) plus whatever
+    the story needs to keep per location. It exists so a game has one
+    declared home for its own per-location facts instead of a parallel
+    structure per consumer.
 
     `edges[].requires_known` defaults to `false` when omitted (see
     `location_graph.reachable_edges()`) — most ordinary walkable edges
@@ -106,6 +340,8 @@ def validate_location_graph(config: Any) -> None:
         location_path = f"location_graph.locations.{location_id}"
         location_dict = _require_dict(location, location_path)
         _require_bool(location_dict.get("known_by_default", False), f"{location_path}.known_by_default")
+        if "details" in location_dict:
+            _validate_location_details(location_dict["details"], f"{location_path}.details")
         edges = location_dict.get("edges", [])
         if not isinstance(edges, list):
             raise SystemConfigValidationError(f"{location_path}.edges must be a list")
@@ -221,8 +457,8 @@ def validate_character_occupancy(config: Any) -> None:
 
     Real shape, mirroring `character_occupancy.ScheduleRule`/`Condition`
     exactly — this is a data-driven port of the real if/elif priority
-    chains every `_place_now()` function in `claude_docs/plans/
-    asfa_ink_conversions/_globals.ink` already uses:
+    chains every `_place_now()` function in
+    a converted game's own globals file already uses:
 
     ```json
     {
@@ -285,7 +521,7 @@ def validate_character_occupancy(config: Any) -> None:
 # defeats the entire "third parties add APIs without touching QuickBBS
 # source" goal. Each API now carries its OWN validator directly on its
 # EngineAPIDescriptor.validate_config (see e.g.
-# interactive_fiction/engine_systems/location_graph.py's own `API ='
+# interactive_fiction/engine_plugins/location_graph.py's own `API ='
 # declaration) resolved dynamically via
 # interactive_fiction.engine_api.discover_api_descriptors() — see
 # StorySystemConfig.clean() in interactive_fiction/models.py for the real

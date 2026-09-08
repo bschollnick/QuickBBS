@@ -25,7 +25,7 @@ def find_file_by_path(full_filepathname: str, *, additional_filters: dict[str, o
     existing gallery file" image/video field, no filetype restriction),
     interactive_fiction.ingestion.find_inkj_file_by_path (which passes
     additional_filters to also require a .inkj filetype), and any
-    ASFA-conversion ingestion tooling resolving a `# image:`/`# video:`
+    game-conversion ingestion tooling resolving a `# image:`/`# video:`
     tag's on-disk path to a FileIndex row to link via link_story_image()
     below. Lives here rather than in ingestion.py to avoid a circular
     import (ingestion.py already imports from story_views.py, which needs
@@ -46,11 +46,22 @@ def find_file_by_path(full_filepathname: str, *, additional_filters: dict[str, o
     reliably recovers the directory/name pair the original concatenation
     was built from.
 
+    The `name` match is case-INSENSITIVE (`name__iexact`, not `name`):
+    every FileIndex row's own `name` is stored title-cased
+    (quickbbs.common.normalize_string_title(), applied by the real
+    scanner) regardless of the real on-disk filename's actual casing —
+    confirmed directly against a real scanned row (a story's own `.inkj`
+    file on disk, stored title-cased, e.g. `Mystory.Inkj`). A caller
+    building `full_filepathname` from a
+    real filesystem path (e.g. a manifest's own literal `MAIN_STORY_FILE`
+    string) would otherwise never match any real scanned file at all.
+
     Args:
         full_filepathname: The full path to look up.
-        additional_filters: Extra FileIndex field filters beyond `name` and
-            `ignore=False` (e.g. a filetype restriction) — merged into the
-            same files_in_dir() call rather than filtered afterward.
+        additional_filters: Extra FileIndex field filters beyond `name`
+            (case-insensitive) and `ignore=False` (e.g. a filetype
+            restriction) — merged into the same files_in_dir() call
+            rather than filtered afterward.
 
     Returns:
         The matching live FileIndex row (not ignored, not delete_pending,
@@ -66,7 +77,7 @@ def find_file_by_path(full_filepathname: str, *, additional_filters: dict[str, o
     if not found or directory is None:
         return None
 
-    filters: dict[str, object] = {"name": name, "ignore": False}
+    filters: dict[str, object] = {"name__iexact": name, "ignore": False}
     if additional_filters:
         filters.update(additional_filters)
 

@@ -1,0 +1,105 @@
+{#
+  A game's own side panel, rendered generically.
+
+  The engine knows nothing about what any of this MEANS — it renders tabs,
+  sections, rows and per-row actions. A game decides that vocabulary: one
+  game's sections are "Book"/"Spells"/"Inventory", another's might be
+  "Notes"/"Evidence". That is the whole point of the split: the engine
+  owns the shape, the game owns the content.
+
+  Expected context (all optional, all plain data from
+  engine_services.game_panel_context):
+
+    panel_target    id                         which DOM region renders
+                                                this panel (default
+                                                "if-game-panel"); lets a
+                                                game redirect its panel to
+                                                a different region a
+                                                layout defines, without an
+                                                engine change — see
+                                                sidebar.py's own
+                                                PANEL_TARGET_SIDEBAR.
+    panel_tabs      [{id, label, icon}]        the panel's faces, if >1
+    panel_active_tab id                        which face is showing
+    panel_sections  [{heading, empty_text, rows}]
+    ...where each row is {label, detail, emphasis, badge, actions}
+    ...and each action is {id, icon, title, item, kind}
+
+  `kind` distinguishes a row action's two shapes: "command" (default "action")
+  genuinely changes the world — Use, Cast — and POSTs to panel-command/ with
+  the turn_count guard, same as a story choice; anything else is read-only
+  and GETs panel-action/, same as Examine. See engine_services.
+  game_panel_command / views.play_panel_command for what a "command" action
+  actually runs against.
+
+  Re-rendered on every turn via hx-swap-oob, the same mechanism the left
+  sidebar's actions already use, so the panel stays in step with the story
+  without a full page load.
+#}
+{% set panel_target = panel_target|default('if-game-panel') %}
+<div id="{{ panel_target }}" class="if-game-panel" hx-swap-oob="true">
+  {% if panel_tabs and panel_tabs|length > 1 %}
+  <div class="if-panel-tabs">
+    {% for tab in panel_tabs %}
+    <button type="button"
+            class="button is-small is-ghost{% if tab.id == panel_active_tab %} is-active{% endif %}"
+            title="{{ tab.label }}"
+            hx-get="/if/{{ story.slug }}/panel/{{ tab.id }}/"
+            hx-target="#{{ panel_target }}"
+            hx-swap="outerHTML">
+      {% if tab.icon %}{{ icon(tab.icon) }}{% endif %}
+      <span class="if-panel-tab-label">{{ tab.label }}</span>
+    </button>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% for section in panel_sections %}
+  <div class="if-panel-section">
+    {% if section.heading %}<h3 class="if-panel-heading">{{ section.heading }}</h3>{% endif %}
+    {% if section.rows %}
+    <ul class="if-panel-list">
+      {% for row in section.rows %}
+      <li class="if-panel-row{% if row.emphasis %} if-panel-row-emphasis{% endif %}">
+        <span class="if-panel-row-label">{{ row.label }}{% if row.badge %} <span class="if-panel-badge">{{ row.badge }}</span>{% endif %}</span>
+        {% if row.actions %}
+        <span class="if-panel-actions">
+          {% for action in row.actions %}
+          {% if action.kind == 'command' %}
+          {# A command genuinely changes the world (Use, Cast), so it POSTs
+             with the same turn_count guard token a story choice form
+             carries, and re-swaps this whole panel (hx-swap-oob="true" in
+             the response) alongside the detail message — see
+             views.play_panel_command. #}
+          <form style="display:inline"
+                hx-post="/if/{{ story.slug }}/panel-command/{{ action.id }}/{{ action.item }}/"
+                hx-target="this"
+                hx-swap="none"
+                hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+            <input type="hidden" name="turn_count" value="{{ turn_count }}">
+            <button type="submit" class="if-panel-action-button" title="{{ action.title|default(action.id) }}">{{ icon(action.icon|default('circle')) }}</button>
+          </form>
+          {% else %}
+          <a href="#"
+             title="{{ action.title|default(action.id) }}"
+             hx-get="/if/{{ story.slug }}/panel-action/{{ action.id }}/{{ action.item }}/"
+             hx-target="#if-panel-detail"
+             hx-swap="innerHTML">{{ icon(action.icon|default('circle')) }}</a>
+          {% endif %}
+          {% endfor %}
+        </span>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% elif section.empty_text %}
+    <p class="if-panel-empty">{{ section.empty_text }}</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  {# Where a row action writes its answer. Deliberately NOT the story: a
+     panel action (examining a carried item, reading a note) must not
+     advance the turn or disturb the current scene. #}
+  <div class="if-panel-section" id="if-panel-detail">{{ panel_detail|default('')|safe }}</div>
+</div>

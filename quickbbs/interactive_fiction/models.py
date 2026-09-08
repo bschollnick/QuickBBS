@@ -24,6 +24,45 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser, AnonymousUser
 
 
+#: The play-page layouts this engine ships, mapped to the template that
+#: renders each. A game chooses one by NAME in its manifest
+#: (`PLAY_LAYOUT`); the name is looked up here rather than used as a path,
+#: so a manifest can never point the renderer at a template of its own —
+#: which matters because game folders live in the untrusted Albums tree.
+#:
+#: "classic" is the default and the shape every story had before layouts
+#: existed: a left sidebar of controls, story text filling the rest.
+#: "three_column" adds a right-hand panel beside the story, for a game
+#: with content that belongs next to the prose rather than inside it (an
+#: inventory listing, a device the player opens).
+PLAY_LAYOUTS: dict[str, str] = {
+    "classic": "interactive_fiction/play_classic.jinja",
+    "three_column": "interactive_fiction/play_three_column.jinja",
+}
+
+#: The layout used by a story that names none, names one this engine
+#: version does not have, or has no game manifest at all (every uploaded
+#: story).
+DEFAULT_PLAY_LAYOUT = "classic"
+
+
+def play_layout_template(layout_name: str) -> str:
+    """Resolve a game's chosen layout name to the template that renders it.
+
+    Args:
+        layout_name: The name from the game's own manifest, or "" for a
+            story with no manifest.
+
+    Returns:
+        The template path for that layout, falling back to
+        `DEFAULT_PLAY_LAYOUT`'s own template for an unknown or empty name.
+        Unknown names fall back rather than raise on purpose: a story
+        ingested against a newer engine that had a layout this one lacks
+        should still be playable, just plainer.
+    """
+    return PLAY_LAYOUTS.get(layout_name, PLAY_LAYOUTS[DEFAULT_PLAY_LAYOUT])
+
+
 class Story(models.Model):
     """A single Ink story: compiled JSON plus ownership/visibility metadata."""
 
@@ -50,6 +89,40 @@ class Story(models.Model):
     # specifically so that decision keeps holding for every story except ones
     # this project itself authors and a human explicitly marks as trusted.
     is_engine_trusted = models.BooleanField(default=False)
+    # Game-manifest fields (see the game-folder separation design work):
+    # populated from a game folder's own mandatory __init__.py
+    # (Albums/interactive_fiction/<game_name>/__init__.py) at ingestion
+    # time — blank/default for a story created via the upload form, which
+    # has no game folder/manifest at all. game_author is free text (no
+    # further structure requested); game_required_plugins is the real
+    # list of EngineAPIDescriptor names this game's manifest declares it
+    # needs, checked against the live discover_api_descriptors() registry
+    # at every ingestion/verification pass — a name that stops resolving
+    # after the story was already ingested (e.g. an API file deleted
+    # later) is exactly the same real, logged, admin-visible
+    # misconfiguration class as game_ingestion_error below.
+    game_author = models.CharField(max_length=255, blank=True, default="")
+    game_required_plugins = models.JSONField(default=list, blank=True)
+    # The game's own declared character-creation questions (a game with
+    # none, the normal case, skips straight to play() as before) — a
+    # list of field dicts, e.g. {"var": "player_name", "type": "text",
+    # "label": "What is your name?", "default": "Bob"} or a "radio_image"
+    # field whose "value" is itself a dict of {var_name: value} pairs,
+    # letting one form control set several related globals at once (a
+    # real converted game's own gender picker sets two related globals
+    # from a single 3-way choice — see interactive_fiction/views.py's
+    # character_creation()). Rendered generically by
+    # templates/interactive_fiction/character_creation.jinja; answers are
+    # written into InkRuntimeState.globals before the story's first
+    # continue_story() call, never stored on this row itself.
+    game_new_game_fields = models.JSONField(default=list, blank=True)
+    # Set by ingestion when a game folder's manifest is missing, its
+    # MAIN_STORY_FILE doesn't match a real .inkj present, or a
+    # game_required_plugins entry doesn't resolve to a real, currently
+    # discovered EngineAPIDescriptor — per the plan's own decided hard-
+    # failure + admin-visible-flag behavior. Blank means "ingested
+    # cleanly" (the normal case for every non-game-folder story too).
+    game_ingestion_error = models.CharField(max_length=1024, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -167,7 +240,7 @@ class EngineAPI(models.Model):
     redesign, 2026-08-22).
 
     One row per real discovered `EngineAPIDescriptor.name`, populated by
-    the `sync_engine_apis` management command (never by hand — this is
+    the `scan_if_stories` management command (never by hand — this is
     metadata ABOUT a scanned-and-found Python module, not story-author
     data). ``is_enabled`` gates whether the API is available to any story
     at all — a separate axis from a specific story's own `is_engine_trusted`
@@ -209,7 +282,7 @@ class EngineAPI(models.Model):
 def sync_engine_apis() -> tuple[int, int]:
     """Scan for real API files and upsert an `EngineAPI` row for each.
 
-    Called by the `sync_engine_apis` management command. Never removes a
+    Called by the `scan_if_stories` management command. Never removes a
     row for an API that's disappeared from disk (e.g. a third-party
     package temporarily uninstalled) — a missing-but-still-enabled API
     degrades the same real, logged way a disabled one does (see
@@ -266,7 +339,7 @@ class StorySystemConfig(models.Model):
     story = models.ForeignKey(Story, on_delete=models.DB_CASCADE, related_name="system_configs")
     system_name = models.CharField(max_length=64)
     # Defaults to {} (not nullable) -- a config-less API (validate_config is
-    # None, e.g. engine_systems/scheduling.py's is_day binding) still needs
+    # None, e.g. engine_plugins/scheduling.py's is_day binding) still needs
     # a real row to signal "this story wants this API's bindings" (see
     # engine_services.bindings_for()), even though there's nothing to
     # actually validate for it.

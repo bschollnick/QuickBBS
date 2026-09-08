@@ -11,15 +11,32 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 import tempfile
 from pathlib import Path as FilePath
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.template.loader import get_template
 from django.test import Client, TestCase, override_settings
 
+from interactive_fiction.engine_services import (
+    game_panel_action,
+    game_panel_command,
+    game_panel_context,
+    play_layout_for,
+)
 from interactive_fiction.images import link_story_image
-from interactive_fiction.models import CurrentGame, SaveState, Story, StoryImage
+from interactive_fiction.models import (
+    DEFAULT_PLAY_LAYOUT,
+    PLAY_LAYOUTS,
+    CurrentGame,
+    EngineAPI,
+    SaveState,
+    Story,
+    StoryImage,
+    StorySystemConfig,
+)
 from interactive_fiction.tests.image_test_utils import make_gallery_image
 from quickbbs.models import DirectoryIndex
 from user_preferences.models import UserPreferences
@@ -841,3 +858,332 @@ class PreferencesViewTests(TestCase):
         response = self.client.get(f"/if/{story.slug}/", secure=True)
         self.assertIn(b"if-font-small", response.content)
         self.assertIn(b"if-width-wide", response.content)
+
+
+class GamePanelTests(_AlbumsRootMixin, TestCase):
+    """A game folder's own optional side panel (engine_services.
+    game_panel_context / game_panel_item_text).
+
+    Some games carry content that belongs beside the story rather than in
+    it — an inventory listing, a device the player opens. Rather than give
+    the engine a notion of "inventory panel", a game folder may ship a
+    `sidebar.py` returning panel rows, which this app's own template then
+    renders. A game without one must render exactly as it did before the
+    hook existed, which is what most of these tests pin down.
+    """
+
+    PANEL_MODULE = """
+def panel_context(engine_state, globals_, bindings):
+    return {
+        "panel_tabs": [{"id": "kit", "label": "Kit", "icon": "briefcase"}],
+        "panel_active_tab": "kit",
+        "panel_sections": [{"heading": "Kit", "rows": [{"label": "rope"}, {"label": "lantern"}]}],
+        "panel_who": globals_.get("who", ""),
+    }
+
+
+def panel_action(engine_state, bindings, globals_, action_id, target_id):
+    if action_id == "examine" and target_id == "rope":
+        return "A coil of stout rope."
+    return ""
+"""
+
+    MANIFEST = """GAME_TITLE = "Panel Game"
+MAIN_STORY_FILE = "story.inkj"
+PLAY_LAYOUT = "three_column"
+"""
+
+    def setUp(self):
+        self._enable_albums_root()
+        self.client = Client()
+        self.user = get_user_model().objects.create_user(username="panelplayer", password="pw")
+        self.game_dir = self.albums_dir / "interactive_fiction" / "panelgame"
+        self.game_dir.mkdir(parents=True)
+        (self.game_dir / "__init__.py").write_text(self.MANIFEST, encoding="utf-8")
+        (self.game_dir / "sidebar.py").write_text(self.PANEL_MODULE, encoding="utf-8")
+        self.story = Story.objects.create(
+            owner=self.user,
+            title="Panel Game",
+            slug="panel-game",
+            compiled_json=_load_compiled_json(),
+            is_public=True,
+            is_engine_trusted=True,
+            # Resolved before lowercasing: the scanner stores a canonical
+            # path, and on macOS a temp dir reaches here as both /var/...
+            # and /private/var/..., which `_game_folder_is_trusted`'s own
+            # prefix match would otherwise miss.
+            source_fqfn=str((self.game_dir / "story.inkj").resolve()).lower(),
+        )
+
+    def test_a_trusted_game_folder_supplies_its_panel(self):
+        """A game shipping a `sidebar.py` gets its rows onto the page."""
+        context = game_panel_context(self.story, {}, {"who": "Ada"})
+        self.assertEqual([row["label"] for row in context["panel_sections"][0]["rows"]], ["rope", "lantern"])
+
+    def test_the_panel_sees_the_stories_own_globals(self):
+        """The panel is handed the runtime's real globals, so it can show
+        state that lives in the story rather than in an API's own slice."""
+        context = game_panel_context(self.story, {}, {"who": "Ada"})
+        self.assertEqual(context["panel_who"], "Ada")
+
+    def test_an_untrusted_story_gets_no_panel(self):
+        """Panel code is game-authored Python, so it rides the SAME trust
+        gate as bindings_for() rather than a second, parallel one."""
+        self.story.is_engine_trusted = False
+        self.story.save(update_fields=["is_engine_trusted"])
+        self.assertIsNone(game_panel_context(self.story, {}, {}))
+
+    def test_a_story_with_no_game_folder_gets_no_panel(self):
+        """An ordinary uploaded story has no game folder to ask at all."""
+        plain = Story.objects.create(owner=self.user, title="Plain", slug="plain-story", compiled_json=_load_compiled_json(), is_engine_trusted=True)
+        self.assertIsNone(game_panel_context(plain, {}, {}))
+
+    def test_a_panel_that_raises_is_survived_rather_than_fatal(self):
+        """A broken panel must not take the whole play page down with it."""
+        (self.game_dir / "sidebar.py").write_text("def panel_context(a, b):\n    raise ValueError('boom')\n", encoding="utf-8")
+        sys.modules.pop("interactive_fiction._games.panelgame.sidebar", None)
+        self.assertIsNone(game_panel_context(self.story, {}, {}))
+
+    def test_the_panel_answers_one_row_action(self):
+        """The per-click companion to the panel's own row listing."""
+        self.assertEqual(game_panel_action(self.story, {}, {}, "examine", "rope"), "A coil of stout rope.")
+
+    def test_a_target_the_panel_does_not_know_is_silent(self):
+        """The same "unknown id gets silence" rule the item bindings use —
+        a story asking about something absent gets "", not an exception."""
+        self.assertEqual(game_panel_action(self.story, {}, {}, "examine", "no_such_item"), "")
+
+    def test_an_action_the_panel_does_not_offer_is_silent(self):
+        """A game answers only the actions its own rows advertise."""
+        self.assertEqual(game_panel_action(self.story, {}, {}, "detonate", "rope"), "")
+
+    def test_an_untrusted_story_answers_no_actions(self):
+        """Row actions ride the same trust gate as the panel itself."""
+        self.story.is_engine_trusted = False
+        self.story.save(update_fields=["is_engine_trusted"])
+        self.assertEqual(game_panel_action(self.story, {}, {}, "examine", "rope"), "")
+
+    def test_examining_never_advances_the_story(self):
+        """Examining is a PANEL action, not a story action: the original
+        renders a description into its sidebar without moving the scene on.
+        So the turn count must be untouched by an examine request."""
+        self.client.force_login(self.user)
+        self.client.get(f"/if/{self.story.slug}/", secure=True)
+        before = CurrentGame.objects.get(user=self.user, story=self.story).turn_count
+        self.client.get(f"/if/{self.story.slug}/panel-action/examine/rope/", secure=True)
+        self.assertEqual(CurrentGame.objects.get(user=self.user, story=self.story).turn_count, before)
+
+    def test_a_story_without_a_panel_reserves_no_room_for_one(self):
+        """The regression that matters most: every other story's play page
+        must be untouched by the existence of this hook."""
+        plain = Story.objects.create(owner=self.user, title="Plain", slug="plain-story-2", compiled_json=_load_compiled_json(), is_public=True)
+        self.client.force_login(self.user)
+        response = self.client.get(f"/if/{plain.slug}/", secure=True)
+        self.assertNotIn(b"if-game-panel", response.content)
+        self.assertNotIn(b"if-three-column", response.content)
+
+
+class GamePanelCommandTests(_AlbumsRootMixin, TestCase):
+    """A game panel's turn-advancing commands (engine_services.
+    game_panel_command / panel_views.play_panel_command).
+
+    The write-capable counterpart to GamePanelTests above: a panel row
+    that genuinely changes the world (Use, Cast) gets the SAME real
+    bindings a story choice does — `bindings_for(story, engine_state)` —
+    rather than a bespoke write path per game, which is the whole point of
+    exercising this against a real generic stateful API (scheduling's
+    `advance_clock_now`) rather than a stub.
+    """
+
+    PANEL_MODULE = """
+def panel_context(engine_state, globals_, bindings):
+    return {
+        "panel_tabs": [{"id": "kit", "label": "Kit", "icon": "briefcase"}],
+        "panel_active_tab": "kit",
+        "panel_sections": [{"heading": "Kit", "rows": [{"label": "clock", "actions": [{"id": "advance", "item": "clock", "kind": "command"}]}]}],
+    }
+
+
+def panel_command(engine_state, globals_, bindings, command_id, target_id):
+    if command_id == "advance" and target_id == "clock":
+        new_value = bindings["advance_clock_now"](5)
+        return f"Advanced to {new_value}."
+    return ""
+"""
+
+    MANIFEST = """GAME_TITLE = "Panel Command Game"
+MAIN_STORY_FILE = "story.inkj"
+PLAY_LAYOUT = "three_column"
+"""
+
+    def setUp(self):
+        self._enable_albums_root()
+        self.client = Client()
+        self.user = get_user_model().objects.create_user(username="panelcommander", password="pw")
+        self.game_dir = self.albums_dir / "interactive_fiction" / "panelcommandgame"
+        self.game_dir.mkdir(parents=True)
+        (self.game_dir / "__init__.py").write_text(self.MANIFEST, encoding="utf-8")
+        (self.game_dir / "sidebar.py").write_text(self.PANEL_MODULE, encoding="utf-8")
+        EngineAPI.objects.update_or_create(name="scheduling", defaults={"display_name": "Scheduling", "is_enabled": True})
+        self.story = Story.objects.create(
+            owner=self.user,
+            title="Panel Command Game",
+            slug="panel-command-game",
+            compiled_json=_load_compiled_json(),
+            is_public=True,
+            is_engine_trusted=True,
+            source_fqfn=str((self.game_dir / "story.inkj").resolve()).lower(),
+        )
+        StorySystemConfig.objects.create(story=self.story, system_name="scheduling", config={})
+
+    def test_the_command_gets_the_real_stateful_binding(self):
+        """The function-level contract: `panel_command` is handed real
+        `bindings_for()` closures, so a generic stateful API's own
+        EXTERNAL binding (not a game-authored stand-in) does the write."""
+        engine_state: dict = {}
+        text = game_panel_command(self.story, engine_state, {}, "advance", "clock")
+        self.assertEqual(text, "Advanced to 5.")
+        self.assertEqual(engine_state["scheduling"]["clock"], 5)
+
+    def test_an_untrusted_story_answers_no_commands(self):
+        """Commands ride the same trust gate as the panel itself."""
+        self.story.is_engine_trusted = False
+        self.story.save(update_fields=["is_engine_trusted"])
+        engine_state: dict = {}
+        self.assertEqual(game_panel_command(self.story, engine_state, {}, "advance", "clock"), "")
+        self.assertEqual(engine_state, {})
+
+    def test_a_command_the_panel_does_not_offer_is_silent(self):
+        engine_state: dict = {}
+        self.assertEqual(game_panel_command(self.story, engine_state, {}, "detonate", "clock"), "")
+
+    def test_the_route_advances_engine_state_and_returns_the_oob_panel(self):
+        """End-to-end through the real view: a POST with the current
+        turn_count writes engine_state and comes back with the panel's own
+        OOB wrapper, carrying the fresh result into #if-panel-detail."""
+        self.client.force_login(self.user)
+        self.client.get(f"/if/{self.story.slug}/", secure=True)
+        current_game = CurrentGame.objects.get(user=self.user, story=self.story)
+        response = self.client.post(f"/if/{self.story.slug}/panel-command/advance/clock/", {"turn_count": current_game.turn_count}, secure=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Advanced to 5.", response.content)
+        self.assertIn(b"if-game-panel", response.content)
+        current_game.refresh_from_db()
+        self.assertEqual(current_game.state["engine_state"]["scheduling"]["clock"], 5)
+
+    def test_the_route_does_not_advance_inks_own_turn_count(self):
+        """A panel command is not a story choice: InkRuntimeState.turn_count
+        (and CurrentGame.turn_count, its own concurrent-tab token) must stay
+        exactly where it was, even though engine_state changed underneath it."""
+        self.client.force_login(self.user)
+        self.client.get(f"/if/{self.story.slug}/", secure=True)
+        before = CurrentGame.objects.get(user=self.user, story=self.story).turn_count
+        self.client.post(f"/if/{self.story.slug}/panel-command/advance/clock/", {"turn_count": before}, secure=True)
+        self.assertEqual(CurrentGame.objects.get(user=self.user, story=self.story).turn_count, before)
+
+    def test_a_stale_turn_count_is_rejected(self):
+        """The same concurrent-tab guard play_submit enforces: a command
+        submitted against a turn_count the row no longer holds is refused,
+        and engine_state is left untouched rather than silently applied."""
+        self.client.force_login(self.user)
+        self.client.get(f"/if/{self.story.slug}/", secure=True)
+        current_game = CurrentGame.objects.get(user=self.user, story=self.story)
+        response = self.client.post(f"/if/{self.story.slug}/panel-command/advance/clock/", {"turn_count": current_game.turn_count + 1}, secure=True)
+        self.assertEqual(response.status_code, 409)
+        current_game.refresh_from_db()
+        # bindings_for()'s own init_state() already seeded a clock-0 slot on
+        # the earlier GET, before the command was ever attempted -- the
+        # guard's job is refusing the WRITE, not keeping the key absent.
+        self.assertEqual(current_game.state["engine_state"]["scheduling"]["clock"], 0)
+
+    def test_a_command_can_be_undone(self):
+        """The undo snapshot play_panel_command takes means play_undo can
+        restore engine_state to what it held before the command ran."""
+        self.client.force_login(self.user)
+        self.client.get(f"/if/{self.story.slug}/", secure=True)
+        current_game = CurrentGame.objects.get(user=self.user, story=self.story)
+        self.client.post(f"/if/{self.story.slug}/panel-command/advance/clock/", {"turn_count": current_game.turn_count}, secure=True)
+        current_game.refresh_from_db()
+        self.assertEqual(current_game.state["engine_state"]["scheduling"]["clock"], 5)
+        self.client.post(f"/if/{self.story.slug}/undo/", secure=True)
+        current_game.refresh_from_db()
+        self.assertEqual(current_game.state["engine_state"]["scheduling"]["clock"], 0)
+
+
+class PlayLayoutTests(_AlbumsRootMixin, TestCase):
+    """A game choosing which of the engine's play-page layouts renders it.
+
+    The engine ships the layouts (models.PLAY_LAYOUTS); a game names one in
+    its manifest and fills it. A game never supplies a template path — that
+    would let a folder in the untrusted Albums tree steer the renderer at
+    any file on disk.
+    """
+
+    def setUp(self):
+        self._enable_albums_root()
+        self.client = Client()
+        self.user = get_user_model().objects.create_user(username="layoutplayer", password="pw")
+
+    def _make_game(self, name: str, manifest: str) -> Story:
+        """Create a game folder with the given manifest, plus its Story.
+
+        Args:
+            name: The game folder's name.
+            manifest: The `__init__.py` contents.
+
+        Returns:
+            The Story row pointing into that folder.
+        """
+        game_dir = self.albums_dir / "interactive_fiction" / name
+        game_dir.mkdir(parents=True)
+        (game_dir / "__init__.py").write_text(manifest, encoding="utf-8")
+        return Story.objects.create(
+            owner=self.user,
+            title=name,
+            slug=f"{name}-story",
+            compiled_json=_load_compiled_json(),
+            is_public=True,
+            source_fqfn=str((game_dir / "story.inkj").resolve()).lower(),
+        )
+
+    def test_a_game_gets_the_layout_its_manifest_names(self):
+        story = self._make_game("threecol", 'MAIN_STORY_FILE = "story.inkj"\nPLAY_LAYOUT = "three_column"\n')
+        self.assertEqual(play_layout_for(story), PLAY_LAYOUTS["three_column"])
+
+    def test_a_game_naming_no_layout_gets_the_default(self):
+        story = self._make_game("plainmanifest", 'MAIN_STORY_FILE = "story.inkj"\n')
+        self.assertEqual(play_layout_for(story), PLAY_LAYOUTS[DEFAULT_PLAY_LAYOUT])
+
+    def test_a_story_with_no_game_folder_gets_the_default(self):
+        """Every uploaded story — the common case — has no manifest at all."""
+        story = Story.objects.create(owner=self.user, title="Uploaded", slug="uploaded-story", compiled_json=_load_compiled_json())
+        self.assertEqual(play_layout_for(story), PLAY_LAYOUTS[DEFAULT_PLAY_LAYOUT])
+
+    def test_an_unknown_layout_falls_back_rather_than_breaking(self):
+        """A story ingested against a newer engine may name a layout this
+        one does not ship. It should still be playable, just plainer —
+        never a 500."""
+        story = self._make_game("futuregame", 'MAIN_STORY_FILE = "story.inkj"\nPLAY_LAYOUT = "holographic"\n')
+        self.assertEqual(play_layout_for(story), PLAY_LAYOUTS[DEFAULT_PLAY_LAYOUT])
+
+    def test_a_layout_is_never_taken_as_a_template_path(self):
+        """The security property: a manifest names a layout, and the name
+        is looked up. A path must not resolve to itself."""
+        story = self._make_game("sneaky", 'MAIN_STORY_FILE = "story.inkj"\nPLAY_LAYOUT = "interactive_fiction/edit.jinja"\n')
+        self.assertEqual(play_layout_for(story), PLAY_LAYOUTS[DEFAULT_PLAY_LAYOUT])
+
+    def test_a_non_string_layout_is_ignored(self):
+        story = self._make_game("weird", 'MAIN_STORY_FILE = "story.inkj"\nPLAY_LAYOUT = 3\n')
+        self.assertEqual(play_layout_for(story), PLAY_LAYOUTS[DEFAULT_PLAY_LAYOUT])
+
+    def test_every_shipped_layout_names_a_template_that_exists(self):
+        """A layout in the registry with no template is a 500 waiting for
+        the first game that asks for it.
+
+        Loaded through the Jinja2 backend explicitly: these are `.jinja`
+        files, and the DTL backend matches the same extension but cannot
+        parse Jinja syntax — the play view renders them with
+        `using="Jinja2"` for the same reason."""
+        for name, template in PLAY_LAYOUTS.items():
+            with self.subTest(layout=name):
+                get_template(template, using="Jinja2")

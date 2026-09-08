@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from django.contrib import admin
+from django.db.models import QuerySet
+from django.http import HttpRequest
 
 from interactive_fiction.models import (
     CurrentGame,
@@ -13,6 +15,45 @@ from interactive_fiction.models import (
     StoryImage,
     StorySystemConfig,
 )
+
+
+class GameIngestionErrorFilter(admin.SimpleListFilter):
+    """List filter for `Story.game_ingestion_error` — a plain CharField,
+    not a boolean, so Django's declarative `list_filter` can't target it
+    directly; this presents it as a Yes/No choice instead.
+    """
+
+    title = "ingestion error"
+    parameter_name = "has_game_ingestion_error"
+
+    def lookups(self, request: HttpRequest, model_admin: admin.ModelAdmin) -> list[tuple[str, str]]:
+        """Return the filter's two choices.
+
+        Args:
+            request: The current admin request (unused).
+            model_admin: The ModelAdmin this filter is attached to (unused).
+
+        Returns:
+            The (value, label) pairs shown in the filter sidebar.
+        """
+        return [("yes", "Yes"), ("no", "No")]
+
+    def queryset(self, request: HttpRequest, queryset: QuerySet[Story]) -> QuerySet[Story]:
+        """Filter the queryset by whether `game_ingestion_error` is set.
+
+        Args:
+            request: The current admin request (unused).
+            queryset: The Story queryset to filter.
+
+        Returns:
+            The filtered queryset, or the original queryset unchanged if
+            no recognized value was selected.
+        """
+        if self.value() == "yes":
+            return queryset.exclude(game_ingestion_error="")
+        if self.value() == "no":
+            return queryset.filter(game_ingestion_error="")
+        return queryset
 
 
 class StoryAccessInline(admin.TabularInline):
@@ -31,13 +72,44 @@ class StoryAdmin(admin.ModelAdmin):
     upload form or any user-facing view) — see
     claude_docs/plans/external_expansion_IF_engine.md's Design section for
     why this must stay a superuser-only, explicit, per-story opt-in.
+
+    `game_ingestion_error` is surfaced in `list_display`/`list_filter`
+    (the game-folder separation design work's own decided
+    "admin-visible flag, not log-only" requirement) so a game folder that
+    failed ingestion (missing manifest, a MAIN_STORY_FILE that doesn't
+    match a real .inkj, or an unresolved required plugin) is immediately
+    visible without grepping logs.
     """
 
-    list_display = ("title", "owner", "is_public", "is_available", "is_engine_trusted", "updated_at")
-    list_filter = ("is_public", "is_available", "is_engine_trusted")
-    search_fields = ("title", "slug", "owner__username")
+    list_display = ("title", "owner", "is_public", "is_available", "is_engine_trusted", "has_game_ingestion_error", "updated_at")
+    list_filter = ("is_public", "is_available", "is_engine_trusted", GameIngestionErrorFilter)
+    search_fields = ("title", "slug", "owner__username", "game_author")
     readonly_fields = ("created_at", "updated_at", "source_fqfn", "source_sha256")
+    # compiled_json holds a full compiled Ink story — real-world stories
+    # (a large multi-file corpus can easily run 100+ files) run several
+    # MB, and Django's
+    # default ModelAdmin renders every editable field as a form widget,
+    # POSTing the whole thing back on every save. That blew right past
+    # DATA_UPLOAD_MAX_MEMORY_SIZE the first time a story this large was
+    # actually saved through this admin page (a real, previously-latent
+    # bug this uncovered, not a hypothetical). It's also never meant to
+    # be hand-edited here — ingestion/upload are the only real writers —
+    # so simply excluding it from the form is correct, not a workaround.
+    exclude = ("compiled_json",)
     inlines = (StoryAccessInline,)
+
+    @admin.display(boolean=True, description="Ingestion error")
+    def has_game_ingestion_error(self, obj: Story) -> bool:
+        """
+        Return whether this story's most recent game-folder ingestion failed.
+
+        Args:
+            obj: The Story row being displayed.
+
+        Returns:
+            True if `obj.game_ingestion_error` is non-blank.
+        """
+        return bool(obj.game_ingestion_error)
 
 
 @admin.register(StoryAccess)
@@ -92,7 +164,7 @@ class EngineAPIAdmin(admin.ModelAdmin):
     """Admin interface for discovered engine APIs — the real Enabled/
     Disabled toggle (explicit user requirement, 2026-08-22) controlling
     whether a scanned API is available to any story at all. Rows are
-    created/refreshed only by the `sync_engine_apis` management command,
+    created/refreshed only by the `scan_if_stories` management command,
     never by hand — `name`/`display_name`/`discovered_at`/`last_seen_at`
     are read-only here; `is_enabled` is the one real editable field.
     """

@@ -6,9 +6,9 @@
         <div class="panel-block if-story-transcript content">
             {% for entry in transcript[:-1] %}
             {% if not loop.first %}<hr class="if-transcript-turn-divider">{% endif %}
-            {% if entry.chosen_label %}<p class="if-transcript-choice"><em>&gt; {{ entry.chosen_label }}</em></p>{% endif %}
+            {% if entry.chosen_label %}<p class="if-transcript-choice"><em>&gt; {{ entry.chosen_label|story_html }}</em></p>{% endif %}
             {% for paragraph in entry.text.split('\n') %}
-            {% if paragraph %}<p>{{ paragraph }}</p>{% endif %}
+            {% if paragraph %}<p>{{ paragraph|story_html }}</p>{% endif %}
             {% endfor %}
             {% endfor %}
         </div>
@@ -28,7 +28,7 @@
     {% endif %}
     <div class="if-story-text content">
         {% for paragraph in text.split('\n') %}
-        {% if paragraph %}<p>{{ paragraph }}</p>{% endif %}
+        {% if paragraph %}<p>{{ paragraph|story_html }}</p>{% endif %}
         {% endfor %}
     </div>
     </div>
@@ -54,7 +54,7 @@
                 <input type="hidden" name="turn_count" value="{{ turn_count }}">
                 <div class="buttons">
                     {% for index, choice_text in choices %}
-                    <button type="submit" name="choice" value="{{ index }}" class="button is-link if-choice-button" data-choice-key="{{ index + 1 }}">{{ choice_text }} <span class="if-choice-key tag is-light">{{ index + 1 }}</span></button>
+                    <button type="submit" name="choice" value="{{ index }}" class="button is-link if-choice-button" data-choice-key="{{ index + 1 }}">{{ choice_text|story_html }} <span class="if-choice-key tag is-light">{{ index + 1 }}</span></button>
                     {% endfor %}
                 </div>
             </form>

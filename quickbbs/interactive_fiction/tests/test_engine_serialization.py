@@ -20,6 +20,7 @@ from django.test import SimpleTestCase
 from interactive_fiction.engine import (
     InkRuntimeState,
     ListValue,
+    OutputStream,
     ResolvedDivertTarget,
     load_list_defs,
     load_story_root,
@@ -67,6 +68,63 @@ class BasicRoundTripTests(SimpleTestCase):
         state.choose(0)
         state2.choose(0)
         self.assertEqual(state.continue_story(), state2.continue_story())
+
+
+class SavedStateStaysBoundedTests(SimpleTestCase):
+    """The serialized state must not grow without bound as turns pass."""
+
+    def test_output_tokens_hold_only_the_current_turn(self):
+        """`to_dict()` carries only the CURRENT turn's output tokens.
+
+        `continue_story()` appends into one long-lived OutputStream and
+        reads back only `tokens[start_length:]` -- the accumulated prefix
+        is never used again, but it WAS serialized in full every turn, so
+        a saved state grew linearly forever. Measured on the real ASFA
+        story before this was fixed: 34KB at turn 0 rising to 114KB by
+        turn 600, ~111 bytes/turn with no ceiling, of which output_tokens
+        was 69%.
+
+        The invariant, checked directly rather than via a growth curve: at
+        any stopping point the serialized token list is exactly the tokens
+        that turn produced, so it re-renders `last_turn_text` and nothing
+        older.
+        """
+        data = _load("section3_gather_loop.ink.json")
+        state = InkRuntimeState(load_story_root(data))
+        for turn in range(3):
+            text = state.continue_story()
+            snapshot = InkRuntimeState.from_dict(load_story_root(data), json.loads(json.dumps(state.to_dict())))
+            replayed = OutputStream()
+            replayed.tokens.extend(snapshot.output.tokens)
+            self.assertEqual(
+                replayed.get_text(),
+                text,
+                f"turn {turn}: serialized output_tokens are not this turn's own output -- older turns are accumulating",
+            )
+            if not state.current_choices:
+                break
+            state.choose(0)
+
+    def test_a_resumed_state_still_produces_identical_output(self):
+        """Truncating the buffer must not change what the story says.
+
+        The guard for the invariant above: if the accumulated prefix ever
+        DID matter, dropping it would show up here as divergent text.
+        """
+        data = _load("section3_gather_loop.ink.json")
+        state = InkRuntimeState(load_story_root(data))
+        for _ in range(6):
+            state.continue_story()
+            if not state.current_choices:
+                break
+            state.choose(0)
+        resumed = _round_trip(state, load_story_root(data))
+        for _ in range(6):
+            self.assertEqual(state.continue_story(), resumed.continue_story())
+            if not state.current_choices or not resumed.current_choices:
+                break
+            state.choose(0)
+            resumed.choose(0)
 
 
 class MidTunnelRoundTripTests(SimpleTestCase):
