@@ -98,7 +98,7 @@ omit = [
 profile = "black"
 src_paths = ["quickbbs"]
 skip_gitignore = true
-known_first_party = ["quickbbs", "frontend", "cache_watcher", "filetypes", "thumbnails"]
+known_first_party = ["quickbbs", "frontend", "cache_watcher", "filetypes", "thumbnails", "ink_engine"]
 
 [tool.poetry.dependencies]
 python = "^3.12,<3.15"
@@ -147,6 +147,7 @@ granian = {version = "^2.7.2", optional = true}
 pyopenssl = "^26.0.0"
 colorama = "^0.4.6"
 wheel = "^0.47.0"
+ink-engine = {path = "../interactive_fiction", develop = true}
 
 [tool.poetry.extras]
 gunicorn = ["gunicorn"]

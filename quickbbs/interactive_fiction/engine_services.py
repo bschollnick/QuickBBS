@@ -37,31 +37,60 @@ shape. Per the plan's explicit per-session isolation requirement, no
 callable here may read or write anything outside its own arguments/return
 value — no module-level mutable state, no attribute on some shared
 object, no per-request cache. Every user's game session is completely
-self-contained (real interactive_fiction.engine.InkRuntimeState instances
+self-contained (real ink_engine.engine.InkRuntimeState instances
 are always constructed fresh per request, never pooled or reused); a
 callable that stashed data on itself between calls would leak one
 player's game state into another's the moment two sessions share this
 same registry object, which every trusted story's sessions do.
 
-**A real converted-game retrofit** (started 2026-08-22): each real API's
-own bindings are declared on its own module (see
-`interactive_fiction/engine_plugins/scheduling.py`'s own `API =
-EngineAPIDescriptor(...)`), verified via a real differential test proving
-the new Python function agrees with the ORIGINAL Ink function it
-replaced across its full real input space, before the corresponding
-`.ink` file was ever touched — per the explicit "avoid rewriting this
-many times" process agreed with the user.
+**A real converted-game retrofit** (started 2026-08-22): each real
+plugin's own bindings are declared on its own module (see
+`ink_engine/engine_plugins/scheduling.py`'s own `PLUGIN = Plugin(...)`),
+verified via a real differential test proving the new Python function
+agrees with the ORIGINAL Ink function it replaced across its full real
+input space, before the corresponding `.ink` file was ever touched — per
+the explicit "avoid rewriting this many times" process agreed with the
+user.
+
+**Standalone-library extraction** (claude_docs/plans/
+ink_engine_standalone_extraction.md, 2026-09-08): the OLD
+`EngineAPIDescriptor`/synthetic-namespace/`also_reads`/`bind_stateful`
+discovery-and-binding machinery moved to the standalone `ink_engine`
+library. `bindings_for()` below now calls `interactive_fiction.engine_api.
+discover_api_descriptors()` (QuickBBS's own thin wrapper around
+`ink_engine.discovery.discover_plugins()`) and `ink_engine.binding.
+resolve_bindings()` directly — trust-gating and per-story isolation stay
+exactly where they always were, entirely in this file.
+
+**The OLD `needed_list_names` mechanism has no home in `ink_engine` at
+all** (per the plan's own "not part of this contract" design note) — a
+plugin's `Plugin.bind(own_state, engine_state)` never receives `story`,
+so it cannot call `ink_engine.engine.load_list_defs(story.compiled_json)`
+itself. The one real caller (`Albums/interactive_fiction/asfa/
+occupancy.py`'s `who_is_here_now()`, needing the `AllCharacters` LIST's
+own item-name->int table) reads it from `engine_state[_LIST_DEFS_KEY]`
+instead — `bindings_for()` below computes it once, from `story`, stashes
+it there BEFORE calling `resolve_bindings()`, then POPS it back out
+immediately afterward. `_LIST_DEFS_KEY` is NOT real per-session state
+(it is the same for every session of a given story, derived purely from
+`story.compiled_json`, never mutated), so it must never reach
+`CurrentGame.state["engine_state"]`'s own persisted JSON — the pop makes
+that true regardless of what a caller does with `engine_state`
+afterward. Safe because `occupancy.py`'s own `_bind()` reads it exactly
+ONCE, synchronously, while building `who_is_here_now`'s closure — never
+deferred to Ink call time — so it is fully consumed before the pop runs.
 """
 
 from __future__ import annotations
 
+import importlib
 import logging
-import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from interactive_fiction.engine import load_list_defs, retrieve_python_list
+from ink_engine.binding import resolve_bindings
+from ink_engine.engine import load_list_defs
 from interactive_fiction.engine_api import discover_api_descriptors
 from interactive_fiction.ingestion import read_manifest_value
 from interactive_fiction.models import (
@@ -73,10 +102,15 @@ from interactive_fiction.models import (
 from quickbbs.models import DirectoryIndex
 
 if TYPE_CHECKING:
-    from interactive_fiction.engine_api import EngineAPIDescriptor
     from interactive_fiction.models import Story
 
 logger = logging.getLogger(__name__)
+
+#: Reserved `engine_state` key `bindings_for()` uses to hand a story's own
+#: compiled LIST definitions to a plugin's `bind()` during THIS call only
+#: -- never real per-session state, always popped back out before
+#: `bindings_for()` returns (see this module's own docstring above).
+_LIST_DEFS_KEY = "_list_defs"
 
 
 def bindings_for(story: "Story", engine_state: dict[str, Any] | None = None) -> dict[str, Callable[..., Any]]:
@@ -92,12 +126,14 @@ def bindings_for(story: "Story", engine_state: dict[str, Any] | None = None) -> 
     every enabled API, so two stories' bindings never bleed into each
     other regardless of what else is enabled globally.
 
-    **Stateful APIs** (claude_docs/plans/external_expansion_IF_engine.md,
-    "stateful EXTERNAL bindings" design, 2026-08-23): an API descriptor
-    with `state_key`/`bind_stateful` set gets handed its own private slice
+    **Stateful plugins** (claude_docs/plans/ink_engine_standalone_extraction.md;
+    originally claude_docs/plans/external_expansion_IF_engine.md's
+    "stateful EXTERNAL bindings" design, 2026-08-23): a `Plugin` with
+    `state_key`/`init_state`/`bind` set gets handed its own private slice
     of `engine_state` — `engine_state[state_key]`, created via
     `init_state()` the first time — and is asked to build its own
-    bindings as closures over that ONE dict. Since `engine_state` itself
+    bindings as closures over that ONE dict (`ink_engine.binding.
+    resolve_bindings()`, called below). Since `engine_state` itself
     is the caller's own per-request `CurrentGame.state["engine_state"]`
     dict (never shared or reused across sessions, exactly like `story`
     itself isn't), those closures are exactly as session-isolated as this
@@ -119,135 +155,65 @@ def bindings_for(story: "Story", engine_state: dict[str, Any] | None = None) -> 
             are done.
 
     Returns:
-        The real bindings for every API this story has opted into AND
+        The real bindings for every plugin this story has opted into AND
         that is currently enabled; empty for an untrusted story (its
         EXTERNAL calls always fall through to their own Ink fallback,
         unchanged) or a trusted story with no StorySystemConfig rows at
-        all. An opted-into API that's missing or disabled contributes no
-        bindings (its own calls fall through the same way) but is logged
-        loudly here — a real, actionable misconfiguration for a trusted
-        story, not the ordinary silent-by-design untrusted case.
+        all. An opted-into plugin that's missing or disabled contributes
+        no bindings (its own calls fall through the same way) but is
+        logged loudly here — a real, actionable misconfiguration for a
+        trusted story, not the ordinary silent-by-design untrusted case.
     """
     if not story.is_engine_trusted:
         return {}
 
-    system_names = list(story.system_configs.values_list("system_name", flat=True).distinct())
+    system_names = story.opted_in_plugin_names()
     if not system_names:
         return {}
 
-    descriptors = discover_api_descriptors()
+    plugins = discover_api_descriptors()
     enabled_names = set(EngineAPI.objects.filter(name__in=system_names, is_enabled=True).values_list("name", flat=True))
 
-    # Loaded at most once per call, only if some opted-into descriptor
-    # actually asks for it (needed_list_names) — every other story pays
-    # nothing for this.
-    list_defs: dict[str, dict[str, int]] | None = None
-
-    resolved: dict[str, Callable[..., Any]] = {}
+    active_names: list[str] = []
     for name in system_names:
-        if name not in descriptors:
+        if name not in plugins:
             logger.error(
-                "interactive_fiction.engine_services: story %r opted into API '%s' but no such API is currently discoverable on disk", story, name
+                "interactive_fiction.engine_services: story %r opted into plugin '%s' but no such plugin is currently discoverable on disk",
+                story,
+                name,
             )
             continue
         if name not in enabled_names:
             logger.error(
-                "interactive_fiction.engine_services: story %r opted into API '%s' but it is not enabled "
+                "interactive_fiction.engine_services: story %r opted into plugin '%s' but it is not enabled "
                 "(or has no EngineAPI row yet — run scan_if_stories)",
                 story,
                 name,
             )
             continue
-        descriptor = descriptors[name]
-        # An API may declare both kinds of binding: its stateless ones are
-        # plain functions of their arguments, while its stateful ones need
-        # this session's own state slot. They are two halves of one API,
-        # not alternatives, so both are resolved (2026-08-29 — previously
-        # a descriptor with a state_key silently contributed none of its
-        # stateless bindings, which would have dropped a real API's whole
-        # pure-function surface the moment it grew its first stateful one).
-        resolved.update(descriptor.bindings)
-        if descriptor.bind_stateful is not None and descriptor.state_key is not None:
-            if engine_state is None:
-                logger.error(
-                    "interactive_fiction.engine_services: story %r opted into stateful API '%s' but no engine_state dict was provided",
-                    story,
-                    name,
-                )
-                continue
-            assert descriptor.init_state is not None, f"EngineAPIDescriptor '{name}' sets bind_stateful/state_key without init_state"
-            api_state = engine_state.setdefault(descriptor.state_key, descriptor.init_state())
-            readable = None
-            if descriptor.also_reads:
-                # Slots this API reads but does not own — for a binding
-                # whose answer is a view over another system's state. Each
-                # is allocated by its OWNING descriptor's own init_state,
-                # so a reader binding first never creates a differently
-                # shaped dict than the owner would have.
-                readable = {key: engine_state.setdefault(key, _init_state_for(descriptors, key)) for key in descriptor.also_reads}
-            list_item_tables = None
-            if descriptor.needed_list_names:
-                if list_defs is None:
-                    list_defs = load_list_defs(story.compiled_json)
-                list_item_tables = {list_name: retrieve_python_list(list_defs, list_name) for list_name in descriptor.needed_list_names}
-            resolved.update(_call_bind_stateful(descriptor, api_state, readable, list_item_tables))
-    return resolved
+        if engine_state is None and plugins[name].bind is not None:
+            # Preserves the OLD system's real, documented behavior: a
+            # stateful plugin needs somewhere to put its state, so a
+            # caller that forgot to pass engine_state gets none of ITS
+            # bindings (a stateless-only plugin is unaffected -- it never
+            # needed engine_state in the first place).
+            logger.error(
+                "interactive_fiction.engine_services: story %r opted into stateful plugin '%s' but no engine_state dict was provided",
+                story,
+                name,
+            )
+            continue
+        active_names.append(name)
 
-
-def _call_bind_stateful(
-    descriptor: "EngineAPIDescriptor", api_state: dict[str, Any], readable: dict[str, Any] | None, list_item_tables: dict[str, dict[str, int]] | None
-) -> dict[str, Callable[..., Any]]:
-    """Call one descriptor's `bind_stateful` with exactly the optional
-    arguments it actually asked for.
-
-    Split out of `bindings_for`'s own per-API loop purely to keep that
-    loop's own branch count readable — `bind_stateful`'s signature grows
-    one positional argument per optional feature a descriptor opts into
-    (`also_reads`, then `needed_list_names`), and picking the right one of
-    the resulting four call shapes is its own small piece of dispatch.
-
-    Args:
-        descriptor: The API being bound. `bind_stateful` must be set.
-        api_state: This API's own state slice.
-        readable: The `also_reads` slices, or None if this descriptor
-            declares none.
-        list_item_tables: The `needed_list_names` tables, or None if this
-            descriptor declares none.
-
-    Returns:
-        The bindings dict `descriptor.bind_stateful` returns.
-    """
-    assert descriptor.bind_stateful is not None
-    if list_item_tables is not None:
-        if readable is not None:
-            return descriptor.bind_stateful(api_state, readable, list_item_tables)
-        return descriptor.bind_stateful(api_state, list_item_tables)
-    if readable is not None:
-        return descriptor.bind_stateful(api_state, readable)
-    return descriptor.bind_stateful(api_state)
-
-
-def _init_state_for(descriptors: dict[str, "EngineAPIDescriptor"], state_key: str) -> dict[str, Any]:
-    """Return a fresh state dict for `state_key`, from whichever API owns it.
-
-    A slot's shape belongs to the API that declares it, so an API merely
-    READING that slot (via `also_reads`) must never invent its own initial
-    value for it — binding order would then decide the shape.
-
-    Args:
-        descriptors: Every discoverable API descriptor, by name.
-        state_key: The slot to initialize.
-
-    Returns:
-        The owning descriptor's own `init_state()` result, or an empty
-        dict if no discoverable API declares that slot (a story reading a
-        slot nobody owns gets an empty one rather than an import error).
-    """
-    for descriptor in descriptors.values():
-        if descriptor.state_key == state_key and descriptor.init_state is not None:
-            return descriptor.init_state()
-    logger.error("interactive_fiction.engine_services: no discoverable API owns state slot '%s'; initializing it empty", state_key)
-    return {}
+    real_engine_state = engine_state if engine_state is not None else {}
+    # See _LIST_DEFS_KEY's own docstring above: this is call-scoped data
+    # for whichever plugin's bind() wants a compiled LIST's item table
+    # (today: occupancy.py's who_is_here_now()), never real session state.
+    real_engine_state[_LIST_DEFS_KEY] = load_list_defs(story.compiled_json)
+    try:
+        return resolve_bindings(plugins, active_names, real_engine_state)
+    finally:
+        real_engine_state.pop(_LIST_DEFS_KEY, None)
 
 
 def game_panel_context(story: "Story", engine_state: dict[str, Any], globals_: dict[str, Any]) -> dict[str, Any] | None:
@@ -367,28 +333,41 @@ def game_folder_for(story: "Story") -> Path | None:
 
 
 def _game_module(story: "Story", module_stem: str) -> Any:
-    """Return one already-loaded module from a story's own game folder.
+    """Return one submodule of a story's own game folder.
 
-    Game folders are loaded wholesale by `discover_api_descriptors()`
-    (every `.py` file, under a synthetic package name), so this only has
-    to look the result up rather than import anything itself — which also
-    means a game folder that failed to load contributes nothing here
-    instead of raising during page render.
+    Gated on `story.is_engine_trusted` directly, same as `bindings_for()`
+    — unlike the OLD synthetic-namespace system (where an untrusted game
+    folder's files were simply never loaded by `discover_api_descriptors()`
+    in the first place, so a lookup by name naturally found nothing), a
+    trusted game folder is now a REAL, importable Python package once
+    `engine_api._ensure_importable()` has put its parent on `sys.path` —
+    `importlib.import_module()` would happily import an untrusted one too
+    if asked, so this function must refuse before ever calling it.
 
     Args:
         story: The story whose game folder is wanted.
-        module_stem: The bare filename, without `.py`.
+        module_stem: The bare filename, without `.py` (e.g. "sidebar").
 
     Returns:
-        The module, or None when this story has no game folder, or that
-        folder has no such file.
+        The module, or None when this story is untrusted, has no game
+        folder, or that folder has no such file.
     """
+    if not story.is_engine_trusted:
+        return None
+
     game_dir = game_folder_for(story)
     if game_dir is None:
         return None
 
+    # discover_api_descriptors() has already put a trusted game's parent
+    # directory on sys.path (engine_api._ensure_importable) as a side
+    # effect of its own normal scan -- calling it here (idempotently)
+    # guarantees that regardless of call order relative to bindings_for().
     discover_api_descriptors()
-    return sys.modules.get(f"interactive_fiction._games.{game_dir.name}.{module_stem}")
+    try:
+        return importlib.import_module(f"{game_dir.name}.{module_stem}")
+    except ModuleNotFoundError:
+        return None
 
 
 def game_panel_action(story: "Story", engine_state: dict[str, Any], globals_: dict[str, Any], action_id: str, target_id: str) -> str:
@@ -456,8 +435,10 @@ def game_panel_command(story: "Story", engine_state: dict[str, Any], globals_: d
     session, so a two- or three-pane game plugging in inventory, quests,
     skills, occupancy, or any future stateful API gets a real write surface
     for free, with no engine change required to add a new API — only a new
-    `engine_plugins/`(or game-folder) module with its own `state_key`/
-    `bind_stateful` (see `interactive_fiction/engine_api.py`).
+    `ink_engine/engine_plugins/` (or trusted game-folder) module with its
+    own `state_key`/`init_state`/`bind` (see
+    `ink_engine.plugin.Plugin`, discovered via
+    `interactive_fiction/engine_api.py`).
 
     **This mutates `engine_state` in place**, exactly like a stateful
     binding invoked mid-turn does. The caller (`views.play_panel_command`)
@@ -479,8 +460,8 @@ def game_panel_command(story: "Story", engine_state: dict[str, Any], globals_: d
     Args:
         story: The story being played.
         engine_state: The session's own mutable `engine_state` dict. Passed
-            straight through to `bindings_for()`, so any stateful API's
-            `bind_stateful` closures write into this exact dict.
+            straight through to `bindings_for()`, so any stateful plugin's
+            `bind()` closures write into this exact dict.
         globals_: The runtime's own Ink globals (e.g. for
             `player_is_possessing`), read the same way `game_panel_context`
             reads them.

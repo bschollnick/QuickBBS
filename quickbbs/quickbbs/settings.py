@@ -329,6 +329,13 @@ TEMPLATES = [
                 "precisedelta": humanize.precisedelta,
                 "naturalsize": humanize.naturalsize,
             },
+            "filters": {
+                # Renders the inline emphasis tags story text is allowed to
+                # use (<i>/<b>) while keeping everything else escaped. Story
+                # text is untrusted Albums-tree content, so it must never be
+                # passed through |safe -- see interactive_fiction.story_markup.
+                "story_html": "interactive_fiction.story_markup.story_html",
+            },
             "constants": {
                 "app_version": QUICKBBS_VERSION,
                 "site_header_image_settings": SITE_HEADER_IMAGE_SETTINGS,

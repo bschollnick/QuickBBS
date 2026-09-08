@@ -43,12 +43,14 @@ from django.template.loader import render_to_string
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
-from interactive_fiction.engine import InkRuntimeState, load_list_defs, load_story_root
+from ink_engine.engine import InkRuntimeState, load_list_defs, load_story_root
+from ink_engine.media_resolver import parse_media_tags
 from interactive_fiction.engine_services import (
     bindings_for,
     game_panel_context,
     play_layout_for,
 )
+from interactive_fiction.images import DjangoMediaResolver
 from interactive_fiction.ingestion import find_inkj_file_by_path
 from interactive_fiction.models import (
     CurrentGame,
@@ -396,44 +398,6 @@ def _load_game_state(story: Story, saved: CurrentGame | SaveState | dict[str, An
     return InkRuntimeState.from_dict(root, raw_state, list_defs, engine_bindings=bindings_for(story, engine_state))
 
 
-_MEDIA_TAG_URL_NAMES = {"image:": "if_story_image", "video:": "if_story_video"}
-
-
-def _current_image_urls(story: Story, state: InkRuntimeState) -> list[str]:
-    """Resolve `image: <tag_name>`/`video: <tag_name>` tags active this turn to servable URLs.
-
-    A tag naming a file with no matching StoryImage row is silently
-    skipped (per the plan: a work-in-progress story with placeholder tags
-    still plays, text-only, rather than erroring).
-
-    Args:
-        story: The story being played.
-        state: The current InkRuntimeState.
-
-    Returns:
-        The if_story_image/if_story_video URL for each resolved tag, in tag
-        order.
-    """
-    tag_names_by_prefix: dict[str, list[str]] = {prefix: [] for prefix in _MEDIA_TAG_URL_NAMES}
-    for tag in state.current_tags:
-        stripped = tag.strip()
-        lowered = stripped.lower()
-        for prefix in _MEDIA_TAG_URL_NAMES:
-            if lowered.startswith(prefix):
-                tag_names_by_prefix[prefix].append(stripped[len(prefix) :].strip())
-                break
-
-    all_tag_names = [name for names in tag_names_by_prefix.values() for name in names]
-    if not all_tag_names:
-        return []
-
-    available = set(story.images.filter(tag_name__in=all_tag_names).values_list("tag_name", flat=True))
-    urls: list[str] = []
-    for prefix, url_name in _MEDIA_TAG_URL_NAMES.items():
-        urls.extend(reverse(url_name, args=[story.slug, name]) for name in tag_names_by_prefix[prefix] if name in available)
-    return urls
-
-
 def _play_content_context(
     request: WSGIRequest, story: Story, state: InkRuntimeState, *, transcript: list[dict[str, object]] | None = None, can_undo: bool = False
 ) -> dict[str, object]:
@@ -460,11 +424,13 @@ def _play_content_context(
 
     Returns:
         The context dict for play_content.jinja (and play.jinja, which
-        includes it). "image_urls" resolves every image: tag active on this
-        turn (Step 5) to a servable URL — a tag with no matching StoryImage
-        row is silently dropped, not surfaced as an error, so a
-        work-in-progress story with placeholder tags still plays (per the
-        plan).
+        includes it). "image_urls" resolves every image:/video: tag active
+        on this turn (Step 5; shim layer added
+        claude_docs/plans/standalone_if_player.md Step 3) to a servable
+        URL, GROUPED by kind (every resolved image, then every resolved
+        video) — a tag with no matching StoryImage row is silently
+        dropped, not surfaced as an error, so a work-in-progress story
+        with placeholder tags still plays (per the plan).
     """
     return {
         "story": story,
@@ -472,7 +438,7 @@ def _play_content_context(
         "choices": list(enumerate(c.text for c in state.current_choices)),
         "done": state.done and not state.current_choices,
         "turn_count": state.turn_count,
-        "image_urls": _current_image_urls(story, state),
+        "image_urls": DjangoMediaResolver(story).resolve(parse_media_tags(state.current_tags)),
         "transcript": transcript or [],
         "can_undo": can_undo,
         "user": request.user,

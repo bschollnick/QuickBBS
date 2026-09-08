@@ -17,7 +17,7 @@ from django.db import models
 from django.db.models.base import ModelBase
 
 from interactive_fiction.engine_api import discover_api_descriptors
-from interactive_fiction.engine_config_schemas import SystemConfigValidationError
+from ink_engine.engine_config_schemas import SystemConfigValidationError
 from quickbbs.models import FileIndex
 
 if TYPE_CHECKING:
@@ -95,8 +95,8 @@ class Story(models.Model):
     # time — blank/default for a story created via the upload form, which
     # has no game folder/manifest at all. game_author is free text (no
     # further structure requested); game_required_plugins is the real
-    # list of EngineAPIDescriptor names this game's manifest declares it
-    # needs, checked against the live discover_api_descriptors() registry
+    # list of ink_engine.plugin.Plugin names this game's manifest declares
+    # it needs, checked against the live discover_api_descriptors() registry
     # at every ingestion/verification pass — a name that stops resolving
     # after the story was already ingested (e.g. an API file deleted
     # later) is exactly the same real, logged, admin-visible
@@ -119,8 +119,8 @@ class Story(models.Model):
     # Set by ingestion when a game folder's manifest is missing, its
     # MAIN_STORY_FILE doesn't match a real .inkj present, or a
     # game_required_plugins entry doesn't resolve to a real, currently
-    # discovered EngineAPIDescriptor — per the plan's own decided hard-
-    # failure + admin-visible-flag behavior. Blank means "ingested
+    # discovered ink_engine.plugin.Plugin — per the plan's own decided
+    # hard-failure + admin-visible-flag behavior. Blank means "ingested
     # cleanly" (the normal case for every non-game-folder story too).
     game_ingestion_error = models.CharField(max_length=1024, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -152,6 +152,20 @@ class Story(models.Model):
             The StoryImage row with is_cover=True, or None.
         """
         return self.images.filter(is_cover=True).first()
+
+    def opted_in_plugin_names(self) -> list[str]:
+        """Return the plugin names this story has its own config row for.
+
+        A story only ever gets bindings for a plugin it has explicitly
+        opted into (a real `StorySystemConfig` row exists) — never a flat
+        merge of every globally-enabled plugin (see
+        `engine_services.bindings_for()`).
+
+        Returns:
+            Distinct `StorySystemConfig.system_name` values for this
+            story.
+        """
+        return list(self.system_configs.values_list("system_name", flat=True).distinct())
 
 
 class StoryAccess(models.Model):
@@ -235,11 +249,13 @@ class StoryImage(models.Model):
 
 class EngineAPI(models.Model):
     """One discovered engine API — a reusable system Python module
-    exposing an `interactive_fiction.engine_api.EngineAPIDescriptor`
-    (claude_docs/plans/external_expansion_IF_engine.md's plugin-discovery
+    exposing an `ink_engine.plugin.Plugin`
+    (claude_docs/plans/ink_engine_standalone_extraction.md's standalone-
+    library redesign, 2026-09-08; originally
+    `claude_docs/plans/external_expansion_IF_engine.md`'s plugin-discovery
     redesign, 2026-08-22).
 
-    One row per real discovered `EngineAPIDescriptor.name`, populated by
+    One row per real discovered `Plugin.name`, populated by
     the `scan_if_stories` management command (never by hand — this is
     metadata ABOUT a scanned-and-found Python module, not story-author
     data). ``is_enabled`` gates whether the API is available to any story
@@ -323,7 +339,7 @@ class StorySystemConfig(models.Model):
     the scan-based plugin mechanism without a migration, which defeats the
     entire "third parties add APIs without touching QuickBBS source"
     goal. `clean()` instead checks `system_name` against the LIVE set of
-    real `EngineAPIDescriptor` names discovered on disk (regardless of
+    real `Plugin` names discovered on disk (regardless of
     that API's own `EngineAPI.is_enabled` state — a story may declare
     config for an API that exists but isn't enabled yet, the same way a
     Story may be created before ever being marked `is_engine_trusted`),
@@ -357,8 +373,8 @@ class StorySystemConfig(models.Model):
 
         Raises:
             django.core.exceptions.ValidationError: If `system_name` names
-                no real, currently-discoverable `EngineAPIDescriptor`, or
-                `config` doesn't match that API's own registered schema.
+                no real, currently-discoverable `Plugin`, or `config`
+                doesn't match that plugin's own registered schema.
         """
         descriptors = discover_api_descriptors()
         descriptor = descriptors.get(self.system_name)

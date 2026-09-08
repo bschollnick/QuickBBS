@@ -21,7 +21,7 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.text import slugify
 
-from interactive_fiction.engine import (
+from ink_engine.engine import (
     InkPathError,
     find_unbound_externals,
     load_story_root,

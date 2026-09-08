@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 
 from django.db import transaction
+from django.urls import reverse
 
 from interactive_fiction.models import Story, StoryImage
 from quickbbs.models import DirectoryIndex, FileIndex
@@ -119,3 +120,59 @@ def link_story_image(story: Story, tag_name: str, file_index: FileIndex, *, is_c
             prefetch_related_thumbnail=THUMBNAILFILES_PR_FILEINDEX_FILETYPE,
             select_related_fileindex=("filetype",),
         )
+
+
+#: Media kind (ink_engine.media_resolver.parse_media_tags()'s own "image"/
+#: "video" values) -> the URL name that serves it. Kept here, not in
+#: ink_engine, since a URL name is a Django-routing concept the engine has
+#: no business knowing.
+_MEDIA_KIND_URL_NAMES: dict[str, str] = {"image": "if_story_image", "video": "if_story_video"}
+
+
+class DjangoMediaResolver:  # pylint: disable=too-few-public-methods
+    """Resolves media tags against this story's own `StoryImage` rows —
+    the implementation QuickBBS itself plays through.
+
+    `ink_engine.media_resolver.MediaResolver`'s real Django-backed
+    implementation: one batched `StoryImage` query per `resolve()` call,
+    exactly matching the query shape the pre-shim `_current_image_urls()`
+    used, so this is a straight move of that function's own body, not a
+    behavior change.
+    """
+
+    def __init__(self, story: Story) -> None:
+        """
+        Args:
+            story: The story whose own `StoryImage` rows this resolver
+                answers from.
+        """
+        self._story = story
+
+    def resolve(self, requests: list[tuple[str, str]]) -> list[str]:
+        """Resolve a turn's media requests against `self._story.images`.
+
+        Args:
+            requests: `ink_engine.media_resolver.parse_media_tags()`'s own
+                output for this turn.
+
+        Returns:
+            One `if_story_image`/`if_story_video` URL per request with a
+            matching `StoryImage` row, GROUPED by kind (all images, then
+            all videos — `MediaResolver.resolve()`'s own contract). A tag
+            with no matching row is silently dropped: a work-in-progress
+            story with placeholder tags still plays, text-only.
+        """
+        all_tag_names = [tag_name for _kind, tag_name in requests]
+        if not all_tag_names:
+            return []
+
+        available = set(self._story.images.filter(tag_name__in=all_tag_names).values_list("tag_name", flat=True))
+        grouped: dict[str, list[str]] = {kind: [] for kind in _MEDIA_KIND_URL_NAMES}
+        for kind, tag_name in requests:
+            if tag_name in available:
+                grouped[kind].append(tag_name)
+
+        urls: list[str] = []
+        for kind, url_name in _MEDIA_KIND_URL_NAMES.items():
+            urls.extend(reverse(url_name, args=[self._story.slug, tag_name]) for tag_name in grouped[kind])
+        return urls
