@@ -293,17 +293,18 @@ CHOOSE_MODEL_STITCH_RE = re.compile(r"^\s*=\s*[a-z_][a-z0-9_]*_choose_model\(\s*
 # accessor: `set_person_value_now("<character_id>", "<attribute>", "Literal")`.
 # The more general real shape underlying VAR_CHOSEN_CALL_RE above -- a
 # dispatcher/VAR wrapper around this same call is common but not universal
-# (e.g. tinarobbins.ink's dress attribute is set with a bare string literal
+# (a character's own dress attribute can be set with a bare string literal
 # at several sites with no dispatcher at all: `set_person_value_now(
-# "tina_robbins", "dress", "Vampyre")`), so this is matched independently
+# "<character_id>", "dress", "<literal>")`), so this is matched independently
 # rather than assuming every real write goes through a "_chosen(" call.
 PERSON_VALUE_WRITE_RE = re.compile(r'set_person_value_now\(\s*"([a-z_][a-z0-9_]*)"\s*,\s*"([a-z_][a-z0-9_]*)"\s*,\s*"([^"]*)"\s*\)', re.IGNORECASE)
 FUNCTION_HEADER_RE = re.compile(r"^\s*={2,}\s*function\s+([a-z_][a-z0-9_]*)\s*\(", re.IGNORECASE | re.MULTILINE)
 KNOT_HEADER_RE = re.compile(r"^\s*={2,}\s*[a-z_]", re.IGNORECASE | re.MULTILINE)
 # A plain `[^"]*` body would truncate at the first quote INSIDE an
-# embedded "{...}" interpolation -- real in mom.ink's mom_dress(), whose
-# own return literal embeds a further person_value_now(...) call with its
-# own quoted arguments (`"{person_value_now("mom", "model")}/Younger"`).
+# embedded "{...}" interpolation -- real in a character's own model-return
+# function, whose own return literal embeds a further person_value_now(...)
+# call with its own quoted arguments (`"{person_value_now("<id>",
+# "model")}/Younger"`).
 # The alternation lets the body contain any run of non-quote characters OR
 # one whole "{...}" block (which may itself contain quotes) before the
 # closing quote.
@@ -563,11 +564,11 @@ def _branches_of(inner: str, committed: dict[str, str]) -> list[tuple[str, dict[
     # condition has another operand this function doesn't track (e.g.
     # "flag18 AND model=="Kate""), both branches stay possible (matching
     # Kate/Younger when transformed AND Kate/Natural when not) -- but if
-    # the equality IS the whole condition (e.g. tina_dress == "Vampyre"
+    # the equality IS the whole condition (e.g. character_dress == "Gala"
     # with no other operand), the commitment fully determines the
-    # outcome and only the TRUE branch is reachable (e.g. Vampyre can
+    # outcome and only the TRUE branch is reachable (e.g. Gala can
     # never also produce the FALSE branch's "Pool.jpg", only the TRUE
-    # branch's "Tina-Pool.jpg").
+    # branch's "Character-Pool.jpg").
     if matched_equality.group(0).strip() == condition.strip():
         return [(branches[0], {})]
     return [(b, {}) for b in branches]
@@ -617,7 +618,7 @@ def extract_resolved_tags(raw_tag_text: str) -> list[str]:
 
     Returns:
         De-duplicated, order-preserving list of fully-literal tag names
-        (e.g. "beasley/Male/beasley12m.jpg").
+        (e.g. "guide/Male/guide12m.jpg").
     """
     seen: dict[str, None] = {}
     for candidate in expand_braces(raw_tag_text):
@@ -666,10 +667,10 @@ def resolve_sibling_directory(images_root, name: str):
     """Return the real DirectoryIndex row for a sibling of `images_root`.
 
     A game's art usually lives under its own `images/` tree, but the
-    original may serve some of it from a directory BESIDE that one — ASFA
-    keeps its themed UI art and its book covers in `UI/`, a sibling of
-    `Images/`. Resolving those needs a lookup that steps up to the game
-    version directory first.
+    original may serve some of it from a directory BESIDE that one — e.g.
+    a game may keep themed UI art and other non-character images in a
+    `UI/` directory, a sibling of `images/`. Resolving those needs a
+    lookup that steps up to the game version directory first.
 
     Args:
         images_root: The game's `images/` DirectoryIndex row.
@@ -697,7 +698,7 @@ def resolve_tag_name(tag_name: str, images_root, character_folders: dict[str, st
     Args:
         tag_name: A tag_name exactly as it would appear in
             InkRuntimeState.current_tags at play time (e.g.
-            "beasley/Male/beasley12m.jpg").
+            "guide/Male/guide12m.jpg").
         images_root: The game's source-image tree DirectoryIndex row, from
             find_gallery_images_root().
         character_folders: The game's own tag-prefix -> gallery-folder
@@ -729,10 +730,9 @@ def resolve_tag_name(tag_name: str, images_root, character_folders: dict[str, st
         current = resolve_child_directory(images_root, prefix_lower)
         if current is None:
             # A game may serve some art from a SIBLING of images/ rather than
-            # a child of it: ASFA's original loads its themed antenna.png and
-            # its occult book covers from its own UI/ tree
-            # (game.js:358 getThemeFolder, personSirRonaldGates.js:632), which
-            # sits beside Images/, not inside it. Those tags were previously
+            # a child of it: a converted game's original source may load
+            # themed and non-character art from its own UI/ tree, which sits
+            # beside images/, not inside it. Those tags were previously
             # recorded as permanently unresolvable "asset outside the gallery
             # tree" blockers purely because this walk started one level too
             # deep. Only roots the game itself declared are looked up this

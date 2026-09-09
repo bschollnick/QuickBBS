@@ -909,7 +909,8 @@ class DirectoryIndex(models.Model):
            the wrong directory when the real gallery copy was missing.
 
         Each candidate is also tried with spaces replaced by underscores (the
-        legacy copier renames "asfa 14.17" to "asfa_14.17" in the gallery).
+        legacy copier renames a directory like "game 1.0" to "game_1.0" in
+        the gallery).
 
         Args:
             physical_path: Resolved alias target (any volume mount path)

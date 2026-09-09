@@ -895,6 +895,18 @@ PLAY_LAYOUT = "three_column"
 
     def setUp(self):
         self._enable_albums_root()
+        # `panelgame`/`panelgame.sidebar` are now REAL importable modules
+        # (2026-09-08's ink_engine standalone-library extraction), cached
+        # in sys.modules under their real dotted names like any other
+        # import. Every test in this class writes a fresh temp `panelgame`
+        # game folder under its own NEW _enable_albums_root() temp dir, but
+        # reuses the same module NAME -- so without evicting here, a test
+        # after the first would silently reuse the FIRST test's already-
+        # imported (and by then deleted) module instead of importing the
+        # one this setUp() just wrote to disk.
+        for name in ("panelgame", "panelgame.sidebar"):
+            sys.modules.pop(name, None)
+        self.addCleanup(lambda: [sys.modules.pop(name, None) for name in ("panelgame", "panelgame.sidebar")])
         self.client = Client()
         self.user = get_user_model().objects.create_user(username="panelplayer", password="pw")
         self.game_dir = self.albums_dir / "interactive_fiction" / "panelgame"
@@ -941,7 +953,12 @@ PLAY_LAYOUT = "three_column"
     def test_a_panel_that_raises_is_survived_rather_than_fatal(self):
         """A broken panel must not take the whole play page down with it."""
         (self.game_dir / "sidebar.py").write_text("def panel_context(a, b):\n    raise ValueError('boom')\n", encoding="utf-8")
-        sys.modules.pop("interactive_fiction._games.panelgame.sidebar", None)
+        # sidebar.py was already imported (with its working version) once
+        # by setUp()'s own call chain isn't triggered until game_panel_*
+        # is actually called -- but evict anyway in case a prior assertion
+        # in this same test method already triggered the import, so the
+        # rewritten file above is what actually gets read.
+        sys.modules.pop("panelgame.sidebar", None)
         self.assertIsNone(game_panel_context(self.story, {}, {}))
 
     def test_the_panel_answers_one_row_action(self):

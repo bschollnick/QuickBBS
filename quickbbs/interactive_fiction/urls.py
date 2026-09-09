@@ -29,7 +29,7 @@ urlpatterns: list[URLPattern] = [
     path("<slug:slug>/saves/<int:slot>/load/", save_views.saves_load, name="if_saves_load"),
     path("<slug:slug>/saves/<int:slot>/export/", save_views.saves_export, name="if_saves_export"),
     # `path:` (not `str:`) because tag_name is a path-qualified media tag —
-    # "beasley/Male/beasley12m.jpg", "shared/church8.jpg" — and Django's
+    # "guide/Male/guide12m.jpg", "shared/church8.jpg" — and Django's
     # `str:` converter matches any character EXCEPT "/". Under `str:` every
     # such tag failed to reverse (NoReverseMatch) and no story image was
     # ever served; only a hypothetical slash-free tag would have worked.

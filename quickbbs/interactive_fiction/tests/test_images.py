@@ -145,12 +145,11 @@ class SiblingRootResolutionTests(_AlbumsRootTestCase):
     """A game may serve art from a directory BESIDE its images/ tree.
 
     `find_gallery_images_root()` hands `resolve_tag_name` a single root --
-    the game's own `images/`. ASFA's original also loads art from `UI/`, a
-    SIBLING of `Images/`: the themed `antenna.png` (`game.js:358`
-    getThemeFolder) and the occult book covers
-    (`personSirRonaldGates.js:632`). Those tags resolved to nothing purely
-    because the walk started one level too deep, and were recorded in the
-    conversion as permanent "asset outside the gallery tree" blockers.
+    the game's own `images/`. A converted game may also load art from a
+    SIBLING of `images/` (e.g. a shared `ui/` directory holding themed or
+    non-character art). Tags into such a sibling resolved to nothing purely
+    because the walk started one level too deep -- a real gap found while
+    converting a story that used exactly this layout.
 
     Only roots the game itself declares in NON_CHARACTER_ROOTS are looked up
     this way, so a tag still cannot address anything outside the game's tree.
@@ -164,7 +163,7 @@ class SiblingRootResolutionTests(_AlbumsRootTestCase):
             `find_gallery_images_root()` would return, and the FileIndex row
             for a file living in the ui/ sibling.
         """
-        version_dir = self.albums_dir / "asfa_14.18a"
+        version_dir = self.albums_dir / "sample_game_1.0"
         make_gallery_image(version_dir / "images", "door.jpg")
         sibling_file = make_gallery_image(version_dir / "ui" / "books", "occulta.jpg")
         images_root = DirectoryIndex.objects.filter(fqpndirectory__iendswith="/images/").first()
@@ -202,7 +201,7 @@ class SiblingRootResolutionTests(_AlbumsRootTestCase):
         A root that really is a child of images/ must keep resolving there,
         so adding this cannot silently repoint an existing game's art.
         """
-        version_dir = self.albums_dir / "asfa_14.18a"
+        version_dir = self.albums_dir / "sample_game_1.0"
         child_file = make_gallery_image(version_dir / "images" / "items", "key.jpg")
         make_gallery_image(version_dir / "items", "key.jpg")
         images_root = DirectoryIndex.objects.filter(fqpndirectory__iendswith="/images/").first()
@@ -215,111 +214,109 @@ class SiblingRootResolutionTests(_AlbumsRootTestCase):
 
 class PersonValueModelChoiceTests(SimpleTestCase):
     """`build_model_var_values`/`_branches_of` against the corpus's own
-    `person_value_now(character_id, attribute)` accessor (the 2026-09-06
-    corpus-wide EXTERNAL rename's own real per-character-fact reader).
+    `person_value_now(character_id, attribute)` accessor -- a converted
+    game's real per-character-fact reader.
 
     A bare "{person_value_now("<id>", "<attr>")}" tag interpolation used to
-    be invisible to this scanner entirely, which only knew the OLDER plain-
+    be invisible to this scanner entirely, which only knew an OLDER plain-
     VAR model-choice shape (`{X}`/`{X()}`) -- so it fell through to the
     empty-string default and produced a literal double-slash tag_name (e.g.
-    "abby//abby0.jpg"), permanently unresolved. Confirmed live: fixing this
-    took ASFA's own unresolved-image count from 1275 to 212 in one pass
-    (`claude_docs/plans/asfa_engine_revamp.md`'s own Step 11 re-ingestion
-    entry has the full before/after). These are the real corpus shapes
-    that regression covers, pure functions with no filesystem/DB needed.
+    "nora//nora0.jpg"), permanently unresolved. These are the real
+    dispatch shapes found across a converted corpus that regression
+    covers, pure functions with no filesystem/DB needed.
     """
 
     def _write(self, tmp_path: Path, name: str, text: str) -> None:
         (tmp_path / name).write_text(text, encoding="utf-8")
 
     def test_a_bare_person_value_now_reference_resolves_via_its_chosen_dispatcher(self):
-        """The "*_model_chosen(" dispatch shape (abby.ink's own real
-        pattern): the character id/attribute named in the bare tag
-        reference must match the id/attribute the setter call two lines
-        below it writes to, not the dispatcher's own (possibly shorter,
-        real corpus example: "adele"/adele_ross) name."""
+        """The "*_model_chosen(" dispatch shape: the character
+        id/attribute named in the bare tag reference must match the
+        id/attribute the setter call two lines below it writes to, not the
+        dispatcher's own (possibly shorter) name."""
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             self._write(
                 tmp_path,
-                "abby.ink",
-                '+ [The one in white] -> abby_model_chosen("Agnes")\n'
-                '+ [The one in black] -> abby_model_chosen("Asa")\n'
-                "=== abby_model_chosen(chosenModel) ===\n"
-                '~ temp _pick = set_person_value_now("abby", "model", chosenModel)\n'
-                '# image: abby/{person_value_now("abby", "model")}/abby0.jpg\n'
+                "nora.ink",
+                '+ [The one in white] -> nora_model_chosen("Agnes")\n'
+                '+ [The one in black] -> nora_model_chosen("Asa")\n'
+                "=== nora_model_chosen(chosenModel) ===\n"
+                '~ temp _pick = set_person_value_now("nora", "model", chosenModel)\n'
+                '# image: nora/{person_value_now("nora", "model")}/nora0.jpg\n'
                 "-> DONE\n",
             )
             values = build_model_var_values(tmp_path)
-            self.assertEqual(values.get("abby_model"), ["Agnes", "Asa"])
+            self.assertEqual(values.get("nora_model"), ["Agnes", "Asa"])
             entries = scan_corpus(tmp_path)
             tags = set(entries[0]["resolved"])
-            self.assertEqual(tags, {"abby/Agnes/abby0.jpg", "abby/Asa/abby0.jpg"})
-            self.assertNotIn("abby//abby0.jpg", tags)
+            self.assertEqual(tags, {"nora/Agnes/nora0.jpg", "nora/Asa/nora0.jpg"})
+            self.assertNotIn("nora//nora0.jpg", tags)
 
     def test_a_bare_person_value_now_reference_resolves_via_a_direct_literal_write(self):
-        """No dispatcher at all (tinarobbins.ink's own real pattern): a
-        bare `set_person_value_now("id", "attr", "Literal")` call site,
-        with no "_chosen("/"_choose_model(" wrapper in between."""
+        """No dispatcher at all: a bare
+        `set_person_value_now("id", "attr", "Literal")` call site, with no
+        "_chosen("/"_choose_model(" wrapper in between."""
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             self._write(
                 tmp_path,
-                "tinarobbins.ink",
-                '~ temp _t = set_person_value_now("tina_robbins", "dress", "Vampyre")\n'
-                '# image: tinarobbins/{person_value_now("tina_robbins", "dress")}/tina0.jpg\n',
+                "miralane.ink",
+                '~ temp _t = set_person_value_now("mira_lane", "dress", "Gala")\n'
+                '# image: miralane/{person_value_now("mira_lane", "dress")}/mira0.jpg\n',
             )
             values = build_model_var_values(tmp_path)
-            self.assertEqual(values.get("tina_robbins_dress"), ["Vampyre"])
+            self.assertEqual(values.get("mira_lane_dress"), ["Gala"])
 
     def test_a_bare_person_value_now_reference_resolves_via_a_choose_model_stitch(self):
-        """The second real dispatch shape (ellie.ink's own real pattern):
-        a plain "<name>_choose_model(model)" stitch whose own NAME does not
+        """The second real dispatch shape: a plain
+        "<name>_choose_model(model)" stitch whose own NAME does not
         directly name the character id/attribute -- only its body's own
         set_person_value_now(...) write does."""
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             self._write(
                 tmp_path,
-                "ellie.ink",
-                '+ [brunette] -> ellie_choose_model("Carla")\n'
-                '+ [blonde] -> ellie_choose_model("Alix")\n'
-                "= ellie_choose_model(model)\n"
-                '~ temp _set = set_person_value_now("ellie_bartel", "model", model)\n'
-                '# image: ellie/{person_value_now("ellie_bartel", "model")}/ellie0.jpg\n',
+                "paige.ink",
+                '+ [brunette] -> paige_choose_model("Carla")\n'
+                '+ [blonde] -> paige_choose_model("Alix")\n'
+                "= paige_choose_model(model)\n"
+                '~ temp _set = set_person_value_now("paige_hale", "model", model)\n'
+                '# image: paige/{person_value_now("paige_hale", "model")}/paige0.jpg\n',
             )
             values = build_model_var_values(tmp_path)
-            self.assertEqual(values.get("ellie_bartel_model"), ["Alix", "Carla"])
+            self.assertEqual(values.get("paige_hale_model"), ["Alix", "Carla"])
 
     def test_a_zero_argument_function_return_may_itself_embed_a_person_value_now_reference(self):
-        """mom.ink's own real mom_dress(): its return literal is not a
-        plain string, it embeds a further "{person_value_now(...)}"
-        reference (her chosen model folder nested inside her age folder) --
+        """A character's own model-return function whose return literal is
+        not a plain string -- it embeds a further "{person_value_now(...)}"
+        reference (the character's chosen model folder nested inside their
+        age folder) --
         a plain `[^"]*` capture would truncate at that reference's own
         inner quote and never see the "/Younger"/"/Natural" suffix."""
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             self._write(
                 tmp_path,
-                "mom.ink",
-                '~ temp _m = set_person_value_now("mom", "model", "Elexis")\n'
-                "=== function mom_dress() ===\n"
-                '{ person_value_now("mom", "flag46_rejuvenated"):\n'
-                '    ~ return "{person_value_now("mom", "model")}/Younger"\n'
+                "guide.ink",
+                '~ temp _m = set_person_value_now("guide", "model", "Elexis")\n'
+                "=== function guide_dress() ===\n"
+                '{ person_value_now("guide", "flag46_rejuvenated"):\n'
+                '    ~ return "{person_value_now("guide", "model")}/Younger"\n'
                 "}\n"
-                '~ return "{person_value_now("mom", "model")}/Natural"\n'
+                '~ return "{person_value_now("guide", "model")}/Natural"\n'
                 "\n"
-                "=== mom_hub ===\n"
-                "# image: mom/{mom_dress()}/gabby-mom4.jpg\n",
+                "=== guide_hub ===\n"
+                "# image: guide/{guide_dress()}/guide4.jpg\n",
             )
             values = build_model_var_values(tmp_path)
-            self.assertEqual(set(values.get("mom_dress", [])), {"Elexis/Younger", "Elexis/Natural"})
+            self.assertEqual(set(values.get("guide_dress", [])), {"Elexis/Younger", "Elexis/Natural"})
 
     def test_cross_block_equality_prunes_impossible_person_value_now_combinations(self):
-        """misslogan.ink's own real recurring pattern: a later condition's
-        `person_value_now("miss_logan", "model") == "Kate"` must be checked
+        """A recurring real pattern: a later condition's
+        `person_value_now("miss_reed", "model") == "Kate"` must be checked
         against the SAME earlier bare-reference commitment
-        `{person_value_now("miss_logan", "model")}` made elsewhere in the
+        `{person_value_now("miss_reed", "model")}` made elsewhere in the
         same tag -- "Younger" only ever pairs with "Kate" in the real
         source condition, so "Samantha"+"Younger" must never be generated
         as a candidate tag (there is no such file, and never will be)."""
@@ -327,21 +324,21 @@ class PersonValueModelChoiceTests(SimpleTestCase):
             tmp_path = Path(tmp)
             self._write(
                 tmp_path,
-                "misslogan.ink",
-                '+ [glasses] -> misslogan_choose_model("Kate")\n'
-                '+ [books] -> misslogan_choose_model("Samantha")\n'
-                "= misslogan_choose_model(model)\n"
-                '~ temp _m = set_person_value_now("miss_logan", "model", model)\n'
-                '# image: misslogan/{person_value_now("miss_logan", "model")}/'
-                '{person_value_now("miss_logan", "model") == "Kate":Younger|Natural}/class1.jpg\n',
+                "missreed.ink",
+                '+ [glasses] -> missreed_choose_model("Kate")\n'
+                '+ [books] -> missreed_choose_model("Samantha")\n'
+                "= missreed_choose_model(model)\n"
+                '~ temp _m = set_person_value_now("miss_reed", "model", model)\n'
+                '# image: missreed/{person_value_now("miss_reed", "model")}/'
+                '{person_value_now("miss_reed", "model") == "Kate":Younger|Natural}/class1.jpg\n',
             )
             entries = scan_corpus(tmp_path)
             tags = set(entries[0]["resolved"])
             self.assertEqual(
                 tags,
                 {
-                    "misslogan/Kate/Younger/class1.jpg",
-                    "misslogan/Samantha/Natural/class1.jpg",
+                    "missreed/Kate/Younger/class1.jpg",
+                    "missreed/Samantha/Natural/class1.jpg",
                 },
             )
-            self.assertNotIn("misslogan/Samantha/Younger/class1.jpg", tags)
+            self.assertNotIn("missreed/Samantha/Younger/class1.jpg", tags)

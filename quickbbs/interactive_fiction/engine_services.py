@@ -66,8 +66,8 @@ exactly where they always were, entirely in this file.
 all** (per the plan's own "not part of this contract" design note) — a
 plugin's `Plugin.bind(own_state, engine_state)` never receives `story`,
 so it cannot call `ink_engine.engine.load_list_defs(story.compiled_json)`
-itself. The one real caller (`Albums/interactive_fiction/asfa/
-occupancy.py`'s `who_is_here_now()`, needing the `AllCharacters` LIST's
+itself. The one real caller (a converted game's own `occupancy.py`
+module, in its `who_is_here_now()`, needing the `AllCharacters` LIST's
 own item-name->int table) reads it from `engine_state[_LIST_DEFS_KEY]`
 instead — `bindings_for()` below computes it once, from `story`, stashes
 it there BEFORE calling `resolve_bindings()`, then POPS it back out
@@ -219,10 +219,11 @@ def bindings_for(story: "Story", engine_state: dict[str, Any] | None = None) -> 
 def game_panel_context(story: "Story", engine_state: dict[str, Any], globals_: dict[str, Any]) -> dict[str, Any] | None:
     """Return the side-panel data a game supplies for its play page.
 
-    Some games are more than prose: the original A Spell For All renders
-    a persistent right-hand panel beside the story text, and content that
-    belongs in a panel — an inventory listing, a device the player can
-    open — has nowhere to live in a pure choice-and-text page. Rather than
+    Some games are more than prose: a converted game's own original may
+    render a persistent right-hand panel beside the story text, and
+    content that belongs in a panel — an inventory listing, a device the
+    player can open — has nowhere to live in a pure choice-and-text page.
+    Rather than
     grow the engine a notion of "inventory panel" (which would be one
     game's UI imposed on every other), a game folder may ship a
     `sidebar.py` exposing `panel_context()`, and the engine renders
@@ -448,14 +449,13 @@ def game_panel_command(story: "Story", engine_state: dict[str, Any], globals_: d
     request, a turn, or a database row, matching `game_panel_context`/
     `game_panel_action`'s own separation of concerns.
 
-    **`globals_` may also be mutated in place** (2026-09-04) — the same
-    live `InkRuntimeState.globals` dict `play_panel_command` passes
-    through to `_build_current_game_state()` afterward, so a write here
-    (e.g. ASFA's own `panel_command` setting `player_is_possessing` to
-    complete a Possession cast via a personal-affect item) is captured
-    exactly like a mid-turn `~ player_is_possessing = "..."` assignment
-    would be. Read-only use (the original reason this parameter exists)
-    is unaffected.
+    **`globals_` may also be mutated in place** — the same live
+    `InkRuntimeState.globals` dict `play_panel_command` passes through to
+    `_build_current_game_state()` afterward, so a write here (e.g. a
+    game's own `panel_command` setting a global to complete an effect
+    triggered by an inventory item) is captured exactly like a mid-turn
+    `~ some_global = "..."` assignment would be. Read-only use (the
+    original reason this parameter exists) is unaffected.
 
     Args:
         story: The story being played.

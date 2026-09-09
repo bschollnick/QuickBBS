@@ -55,7 +55,7 @@ def _ensure_importable(game_dir: Path) -> str:
     return its dotted module name.
 
     A game folder under the Albums tree (e.g. `Albums/interactive_fiction/
-    asfa/`, containing a real `__init__.py`) is already a genuine Python
+    <game>/`, containing a real `__init__.py`) is already a genuine Python
     package on disk — it only needs its PARENT directory on `sys.path` for
     ordinary `importlib.import_module(game_dir.name)` to find it, exactly
     like any other installed package. This is a one-time, idempotent
@@ -68,9 +68,8 @@ def _ensure_importable(game_dir: Path) -> str:
             contain `__init__.py`).
 
     Returns:
-        The game's own dotted module name (its bare folder name — e.g.
-        "asfa"), ready to pass to `discover_plugins()` as a module-mode
-        source.
+        The game's own dotted module name (its bare folder name), ready
+        to pass to `discover_plugins()` as a module-mode source.
     """
     parent = str(game_dir.parent)
     if parent not in sys.path:

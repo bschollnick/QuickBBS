@@ -37,18 +37,18 @@ class AliasResolutionTestBase(DirectoryIndexTestBase):
             "albums/hentai_idea/test/videos/diana",
             "albums/hentai_idea/test/people/d/diana",
             "albums/hentai_idea/test/people/h/hally",
-            "albums/hentai_idea/hyp/games/asfa_14.17/images/people/alison",
+            "albums/hentai_idea/hyp/games/testgame_1.0/images/people/alison",
             "albums/site_a/videos/dup",
             "albums/site_b/videos/dup",
             # fake masters volume (physical alias targets — never indexed)
             "masters/videos/diana",
-            "masters/games/asfa 14.17/images/people/alison",
+            "masters/games/testgame 1.0/images/people/alison",
         )
         for rel in (
             "albums/hentai_idea/test/videos/diana",
             "albums/hentai_idea/test/people/d/diana",
             "albums/hentai_idea/test/people/h/hally",
-            "albums/hentai_idea/hyp/games/asfa_14.17/images/people/alison",
+            "albums/hentai_idea/hyp/games/testgame_1.0/images/people/alison",
             "albums/site_a/videos/dup",
             "albums/site_b/videos/dup",
         ):
@@ -103,10 +103,10 @@ class TestFindByPhysicalPathSuffix(AliasResolutionTestBase):
         assert result is None
 
     def test_space_to_underscore_variant_matches(self) -> None:
-        """masters 'asfa 14.17' matches the gallery's underscored copy."""
-        result = DirectoryIndex.find_by_physical_path(self._physical("masters/games/asfa 14.17/images/people/alison"))
+        """masters 'testgame 1.0' matches the gallery's underscored copy."""
+        result = DirectoryIndex.find_by_physical_path(self._physical("masters/games/testgame 1.0/images/people/alison"))
         assert result is not None
-        assert result.pk == self.dirs["albums/hentai_idea/hyp/games/asfa_14.17/images/people/alison"].pk
+        assert result.pk == self.dirs["albums/hentai_idea/hyp/games/testgame_1.0/images/people/alison"].pk
 
     def test_path_already_under_albums_root(self) -> None:
         """A target already inside the albums tree is looked up directly."""

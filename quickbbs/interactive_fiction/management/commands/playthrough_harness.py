@@ -4,11 +4,10 @@ Drives a real Story through random choices, using the exact same
 production path a real player's turn does (`load_list_defs` +
 `bindings_for(story, engine_state)`, per `views.py`'s own play view) --
 never a hand-assembled binding list, which previously produced a false
-"400+ call sites answer nobody-is-anywhere" scare (see
-`claude_docs/plans/asfa_engine_revamp.md`'s own "Engine wiring: 24
-unbound EXTERNALs closed" entry: that scare's real cause was a test
-harness that omitted the generic `character_occupancy` plugin from its
-own hand-built descriptor list, not a corpus or engine defect).
+"hundreds of call sites answer nobody-is-anywhere" scare: that scare's
+real cause was a test harness that omitted the generic
+`character_occupancy` plugin from its own hand-built descriptor list,
+not a corpus or engine defect.
 
 A "dead end" here means: `continue_story()` returned with zero choices
 and the story is not `done` (`DONE`/`END` reached) -- the pointer ran off

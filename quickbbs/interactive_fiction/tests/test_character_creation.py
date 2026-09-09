@@ -229,18 +229,18 @@ CHECKBOX_FIELDS = [
         "default": False,
     },
     {
-        "var": "mayor_born_male",
+        "var": "npc_born_male",
         "type": "checkbox",
-        "label": "Make the town's Mayor male? (slightly harder)",
+        "label": "Make the town's NPC male? (slightly harder)",
         "default": False,
-        "linked_vars": {"mayor_dress": {"True": "Eddie", "False": "Rachel"}},
+        "linked_vars": {"npc_name": {"True": "Alex", "False": "Robin"}},
     },
     {
-        "var": "no_nonhumans",
+        "var": "exclude_optional_content",
         "type": "checkbox",
-        "label": "Exclude non-human beings?",
+        "label": "Exclude optional content?",
         "default": False,
-        "linked_vars": {"vampyre_lilith_plot_counter": {"True": -1, "False": 0}},
+        "linked_vars": {"optional_quest_counter": {"True": -1, "False": 0}},
     },
     {
         "var": "transform_spell_disabled",
@@ -295,8 +295,8 @@ class CheckboxFieldTests(TestCase):
         response = self.client.get(f"/if/{self.story.slug}/", secure=True)
         self.assertIn(b"Explicit=true", response.content)
         self.assertIn(b"British=false", response.content)
-        self.assertIn(b"Mayor=Rachel/false", response.content)
-        self.assertIn(b"Vampyre=0", response.content)
+        self.assertIn(b"NPC=Robin/false", response.content)
+        self.assertIn(b"Quest=0", response.content)
         self.assertIn(b"Transform disabled=false", response.content)
         self.assertIn(b"Money=20", response.content)
         self.assertIn(b"Mana=0", response.content)
@@ -321,29 +321,29 @@ class CheckboxFieldTests(TestCase):
         self.assertIn(b"Explicit=true", response.content)
 
     def test_linked_vars_checkbox_sets_the_second_real_var_when_checked(self):
-        """Checking mayor_born_male also sets mayor_dress via linked_vars,
+        """Checking npc_born_male also sets npc_name via linked_vars,
         the same 'one choice, several VARs' pattern radio_image already
         uses for the gender picker."""
-        self.client.post(f"/if/{self.story.slug}/new-game/submit/", {"mayor_born_male": "on"}, secure=True)
+        self.client.post(f"/if/{self.story.slug}/new-game/submit/", {"npc_born_male": "on"}, secure=True)
         response = self.client.get(f"/if/{self.story.slug}/", secure=True)
-        self.assertIn(b"Mayor=Eddie/true", response.content)
+        self.assertIn(b"NPC=Alex/true", response.content)
 
     def test_linked_vars_checkbox_sets_the_false_branch_when_unchecked(self):
         """The linked_vars False branch is a real, asserted value (not
-        just 'don't set it') -- explicitly confirms no_nonhumans left
-        unchecked still writes vampyre_lilith_plot_counter=0, matching
+        just 'don't set it') -- explicitly confirms exclude_optional_content
+        left unchecked still writes optional_quest_counter=0, matching
         the manifest's own real default rather than leaving the story's
         compiled default (also 0 here) coincidentally agreeing."""
         self.client.post(f"/if/{self.story.slug}/new-game/submit/", {}, secure=True)
         response = self.client.get(f"/if/{self.story.slug}/", secure=True)
-        self.assertIn(b"Vampyre=0", response.content)
+        self.assertIn(b"Quest=0", response.content)
 
-    def test_checking_no_nonhumans_disables_vampyres_quest(self):
-        """Checking no_nonhumans sets vampyre_lilith_plot_counter=-1, the
-        real game's own permanent quest-disable sentinel."""
-        self.client.post(f"/if/{self.story.slug}/new-game/submit/", {"no_nonhumans": "on"}, secure=True)
+    def test_checking_exclude_optional_content_disables_the_optional_quest(self):
+        """Checking exclude_optional_content sets optional_quest_counter=-1,
+        the manifest's own permanent quest-disable sentinel."""
+        self.client.post(f"/if/{self.story.slug}/new-game/submit/", {"exclude_optional_content": "on"}, secure=True)
         response = self.client.get(f"/if/{self.story.slug}/", secure=True)
-        self.assertIn(b"Vampyre=-1", response.content)
+        self.assertIn(b"Quest=-1", response.content)
 
     def test_add_to_checkbox_adds_to_the_real_compiled_default_not_zero(self):
         """lottery_bonus adds 500 to the story's OWN real declared

@@ -1,6 +1,8 @@
 """claude_docs/plans/external_expansion_IF_engine.md's plugin-discovery
-redesign (2026-08-22): interactive_fiction.engine_api's scan/descriptor
-contract, EngineAPI's admin-managed enable/disable, and
+redesign (2026-08-22; contract updated 2026-09-08 by the `ink_engine`
+standalone-library extraction — see claude_docs/plans/
+ink_engine_standalone_extraction.md): interactive_fiction.engine_api's
+plugin-source assembly, EngineAPI's admin-managed enable/disable, and
 engine_services.bindings_for()'s real per-story isolation + logging.
 """
 
@@ -13,6 +15,7 @@ import tempfile
 import textwrap
 from pathlib import Path
 
+import ink_engine.engine_plugins
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase
 
@@ -55,26 +58,12 @@ class DiscoverApiDescriptorsTests(AlbumsPathOverrideMixin, SimpleTestCase):
         Asserted as an exact set on purpose: a plugin appearing here that
         nobody meant to ship is as much a problem as one going missing, so
         this is expected to fail when a plugin is added, and to be updated
-        deliberately. `characters` joined 2026-08-29 (asfa_engine_revamp.md
-        Step 9a); `cost_table` joined 2026-08-31."""
+        deliberately."""
         descriptors = discover_api_descriptors()
         self.assertEqual(
-            {"scheduling", "location_graph", "character_occupancy", "characters", "cost_table"},
+            {"scheduling", "location_graph", "character_occupancy", "characters", "cost_table", "skills", "quests"},
             set(descriptors),
         )
-
-    def test_skills_py_has_no_api_of_its_own(self):
-        """skills.py stays the generic, story-agnostic engine framework
-        (per external_expansion_IF_engine.md Step 7's "generic framework,
-        not one specific game's own implementation" design) — it deliberately has
-        no API descriptor of its own and must not be discovered directly.
-        a game's own skills module (the game-specific consumer built on
-        top of it, mirroring character_occupancy.py's (generic) / a game's own occupancy module's
-        (game-specific) split) now lives in that game's own folder and is
-        covered by DiscoverApiDescriptorsGameFolderTests below."""
-        descriptors = discover_api_descriptors()
-        self.assertNotIn("skills", descriptors)
-        self.assertNotIn("skill", descriptors)
 
     def test_scheduling_api_exposes_its_real_is_day_binding(self):
         """The scheduling API's descriptor carries a real is_day_now
@@ -85,46 +74,66 @@ class DiscoverApiDescriptorsTests(AlbumsPathOverrideMixin, SimpleTestCase):
     def test_duplicate_api_name_across_two_files_raises(self):
         """A real, unambiguous configuration error — never silently
         resolved by picking one file's descriptor arbitrarily. Uses two
-        REAL temporary .py files under interactive_fiction/engine_plugins/
-        (removed in tearDown), each declaring a real EngineAPIDescriptor
-        with the same name, rather than mocking the import mechanism —
-        proving the real scanner's own duplicate-detection path, not an
-        approximation of it."""
-        scan_dir = Path(__file__).resolve().parent.parent / "engine_plugins"
-        first_path = scan_dir / "_test_dup_api_a.py"
-        second_path = scan_dir / "_test_dup_api_b.py"
-        descriptor_source = textwrap.dedent("""
-            from interactive_fiction.engine_api import EngineAPIDescriptor
+        REAL temporary .py files under ink_engine's own engine_plugins/
+        (removed in tearDown), each declaring a real Plugin with the same
+        name, rather than mocking the import mechanism — proving the real
+        scanner's own duplicate-detection path, not an approximation of
+        it.
 
-            API = EngineAPIDescriptor(name="_test_dup_api", display_name="Test Dup API")
+        `discover_api_descriptors()` takes no `scan_dir` argument (the
+        OLD system's own signature) — it always scans `ink_engine`'s own
+        shipped `engine_plugins/` directory, so the duplicate fixture
+        files are written there directly."""
+        scan_dir = Path(ink_engine.engine_plugins.__file__).resolve().parent
+        # No leading underscore: ink_engine.discovery._scan_directory()
+        # deliberately skips any module whose name starts with "_" (its
+        # own real-module/private-helper convention) -- these fixture
+        # files must look like ordinary discoverable plugin modules.
+        first_path = scan_dir / "test_dup_api_a.py"
+        second_path = scan_dir / "test_dup_api_b.py"
+        descriptor_source = textwrap.dedent("""
+            from ink_engine.plugin import Plugin
+
+            PLUGIN = Plugin(name="_test_dup_api", display_name="Test Dup API")
             """)
         first_path.write_text(descriptor_source)
         second_path.write_text(descriptor_source)
         try:
             with self.assertRaises(ValueError):
-                discover_api_descriptors(scan_dir)
+                discover_api_descriptors()
         finally:
             first_path.unlink()
             second_path.unlink()
-            sys.modules.pop("interactive_fiction.engine_plugins._test_dup_api_a", None)
-            sys.modules.pop("interactive_fiction.engine_plugins._test_dup_api_b", None)
+            sys.modules.pop("ink_engine.engine_plugins.test_dup_api_a", None)
+            sys.modules.pop("ink_engine.engine_plugins.test_dup_api_b", None)
 
 
 class DiscoverApiDescriptorsGameFolderTests(AlbumsPathOverrideMixin, TestCase):
-    """discover_api_descriptors() must
-    discover a GAME's own API files under settings.ALBUMS_PATH/
-    interactive_fiction/<game_name>/ — loaded by real filesystem path,
-    since a game folder is a plain Albums data directory, never part of
-    this project's own Python package tree — with zero game-specific code
-    anywhere in the discovery mechanism itself. Proven here against a
-    synthetic game fixture, not any one real game, per the plan's own explicit
-    "prove genericity with a fixture, not just one real game" requirement.
+    """`discover_api_descriptors()` must discover a GAME's own API files
+    under settings.ALBUMS_PATH/interactive_fiction/<game_name>/ — with
+    zero game-specific code anywhere in the discovery mechanism itself.
+    Proven here against a synthetic game fixture, not any one real game,
+    per the plan's own explicit "prove genericity with a fixture, not
+    just one real game" requirement.
 
-    A TestCase (not SimpleTestCase) since a game folder's own .py files are
-    only ever loaded behind engine_api._game_folder_is_trusted's real
-    Story.objects lookup (Story.is_engine_trusted) — every test asserting a
-    game folder's API IS discovered must first create a trusted Story row
-    whose source_fqfn falls under that folder."""
+    **Module-mode discovery, 2026-09-08** (the `ink_engine` standalone-
+    library extraction — see claude_docs/plans/
+    ink_engine_standalone_extraction.md): a trusted game folder is a REAL
+    importable Python package now (`engine_api._ensure_importable()`
+    puts its PARENT directory on `sys.path`, then `discover_plugins()`
+    does one bare `importlib.import_module(game_name)` — never more than
+    that one call for a module-mode source). This means `discover_
+    api_descriptors()` never opens a game's own sibling `.py` files
+    directly (e.g. `widgets.py`) — only the game's own `__init__.py` is
+    ever imported, so a game's manifest must itself import and re-export
+    its submodules' `Plugin`s as a `PLUGINS = [...]` list for
+    `discover_plugins()` to ever see them.
+
+    A TestCase (not SimpleTestCase) since a trusted game folder is only
+    ever discovered behind engine_api._trusted_game_module_names()'s real
+    Story.objects lookup (Story.is_engine_trusted) — every test asserting
+    a game folder's API IS discovered must first create a trusted Story
+    row whose source_fqfn falls under that folder."""
 
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp()
@@ -140,11 +149,50 @@ class DiscoverApiDescriptorsGameFolderTests(AlbumsPathOverrideMixin, TestCase):
         self.games_dir.mkdir(parents=True)
         self.owner = get_user_model().objects.create_user(username="game_folder_discovery_owner", password="pw")
 
-    def _make_game_folder(self, name: str, *, with_init: bool = True) -> Path:
+    def tearDown(self):
+        super().tearDown()
+        # Every fixture game folder is imported for real under its own
+        # bare name (sys.path-inserted, per _ensure_importable) -- evict
+        # so the NEXT test's own same-named fixture (built under a fresh
+        # temp games_dir) is actually re-imported rather than silently
+        # reusing this test's now-deleted module.
+        for name in list(sys.modules):
+            if name.split(".", 1)[0] in ("teststory", "teststory2", "untrustedstory", "not_a_game", "gamea", "gameb"):
+                sys.modules.pop(name, None)
+
+    def _make_game_folder(self, name: str, *, plugin_names: tuple[str, ...] = (), with_init: bool = True) -> Path:
+        """Create a synthetic game folder, real enough for module-mode
+        discovery: a real Python package with an `__init__.py` that
+        re-exports a `PLUGINS` list gathering each name in `plugin_names`
+        from its own `widgets.py` sibling -- the same real pattern a
+        converted game's own manifest follows.
+
+        Args:
+            name: The game folder's bare name (also its real dotted
+                module name once discovered).
+            plugin_names: `Plugin.name` values `widgets.py` should
+                declare, each as its own `PLUGIN`-shaped attribute
+                gathered into `__init__.py`'s own `PLUGINS` list. Empty
+                for a game folder that ships no plugin at all.
+            with_init: False to omit `__init__.py` entirely (not a real
+                Python package at all, so never a game folder).
+
+        Returns:
+            The game folder's path.
+        """
         game_dir = self.games_dir / name
         game_dir.mkdir()
-        if with_init:
+        if not with_init:
+            return game_dir
+        if not plugin_names:
             (game_dir / "__init__.py").write_text("")
+            return game_dir
+        widgets_source = "\n".join(
+            f'PLUGIN_{i} = Plugin(name="{plugin_name}", display_name="{plugin_name}")' for i, plugin_name in enumerate(plugin_names)
+        )
+        (game_dir / "widgets.py").write_text(f"from ink_engine.plugin import Plugin\n\n{widgets_source}\n")
+        init_source = "from . import widgets as _widgets\n\nPLUGINS = [" + ", ".join(f"_widgets.PLUGIN_{i}" for i in range(len(plugin_names))) + "]\n"
+        (game_dir / "__init__.py").write_text(init_source)
         return game_dir
 
     def _real_game_dir(self, name: str) -> Path:
@@ -169,10 +217,10 @@ class DiscoverApiDescriptorsGameFolderTests(AlbumsPathOverrideMixin, TestCase):
     def _trust_game_folder(self, name: str) -> Story:
         """Create a Story whose source_fqfn falls under game folder `name`
         and is marked is_engine_trusted -- the one real gate that lets
-        discover_api_descriptors() load that folder's own .py files.
+        discover_api_descriptors() import that folder's own package.
 
         Uses `_real_game_dir(name)`, NOT `self.games_dir / name` or a plain
-        `Path.resolve()` on it -- engine_api._game_folder_is_trusted
+        `Path.resolve()` on it -- engine_api._trusted_game_module_names()
         compares source_fqfn against the real filesystem path
         discover_api_descriptors() iterates (built from
         DirectoryIndex.get_albums_root(), which is both resolved AND
@@ -199,71 +247,46 @@ class DiscoverApiDescriptorsGameFolderTests(AlbumsPathOverrideMixin, TestCase):
         )
 
     def test_a_real_game_folder_api_is_discovered_by_file_path(self):
-        """A synthetic game's own API file, loaded by real filesystem
-        path (not a dotted import — this folder is outside the Python
-        package tree entirely), is discovered once its Story is trusted."""
-        game_dir = self._make_game_folder("teststory")
+        """A synthetic game's own real package, importable once its
+        Story is trusted, is discovered via its own `__init__.py`
+        `PLUGINS` re-export."""
+        self._make_game_folder("teststory", plugin_names=("teststory_widgets",))
         self._trust_game_folder("teststory")
-        (game_dir / "widgets.py").write_text(textwrap.dedent("""
-                from interactive_fiction.engine_api import EngineAPIDescriptor
-
-                API = EngineAPIDescriptor(name="teststory_widgets", display_name="Test Story Widgets")
-                """))
         descriptors = discover_api_descriptors()
         self.assertIn("teststory_widgets", descriptors)
 
     def test_an_untrusted_game_folders_api_is_not_discovered(self):
         """The inverse of the above: with no trusted Story backing this
-        folder, its .py file is never loaded/executed at all — the real
+        folder, it is never made importable/imported at all — the real
         behavior the security gate exists for."""
-        game_dir = self._make_game_folder("untrustedstory")
-        (game_dir / "widgets.py").write_text(textwrap.dedent("""
-                from interactive_fiction.engine_api import EngineAPIDescriptor
-
-                API = EngineAPIDescriptor(name="untrustedstory_widgets", display_name="Untrusted Story Widgets")
-                """))
+        self._make_game_folder("untrustedstory", plugin_names=("untrustedstory_widgets",))
         descriptors = discover_api_descriptors()
         self.assertNotIn("untrustedstory_widgets", descriptors)
 
     def test_a_folder_with_no_init_py_is_not_treated_as_a_game(self):
         """A directory under interactive_fiction/ with no __init__.py is
         an ordinary, unrelated, or not-yet-populated directory — not a
-        game folder — and its .py files are never scanned."""
-        game_dir = self._make_game_folder("not_a_game", with_init=False)
-        (game_dir / "widgets.py").write_text(textwrap.dedent("""
-                from interactive_fiction.engine_api import EngineAPIDescriptor
-
-                API = EngineAPIDescriptor(name="should_never_be_found", display_name="Should Never Be Found")
-                """))
+        real Python package, so never a game folder at all."""
+        self._make_game_folder("not_a_game", with_init=False)
         descriptors = discover_api_descriptors()
         self.assertNotIn("should_never_be_found", descriptors)
 
     def test_generic_plugin_and_game_folder_apis_coexist(self):
-        """A real generic plugin API (engine_plugins/) and a synthetic
-        game's own API are both discovered in the same call, with no
-        collision."""
-        self._make_game_folder("teststory2")
+        """A real generic plugin API (ink_engine's own engine_plugins/)
+        and a synthetic game's own API are both discovered in the same
+        call, with no collision."""
+        self._make_game_folder("teststory2", plugin_names=("teststory2_widgets",))
         self._trust_game_folder("teststory2")
-        (self.games_dir / "teststory2" / "widgets.py").write_text(textwrap.dedent("""
-                from interactive_fiction.engine_api import EngineAPIDescriptor
-
-                API = EngineAPIDescriptor(name="teststory2_widgets", display_name="Test Story 2 Widgets")
-                """))
         descriptors = discover_api_descriptors()
         self.assertIn("scheduling", descriptors)
         self.assertIn("teststory2_widgets", descriptors)
 
     def test_duplicate_name_across_two_game_folders_raises(self):
         """The duplicate-name check spans every game folder, not just
-        files within one folder."""
+        one folder's own PLUGINS list."""
         for game_name in ("gamea", "gameb"):
-            game_dir = self._make_game_folder(game_name)
+            self._make_game_folder(game_name, plugin_names=("_shared_dup_name",))
             self._trust_game_folder(game_name)
-            (game_dir / "widgets.py").write_text(textwrap.dedent("""
-                    from interactive_fiction.engine_api import EngineAPIDescriptor
-
-                    API = EngineAPIDescriptor(name="_shared_dup_name", display_name="Shared Dup Name")
-                    """))
         with self.assertRaises(ValueError):
             discover_api_descriptors()
 
@@ -320,10 +343,17 @@ class BindingsForPerStoryIsolationTests(TestCase):
 
     def test_trusted_story_with_an_enabled_opted_in_api_gets_its_bindings(self):
         """The real success path: trusted + opted-in + enabled yields the
-        API's real bindings."""
+        API's real bindings.
+
+        `scheduling` is a stateful plugin now (it owns a real clock slot,
+        `state_key="scheduling"`/`init_state`/`bind` all set) -- unlike
+        the OLD system, a caller MUST pass an `engine_state` dict, or
+        `bindings_for()` correctly withholds every stateful plugin's own
+        bindings (see test_no_engine_state_dict_yields_no_stateful_bindings
+        in test_engine_config_schemas.py's sibling coverage)."""
         story = self._make_story("trusted-opted-in", trusted=True)
         StorySystemConfig.objects.create(story=story, system_name="scheduling")
-        result = bindings_for(story)
+        result = bindings_for(story, {})
         self.assertIn("is_day_now", result)
 
     def test_two_stories_opted_into_the_same_api_are_fully_independent(self):
@@ -333,8 +363,8 @@ class BindingsForPerStoryIsolationTests(TestCase):
         story_a = self._make_story("story-a", trusted=True)
         story_b = self._make_story("story-b", trusted=False)
         StorySystemConfig.objects.create(story=story_a, system_name="scheduling")
-        self.assertIn("is_day_now", bindings_for(story_a))
-        self.assertEqual(bindings_for(story_b), {})
+        self.assertIn("is_day_now", bindings_for(story_a, {}))
+        self.assertEqual(bindings_for(story_b, {}), {})
 
     def test_opting_into_a_disabled_api_yields_no_bindings(self):
         """A disabled API contributes no bindings even to a trusted,

@@ -30,7 +30,7 @@ The resolved target path is matched to a directory in the gallery database, in t
 2. **`ALIAS_MAPPING` override** — An explicit translation table in `quickbbs_settings.py` (see below).  The longest matching path prefix wins.  If a mapping matches but the translated directory does not exist in the gallery, the link is reported as a *missing gallery copy* — it will not fall through to guessing.
 3. **Suffix matching** — The target's trailing path components are matched against existing gallery directories.  At least **two** trailing components must match; a bare directory-name match is never trusted, because a single name can easily match the wrong directory.
 
-At each step, a second candidate with spaces replaced by underscores is also tried (e.g. `asfa 14.17` also matches a gallery copy named `asfa_14.17`), to accommodate copy tools that rename directories.
+At each step, a second candidate with spaces replaced by underscores is also tried (e.g. `game 1.0` also matches a gallery copy named `game_1.0`), to accommodate copy tools that rename directories.
 
 If no match is found, the link is treated as broken and logged.
 
