@@ -112,42 +112,6 @@ def _new_game_state(story: Story, engine_state: dict[str, Any], initial_globals:
     return state
 
 
-# Titles/words derived purely from the one gender value a "radio_image"
-# character-creation field can set — real formulas straight from a
-# converted game's own VAR citation comment. The real game asks ONE
-# question ("are you a man or a woman?"), never seven — these are computed
-# automatically whenever a submitted field sets `player_gender`, not asked
-# as separate form fields.
-def _compute_derived_gender_vars(gender: str) -> dict[str, Any]:
-    """Compute every gender-only title/word VAR derived from one gender choice.
-
-    Args:
-        gender: The player's own gender value — the original's `sGender`
-            string, one of "man", "woman" or "futa".
-
-    Returns:
-        The 6 derived VAR values a game folder's `_globals.ink` (or
-        equivalent) declares alongside its own gender value:
-        `player_master_title`, `player_lord_title`, `player_sir_title`,
-        `player_miss_title`, `player_man_woman_word`, `player_sex_word`.
-
-        All six are "man vs. not a man", and futa counts as not-a-man:
-        source's own `getManWoman()` (`people.js:859`) collapses futa to
-        "woman". The sex-organ question ("is this body male-sexed?", true
-        for a futa too) is NOT derived here — it is a formula over the
-        gender value, which the story asks directly.
-    """
-    is_man = gender == "man"
-    return {
-        "player_master_title": "Master" if is_man else "Mistress",
-        "player_lord_title": "My Lord" if is_man else "My Lady",
-        "player_sir_title": "Sir" if is_man else "Ma'am",
-        "player_miss_title": "Mr" if is_man else "Miss",
-        "player_man_woman_word": "man" if is_man else "woman",
-        "player_sex_word": "boy" if is_man else "girl",
-    }
-
-
 def _resolve_radio_image_choice(field: dict[str, Any], post_data: dict[str, str]) -> dict[str, Any]:
     """Resolve one submitted `radio_image` field to its chosen `value` dict.
 
@@ -187,13 +151,8 @@ def _character_creation_globals(story: Story, post_data: dict[str, str], base_gl
     Returns:
         Every Ink global to set before the story's first turn: each
         field's own chosen value (a `radio_image` field's `value` is
-        itself a dict of `{var_name: value}` pairs, merged in directly),
-        plus, for any `radio_image` field whose chosen value sets
-        `player_gender`, the 6 real derived title/word VARs
-        (`_compute_derived_gender_vars()`) computed automatically — never
-        asked as their own separate fields, matching the real game's own
-        single gender question. A
-        missing/invalid submission for a field falls back to that
+        itself a dict of `{var_name: value}` pairs, merged in directly).
+        A missing/invalid submission for a field falls back to that
         field's own declared `default`.
     """
     result: dict[str, Any] = {}
@@ -223,8 +182,6 @@ def _character_creation_globals(story: Story, post_data: dict[str, str], base_gl
             continue
         for target_var, amount in additive["add_to"].items():
             result[target_var] = result.get(target_var, base_globals.get(target_var, 0)) + amount
-    if "player_gender" in result:
-        result.update(_compute_derived_gender_vars(str(result["player_gender"])))
     return result
 
 

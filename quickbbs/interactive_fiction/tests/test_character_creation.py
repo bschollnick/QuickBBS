@@ -146,27 +146,13 @@ class CharacterCreationViewTests(TestCase):
 
         play_response = self.client.get(f"/if/{self.story.slug}/", secure=True)
         self.assertIn(b"Hello, Alicia", play_response.content)
-        self.assertIn(b"Mistress", play_response.content)
-
-    def test_submitting_male_choice_sets_the_derived_master_title(self):
-        """Choosing option 0 (male) derives player_master_title = 'Master'
-        automatically, without it being its own form field."""
-        self.client.post(
-            f"/if/{self.story.slug}/new-game/submit/",
-            {"player_name": "Bob", "player_gender": "0"},
-            secure=True,
-        )
-        play_response = self.client.get(f"/if/{self.story.slug}/", secure=True)
-        self.assertIn(b"Master", play_response.content)
-        self.assertNotIn(b"Mistress", play_response.content)
 
     def test_missing_submission_falls_back_to_declared_defaults(self):
         """An empty POST falls back to each field's own declared default
-        (player_name="Bob", the male option) rather than erroring."""
+        (player_name="Bob") rather than erroring."""
         self.client.post(f"/if/{self.story.slug}/new-game/submit/", {}, secure=True)
         play_response = self.client.get(f"/if/{self.story.slug}/", secure=True)
         self.assertIn(b"Hello, Bob", play_response.content)
-        self.assertIn(b"Master", play_response.content)
 
     def test_anonymous_submit_is_redirected_to_login(self):
         """Submitting the form while logged out is gated behind login,
