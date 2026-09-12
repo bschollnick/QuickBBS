@@ -306,8 +306,8 @@ def static_or_resources(request, pathstr: str | None = None):
     """
     Serve static or resource files from configured directories (WSGI sync mode).
 
-    Uses Django's staticfiles finders which can locate files from multiple
-    static directories (including app-specific static folders).
+    Resolves via `_locate_static_or_resource_file()`: RESOURCES_PATH
+    first, then STATIC_ROOT. App-specific static folders are not searched.
 
     Args:
         request: Django request object

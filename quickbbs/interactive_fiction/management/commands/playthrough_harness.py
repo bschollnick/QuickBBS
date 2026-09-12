@@ -62,10 +62,9 @@ class Command(BaseCommand):
 
         # `max_steps` is a safety bound, not a pass/fail signal on its own:
         # a long story genuinely may not converge on DONE/END within 600
-        # random steps (confirmed against this plan's own 2026-09-01
-        # baseline run: 40 runs / 22,463 steps is ~562 steps/run on
-        # average, so most of those "0 hangs" runs also used nearly the
-        # full budget without reaching an ending). The one real failure
+        # random steps: a baseline run averaged ~562 steps/run, so most
+        # runs use nearly the full budget without reaching an ending.
+        # The one real failure
         # this loop watches for is a DEAD END -- continue_story() returning
         # with zero choices while the story is not done, i.e. the pointer
         # ran off the end of content with nothing to do next, which is a

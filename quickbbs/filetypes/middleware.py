@@ -5,20 +5,17 @@ from filetypes.models import load_filetypes
 
 
 class FiletypeLoaderMiddleware:
-    """
-    Ensure filetypes are loaded once per worker process.
+    """Ensure filetypes are loaded once per worker process.
 
-    This middleware loads the filetype data from the database when the worker
-    process starts, avoiding the need to check/load on every request.
+    Loading happens on the FIRST REQUEST, not at construction: `__init__`
+    can run in an async context even under WSGI, where a DB read is
+    unsafe.
 
-    Supports both WSGI (sync) and ASGI (async) modes for backward compatibility.
+    Supports both WSGI (sync) and ASGI (async) modes.
     """
 
     def __init__(self, get_response):
-        """
-        Initialize middleware and load filetypes.
-
-        This executes once when the worker process starts.
+        """Initialize the middleware. Loads no filetypes; see the class docstring.
 
         Args:
             get_response: The next middleware or view in the chain

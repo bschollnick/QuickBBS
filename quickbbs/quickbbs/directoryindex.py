@@ -207,11 +207,11 @@ class DirectoryIndex(models.Model):
         related_name="parent_dir",
     )
     # lastscan/lastmod are never filtered standalone (sorts always follow a
-    # parent_directory filter), so they carry no index (pg_stat, 2026-07-04).
+    # parent_directory filter), so they carry no index.
     lastscan = models.FloatField(default=None)  # Stored as Unix TimeStamp (ms)
     lastmod = models.FloatField(default=None)  # Stored as Unix TimeStamp (ms)
-    # Cache-watcher scan tracking (merged from cache_watcher.fs_Cache_Tracking,
-    # see claude_docs/plans/Directory_index_overhaul.md). No index on either field:
+    # Cache-watcher scan tracking (merged from cache_watcher.fs_Cache_Tracking).
+    # No index on either field:
     # every access path reaches the row via dir_fqpn_sha256 (unique index) or pk,
     # and keeping them unindexed makes watcher-driven UPDATEs HOT-eligible.
     cache_invalidated = models.BooleanField(default=True)  # True = needs rescan
@@ -403,31 +403,19 @@ class DirectoryIndex(models.Model):
 
     @property
     def numdirs(self) -> None:
-        """
-        Stub property for template compatibility.
+        """Stub property for template compatibility; always None.
 
-        Provides API compatibility between DirectoryIndex and FileIndex objects when used in
-        Jinja2 templates. This allows templates to access .numdirs on either object type
-        without checking the instance type first. FileIndex objects return actual directory
-        counts, while this property returns None since directory objects don't track this metric.
-
-        Returns:
-            None
+        Lets a template read `.numdirs` without first checking whether it
+        holds a DirectoryIndex or a FileIndex.
         """
         return None
 
     @property
     def numfiles(self) -> None:
-        """
-        Stub property for template compatibility.
+        """Stub property for template compatibility; always None.
 
-        Provides API compatibility between DirectoryIndex and FileIndex objects when used in
-        Jinja2 templates. This allows templates to access .numfiles on either object type
-        without checking the instance type first. FileIndex objects return actual file
-        counts, while this property returns None since directory objects don't track this metric.
-
-        Returns:
-            None
+        Lets a template read `.numfiles` without first checking whether it
+        holds a DirectoryIndex or a FileIndex.
         """
         return None
 
@@ -635,8 +623,7 @@ class DirectoryIndex(models.Model):
         """
         Get all parent directory SHAs using optimized batch queries.
 
-        Pure Django ORM with no external dependencies. Uses iterative batch fetching
-        instead of recursive CTE, but still much more efficient than N*M approach.
+        Uses iterative batch fetching rather than a recursive CTE.
 
         Args:
             sha_list: Sequence of directory SHA256 hashes to find parents for
@@ -645,10 +632,7 @@ class DirectoryIndex(models.Model):
         Returns:
             Set containing all input SHAs plus all ancestor SHAs
 
-        Performance:
-            - Queries: O(D) where D = max directory depth (typically 5-10)
-            - Old approach: O(N + N*M) where N = dirs, M = avg depth
-            - Improvement: Batches all directories per level vs per-directory traversal
+        Issues O(D) queries, where D is the maximum directory depth.
 
         Example:
             Input: ["sha_of_/albums/photos/2024", "sha_of_/albums/videos"]
@@ -700,15 +684,9 @@ class DirectoryIndex(models.Model):
         """
         Delete the Directory_Index record and ensure cache cleanup.
 
-        Optimized version that accepts a DirectoryIndex record directly,
-        avoiding redundant database lookups.
+        Accepts a DirectoryIndex record directly, avoiding a lookup.
 
-        FileIndex records are NOT deleted with the directory: home_directory
-        uses on_delete=DB_SET_NULL, so the directory's files survive as orphans
-        (home_directory=None). This is intentional — files can be referenced
-        from multiple directories, so orphans are a legitimate state. Orphaned
-        rows are cleaned up later via the OrphanedFileIndex path in
-        ThumbnailFiles.get_or_create_thumbnail_record().
+        FileIndex rows survive as orphans; see `delete_directory()`.
 
         Args:
             index_dir: DirectoryIndex instance to delete
@@ -796,18 +774,17 @@ class DirectoryIndex(models.Model):
         """
         Return the count of items in the directory, broken down by filetype.
 
-        Benchmark-only — no production callers as of 2026-07-06. If ever
-        promoted to production, rewrite as a single
-        `values("filetype__fileext").annotate(Count("id"))` GROUP BY instead
-        of the current one-`Count(filter=...)`-per-filetype aggregate, which
-        emits a FILTER clause for every known filetype whether present in the
-        directory or not.
+        Benchmark-only -- no production callers.
 
         Returns: dictionary, where the key is the filetype (e.g. "dir", "jpg", "mp4"),
         and the value is the number of items of that filetype.
         A special "all_files" key is used to store the # of all items in the directory (except
         for directories).  (all_files is the sum of all file types, except "dir")
         """
+        # TODO: if promoted to production, rewrite as a single
+        # `values("filetype__fileext").annotate(Count("id"))` GROUP BY; the
+        # per-filetype aggregate emits a FILTER clause for every known
+        # filetype whether present in the directory or not.
         filetypes_dict = get_ftype_dict()
 
         # Single aggregate query for ALL file counts by type
@@ -904,9 +881,9 @@ class DirectoryIndex(models.Model):
            suffix matching.
         3. Longest-suffix match against existing gallery DirectoryIndex rows,
            requiring at least two trailing path components. A bare basename
-           match is never trusted — validated against all 474 production
-           aliases (2026-07-07), every single-component "unique" match linked
-           the wrong directory when the real gallery copy was missing.
+           match is never trusted: across all 474 production aliases,
+           every single-component "unique" match linked the WRONG directory
+           when the real gallery copy was missing.
 
         Each candidate is also tried with spaces replaced by underscores (the
         legacy copier renames a directory like "game 1.0" to "game_1.0" in
@@ -1042,9 +1019,7 @@ class DirectoryIndex(models.Model):
         and shipping them back as an IN list.
 
         Django preserves the DISTINCT ON ordering inside the __in subquery
-        because distinct fields are set (verified against live data
-        2026-07-06: DISTINCT ON and its inner ORDER BY survive subquery
-        compilation, results identical to the materialized-list design).
+        because distinct fields are set.
 
         Args:
             sort: Sort order to apply (0-2)
@@ -1366,10 +1341,9 @@ class DirectoryIndex(models.Model):
             return queryset.only(*fields_only).order_by(*DIR_SORT_MATRIX[sort])
 
         # Full query with all related objects prefetched
-        # REMOVED: Hardcoded Prefetch("FileIndex_entries"...) - Phase 5 Fix 3
-        # Prefetching all files in a directory loads 1-2MB per directory unnecessarily
-        # File counts are obtained via annotation, not prefetch iteration
-        # Only prefetch if explicitly requested via prefetch_related parameter
+        # Files are not prefetched by default: that loads 1-2MB per
+        # directory, and counts come from an annotation instead. Prefetch
+        # only when the caller asks via prefetch_related.
 
         # Apply select_related for forward FKs/OneToOne
         if select_related:
@@ -1557,15 +1531,9 @@ class DirectoryIndex(models.Model):
         - Updates modification times for changed directories
         - Creates new subdirectories found in filesystem
 
-        IMPORTANT - Async Wrapper Pattern:
-        This function is SYNC and wrapped with sync_to_async at the call site.
-        This pattern is safer than having nested @sync_to_async decorators within an async function.
+        This function is SYNC and wrapped with sync_to_async at the call
+        site. All DB operations run inside `transaction.atomic()` blocks.
 
-        Why sync instead of async:
-        - All operations are database transactions (atomic blocks)
-        - Prevents nested async/sync boundary issues
-        - Single sync_to_async wrapper is more efficient than multiple nested ones
-        - Easier to reason about transaction boundaries
 
         Thread Safety:
         - All DB operations in transaction.atomic() blocks
@@ -1740,15 +1708,6 @@ class DirectoryIndex(models.Model):
         - Creates new files found in filesystem
         - Uses bulk operations for efficiency
 
-        IMPORTANT - Simplification Notes:
-        Removed complex chunking logic that was causing multiple QuerySet evaluations.
-        Previous version called .count() multiple times and used dynamic batch sizing.
-
-        Current approach:
-        - Single pass through QuerySet (no chunking for updates check)
-        - Simpler logic = faster execution and easier to understand
-        - Still uses bulk operations for actual DB writes
-
         Two-Stage Update Detection:
         Stage 1 fetches a lightweight dict per matched file (via .values()) and
         runs _file_needs_check() against the filesystem stat — no ORM object
@@ -1759,10 +1718,8 @@ class DirectoryIndex(models.Model):
         _file_needs_check() for the exact conditions mirrored from
         check_for_updates().
 
-        Thread Safety:
-        - This is a SYNC function wrapped with sync_to_async at call site
-        - All DB operations safe for WSGI/ASGI
-        - Transactions handled in _execute_batch_operations
+        This is a SYNC function, wrapped with sync_to_async at the call
+        site; transactions are handled in `FileIndex.bulk_sync()`.
 
         Args:
             fs_entries: Dictionary mapping title-cased entry names to
@@ -1927,14 +1884,12 @@ def get_ordered_sibling_dirs(parent_pk: int, sort: int) -> list[tuple[str, str]]
         parent's subdirectories, excluding delete-pending rows.
 
     Note:
-        Sibling navigation order is intentionally NOT favorite-aware (out of
-        scope — see claude_docs/plans/favorites_redesign.md Testing
-        Checklist, which limits favorite-first ordering to gallery listing
-        display). DIR_SORT_MATRIX's leading -is_favorited key still requires
-        an is_favorited annotation to exist on any queryset it orders, so
-        this always annotates the Value(False, ...) no-op constant (never a
-        user-correlated Exists) — same query shape/result as before the
-        favorites feature existed, just satisfying the new sort key.
+        Sibling navigation order is NOT favorite-aware; favorite-first
+        ordering applies to gallery listings only. DIR_SORT_MATRIX's
+        leading -is_favorited key still needs an is_favorited annotation
+        on any queryset it orders, so this always annotates the
+        `Value(False, ...)` no-op constant, NEVER a user-correlated
+        Exists.
     """
     # Deferred: avoids a module-load-time cycle — .favorite imports back
     # into this chain via quickbbs.models.
@@ -2013,10 +1968,8 @@ def update_database_from_disk(directory_record: "DirectoryIndex") -> "DirectoryI
     # Timed separately from start_time above: start_time also covers the
     # is_cached/refresh_from_db short-circuits, which are near-zero-cost and
     # would dilute a measurement of actual scan duration. rescan_start marks
-    # entry into the real filesystem-scan branch specifically — see Finding 2
-    # in claude_docs/plans/async_simplification.md (this branch's duration is
-    # unbounded, proportional to directory size, and was previously invisible
-    # in production since the only timing was this function's DEBUG-level log).
+    # entry into the real filesystem-scan branch, whose duration is
+    # unbounded and proportional to directory size.
     rescan_start = time.perf_counter()
 
     # Get filesystem entries using the directory path from the record

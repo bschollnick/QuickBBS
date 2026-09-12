@@ -1,6 +1,6 @@
 """Tests for interactive_fiction.images: linking a story's Ink tag to a real
 gallery FileIndex row (see
-claude_docs/plans/interactive_fiction_fileindex_mapping.md).
+the FileIndex mapping design).
 
 TestCase (never TransactionTestCase, per standing project rule).
 """

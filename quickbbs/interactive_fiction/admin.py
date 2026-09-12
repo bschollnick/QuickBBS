@@ -68,10 +68,9 @@ class StoryAccessInline(admin.TabularInline):
 class StoryAdmin(admin.ModelAdmin):
     """Admin interface for the Story model, including access grants.
 
-    `is_engine_trusted` is deliberately admin-only (never exposed to the
-    upload form or any user-facing view) — see
-    claude_docs/plans/external_expansion_IF_engine.md's Design section for
-    why this must stay a superuser-only, explicit, per-story opt-in.
+    `is_engine_trusted` is admin-only, never exposed to the upload form
+    or any user-facing view: it must stay a superuser-only, explicit,
+    per-story opt-in.
 
     `game_ingestion_error` is surfaced in `list_display`/`list_filter`
     (the game-folder separation design work's own decided
@@ -161,9 +160,8 @@ class StoryImageAdmin(admin.ModelAdmin):
 
 @admin.register(EngineAPI)
 class EngineAPIAdmin(admin.ModelAdmin):
-    """Admin interface for discovered engine APIs — the real Enabled/
-    Disabled toggle (explicit user requirement, 2026-08-22) controlling
-    whether a scanned API is available to any story at all. Rows are
+    """Admin interface for discovered engine APIs -- the Enabled/Disabled
+    toggle controlling whether a scanned API is available to any story. Rows are
     created/refreshed only by the `scan_if_stories` management command,
     never by hand — `name`/`display_name`/`discovered_at`/`last_seen_at`
     are read-only here; `is_enabled` is the one real editable field.

@@ -1,14 +1,6 @@
 """
 STANDALONE FILE MANIPULATION UTILITY - NO DATABASE OPERATIONS
 
-This script and cached_exists.py are standalone file manipulation utilities that use:
-- In-memory dictionaries for file caching
-- File system operations only
-- NO actual database queries or connections
-
-Any references to "database operations" in this context refer to the cached_exists
-module's in-memory file caching system, NOT actual database queries.
-
 PATH AND FILENAME NORMALIZATION:
 - Source directories can have leading/trailing whitespace in their names
 - Target directories will have all whitespace stripped from each path component

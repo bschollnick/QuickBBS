@@ -1,5 +1,5 @@
 """Scanner ingestion for game folders under Albums/interactive_fiction/
-(Step 9; re-scoped per the game-folder separation design work).
+Game-folder ingestion.
 
 Two entry points the scan command calls as an additive post-pass after its
 own normal work — the only touch to existing scan code is two call sites in
@@ -34,7 +34,7 @@ what `Story.is_engine_trusted` gates on. Resolving/loading those plugins
 for real is a separate, later, explicit admin action (marking the Story
 trusted), not a precondition for the Story existing at all.
 
-Every real .inkj candidate still goes through Step 4's full validation
+Every real .inkj candidate still goes through the same full validation
 (validate_story_upload, imported from interactive_fiction.story_views) —
 a mislabeled .inkj that isn't compiled Ink is rejected and logged, never
 stored as a story.
@@ -217,14 +217,8 @@ def _get_scan_owner():
 def find_inkj_file_by_path(full_filepathname: str) -> FileIndex | None:
     """Resolve one .inkj file's full path directly to its live FileIndex row.
 
-    Used by interactive_fiction.views._source_gallery_item_sha256 to resolve
-    a scanner-ingested story back to its originating gallery item (the
-    mirror image of ingest_stories()'s file -> story direction) — a single
-    indexed directory lookup plus a filtered in-directory query, rather than
-    live_inkj_files()'s full-table scan, since that function needs to check
-    only one path, not enumerate every candidate. A thin, .inkj-filtered
-    wrapper over interactive_fiction.images.find_file_by_path's shared
-    two-step DirectoryIndex-then-files_in_dir resolution.
+    A `.inkj`-filtered wrapper over
+    `interactive_fiction.images.find_file_by_path`.
 
     Args:
         full_filepathname: The full path to look up (e.g. Story.source_fqfn).
@@ -451,12 +445,8 @@ def _link_new_game_field_images(story: Story, game_dir: Path) -> None:
             resolve each filename to its own real FileIndex row.
 
     Returns:
-        None. A filename that hasn't been scanned yet (game folder just
-        unzipped, scanner hasn't run) is silently left unlinked — the
-        next `verify_stories()` pass re-runs this and links it then;
-        `character_creation.jinja`'s own image tag simply renders broken
-        until that happens, same tolerance `_current_image_urls()`
-        already has for a work-in-progress story's placeholder tags.
+        None. A filename that has not been scanned yet is silently left
+        unlinked; the next `verify_stories()` pass links it.
     """
     for field in story.game_new_game_fields:
         if field.get("type") != "radio_image":
@@ -642,7 +632,7 @@ def ingest_stories_in_directory(directory: DirectoryIndex) -> int:
 
 
 def _tombstone(story: Story) -> None:
-    """Mark a story unavailable and clear its compiled_json (Step 9's tombstone).
+    """Mark a story unavailable and clear its compiled_json (a tombstone).
 
     Args:
         story: The scanner-ingested story whose source file is gone.

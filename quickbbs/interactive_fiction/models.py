@@ -77,30 +77,23 @@ class Story(models.Model):
     source_fqfn = models.CharField(max_length=1024, blank=True, default="")
     source_sha256 = models.CharField(max_length=64, blank=True, default="")
     is_available = models.BooleanField(default=True)
-    # Engine-service trust gate (claude_docs/plans/external_expansion_IF_engine.md):
-    # default False for every story, including every scanner-ingested `.inkj`
-    # file and every user upload. Only a superuser flipping this explicitly in
-    # Django admin (see StoryAdmin) makes engine.py's `_call_function()` ever
-    # dispatch this story's EXTERNAL calls to a real Python callable instead of
-    # the story's own compiled-in Ink fallback function. Getting this default
-    # wrong in either direction reopens the exact remote-code-execution risk
-    # the 2026-08-15 "QuickBBS never binds host functions" decision closed for
-    # arbitrary third-party uploaded Ink content — this field exists
-    # specifically so that decision keeps holding for every story except ones
-    # this project itself authors and a human explicitly marks as trusted.
+    # Engine-service trust gate. Default False for EVERY story, including
+    # every scanner-ingested `.inkj` and every user upload; only a
+    # superuser flipping this in Django admin makes `_call_function()`
+    # dispatch this story's EXTERNAL calls to a real Python callable
+    # instead of its compiled-in Ink fallback. Getting the default wrong
+    # reopens a remote-code-execution risk on uploaded Ink content.
     is_engine_trusted = models.BooleanField(default=False)
     # Game-manifest fields (see the game-folder separation design work):
     # populated from a game folder's own mandatory __init__.py
     # (Albums/interactive_fiction/<game_name>/__init__.py) at ingestion
     # time — blank/default for a story created via the upload form, which
-    # has no game folder/manifest at all. game_author is free text (no
-    # further structure requested); game_required_plugins is the real
-    # list of ink_engine.plugin.Plugin names this game's manifest declares
-    # it needs, checked against the live discover_api_descriptors() registry
-    # at every ingestion/verification pass — a name that stops resolving
-    # after the story was already ingested (e.g. an API file deleted
-    # later) is exactly the same real, logged, admin-visible
-    # misconfiguration class as game_ingestion_error below.
+    # has no game folder/manifest at all. game_required_plugins is the
+    # list of ink_engine.plugin.Plugin names the manifest declares. It is
+    # stored verbatim: ingestion never resolves these names (that would
+    # mean loading the game's own .py files, which is_engine_trusted
+    # gates). They are checked at play time by
+    # engine_services.bindings_for(), which logs a mismatch.
     game_author = models.CharField(max_length=255, blank=True, default="")
     game_required_plugins = models.JSONField(default=list, blank=True)
     # The game's own declared character-creation questions (a game with
@@ -116,12 +109,10 @@ class Story(models.Model):
     # written into InkRuntimeState.globals before the story's first
     # continue_story() call, never stored on this row itself.
     game_new_game_fields = models.JSONField(default=list, blank=True)
-    # Set by ingestion when a game folder's manifest is missing, its
-    # MAIN_STORY_FILE doesn't match a real .inkj present, or a
-    # game_required_plugins entry doesn't resolve to a real, currently
-    # discovered ink_engine.plugin.Plugin — per the plan's own decided
-    # hard-failure + admin-visible-flag behavior. Blank means "ingested
-    # cleanly" (the normal case for every non-game-folder story too).
+    # Set by ingestion when a game folder's manifest is missing or its
+    # MAIN_STORY_FILE doesn't match a real .inkj present. Blank means
+    # "ingested cleanly" (the normal case for every non-game-folder story
+    # too).
     game_ingestion_error = models.CharField(max_length=1024, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -249,11 +240,7 @@ class StoryImage(models.Model):
 
 class EngineAPI(models.Model):
     """One discovered engine API — a reusable system Python module
-    exposing an `ink_engine.plugin.Plugin`
-    (claude_docs/plans/ink_engine_standalone_extraction.md's standalone-
-    library redesign, 2026-09-08; originally
-    `claude_docs/plans/external_expansion_IF_engine.md`'s plugin-discovery
-    redesign, 2026-08-22).
+    exposing an `ink_engine.plugin.Plugin`.
 
     One row per real discovered `Plugin.name`, populated by
     the `scan_if_stories` management command (never by hand — this is
@@ -327,33 +314,22 @@ def sync_engine_apis() -> tuple[int, int]:
 
 
 class StorySystemConfig(models.Model):
-    """One reusable engine system's own config for one story
-    (claude_docs/plans/external_expansion_IF_engine.md Step 4, reworked
-    2026-08-22 for real plugin discovery).
+    """One reusable engine system's own config for one story.
 
-    Mirrors `StoryImage`'s existing "narrow, per-story side-table" shape —
-    one row per (story, system_name), not one shared JSONField on `Story`
-    merging every system's config together — so a future system can be
-    added with zero migration on `Story` itself, and each system's config
-    can be validated/versioned independently of the others.
+    One row per (story, system_name), not one shared JSONField on
+    `Story`, so each system's config is validated independently.
 
-    ``system_name`` is a plain, validated string (NOT a closed
-    `TextChoices` enum, corrected 2026-08-22) — an enum baked into
-    QuickBBS's own model can never represent an API discovered later via
-    the scan-based plugin mechanism without a migration, which defeats the
-    entire "third parties add APIs without touching QuickBBS source"
-    goal. `clean()` instead checks `system_name` against the LIVE set of
-    real `Plugin` names discovered on disk (regardless of
-    that API's own `EngineAPI.is_enabled` state — a story may declare
-    config for an API that exists but isn't enabled yet, the same way a
-    Story may be created before ever being marked `is_engine_trusted`),
-    then runs that specific API's own `validate_config` against `config`.
-    This config surface is a real, separate risk from the EXTERNAL
-    binding-trust question `Story.is_engine_trusted` already gates
-    (Step 2/3) — a story does NOT need to be engine-trusted for this
-    validation to matter, since even an untrusted story's config could
-    otherwise become an injection surface if a future system read it
-    carelessly.
+    ``system_name`` is a plain validated string, never a closed
+    `TextChoices` enum: an enum could not name an API discovered later
+    without a migration. `clean()` checks it against the LIVE set of
+    `Plugin` names discovered on disk — regardless of that API's
+    `EngineAPI.is_enabled` state — then runs that API's own
+    `validate_config` against `config`.
+
+    **Validation applies to untrusted stories too.** This is a separate
+    risk from the EXTERNAL binding-trust `Story.is_engine_trusted`
+    gates: an untrusted story's config could still become an injection
+    surface if a future system read it carelessly.
     """
 
     story = models.ForeignKey(Story, on_delete=models.DB_CASCADE, related_name="system_configs")

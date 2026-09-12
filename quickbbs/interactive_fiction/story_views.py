@@ -1,12 +1,8 @@
-"""Story-management views for the interactive_fiction app (Steps 4/5).
+"""Story-management views for the interactive_fiction app.
 
-Split out of views.py (2026-08-16) once that module passed pylint's
-1000-line module threshold after Steps 5/7/8 — a pure file-organization
-split, no behavior changed. story_image()/story_video()/story_cover() serve
-a story's linked gallery FileIndex rows (see
-claude_docs/plans/interactive_fiction_fileindex_mapping.md); upload()/edit()
-are the authoring flow (Step 4), referencing existing gallery files by path
-rather than accepting uploaded bytes.
+story_image()/story_video()/story_cover() serve a story's linked gallery
+FileIndex rows. upload()/edit() are the authoring flow, **referencing
+existing gallery files by path rather than accepting uploaded bytes.**
 """
 
 from __future__ import annotations
@@ -150,7 +146,7 @@ def story_cover(request: WSGIRequest, slug: str) -> HttpResponse:
 
 
 def validate_story_upload(raw_bytes: bytes) -> tuple[dict[str, Any] | None, list[str]]:
-    """Validate an uploaded compiled-Ink-JSON file per Step 4's rules.
+    """Validate an uploaded compiled-Ink-JSON file.
 
     Args:
         raw_bytes: The raw uploaded file content.
@@ -196,7 +192,7 @@ def create_story_from_compiled_json(owner, title: str, data: dict[str, Any], *, 
     Shared by upload() (source_fqfn/source_sha256 left at their defaults —
     an upload-form story has no scanner-tracked source file) and
     interactive_fiction.ingestion.ingest_stories() (which passes both,
-    per the plan's Step 9 scanner-ingestion fields).
+    scanner-ingestion fields).
 
     Args:
         owner: The story's owner.

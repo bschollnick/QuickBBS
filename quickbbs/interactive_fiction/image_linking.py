@@ -2,15 +2,9 @@
 and (re)link them as StoryImage rows — the graphics half of Interactive
 Fiction ingestion.
 
-Moved here from a game-conversion tooling folder 2026-08-27, unchanged in
-its resolution logic. It had been filed with the one-shot JavaScript->Ink
-conversion scripts it was written alongside,
-but it is not one-shot: it has to run every time a story's tags change, so
-it belongs in the ingestion path. Filing it as conversion tooling is what
-let a graphics outage happen — new `# image:` tags were added by later
-conversion passes and nothing in ingestion knew to link them. Now called
-by `interactive_fiction.ingestion.relink_story_images()`, which
-`scan_if_stories` runs on every pass.
+This is NOT one-shot conversion tooling: it runs every time a story's
+tags change, via `interactive_fiction.ingestion.relink_story_images()`,
+which `scan_if_stories` calls on every pass.
 
 Game-agnostic by construction. The two pieces of per-game knowledge —
 which gallery folder each character's tag prefix maps to, and which
@@ -206,12 +200,6 @@ def resolve_child_directory(parent, name: str):
     return children.get(name.lower())
 
 
-# CHARACTER_KEY_TO_GALLERY_FOLDER / NON_CHARACTER_ROOTS now live in
-# character_gallery_mapping.py, imported above (consolidated Step 3 of
-# an image-triage design pass -- this
-# script and retrofit_image_tags.py previously each declared their own
-# copy, which had drifted cosmetically out of sync).
-
 MEDIA_TAG_RE = re.compile(r"^\s*#\s*(image|video):\s*(.+?)\s*$")
 INNERMOST_BRACE_RE = re.compile(r"\{([^{}]*)\}")
 FILENAME_TOKEN_RE = re.compile(r"\S+\.(?:jpg|jpeg|png|gif|webp|bmp|mp4|webm)", re.IGNORECASE)
@@ -250,8 +238,7 @@ VAR_CHOSEN_CALL_RE = re.compile(r"([a-z_][a-z0-9_]*_model)_chosen\(\s*\"([^\"]*)
 # A second real model-picker dispatch shape, distinct from "*_model_chosen(":
 # a plain "<name>_choose_model(model)" stitch (ellie.ink's ellie_choose_model,
 # lauren.ink's lauren_choose_model, leanne.ink's leanne_choose_model,
-# misslogan.ink's misslogan_choose_model -- all real, all corpus-standard,
-# confirmed 2026-09-06 in this session's own model-picker conversion pass)
+# misslogan.ink's misslogan_choose_model -- all corpus-standard)
 # whose own dispatcher name does not directly name the character id/attribute
 # the way "*_model_chosen(" does -- it has to be read from the stitch's own
 # body, which immediately writes the parameter through
@@ -279,8 +266,8 @@ KNOT_HEADER_RE = re.compile(r"^\s*={2,}\s*[a-z_]", re.IGNORECASE | re.MULTILINE)
 # closing quote.
 RETURN_LITERAL_RE = re.compile(r'~\s*return\s+"((?:[^"{]|\{[^{}]*\})*)"', re.IGNORECASE)
 # A tag's bare "{person_value_now("<character_id>", "<attribute>")}"
-# interpolation (the corpus's own standardized per-character-fact accessor,
-# 2026-09-06 corpus-wide EXTERNAL rename) reads the same fact
+# interpolation (the corpus's standardized per-character-fact accessor)
+# reads the same fact
 # "<character_id>_<attribute>_chosen(...)"/"~ <character_id>_<attribute> ="
 # write sites already register under, via VAR_CHOSEN_CALL_RE/VAR_WRITE_RE --
 # it just names it as an accessor CALL rather than a bare VAR. Recognized
@@ -434,8 +421,7 @@ def _branches_of(inner: str, committed: dict[str, str]) -> list[tuple[str, dict[
     is dropped to an empty-string branch, matching a pre-choice/default
     state.
 
-    Cross-block consistency (the real bug this fixes, found 2026-08-26):
-    a bare "{X}" reference records its own chosen literal as a real
+    Cross-block consistency: a bare "{X}" reference records its own chosen literal as a real
     commitment (`committed[X] = literal`) for the REST of this same
     expansion path. A later condition containing "X == "Literal"" (e.g.
     misslogan.ink's own recurring

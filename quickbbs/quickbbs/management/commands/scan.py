@@ -374,7 +374,7 @@ def verify_thumbnails(max_count: int = 0):
     safeguard_size = settings.SMALL_THUMBNAIL_SAFEGUARD_SIZE
     total_thumbnails = ThumbnailFiles.objects.count()
 
-    # Phase 1: Use octet_length to find suspect thumbnails (small blobs = likely corruption)
+    # Use octet_length to find suspect thumbnails (small blobs = likely corruption)
     print(f"Total thumbnails in database: {total_thumbnails}")
     print(f"Filtering for suspect thumbnails (small_thumb < {safeguard_size} bytes)...")
     sys.stdout.flush()

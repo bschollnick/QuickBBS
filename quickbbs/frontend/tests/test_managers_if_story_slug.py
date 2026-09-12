@@ -1,4 +1,4 @@
-"""Step 9 tests: build_context_info()'s "if_story_slug" key — the gallery
+"""Tests: build_context_info()'s "if_story_slug" key — the gallery
 item view's link to a scanner-ingested .inkj story's play page.
 
 Reuses frontend.tests.test_views.ViewSmokeTestBase's fixture (a real temp

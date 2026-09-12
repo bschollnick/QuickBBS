@@ -424,8 +424,8 @@ STATIC_ROOT = os.path.join(BASE_DIR, "static")
 # RESOURCES_PATH must NOT be listed here: resources/ is served directly by
 # frontend.serve_up.static_or_resources() and is the single source of truth
 # for custom assets. Listing it made `collectstatic` copy the entire
-# resources/ tree into static/, creating stale shadow copies (2026-07-10
-# incident - see .claude/templates-frontend.md "Serving Priority").
+# resources/ tree into static/, creating stale shadow copies -- see
+# .claude/templates-frontend.md "Serving Priority".
 # collectstatic now only collects app assets (admin, grappelli, etc.).
 STATICFILES_DIRS: list[str] = []
 

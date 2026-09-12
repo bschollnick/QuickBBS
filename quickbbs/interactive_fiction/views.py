@@ -6,25 +6,16 @@ behind quickbbs.common.require_login_if_configured. The library view is the
 one route that follows the site-wide policy, since its anonymous branch
 (Story.objects.filter(is_public=True)) already handles open-browsing installs.
 
-play()/play_submit() are implemented (Step 3): the turn loop reads/writes
-CurrentGame.state via InkRuntimeState.to_dict()/from_dict(), and
-play_submit() enforces the concurrent-tab guard described in the plan (a
-stale tab's submitted turn_count no longer matching the stored row is
-rejected rather than silently applied). play_undo()/play_restart() (Step 8)
-and the library's play-status annotations (Step 7) build on the same
-CurrentGame.state shape, with "transcript"/"previous_state" layered on top
-of InkRuntimeState's own serialized fields (see _build_current_game_state()).
+The turn loop reads/writes CurrentGame.state via
+InkRuntimeState.to_dict()/from_dict(), and play_submit() enforces a
+concurrent-tab guard: a stale tab whose submitted turn_count no longer
+matches the stored row is rejected. "transcript"/"previous_state" are
+layered on top of InkRuntimeState's own serialized fields (see
+_build_current_game_state()).
 
-Story upload/authoring (Step 4/5: upload(), edit(), story_image(),
-story_cover()) lives in story_views.py; named save-slot management (Step 3:
-saves(), saves_save(), saves_load(), saves_export(), saves_import()) lives
-in save_views.py — both split out of this module 2026-08-16 once it passed
-pylint's 1000-line module threshold. A game's own side panel (play_panel_tab(),
-play_panel_action(), play_panel_command()) lives in panel_views.py, split
-out the same way 2026-09-04. _load_game_state()/_render_play_content()/
-_build_current_game_state() stay here and are imported by every sibling
-module, since they're the shared engine-state plumbing every view in the
-app needs.
+Sibling modules hold the rest of the app's views: story_views.py
+(upload/authoring), save_views.py (named save slots), panel_views.py (a
+game's side panel). The shared engine-state helpers they import stay here.
 """
 
 from __future__ import annotations
@@ -86,22 +77,14 @@ def _new_game_state(story: Story, engine_state: dict[str, Any], initial_globals:
             stateful API's own `init_state()`/bound closures, so the
             caller's own reference already reflects the new game's
             initial per-API state once this returns.
-        initial_globals: Real Ink VAR values to set before the story's
-            own opening `continue_story()` call runs — e.g. a
-            character-creation answer (`player_name`, `player_gender`)
-            collected by `character_creation_submit()` for a game whose
-            manifest declares `Story.game_new_game_fields`. None (the
-            default, and the case for every story without such fields)
-            leaves the compiled story's own declared VAR defaults
-            untouched.
+        initial_globals: Ink VAR values to set BEFORE the opening
+            `continue_story()` call, e.g. a character-creation answer.
+            None leaves the story's own declared VAR defaults untouched.
 
     Returns:
-        A new InkRuntimeState, given real EXTERNAL bindings
-        (engine_services.bindings_for(story, engine_state),
-        claude_docs/plans/external_expansion_IF_engine.md Step 3, extended
-        2026-08-23 for stateful APIs) only if story is marked
-        Story.is_engine_trusted, and already advanced through its first
-        continue_story() call so it's ready to display.
+        A new InkRuntimeState, given real EXTERNAL bindings only if the
+        story is marked Story.is_engine_trusted, and already advanced
+        through its first continue_story() call so it is ready to display.
     """
     root = load_story_root(story.compiled_json)
     list_defs = load_list_defs(story.compiled_json)
@@ -385,26 +368,20 @@ def _load_game_state(story: Story, saved: CurrentGame | SaveState | dict[str, An
             what saved.state was serialized against).
         saved: The stored row (either model — both carry a `state`
             JSONField holding an InkRuntimeState.to_dict() result in the
-            identical shape) or a raw state dict directly (Step 8's
-            play_undo() passes CurrentGame.state["previous_state"] this way
-            — it's already the same shape, with no row to wrap it in).
+            identical shape) or a raw state dict directly (play_undo()
+            passes CurrentGame.state["previous_state"] this way).
         engine_state: The session's own mutable `engine_state` dict,
             typically read straight out of the same `saved` dict/row this
             call is rebuilding from (see `_build_current_game_state()`) —
             passed straight through to `engine_services.bindings_for()`.
 
     Returns:
-        The rebuilt InkRuntimeState, given the same real EXTERNAL bindings
-        (engine_services.bindings_for(story, engine_state),
-        claude_docs/plans/external_expansion_IF_engine.md Step 3, extended
-        2026-08-23 for stateful APIs) a fresh game for this same story
-        would get — re-derived from story.is_engine_trusted on every
-        load, never itself part of the saved state (only each stateful
-        API's own DATA is). A path in saved.state that no longer resolves
-        against story.compiled_json degrades per InkRuntimeState.from_dict()'s
-        own rules (a dropped choice, a null pointer) rather than raising —
-        full save-compatibility repair (detecting this and recovering to
-        the nearest valid point) is Step 4 scope, not attempted here.
+        The rebuilt InkRuntimeState, given the same bindings a fresh game
+        would get. Bindings are re-derived from story.is_engine_trusted on
+        every load and are never part of the saved state; only each
+        stateful API's DATA is. A path in saved.state that no longer
+        resolves against story.compiled_json degrades per
+        `InkRuntimeState.from_dict()` rather than raising.
     """
     root = load_story_root(story.compiled_json)
     list_defs = load_list_defs(story.compiled_json)
@@ -417,30 +394,25 @@ def _play_content_context(
 ) -> dict[str, object]:
     """Build the template context shared by the play page and its partial.
 
-    `state.done` alone is not "the story has genuinely ended" — Section
-    3's engine deliberately sets it whenever a bare "done"/"end" marker is
-    reached, even mid-turn while choices are still pending (choose()
-    clears it again on the next selection), so a `ControlCommand.Done`
-    encountered between two sibling choices in the same weave doesn't
-    look any different from the real end of the story unless this is
-    checked alongside current_choices. The story is only actually over
-    when there is nothing left to choose either.
+**`state.done` alone is NOT "the story ended".** The engine sets it at
+    any bare "done"/"end" marker, including mid-turn while choices are
+    still pending. The story is over only when `done and not
+    current_choices`.
 
     Args:
         request: The incoming request.
         story: The story being played.
         state: The current InkRuntimeState.
-        transcript: Step 8's rolling turn history (oldest first), or None
+        transcript: The rolling turn history (oldest first), or None
             if the caller has none to show (e.g. a fresh CurrentGame row
             that hasn't been through _build_current_game_state() yet).
         can_undo: Whether a "previous_state" exists to undo back to
-            (Step 8) — False for a story's very first turn.
+            False for a story's very first turn.
 
     Returns:
         The context dict for play_content.jinja (and play.jinja, which
         includes it). "image_urls" resolves every image:/video: tag active
-        on this turn (Step 5; shim layer added
-        claude_docs/plans/standalone_if_player.md Step 3) to a servable
+        on this turn to a servable
         URL, GROUPED by kind (every resolved image, then every resolved
         video) — a tag with no matching StoryImage row is silently
         dropped, not surfaced as an error, so a work-in-progress story
@@ -485,35 +457,22 @@ def _render_play_content(
 def _build_current_game_state(
     state: InkRuntimeState, previous_raw_state: dict[str, Any] | None, transcript: list[dict[str, object]], engine_state: dict[str, Any]
 ) -> dict[str, Any]:
-    """Build the dict written into CurrentGame.state, layering Step 8's
-    presentation-history keys on top of InkRuntimeState.to_dict().
+    """Build the dict written into CurrentGame.state.
 
-    "transcript", "previous_state", and "engine_state" are QuickBBS-level
-    bookkeeping, not core engine state — InkRuntimeState.to_dict()/
-    from_dict() know nothing about them (from_dict() ignores unrecognized
-    keys via its own data.get() reads, and to_dict() naturally omits
-    them), so this function is the one place that layers them onto the
-    engine's own serialized dict before it goes to the database, and
-    _load_game_state()/the views read them back out of the same dict by
-    key.
+    "transcript", "previous_state" and "engine_state" are QuickBBS-level
+    bookkeeping the engine knows nothing about; this is the one place
+    that layers them onto `InkRuntimeState.to_dict()`.
 
     Args:
         state: The current InkRuntimeState, already advanced to this turn.
-        previous_raw_state: The raw dict CurrentGame.state held *before*
-            this turn was applied (i.e. before calling state.choose()) —
-            stored verbatim so Undo can restore it exactly, including its
-            own transcript/previous_state/engine_state keys. None for a
-            fresh game (no undo target yet).
+        previous_raw_state: The raw dict CurrentGame.state held BEFORE
+            this turn was applied, stored verbatim so Undo restores it
+            exactly. None for a fresh game.
         transcript: The rolling list of past turns (see
             _append_transcript_entry()), already capped.
-        engine_state: The per-API state dict built/mutated by this same
-            turn's own `bindings_for(story, engine_state)` call (see
-            `_new_game_state()`/`_load_game_state()`) — e.g. whatever a
-            stateful API's own `bind_stateful` closures wrote via
-            `set_location()`-style calls during `state.continue_story()`.
-            Stored verbatim; `_load_game_state()`'s own caller reads it
-            back out under this same key to rebuild the next turn's
-            bindings from.
+        engine_state: The per-API state dict this turn's own
+            `bindings_for(story, engine_state)` call mutated. Stored
+            verbatim and read back to rebuild the next turn's bindings.
 
     Returns:
         The dict to store in CurrentGame.state.
@@ -545,7 +504,7 @@ def _append_transcript_entry(transcript: list[dict[str, object]], text: str, cho
 
 
 def _story_play_statuses(user: "AbstractUser | AnonymousUser", stories: list[Story]) -> dict[int, str]:
-    """Classify each story's play state for the given user (Step 7/8).
+    """Classify each story's play state for the given user.
 
     Reads straight from CurrentGame.state's JSON rather than reconstructing
     a full InkRuntimeState per story (which would mean loading every
@@ -611,7 +570,7 @@ def library(request: WSGIRequest) -> HttpResponse:
     Returns:
         A rendered library page listing owned, public, and granted stories
         (public only, for anonymous users), each annotated with its play
-        status (Step 7: not started / continue / finished), and a sidebar
+        status (not started / continue / finished), and a sidebar
         (mirrors the main gallery's components/sidebar_base.jinja) with
         first/prev/next/last page controls and a page selector — the
         library has no directory tree to navigate, so only pagination and
@@ -775,7 +734,7 @@ def play_submit(request: WSGIRequest, slug: str) -> HttpResponse:
 @login_required
 @require_POST
 def play_undo(request: WSGIRequest, slug: str) -> HttpResponse:
-    """Undo the last choice, restoring CurrentGame to its previous turn (Step 8).
+    """Undo the last choice, restoring CurrentGame to its previous turn.
 
     One level only — the restored row's own "previous_state" (whatever it
     held before *that* turn) becomes the new undo target, so a second
@@ -825,7 +784,7 @@ def play_undo(request: WSGIRequest, slug: str) -> HttpResponse:
 @login_required
 @require_POST
 def play_restart(request: WSGIRequest, slug: str) -> HttpResponse:
-    """Reset CurrentGame to the story's start, discarding in-flight progress (Step 8).
+    """Reset CurrentGame to the story's start, discarding in-flight progress.
 
     Named SaveState slots are untouched — restart only ever affects the
     single per-(user, story) CurrentGame row, matching the plan's "named
@@ -863,7 +822,7 @@ def play_restart(request: WSGIRequest, slug: str) -> HttpResponse:
 
 @login_required
 def preferences(request: WSGIRequest) -> HttpResponse:
-    """View/edit the current user's Interactive Fiction reader display preferences (Step 8).
+    """View/edit the current user's Interactive Fiction reader display preferences.
 
     Extends the existing per-user UserPreferences mechanism
     (user_preferences/models.py) with two IF-specific fields

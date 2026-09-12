@@ -141,7 +141,7 @@ def build_context_info(
         "next_sha": next_sha,
         "previous_sha": previous_sha,
         "page_locale": (dirs_count + current_page - 1) // settings.GALLERY_ITEMS_PER_PAGE + 1,
-        # Interactive Fiction (Step 9): a scanner-ingested .inkj file's item
+        # Interactive Fiction: a scanner-ingested .inkj file's item
         # view links to its play page. None for every other filetype, and
         # for an .inkj file whose Story row hasn't been created yet (e.g.
         # scanned but not yet ingested, or ingestion rejected it) — the

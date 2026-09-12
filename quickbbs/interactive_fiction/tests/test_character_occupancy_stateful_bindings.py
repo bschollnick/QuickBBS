@@ -1,7 +1,4 @@
-"""claude_docs/plans/external_expansion_IF_engine.md's "stateful EXTERNAL
-bindings" design (2026-08-23; contract updated 2026-09-08 by the
-`ink_engine` standalone-library extraction, see claude_docs/plans/
-ink_engine_standalone_extraction.md): character_occupancy.py's
+"""The "stateful EXTERNAL bindings" contract: character_occupancy.py's
 set_location/where_is/who_is_at are the first real consumer
 of Plugin's state_key/init_state/bind fields — proving (1) bindings_for()
 actually resolves them for a real trusted, opted-in story, (2) two
@@ -61,7 +58,7 @@ class BindingsForResolvesCharacterOccupancyTests(TestCase):
     def test_trusted_opted_in_story_gets_the_real_bindings(self):
         """The real success path yields the full occupancy binding set.
 
-        Grown 2026-08-29 from three to five: `is_at`/`is_with`/
+        Five bindings: `is_at`/`is_with`/
         `is_anywhere` were added because "is X here" and "is X
         anywhere at all" are different questions that a story reading the
         store by hand tends to conflate."""
@@ -236,7 +233,7 @@ class SaveLoadRoundTripTests(TestCase):
 class UndeclaredLocationIsFatalTests(TestCase):
     """Placing a character somewhere the story never declared stops the game.
 
-    Fatal by design (user-directed 2026-08-30). Every other symptom of a
+    Fatal by design. Every other symptom of a
     wrong location id is silent — `who_is_at()` returns an empty list and
     `is_at()` returns False, both indistinguishable from the character
     legitimately being elsewhere — so a typo does not break a playthrough
@@ -333,7 +330,7 @@ class UndeclaredLocationIsFatalTests(TestCase):
 
 
 class RecomputePopulatesTheStoreTests(TestCase):
-    """Step 11 (a): a recompute puts the player AND the scheduled NPCs
+    """(a) a recompute puts the player AND the scheduled NPCs
     into the occupancy store.
 
     The store is the live layer every presence question is answered from,
@@ -384,7 +381,7 @@ class RecomputePopulatesTheStoreTests(TestCase):
 
 
 class PlayerLocationFollowsTheStoryTests(TestCase):
-    """Step 11 (b): `where_is("player")` changes when the player walks
+    """(b) `where_is("player")` changes when the player walks
     from one location knot to another.
 
     The regression guarded here is Justification #2: presence answered
@@ -427,7 +424,7 @@ class PlayerLocationFollowsTheStoryTests(TestCase):
 
 
 class ReadingAnotherPluginsSlotNeverInventsItTests(TestCase):
-    """Step 11 (c), redesigned 2026-09-08 by the `ink_engine` standalone-
+    """(c) redesigned by the `ink_engine` standalone-
     library extraction: the OLD `also_reads`/`_init_state_for` mechanism
     this class used to test (a STRING name, declared separately from any
     real import, that `bindings_for()` would pre-allocate on a reader's

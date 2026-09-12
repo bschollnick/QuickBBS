@@ -1,10 +1,7 @@
 """QuickBBS's own plugin-source assembly for `ink_engine.discovery.discover_plugins()`.
 
-Redesigned 2026-09-08 as part of `claude_docs/plans/ink_engine_standalone_extraction.md`
-Step 5: the engine's own discovery/binding machinery (the OLD
-`EngineAPIDescriptor`/synthetic-namespace/`also_reads`/`bind_stateful`
-system) moved to the standalone `ink_engine` library
-(`/Volumes/Support-8tb/Gallery/interactive_fiction/ink_engine/`,
+The discovery/binding machinery lives in the standalone `ink_engine`
+library (`/Volumes/Support-8tb/Gallery/interactive_fiction/ink_engine/`,
 distinct from this Django app's own `interactive_fiction` package name).
 Trust-gating has NO home in that library at all — `ink_engine` never
 imports Django and never sees a `Story` row. **Deciding which sources are

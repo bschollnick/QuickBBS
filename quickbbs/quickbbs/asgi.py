@@ -72,10 +72,8 @@ async def lifespan_handler(scope, receive, send):
             # sync_to_async-dispatched executor thread. Opening it lazily
             # under hypercorn causes psycopg_pool's connection-establishment
             # to stall the first time it's triggered from a non-main thread
-            # under hypercorn's asyncio loop — reproduced directly during
-            # Phase 3 load-test investigation
-            # (claude_docs/plans/async_simplification.md): every request
-            # timed out at the pool's configured 15s timeout as soon as 2-3
+            # under hypercorn's asyncio loop: every request timed out at
+            # the pool's configured 15s timeout as soon as 2-3
             # concurrent requests arrived, and disappeared entirely once the
             # pool was warmed here instead.
             try:

@@ -3,7 +3,7 @@
 `# image: <tag_name>` and `# video: <tag_name>` Ink tags map to a real
 `FileIndex` row already synced into the gallery by the normal scanner
 (`quickbbs/management/commands/scan.py`) — this app never stores or decodes
-any bytes of its own. See `claude_docs/plans/interactive_fiction_fileindex_mapping.md`
+any bytes of its own.
 for the design this module implements.
 """
 
@@ -130,14 +130,10 @@ _MEDIA_KIND_URL_NAMES: dict[str, str] = {"image": "if_story_image", "video": "if
 
 
 class DjangoMediaResolver:  # pylint: disable=too-few-public-methods
-    """Resolves media tags against this story's own `StoryImage` rows —
-    the implementation QuickBBS itself plays through.
+    """Resolves media tags against this story's own `StoryImage` rows.
 
-    `ink_engine.media_resolver.MediaResolver`'s real Django-backed
-    implementation: one batched `StoryImage` query per `resolve()` call,
-    exactly matching the query shape the pre-shim `_current_image_urls()`
-    used, so this is a straight move of that function's own body, not a
-    behavior change.
+    `ink_engine.media_resolver.MediaResolver`'s Django-backed
+    implementation: one batched `StoryImage` query per `resolve()` call.
     """
 
     def __init__(self, story: Story) -> None:

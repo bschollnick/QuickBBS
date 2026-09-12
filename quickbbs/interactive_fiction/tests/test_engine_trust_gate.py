@@ -1,13 +1,10 @@
-"""claude_docs/plans/external_expansion_IF_engine.md Step 2: the real
-`Story.is_engine_trusted` DB field defaults safely.
+"""The real `Story.is_engine_trusted` DB field defaults safely.
 
 The engine-side half of the trust-gate contract (InkRuntimeState's
-dispatch is a pure function of whatever `engine_bindings` it is given —
-proven with no Story/DB involved at all) moved to the standalone
-`ink_engine` library's own `tests/` (2026-09-08's `ink_engine`
-extraction — see claude_docs/plans/ink_engine_standalone_extraction.md).
-What's left here is genuinely Django-specific: the real model field's
-own safe-by-default guarantee.
+dispatch is a pure function of whatever `engine_bindings` it is given)
+lives in the standalone `ink_engine` library's own `tests/`. What is
+left here is Django-specific: the model field's safe-by-default
+guarantee.
 """
 
 from __future__ import annotations
@@ -39,7 +36,7 @@ class StoryTrustFlagDefaultsTests(TestCase):
         """A Story created without passing is_engine_trusted explicitly
         must default to False — the unsafe direction (True by default)
         would silently trust every scanner-ingested .inkj file and every
-        user upload, reopening the 2026-08-15 'never bind host functions
+        user upload, reopening the 'never bind host functions
         to arbitrary content' decision this field exists to preserve."""
         story = Story.objects.create(
             owner=self.owner,

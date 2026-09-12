@@ -1,7 +1,7 @@
 """
 Regression tests for filetypes.models.load_filetypes cache-reload behavior.
 
-Covers two cases from claude_docs/plans/filetypes_cleanup_2026_08_10.md:
+Covers two cases:
 
 - Case B: a cached empty dict (the empty-DB startup state) must be
   repopulated by a subsequent non-forced load_filetypes() call.

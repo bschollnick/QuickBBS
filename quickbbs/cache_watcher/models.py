@@ -13,17 +13,11 @@ Invalidation state itself lives on DirectoryIndex (cache_invalidated /
 cache_lastscan fields); the handlers here call DirectoryIndex.invalidate_caches()
 to flip it.
 
-The system buffers events for 5 seconds before processing to handle bulk operations efficiently.
+The system buffers events for 5 seconds before processing.
 
-Known Behavior - macOS Duplicate Events:
-    macOS's FSEvents can send multiple waves of filesystem events for a single file operation,
-    resulting in duplicate cache invalidations. For example, deleting a file may trigger:
-    1. Initial deletion events (processed immediately after 5s debounce)
-    2. Delayed directory metadata update events (processed 5-10s later)
-
-    While this causes redundant database operations, it is functionally harmless as cache
-    invalidation is idempotent. The performance impact is negligible for typical use cases.
-    This is OS-level behavior and not a bug in the watchdog implementation.
+NOTE: macOS FSEvents can send several waves of events for one file
+operation, so a single change may invalidate more than once. Cache
+invalidation is idempotent, so this is harmless.
 """
 
 import logging
@@ -50,11 +44,8 @@ class LockFreeEventBuffer:
     Thread-safe event buffer for file system events with deduplication at insert.
 
     Paths are stored in a set, so duplicate events for the same directory
-    (the common case — many file events within one directory) occupy a single
-    slot. The max_size cap therefore applies to *unique* directories, which
-    prevents the previous failure mode where a bulk copy spanning many
-    directories overflowed a raw event deque and silently dropped
-    invalidations.
+    occupy a single slot. **The max_size cap therefore applies to UNIQUE
+    directories.**
 
     IMPORTANT - Threading.Lock Usage:
     This class MUST use threading.RLock (not asyncio.Lock) because:
@@ -453,8 +444,6 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
         copying thousands of files) are bundled into a single processing run
         instead of triggering a separate one per event.
 
-        Previous behavior: cancel and recreate timer for EVERY event (360/min during copies)
-        New behavior: create timer only once per 5-second batch window
         """
         try:
             if event.is_directory:

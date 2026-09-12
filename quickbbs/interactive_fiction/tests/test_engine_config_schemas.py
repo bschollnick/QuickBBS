@@ -1,4 +1,4 @@
-"""claude_docs/plans/external_expansion_IF_engine.md Step 4: the closed,
+"""The closed,
 per-system config schema for StorySystemConfig.
 
 StorySystemConfig's real enforcement — that an invalid config is rejected
@@ -45,7 +45,7 @@ class DiscoverApiDescriptorsDispatchTests(AlbumsPathOverrideMixin, SimpleTestCas
     a system_name's real validator dynamically via
     interactive_fiction.engine_api.discover_api_descriptors() — replacing
     the old closed VALIDATORS dict/validate_system_config() dispatch
-    (removed 2026-08-22 as part of the plugin-discovery redesign, since a
+    (removed as part of the plugin-discovery redesign, since a
     hardcoded dict can never represent an API discovered later without
     editing this file). This class covers the discovery function directly;
     StorySystemConfigSaveEnforcementTests below covers the real end-to-end
@@ -141,7 +141,7 @@ class StorySystemConfigSaveEnforcementTests(TestCase):
 
     def test_unknown_system_name_is_rejected(self):
         """system_name is a plain string (not a closed enum, corrected
-        2026-08-22) — but a name with no real, currently-discoverable API
+        ) -- but a name with no real, currently-discoverable API
         backing it is still rejected, at the model layer, not silently
         accepted as "no validation needed"."""
         with self.assertRaises(ValidationError):

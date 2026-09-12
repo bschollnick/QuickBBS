@@ -1,7 +1,4 @@
-"""claude_docs/plans/external_expansion_IF_engine.md's plugin-discovery
-redesign (2026-08-22; contract updated 2026-09-08 by the `ink_engine`
-standalone-library extraction — see claude_docs/plans/
-ink_engine_standalone_extraction.md): interactive_fiction.engine_api's
+"""Plugin discovery: interactive_fiction.engine_api's
 plugin-source assembly, EngineAPI's admin-managed enable/disable, and
 engine_services.bindings_for()'s real per-story isolation + logging.
 """
@@ -122,11 +119,9 @@ class DiscoverApiDescriptorsGameFolderTests(AlbumsPathOverrideMixin, TestCase):
     per the plan's own explicit "prove genericity with a fixture, not
     just one real game" requirement.
 
-    **Module-mode discovery, 2026-09-08** (the `ink_engine` standalone-
-    library extraction — see claude_docs/plans/
-    ink_engine_standalone_extraction.md): a trusted game folder is a REAL
-    importable Python package now (`engine_api._ensure_importable()`
-    puts its PARENT directory on `sys.path`, then `discover_plugins()`
+    **Module-mode discovery**: a trusted game folder is a REAL importable
+    Python package (its PARENT directory goes on `sys.path`, then
+    `discover_plugins()`
     does one bare `importlib.import_module(game_name)` — never more than
     that one call for a module-mode source). This means `discover_
     api_descriptors()` never opens a game's own sibling `.py` files
@@ -314,7 +309,7 @@ class DiscoverApiDescriptorsGameFolderTests(AlbumsPathOverrideMixin, TestCase):
 
 
 # A game-specific discovery test class that stood here was REMOVED
-# 2026-08-27: it asserted on one game's own API names and required that
+# It asserted on one game's own API names and required that
 # game's folder to exist on disk, coupling the engine's suite to a
 # particular story's content. The generic mechanism it exercised is already proven
 # by DiscoverApiDescriptorsGameFolderTests above, against a synthetic

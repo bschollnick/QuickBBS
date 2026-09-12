@@ -24,7 +24,7 @@ happens here, in one pass, in this order:
    `# image:`/`# video:` tag and make the StoryImage rows match: link,
    relink, and delete rows whose tag or file is gone.
 
-Step 5 used to be a standalone script under `claude_docs/`, run by hand.
+This used to be a standalone script, run by hand.
 It isn't optional bookkeeping — a story whose images are not linked
 renders no graphics at all — so it belongs in the same pass as the
 content it serves.

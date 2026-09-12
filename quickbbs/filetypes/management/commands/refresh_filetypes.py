@@ -201,7 +201,7 @@ class Command(BaseCommand):
                     },
                 },
                 {
-                    # Compiled Ink story (interactive_fiction Step 9) — an
+                    # Compiled Ink story -- an
                     # Inky "story.ink.json" export renamed to .inkj so
                     # Path(name).suffix recognizes it with zero scanner
                     # changes (see interactive_fiction/ingestion.py). No

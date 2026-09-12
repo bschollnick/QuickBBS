@@ -2,8 +2,7 @@
 Django views for QuickBBS Gallery
 
 Most views are plain sync `def` (Django transparently adapts them under
-ASGI). `download_file` remains `async def` for its genuine streaming
-benefit — see claude_docs/plans/async_simplification.md.
+ASGI). `download_file` remains `async def` for its streaming benefit.
 """
 
 import asyncio
@@ -380,8 +379,7 @@ def get_search_results(  # pylint: disable=too-many-arguments
 
     # SORT_MATRIX's leading -is_favorited key (favorites feature) requires
     # an is_favorited annotation on any queryset ordered by it. Search
-    # results are intentionally NOT favorite-aware (out of scope — see
-    # claude_docs/plans/favorites_redesign.md) — this is always the
+    # results are NOT favorite-aware: this is always the
     # Value(False, ...) no-op constant, never a user-correlated Exists.
     favorite_annotation = {"is_favorited": Value(False, output_field=BooleanField())}
 
@@ -802,9 +800,8 @@ def _find_directory(paths: dict) -> DirectoryIndex:
 
         dir_sha = get_dir_sha(dirpath)
 
-        # Search for directory in database (uses optimized prefetches)
-        # REMOVED: ("FileIndex_entries",) prefetch - Phase 5 Fix 4
-        # Files loaded separately via files_in_dir() when needed - no need to prefetch all
+        # Files are loaded separately via files_in_dir() when needed,
+        # never prefetched here.
         found, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha)
 
         if not found:
@@ -825,9 +822,8 @@ def _find_directory(paths: dict) -> DirectoryIndex:
             if directory.parent_directory:
                 directory.parent_directory.invalidate_cache()
 
-            # Reload with optimized prefetches for view rendering
-            # add_directory uses update_or_create without prefetch_related
-            # REMOVED: ("FileIndex_entries",) prefetch - Phase 5 Fix 4
+            # Reload for view rendering: add_directory uses
+            # update_or_create without prefetch_related.
             _, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha)
 
             # Sync newly created directory to populate file entries
@@ -987,7 +983,7 @@ def view_gallery(request: WSGIRequest):
         # (file_counts_cache/dir_counts_cache), invalidated via
         # clear_layout_cache_for_directories() whenever directory membership
         # changes. Warm page: 0 extra queries. Cold page: one cheap indexed
-        # COUNT per directory shown, cached thereafter. See fable_optimizations-2.md Step 4.
+        # COUNT per directory shown, cached thereafter.
         dirs_to_display = list(
             directory.dirs_in_dir(
                 sort=context["sort"],
@@ -995,8 +991,8 @@ def view_gallery(request: WSGIRequest):
                 prefetch_related=(),
                 user=request.user,
             ).filter(dir_fqpn_sha256__in=layout["page_items"]["directory_shas"])
-            # REMOVED: .select_related("thumbnail__new_ftnail") - Phase 5 Fix 1
-            # Thumbnails load on-demand via thumbnail_dir() - no need for 750KB binary blobs
+            # Thumbnails load on demand via thumbnail_dir(); selecting
+            # them here would pull 750KB binary blobs per row.
         )
     else:
         dirs_to_display = []

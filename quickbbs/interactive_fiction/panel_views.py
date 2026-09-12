@@ -1,12 +1,8 @@
 """Game side-panel views for the interactive_fiction app.
 
-Split out of views.py (2026-09-04) once that module passed pylint's
-1000-line module threshold after Phase 6c's `play_panel_command` addition —
-a pure file-organization split, no behavior changed, matching save_views.py/
-story_views.py's own precedent (2026-08-16). play_panel_tab()/
-play_panel_action() are the read-only panel routes (a tab switch, an
-Examine); play_panel_command() is the write-capable one (Use, Cast — see
-its own docstring for why it is not simply a third read-only variant).
+play_panel_tab()/play_panel_action() are the read-only panel routes (a tab
+switch, an Examine); play_panel_command() is the write-capable one (Use,
+Cast).
 """
 
 from __future__ import annotations

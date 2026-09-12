@@ -22,11 +22,6 @@ Instead this module escapes everything, then re-enables exactly the tags
 on `ALLOWED_TAGS`. A tag outside that set stays escaped and visibly
 literal, which is the honest failure mode: the author sees their tag
 didn't render, rather than the tag silently executing.
-
-Verified against the shipped corpus 2026-08-27: its story text uses `<i>`
-(204 uses) and `<b>` (192) and nothing else. Other angle-bracket forms in
-the `.ink` files (`<img>`, `<name>`, `<nnn>`) appear only inside `//`
-comments, which never reach the player.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Step 3 tests: play/save/load/export/import views end-to-end.
+"""Tests: play/save/load/export/import views end-to-end.
 
 Uses Django's real test client against a Story row built from
 tests/fixtures/section3_choices.ink.json (a small, real compiled story
@@ -294,8 +294,8 @@ class ExportImportViewTests(TestCase):
 
 class CsrfProtectionTests(TestCase):
     """Every POST-accepting interactive_fiction form must carry a CSRF
-    token — found 2026-08-16 while starting Step 4's own upload form that
-    every Step 3 template (play_content.jinja's HTMX form, saves.jinja's
+    token -- found while starting the upload form that
+    every template (play_content.jinja's HTMX form, saves.jinja's
     three plain forms) omitted {% csrf_token %}/hx-headers entirely, which
     Django's real CsrfViewMiddleware (active, unexempted, confirmed via
     quickbbs/settings.py MIDDLEWARE) would reject in an actual browser;
@@ -337,7 +337,7 @@ class CsrfProtectionTests(TestCase):
 
 
 class UploadViewTests(TestCase):
-    """POST /if/upload/ — Step 4: staff-gated story upload with validation."""
+    """POST /if/upload/: staff-gated story upload with validation."""
 
     def setUp(self):
         self.client = Client()
@@ -404,7 +404,7 @@ class UploadViewTests(TestCase):
 
 
 class EditViewTests(TestCase):
-    """POST /if/<slug>/edit/ — Step 4: owner-gated title/visibility/content edit."""
+    """POST /if/<slug>/edit/: owner-gated title/visibility/content edit."""
 
     def setUp(self):
         self.client = Client()
@@ -647,7 +647,7 @@ class PlayViewImageTagTests(_AlbumsRootMixin, TestCase):
 
 
 class LibraryPlayStatusTests(TestCase):
-    """GET /if/ — Step 7: each story annotated with its play status."""
+    """GET /if/: each story annotated with its play status."""
 
     def setUp(self):
         self.client = Client()
@@ -735,7 +735,7 @@ class LibraryPaginationTests(TestCase):
 
 
 class PlayUndoRestartTranscriptTests(TestCase):
-    """POST /if/<slug>/undo/ and .../restart/, plus transcript rendering — Step 8."""
+    """POST /if/<slug>/undo/ and .../restart/, plus transcript rendering."""
 
     def setUp(self):
         self.client = Client()
@@ -812,7 +812,7 @@ class PlayUndoRestartTranscriptTests(TestCase):
 
 
 class PreferencesViewTests(TestCase):
-    """GET/POST /if/preferences/ — Step 8: reader display preferences."""
+    """GET/POST /if/preferences/: reader display preferences."""
 
     def setUp(self):
         self.client = Client()
@@ -896,7 +896,7 @@ PLAY_LAYOUT = "three_column"
     def setUp(self):
         self._enable_albums_root()
         # `panelgame`/`panelgame.sidebar` are now REAL importable modules
-        # (2026-09-08's ink_engine standalone-library extraction), cached
+        # (the ink_engine standalone-library extraction), cached
         # in sys.modules under their real dotted names like any other
         # import. Every test in this class writes a fresh temp `panelgame`
         # game folder under its own NEW _enable_albums_root() temp dir, but

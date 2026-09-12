@@ -4,7 +4,7 @@ Report on and delete DirectoryIndex rows lying outside the albums root.
 Out-of-tree rows (masters volumes, traversal escapes) were created by the
 pre-2026-07 alias system; add_directory() now rejects such paths, so these
 rows are legacy data that can only mislead (see
-claude_docs/plans/albums_root_enforcement.md).
+the albums-root enforcement rules).
 
 Usage:
     python manage.py purge_out_of_tree            # read-only report (default)

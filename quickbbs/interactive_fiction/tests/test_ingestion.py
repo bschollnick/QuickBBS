@@ -1,4 +1,4 @@
-"""Step 9 tests: interactive_fiction.ingestion (game-folder ingestion,
+"""Tests: interactive_fiction.ingestion (game-folder ingestion,
 re-scoped per the game-folder separation design work).
 
 Uses real DirectoryIndex/FileIndex rows under a temporary ALBUMS_PATH
@@ -232,7 +232,7 @@ MAIN_STORY_FILE = "adventure.inkj"
     def test_invalid_inkj_file_is_rejected(self):
         """A MAIN_STORY_FILE that isn't valid compiled Ink JSON is
         rejected, not stored as a playable Story — same validation
-        Step 4's upload form uses."""
+        the upload form uses."""
         game_dir, dir_obj = self._make_game_dir("broken")
         _write_manifest(game_dir, DEFAULT_MANIFEST)
         _write_inkj(game_dir, "adventure.inkj", data={"not": "compiled ink"})

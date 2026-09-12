@@ -435,11 +435,11 @@ class TestPreferencesToggle(SecureClientMixin, TestCase):
 
 
 class TestPhase5ViewsAreSync(TestCase):
-    """Regression guard for async_simplification.md Phase 5.
+    """Regression guard: sync-vs-async view signatures.
 
     search_viewresults, view_gallery, htmx_view_item, and
     duplicate_files_report were deliberately converted from async def to
-    plain def (Phase 5) after production load-test data showed no latency
+    plain def after production load-test data showed no latency
     benefit from keeping them async. A future edit reintroducing `async`
     on any of these would silently re-add the sync_to_async crossings this
     phase removed — assert they stay plain functions.
@@ -470,7 +470,7 @@ class TestPhase5ViewsAreSync(TestCase):
         assert not inspect.iscoroutinefunction(duplicate_files_report)
 
     def test_download_file_remains_async(self):
-        """download_file is explicitly out of Phase 5's scope — must stay async."""
+        """download_file must stay async for streaming."""
         from frontend.views import download_file
 
         assert inspect.iscoroutinefunction(download_file)

@@ -49,11 +49,8 @@ def require_login_if_configured(view_func: Callable) -> Callable:
 def can_upload_story(user: "AbstractUser | AnonymousUser") -> bool:
     """Return whether the given user may upload/edit interactive_fiction stories.
 
-    Gated to staff/superuser for now (2026-08-16 plan decision) — a single
-    predicate rather than inlined `is_staff` checks scattered across
-    interactive_fiction/views.py, so loosening this later (e.g. to a
-    per-user flag or a dedicated permission/group) is a one-line change
-    here rather than a hunt through view logic.
+    One predicate rather than inlined `is_staff` checks, so loosening the
+    rule later is a single edit.
 
     Args:
         user: The requesting user, possibly an `AnonymousUser`.
@@ -251,13 +248,8 @@ def _get_sha_executor() -> ThreadPoolExecutor:
     """
     Get or create the singleton ThreadPoolExecutor for SHA256 computation.
 
-    Thread-safe lazy initialization of a module-level thread pool.
-    The pool is reused across all calls to improve performance by avoiding
-    repeated thread spawning overhead.
-
-    Uses ThreadPoolExecutor rather than ProcessPoolExecutor so that it works
-    from daemon threads (e.g. ASGI sync_to_async context), where spawning
-    child processes is forbidden by Python's multiprocessing constraints.
+    Thread-safe lazy initialization; see the module comment above for why
+    this is a ThreadPoolExecutor.
 
     Returns:
         ThreadPoolExecutor configured for SHA256 hashing operations
@@ -310,10 +302,7 @@ def _batch_compute_file_shas(file_paths: list[str], max_workers: int | None = No
     """
     Compute SHA256 hashes in parallel using a persistent thread pool.
 
-    Uses a module-level singleton ThreadPoolExecutor to:
-    - Improve performance by reusing worker threads across calls
-    - Ensure proper cleanup via atexit handlers
-    - Work correctly from daemon threads (ASGI sync_to_async context)
+    Uses the module-level singleton ThreadPoolExecutor.
 
     DJANGO-SAFE: Does not touch Django ORM - only computes file hashes.
     ThreadPoolExecutor is safe here because get_file_sha() has no shared state.

@@ -360,26 +360,26 @@ MAX_SAVE_FILE_UPLOAD_BYTES = 2_000_000
 MAX_STORY_UPLOAD_BYTES = 20_000_000
 # Compiled Ink JSON "inkVersion" values this interpreter is validated
 # against — reject anything else at upload time rather than accepting a
-# story the engine was never checked against (Step 2's interpreter was
-# built and validated exclusively against inkVersion 21 output).
+# story the engine was never checked against: the interpreter was built
+# and validated exclusively against inkVersion 21 output.
 SUPPORTED_INK_VERSIONS = (21,)
 # Content types a story image upload may declare — deliberately excludes
 # image/svg+xml (scriptable) since story images are served back to other
 # users under the site origin (see interactive_fiction/views.py story_image).
 STORY_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 # Upper bound on a single story image upload (per-file, and per zip member
-# when uploaded bundled with a story — see the plan's Step 5 zip-bomb guard).
+# when uploaded bundled with a story, as a zip-bomb guard).
 MAX_STORY_IMAGE_UPLOAD_BYTES = 8_000_000
 # Small library-grid thumbnail size for a story's cover_image, generated via
 # thumbnails/engine/engine.py's create_thumbnails_from_bytes at upload time.
 STORY_COVER_THUMB_SIZE = {"cover": (300, 300)}
-# Cap on CurrentGame.state["transcript"] entries (Step 8) — the transcript
+# Cap on CurrentGame.state["transcript"] entries. The transcript
 # is presentation history appended to the same JSONB row every turn, so it
 # needs a bound to keep that row from growing unboundedly over a very long
 # playthrough.
 MAX_TRANSCRIPT_TURNS = 200
 # Username of the dedicated account that owns every scanner-ingested story
-# (Step 9) — keeps scanned content administratively separate from any
+# -- keeps scanned content administratively separate from any
 # person's account. Must be created as a one-time deploy step; ingestion
 # fails loudly (logged, story skipped) if this account doesn't exist,
 # rather than guessing an owner.

@@ -37,8 +37,8 @@ class Owners(models.Model):
         verbose_name_plural = "Ownership"
 
 
-# OLD CONSTANTS REMOVED - Phase 4 cleanup
-# These constants have been replaced by granular tuple-based constants in the model files:
+# Granular tuple-based select_related/prefetch_related constants live with
+# the models they belong to:
 # - FileIndex constants: See quickbbs/fileindex.py (FILEINDEX_SR_*)
 # - DirectoryIndex constants: See quickbbs/directoryindex.py (DIRECTORYINDEX_SR_*, DIRECTORYINDEX_PR_*)
 # - ThumbnailFiles constants: See thumbnails/models.py (THUMBNAILFILES_PR_*)

@@ -1,29 +1,9 @@
-"""
-The models, and logic for thumbnail storage for the Quickbbs reloaded project.
+"""Thumbnail storage for the QuickBBS project.
 
-* Thumbnail Files - Is the core storage for the thumbnails.  This stores the actual
-    data for the thumbnail (e.g. FileSize, FileName, uuid, etc.  The actual
-    thumbnail is stored in the *Thumb tables (see below) )
-
-    These tables are the binary storage for Thumbnail Files.
-    * SmallThumb - The binary storage for the Small Thumbnails
-    * MediumThumb - The Binary storage for the Medium Thumbnails
-    * LargeThumb - The Binary Storage for the Large Thumbnails
-
-v4 - Attempting to reduce the amount of queries by maximizing the foreign key logic,
-    to access the FileIndex information, instead of fetching it separately.
-    Changing the directory thumbnail logic, the directory data is still it's own table,
-    but the thumbnail is now a foreign key to the ThumbnailFiles model for the file
-    that is being shown as the thumbnail. This eliminates the need for the redundant blob
-    in the DirectoryThumbnail model, and allows for easier management of the thumbnails.
-
-v3 - Pilot changing the thumbnail storage to be a single table, with the small, medium,
-    and large blobs containing the actual thumbnail data.  This will reduce the number of
-    queries, and allow for easier management of the thumbnails.
-
-    Split the directory thumbnails into a separate table, so that we can manage the thumbnails
-    separately from the FileIndex model.
-
+`ThumbnailFiles` is the single storage model: one row per unique file
+content (keyed by sha256_hash), holding the small/medium/large thumbnail
+blobs inline. A directory's thumbnail is a foreign key to the
+`ThumbnailFiles` row of whichever file represents it.
 """
 
 from __future__ import annotations
@@ -162,12 +142,6 @@ class ThumbnailFiles(models.Model):
 
         verbose_name = "Image File Thumbnails Cache"
         verbose_name_plural = "Image File Thumbnails Cache"
-        # Index set pruned 2026-07-04 against pg_stat_user_indexes evidence
-        # (see claude_docs/plans/fable_optimizations-2.md Opt 2b). Removed:
-        # thumbnails_sha256_lookup_idx (duplicate of the sha256_hash unique
-        # index, which equality lookups now use) and the never-scanned
-        # has_medium/has_large partials (nothing queries medium/large-blob
-        # existence — only small_thumb drives generation decisions).
         indexes = [
             # Small-thumbnail existence checks (generate_missing_thumbnails
             # pre-filter: sha256_hash__in=... AND small_thumb IS NOT NULL).
@@ -235,17 +209,6 @@ class ThumbnailFiles(models.Model):
             FileIndex,  # inline: circular import (fileindex.py → thumbnails.models)
         )
 
-        # MEMORY MANAGEMENT NOTE:
-        # Periodic cache clearing was removed because it conflicts with CIContext recycling.
-        # CIContext already recycles every 500 operations (see core_image_thumbnails.py).
-        # Clearing caches more frequently (every 100) prevents the recycling from working
-        # and causes GPU memory accumulation from repeated CIContext recreations.
-        #
-        # Cache clearing still happens automatically via CIContext recycling
-        # (every 500 operations).
-        #
-        # This provides sufficient memory management without the overhead and GPU memory
-        # issues caused by too-frequent cache clearing.
         # CRITICAL: Advisory lock for Gunicorn multi-process environments
         # Multiple worker processes generating the same thumbnail concurrently can cause corrupted/white
         # thumbnails when Core Image GPU operations conflict or saves are interleaved.

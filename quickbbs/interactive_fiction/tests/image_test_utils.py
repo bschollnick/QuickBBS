@@ -3,7 +3,7 @@ tests (test_images.py, test_views.py) — not a test module itself (no Test*
 classes).
 
 Since StoryImage.file_index points at a real gallery FileIndex row (see
-claude_docs/plans/interactive_fiction_fileindex_mapping.md), these tests
+the FileIndex mapping design), these tests
 need a real file on disk plus a real DirectoryIndex/FileIndex row backing
 it — not just in-memory bytes, since FileIndex.inline_sendfile() opens the
 file at its real filesystem path.

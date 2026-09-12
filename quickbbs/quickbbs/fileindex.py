@@ -129,8 +129,8 @@ class FileIndex(models.Model):
     lastmod = models.FloatField()  # Stored as Unix timestamp (seconds)
     name = models.CharField(max_length=384, default=None)  # indexed via Meta indexes (btree + trigram)
     # FQFN of the file itself
-    # db_index=False: name_sort is only used in ORDER BY after a home_directory
-    # filter — a global index on it was never scanned (pg_stat, 2026-07-04).
+    # db_index=False: name_sort is only used in ORDER BY after a
+    # home_directory filter, so a global index on it is never scanned.
     name_sort = NaturalSortField(for_field="name", max_length=384, default="", db_index=False)
     duration = models.BigIntegerField(null=True)
     size = models.BigIntegerField(default=0)  # File size
@@ -218,7 +218,7 @@ class FileIndex(models.Model):
         """
         Return the number of identical files in the database
 
-        Benchmark-only — no production callers as of 2026-07-06.
+        Benchmark-only -- no production callers.
 
         Returns: Integer - Number of identical files
         """
@@ -229,15 +229,7 @@ class FileIndex(models.Model):
         """
         Return a query of all duplicate files based on file SHA256 hash.
 
-        .. note::
-            **Prototype — not used in production code.**
-            This function is only called from benchmarks and tests. The query
-            structure (filter to one SHA, group by that SHA, annotate count) can
-            return at most one summary row, making the `.values()/.annotate()`
-            approach more complex than necessary. If promoted to production use,
-            consider replacing with ``return_identical_files_count(sha) >= 2``
-            at the call site, or simplifying the query to a plain filtered
-            QuerySet with a count check.
+        Benchmark/test only -- no production callers.
 
         Args:
             sha: The SHA256 hash of the file to find duplicates for
@@ -247,6 +239,9 @@ class FileIndex(models.Model):
             .values() and .annotate() for files with 2+ duplicates. Always
             returns zero or one row.
         """
+        # TODO: if promoted to production, replace with
+        # `return_identical_files_count(sha) >= 2`; the values()/annotate()
+        # shape is needless for a query returning at most one row.
         dupes = (
             FileIndex.objects.filter(file_sha256=sha)
             .values("file_sha256")
@@ -263,7 +258,7 @@ class FileIndex(models.Model):
         """
         Get file entries for identical files based on SHA256 hash
 
-        Benchmark-only — no production callers as of 2026-07-06.
+        Benchmark-only -- no production callers.
 
         Args:
             sha: The SHA256 hash of the file to search for
@@ -863,20 +858,8 @@ class FileIndex(models.Model):
         """
         Return the SHA256 hashes of the file as hexdigest strings.
 
-        **INTENTIONAL CONVENIENCE HELPER** - This method is deliberately kept as a
-        simple wrapper to provide a consistent, instance-based interface for FileIndex
-        objects. While it only delegates to quickbbs.common.get_file_sha(), it serves
-        an important purpose:
-
-        - Provides consistent API when working with FileIndex instances
-        - Allows future enhancements without changing call sites
-        - Improves code readability (obj.get_file_sha() vs importing external function)
-        - Maintains encapsulation of hash calculation logic
-
-        This is NOT redundant code - it's an intentional design choice for better
-        developer ergonomics.
-
-        All hashing logic is delegated to quickbbs.common.get_file_sha().
+        An instance-level wrapper; all hashing is delegated to
+        `quickbbs.common.get_file_sha()`.
 
         Args:
             fqfn: The fully qualified filename of the file to be hashed
@@ -890,49 +873,23 @@ class FileIndex(models.Model):
 
     def get_file_counts(self) -> None:
         """
-        **INTENTIONAL STUB METHOD** for template compatibility.
-
-        This method is deliberately kept as a simple stub to provide polymorphic API
-        compatibility between FileIndex and DirectoryIndex objects in templates. This
-        design choice eliminates the need for type checking in templates and allows
-        cleaner, more maintainable template code.
-
-        **Why this exists:**
-        - Enables duck typing in Jinja2 templates
-        - Eliminates complex {% if obj.is_directory %} checks
-        - Provides consistent interface across both model types
-        - DirectoryIndex returns actual counts, FileIndex returns None
-        - Templates can safely call this on any object without errors
-
-        **This is NOT dead code** - it's an intentional design pattern (Null Object pattern)
-        for better template ergonomics.
+        Stub for template compatibility, so a template can call this on
+        either model without a type check. DirectoryIndex returns real
+        counts; a file has none.
 
         Returns:
-            None - individual files don't have child file counts
+            None
         """
         return None
 
     def get_dir_counts(self) -> None:
         """
-        **INTENTIONAL STUB METHOD** for template compatibility.
-
-        This method is deliberately kept as a simple stub to provide polymorphic API
-        compatibility between FileIndex and DirectoryIndex objects in templates. This
-        design choice eliminates the need for type checking in templates and allows
-        cleaner, more maintainable template code.
-
-        **Why this exists:**
-        - Enables duck typing in Jinja2 templates
-        - Eliminates complex {% if obj.is_directory %} checks
-        - Provides consistent interface across both model types
-        - DirectoryIndex returns actual counts, FileIndex returns None
-        - Templates can safely call this on any object without errors
-
-        **This is NOT dead code** - it's an intentional design pattern (Null Object pattern)
-        for better template ergonomics.
+        Stub for template compatibility, so a template can call this on
+        either model without a type check. DirectoryIndex returns real
+        counts; a file has none.
 
         Returns:
-            None - individual files don't have child directory counts
+            None
         """
         return None
 
@@ -1107,12 +1064,9 @@ class FileIndex(models.Model):
         When precomputed_sha is provided, skips individual SHA256 calculation.
         Accepts pre-computed fs_stat to avoid redundant filesystem syscalls.
 
-        Known Oversight (SHA staleness):
-        The SHA is only computed when the record has none. If a file's content
-        changes, lastmod/size are refreshed but file_sha256/unique_sha256 keep
-        their original values, so SHA-keyed features (thumbnails, duplicate
-        detection) will not notice edited files. Pinned by
-        test_sync.py::test_modified_file_updated_in_place.
+        WARNING: the SHA is computed only when the record has none, so an
+        edited file keeps a stale file_sha256/unique_sha256 (see the TODO
+        at the hashing branch below).
 
         Args:
             fs_entry: Path object for filesystem entry (DirEntry with cached stat).
@@ -1392,12 +1346,6 @@ class FileIndex(models.Model):
 
         verbose_name = "Master Files Index"
         verbose_name_plural = "Master Files Index"
-        # Index set pruned 2026-07-04 against pg_stat_user_indexes evidence
-        # (see claude_docs/plans/fable_optimizations-2.md Opt 2a). Removed as
-        # never/rarely scanned: (home_directory, delete_pending),
-        # (unique_sha256, delete_pending), (name, delete_pending) — lookups use
-        # the plain FK index, the unique_sha256 unique index, and
-        # quickbbs_fileindex_name_idx respectively.
         indexes = [
             models.Index(fields=["file_sha256", "delete_pending"]),
             models.Index(fields=["name"], name="quickbbs_fileindex_name_idx"),

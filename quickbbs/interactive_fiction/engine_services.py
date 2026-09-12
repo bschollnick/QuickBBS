@@ -1,77 +1,31 @@
 """Real Python callables bound to EXTERNAL calls for trusted stories only.
 
-claude_docs/plans/external_expansion_IF_engine.md's real implementation
-surface, reworked 2026-08-22 for the plugin-discovery/per-story-isolation
-redesign (interactive_fiction/engine_api.py). `bindings_for(story)` is the
-one function callers (interactive_fiction.views._new_game_state()/
-_load_game_state()) use to decide what, if anything, InkRuntimeState should
-be given — the ONLY place in this whole system allowed to branch on
-Story.is_engine_trusted, mirroring the existing test suite's own
-`_bindings_for()` helper convention.
+`bindings_for(story)` is the one function callers use to decide what, if
+anything, `InkRuntimeState` should be given, and **the ONLY place allowed
+to branch on `Story.is_engine_trusted`.**
 
-**Per-story API isolation** (explicit user requirement, 2026-08-22: "Each
-story should be able to use it's own externals, but they should be
-isolated to each story"): a story's own bindings are derived from its OWN
-`StorySystemConfig` rows — a story only ever gets bindings for an API it
-has explicitly opted into (a real row with that API's `system_name`), not
-a flat merge of every globally-enabled API. Two stories can each opt into
-`"scheduling"` independently; neither's row, config, or resulting bindings
-are visible to or shared with the other's `bindings_for()` call at all.
+**Per-story API isolation**: a story's bindings come from its OWN
+`StorySystemConfig` rows, never a flat merge of every globally-enabled
+API. Two stories can each opt into `"scheduling"` independently; neither's
+row, config, or resulting bindings are visible to the other.
 
-**Global enable/disable is a separate axis** (`EngineAPI.is_enabled`,
-`interactive_fiction/engine_api.py`'s scan-and-toggle mechanism): an API a
-story has opted into (a real `StorySystemConfig` row exists) still
-contributes NO bindings unless that API is also globally enabled — a
-disabled API silently (from the player's perspective) falls through to
-its `.ink` file's own dead-stub fallback, but this is logged loudly here
-as a real misconfiguration (explicit user requirement: "there should be
-an error visible in some way... a service is missing, please contact
-admin") — this is NOT the same as an ordinary untrusted story's permanent,
-expected, silent stub fallback; a trusted story that opted into an API
-which then became unavailable is a real operational problem.
+**Global enable/disable is a separate axis** (`EngineAPI.is_enabled`). An
+API a story opted into contributes NO bindings unless it is also globally
+enabled. That case falls through to the `.ink` file's own dead-stub
+fallback and is logged loudly as a misconfiguration -- unlike an
+untrusted story's expected, permanent stub fallback.
 
-Every registered callable MUST be stateless: it receives only the
-arguments Ink pushed onto eval_stack for this one call and returns one
-value, exactly like an ordinary Ink function's own args-in/one-value-out
-shape. Per the plan's explicit per-session isolation requirement, no
-callable here may read or write anything outside its own arguments/return
-value — no module-level mutable state, no attribute on some shared
-object, no per-request cache. Every user's game session is completely
-self-contained (real ink_engine.engine.InkRuntimeState instances
-are always constructed fresh per request, never pooled or reused); a
-callable that stashed data on itself between calls would leak one
-player's game state into another's the moment two sessions share this
-same registry object, which every trusted story's sessions do.
+**Every registered callable MUST be stateless**: it receives only the
+arguments Ink pushed for this one call and returns one value. No
+module-level mutable state, no attribute on a shared object, no
+per-request cache. A callable that stashed data on itself would leak one
+player's game state into another's, since sessions share this registry.
 
-**A real converted-game retrofit** (started 2026-08-22): each real
-plugin's own bindings are declared on its own module (see
-`ink_engine/engine_plugins/scheduling.py`'s own `PLUGIN = Plugin(...)`),
-verified via a real differential test proving the new Python function
-agrees with the ORIGINAL Ink function it replaced across its full real
-input space, before the corresponding `.ink` file was ever touched — per
-the explicit "avoid rewriting this many times" process agreed with the
-user.
-
-**Standalone-library extraction** (claude_docs/plans/
-ink_engine_standalone_extraction.md, 2026-09-08): the OLD
-`EngineAPIDescriptor`/synthetic-namespace/`also_reads`/`bind_stateful`
-discovery-and-binding machinery moved to the standalone `ink_engine`
-library. `bindings_for()` below now calls `interactive_fiction.engine_api.
-discover_api_descriptors()` (QuickBBS's own thin wrapper around
-`ink_engine.discovery.discover_plugins()`) and `ink_engine.binding.
-resolve_bindings()` directly — trust-gating and per-story isolation stay
-exactly where they always were, entirely in this file.
-
-**Compiled LIST tables reach a plugin's `bind()` through the engine**, not
-through anything private to this app: `bindings_for()` computes them from
-`story.compiled_json` and passes `list_defs=` to `resolve_bindings()`,
-which hands them to every `bind()` as its own third argument. A plugin's
+**Compiled LIST tables reach a plugin's `bind()` through the engine**:
+`bindings_for()` computes them from `story.compiled_json` and passes
+`list_defs=` to `resolve_bindings()`. A plugin's
 `bind(own_state, engine_state, list_defs)` never receives `story`, so it
-cannot load them itself; the one real caller is a converted game's own
-`occupancy.py`, whose `who_is_here_now()` needs the `AllCharacters` LIST's
-item-name->int table. Because the engine owns this mechanism, `if_player`
-gets the same tables from the same code path rather than silently binding
-over an empty one.
+cannot load them itself.
 """
 
 from __future__ import annotations
@@ -106,31 +60,11 @@ logger = logging.getLogger(__name__)
 def bindings_for(story: "Story", engine_state: dict[str, Any] | None = None) -> dict[str, Callable[..., Any]]:
     """Return the real Python bindings a story's InkRuntimeState should get.
 
-    The single point in this whole system allowed to branch on
-    Story.is_engine_trusted — every other piece (InkRuntimeState,
-    _call_function, any individual binding) is deliberately unaware of
-    trust at all, and just does what it's told.
-
-    Per-story isolation: only APIs this specific story has its own
-    StorySystemConfig row for are even considered — never a flat merge of
-    every enabled API, so two stories' bindings never bleed into each
-    other regardless of what else is enabled globally.
-
-    **Stateful plugins** (claude_docs/plans/ink_engine_standalone_extraction.md;
-    originally claude_docs/plans/external_expansion_IF_engine.md's
-    "stateful EXTERNAL bindings" design, 2026-08-23): a `Plugin` with
-    `state_key`/`init_state`/`bind` set gets handed its own private slice
-    of `engine_state` — `engine_state[state_key]`, created via
-    `init_state()` the first time — and is asked to build its own
-    bindings as closures over that ONE dict (`ink_engine.binding.
-    resolve_bindings()`, called below). Since `engine_state` itself
-    is the caller's own per-request `CurrentGame.state["engine_state"]`
-    dict (never shared or reused across sessions, exactly like `story`
-    itself isn't), those closures are exactly as session-isolated as this
-    function's own existing stateless bindings — nothing new for a
-    calling view to reason about beyond passing its own real
-    `engine_state` dict through and persisting it afterward, same as it
-    already does for InkRuntimeState.to_dict()'s own fields.
+    A stateful `Plugin` is handed its own private slice of `engine_state`
+    (`engine_state[state_key]`, created via `init_state()` on first use)
+    and builds its bindings as closures over that one dict. Since
+    `engine_state` is the caller's own per-request dict, those closures
+    are as session-isolated as the stateless ones.
 
     Args:
         story: The story whose trust flag, and whose own
@@ -138,21 +72,15 @@ def bindings_for(story: "Story", engine_state: dict[str, Any] | None = None) -> 
         engine_state: The session's own mutable, JSON-safe state dict
             (typically `CurrentGame.state.setdefault("engine_state", {})`)
             — required if any opted-into, enabled API declares
-            `state_key`; unused (and safe to omit) otherwise. Mutated in
-            place by any stateful API's own `init_state()`/bound
-            closures, so the caller's own reference already reflects
-            every write once this call and the resulting bindings' calls
-            are done.
+            `state_key`; unused otherwise. Mutated in place, so the
+            caller's reference reflects every write afterward.
 
     Returns:
         The real bindings for every plugin this story has opted into AND
-        that is currently enabled; empty for an untrusted story (its
-        EXTERNAL calls always fall through to their own Ink fallback,
-        unchanged) or a trusted story with no StorySystemConfig rows at
-        all. An opted-into plugin that's missing or disabled contributes
-        no bindings (its own calls fall through the same way) but is
-        logged loudly here — a real, actionable misconfiguration for a
-        trusted story, not the ordinary silent-by-design untrusted case.
+        that is currently enabled; empty for an untrusted story or a
+        trusted story with no StorySystemConfig rows. An opted-into
+        plugin that is missing or disabled contributes no bindings but is
+        logged loudly.
     """
     if not story.is_engine_trusted:
         return {}
@@ -278,20 +206,13 @@ def game_panel_context(story: "Story", engine_state: dict[str, Any], globals_: d
     would let it render one it was never meant to reach. So the template
     ships with this app and the game only fills it.
 
-    **Also receives real bindings** (`bindings_for(story, engine_state)`),
-    the same way `game_panel_action`/`game_panel_command` do — some panel
-    facts (is a container currently open, and which one) live in story
-    state a stateful API owns (a character attribute, a quest stage), not
-    in `engine_state`'s own slices or in plain Ink globals. This call is
-    read-only by contract (nothing it returns is ever persisted back into
-    `engine_state` — see `views.play`), so handing it real bindings is
-    safe the same way it is for `game_panel_action`.
+    **Also receives real bindings**, since some panel facts live in story
+    state a stateful API owns rather than in `engine_state` or Ink
+    globals. This call is READ-ONLY by contract: nothing it returns is
+    persisted back into `engine_state` (see `views.play`).
 
-    This reuses `bindings_for()`'s own trust gate rather than inventing a
-    second one: panel code is game-authored Python, so it must be
-    reachable only for a story whose game folder is already trusted to
-    execute at all. An untrusted story gets None, the same way it gets no
-    bindings.
+    Gated on `bindings_for()`'s own trust check -- panel code is
+    game-authored Python, so an untrusted story gets None.
 
     Args:
         story: The story whose play page is being rendered.
@@ -375,14 +296,10 @@ def game_folder_for(story: "Story") -> Path | None:
 def _game_module(story: "Story", module_stem: str) -> Any:
     """Return one submodule of a story's own game folder.
 
-    Gated on `story.is_engine_trusted` directly, same as `bindings_for()`
-    — unlike the OLD synthetic-namespace system (where an untrusted game
-    folder's files were simply never loaded by `discover_api_descriptors()`
-    in the first place, so a lookup by name naturally found nothing), a
-    trusted game folder is now a REAL, importable Python package once
-    `engine_api._ensure_importable()` has put its parent on `sys.path` —
+    Gated on `story.is_engine_trusted` directly, same as `bindings_for()`.
+    **A trusted game folder is a REAL importable package**, so
     `importlib.import_module()` would happily import an untrusted one too
-    if asked, so this function must refuse before ever calling it.
+    if asked: this function must refuse BEFORE ever calling it.
 
     Args:
         story: The story whose game folder is wanted.
@@ -399,10 +316,9 @@ def _game_module(story: "Story", module_stem: str) -> Any:
     if game_dir is None:
         return None
 
-    # discover_api_descriptors() has already put a trusted game's parent
-    # directory on sys.path (engine_api._ensure_importable) as a side
-    # effect of its own normal scan -- calling it here (idempotently)
-    # guarantees that regardless of call order relative to bindings_for().
+    # Puts a trusted game's parent directory on sys.path as a side effect;
+    # called here (idempotently) so order relative to bindings_for() does
+    # not matter.
     discover_api_descriptors()
     try:
         return importlib.import_module(f"{game_dir.name}.{module_stem}")
@@ -463,38 +379,17 @@ def game_panel_action(story: "Story", engine_state: dict[str, Any], globals_: di
 def game_panel_command(story: "Story", engine_state: dict[str, Any], globals_: dict[str, Any], command_id: str, target_id: str) -> str:
     """Run one of a game panel's turn-advancing commands (Use/Cast/Give/Drop).
 
-    The write-capable counterpart to `game_panel_action`: a panel row that
-    genuinely changes the world (using an item, casting a spell) needs the
-    same real bindings a story choice gets — `give_item_now`,
-    `spend_item_use_now`, `advance_quest_now`, whatever the game's opted-into
-    APIs expose — not a bespoke one-off write path per game. This is that
-    documented side-loading route: any game's `sidebar.py` may expose a
-    `panel_command(engine_state, globals_, bindings, command_id, target_id)`
-    callable, and it is handed the exact same `bindings_for(story,
-    engine_state)` dict `InkRuntimeState`'s own EXTERNAL calls use for this
-    session, so a two- or three-pane game plugging in inventory, quests,
-    skills, occupancy, or any future stateful API gets a real write surface
-    for free, with no engine change required to add a new API — only a new
-    `ink_engine/engine_plugins/` (or trusted game-folder) module with its
-    own `state_key`/`init_state`/`bind` (see
-    `ink_engine.plugin.Plugin`, discovered via
-    `interactive_fiction/engine_api.py`).
+    The write-capable counterpart to `game_panel_action`. A game's
+    `sidebar.py` may expose
+    `panel_command(engine_state, globals_, bindings, command_id, target_id)`,
+    handed the same `bindings_for(story, engine_state)` dict this
+    session's own EXTERNAL calls use.
 
-    **This mutates `engine_state` in place**, exactly like a stateful
-    binding invoked mid-turn does. The caller (`views.play_panel_command`)
-    is responsible for the turn-count guard, the `transaction.atomic()`
-    wrapper, and persisting the mutated `engine_state` back onto
-    `CurrentGame` afterward — this function itself has no notion of a
-    request, a turn, or a database row, matching `game_panel_context`/
-    `game_panel_action`'s own separation of concerns.
-
-    **`globals_` may also be mutated in place** — the same live
-    `InkRuntimeState.globals` dict `play_panel_command` passes through to
-    `_build_current_game_state()` afterward, so a write here (e.g. a
-    game's own `panel_command` setting a global to complete an effect
-    triggered by an inventory item) is captured exactly like a mid-turn
-    `~ some_global = "..."` assignment would be. Read-only use (the
-    original reason this parameter exists) is unaffected.
+    **This mutates `engine_state` AND `globals_` in place**, like a
+    stateful binding invoked mid-turn. The caller
+    (`views.play_panel_command`) owns the turn-count guard, the
+    `transaction.atomic()` wrapper, and persisting both back onto
+    `CurrentGame` afterward.
 
     Args:
         story: The story being played.
@@ -504,20 +399,17 @@ def game_panel_command(story: "Story", engine_state: dict[str, Any], globals_: d
         globals_: The runtime's own Ink globals (e.g. for
             `player_is_possessing`), read the same way `game_panel_context`
             reads them.
-        command_id: The command the row offered (the game names these —
-            e.g. "use", "cast"; distinct from `game_panel_action`'s
-            read-only `action_id` vocabulary, though a game may reuse ids
-            across both if that suits it).
+        command_id: The command the row offered (the game names these,
+            e.g. "use", "cast"); a separate vocabulary from
+            `game_panel_action`'s read-only `action_id`.
         target_id: What the command was invoked on (an item id, a skill id).
 
     Returns:
         A short result message to show the player (e.g. "You are carrying
         too much."), or "" when this story supplies no panel, its panel
         answers no commands, or it does not recognise this command/target.
-        A panel command that raises is logged and treated as a no-op — a
-        broken command must not take the turn down with it, and
-        `engine_state` may have been partially mutated by the failed call,
-        exactly as a raising EXTERNAL binding mid-turn would leave state.
+        A panel command that raises is logged and treated as a no-op;
+        `engine_state` may have been PARTIALLY MUTATED by the failed call.
     """
     if not story.is_engine_trusted:
         return ""

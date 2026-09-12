@@ -577,7 +577,7 @@ class TestFileDirCounts(VerificationSuiteTestBase):
     def test_get_file_counts_cache_invalidated_on_new_file(self) -> None:
         """A stale cached count is replaced after clear_layout_cache_for_directories.
 
-        Regression guard for Step 4 of fable_optimizations-2.md: caching
+        Regression guard: caching
         get_file_counts() must not serve a stale count once the directory's
         cache is invalidated via the codebase's single shared invalidation
         chokepoint.

@@ -1,12 +1,9 @@
-"""Save-slot views for the interactive_fiction app (Step 3).
+"""Save-slot views for the interactive_fiction app.
 
-Split out of views.py (2026-08-16) once that module passed pylint's
-1000-line module threshold after Steps 5/7/8 — a pure file-organization
-split, no behavior changed. saves()/saves_save()/saves_load()/
-saves_export()/saves_import() are the named-slot manager: save/load copy
-CurrentGame.state <-> SaveState.state as snapshots (never a live link — see
-each view's own docstring), export/import round-trip a slot through a
-downloadable JSON envelope.
+saves()/saves_save()/saves_load()/saves_export()/saves_import() are the
+named-slot manager: save/load copy CurrentGame.state <-> SaveState.state
+as SNAPSHOTS, never a live link. export/import round-trip a slot through
+a downloadable JSON envelope.
 """
 
 from __future__ import annotations
@@ -104,7 +101,7 @@ def saves_load(request: WSGIRequest, slug: str, slot: int) -> HttpResponse:
     Copies SaveState.state into CurrentGame.state — the slot itself is
     left untouched, matching the plan's "loading never mutates the slot"
     design; only a subsequent explicit save overwrites it. Writes
-    save_state.state verbatim (not state.to_dict()) so Step 8's
+    save_state.state verbatim (not state.to_dict()) so the
     transcript/previous_state keys — which live alongside the engine's own
     serialized fields but aren't known to InkRuntimeState itself — survive
     the load instead of being silently dropped.
