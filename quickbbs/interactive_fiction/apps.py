@@ -10,3 +10,7 @@ class InteractiveFictionConfig(AppConfig):
 
     default_auto_field = "django.db.models.BigAutoField"
     name = "interactive_fiction"
+
+    def ready(self) -> None:
+        """Register signal receivers once the app registry is ready."""
+        import interactive_fiction.signals  # noqa: F401  # pylint: disable=import-outside-toplevel,unused-import

@@ -131,8 +131,6 @@ def build_context_info(
         "is_animated": entry.is_animated,
         "lastmod": entry.lastmod,
         "lastmod_ds": datetime.datetime.fromtimestamp(entry.lastmod).strftime("%m/%d/%y %H:%M:%S"),
-        # DEPRECATED: filetype_icon_filename is unused by templates. Remove after 2026-06-01.
-        # "filetype_icon_filename": entry.filetype.icon_filename,
         "download_uri": entry.get_download_url(),
         "thumbnail_uri": entry.get_thumbnail_url(size="large"),
         # Pagination (computed inline)
@@ -143,8 +141,6 @@ def build_context_info(
         "next_sha": next_sha,
         "previous_sha": previous_sha,
         "page_locale": (dirs_count + current_page - 1) // settings.GALLERY_ITEMS_PER_PAGE + 1,
-        # DEPRECATED: dir_link is unused by templates. Remove after 2026-06-01.
-        # "dir_link": f"{webpath}{entry.name}?sort={sort_order_value}",
         # Interactive Fiction (Step 9): a scanner-ingested .inkj file's item
         # view links to its play page. None for every other filetype, and
         # for an .inkj file whose Story row hasn't been created yet (e.g.
@@ -335,17 +331,9 @@ def layout_manager(  # pylint: disable=too-many-locals
         "page_items": page_data,  # Current page items (directories and files)
         "page_number": page_number,
         "dirs_count": dirs_count,
-        # DEPRECATED: chunk_size is unused by views/templates. Remove after 2026-06-01.
-        # "chunk_size": items_per_page,
         "files_count": files_count,
         "total_pages": total_pages,
-        # DEPRECATED: dirs_on_last_page, files_on_last_page are unused by views/templates. Remove after 2026-06-01.
-        # "dirs_on_last_page": dirs_count % items_per_page,
-        # "files_on_last_page": items_per_page - (dirs_count % items_per_page),
     }
-
-    # DEPRECATED: page_shas is unused by views/templates. Remove after 2026-06-01.
-    # output["page_shas"] = page_data["directory_shas"] + page_data["file_shas"]
 
     # NOTE: files_needing_thumbnails is intentionally NOT included here.
     # It is computed separately by the caller to avoid invalidating the

@@ -26,8 +26,8 @@ for that one folder (Story.game_ingestion_error set, surfaced in Django
 admin per the plan's own decided hard-failure + admin-visible-flag
 behavior) — never a silent skip or a guessed fallback.
 REQUIRED_PLUGINS is copied onto the Story row verbatim from the manifest
-(plain strings, read via `ast.literal_eval` like every other manifest
-field) — ingestion never resolves these names against
+(plain strings, read via `ink_engine.game_folder.read_module_literals()`
+like every other manifest field) — ingestion never resolves these names against
 `discover_api_descriptors()`, since that would require the game's own
 `.py` files to already be loaded (real code execution), which is exactly
 what `Story.is_engine_trusted` gates on. Resolving/loading those plugins
@@ -42,7 +42,6 @@ stored as a story.
 
 from __future__ import annotations
 
-import ast
 import logging
 import os
 from pathlib import Path
@@ -51,6 +50,7 @@ from typing import Any
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from ink_engine.game_folder import read_module_literals
 
 from interactive_fiction.image_linking import reconcile_story_images
 from interactive_fiction.images import find_file_by_path, link_story_image
@@ -73,61 +73,47 @@ class _GameManifestError(Exception):
 
 
 # The only manifest fields ever read (see _resolve_main_story_path,
-# _apply_game_manifest_fields) — a game
-# folder lives in the untrusted Albums tree, so its __init__.py is
-# parsed as data via `ast`, never imported/exec'd, matching this
-# project's own is_engine_trusted gate on game-folder .py execution
-# (interactive_fiction/engine_api.py's _game_folder_is_trusted): a
-# manifest must be readable before any Story exists to be trusted, so
-# it can never itself run real code.
+# _apply_game_manifest_fields).
 _MANIFEST_FIELDS = ("GAME_TITLE", "GAME_AUTHOR", "REQUIRED_PLUGINS", "MAIN_STORY_FILE", "NEW_GAME_FIELDS", "SOURCE_GAME_VERSION", "PLAY_LAYOUT")
 
 
 def _load_game_manifest(game_dir: Path) -> Any:
-    """Parse one game folder's `__init__.py` manifest as data, via `ast`.
+    """Read one game folder's `__init__.py` manifest, filtered to `_MANIFEST_FIELDS`.
 
-    Only literal top-level assignments to `_MANIFEST_FIELDS` are
-    extracted (`ast.literal_eval` on each assignment's value) — the file
-    is never imported or exec'd, since a game folder lives in the
-    untrusted Albums tree and its manifest must be readable before any
-    Story exists to grant it is_engine_trusted.
+    A thin QuickBBS-specific layer over `ink_engine.game_folder.read_module_literals()`
+    (the shared AST-as-data primitive — never imports/execs the file, since
+    a game folder lives in the untrusted Albums tree and its manifest must
+    be readable before any Story exists to grant it is_engine_trusted):
+    this function's own job is filtering the result down to the fields
+    ingestion cares about, warning (not hard-failing) on one assigned a
+    non-literal expression, and raising only when the file itself is
+    missing — all real QuickBBS ingestion policy, not something the
+    shared primitive should have an opinion on.
 
     Args:
         game_dir: The game folder's real filesystem path.
 
     Returns:
         A SimpleNamespace exposing whichever of `_MANIFEST_FIELDS` were
-        found as plain literal assignments (missing fields are simply
-        absent attributes, matching the old module's own `getattr(...,
-        default)` call sites).
+        found as plain literal assignments (missing fields, including one
+        assigned a non-literal expression, are simply absent attributes,
+        matching the old module's own `getattr(..., default)` call sites).
 
     Raises:
-        _GameManifestError: `__init__.py` is missing, contains a syntax
-            error, or assigns one of `_MANIFEST_FIELDS` to a non-literal
-            expression.
+        _GameManifestError: `__init__.py` is missing.
     """
     init_path = game_dir / "__init__.py"
     if not init_path.exists():
         raise _GameManifestError(f"Game folder '{game_dir.name}' has no __init__.py manifest")
-    try:
-        tree = ast.parse(init_path.read_text(encoding="utf-8"), filename=str(init_path))
-    except (SyntaxError, UnicodeDecodeError) as exc:
-        raise _GameManifestError(f"Game folder '{game_dir.name}': __init__.py could not be parsed: {exc!r}") from exc
-
-    fields: dict[str, Any] = {}
-    for node in tree.body:
-        if not isinstance(node, ast.Assign):
-            continue
-        names = [target.id for target in node.targets if isinstance(target, ast.Name)]
-        relevant = [name for name in names if name in _MANIFEST_FIELDS]
-        if not relevant:
-            continue
-        try:
-            value = ast.literal_eval(node.value)
-        except ValueError as exc:
-            raise _GameManifestError(f"Game folder '{game_dir.name}': __init__.py assigns {relevant} to a non-literal expression") from exc
-        for name in relevant:
-            fields[name] = value
+    result = read_module_literals(init_path)
+    non_literal_fields = result.skipped & set(_MANIFEST_FIELDS)
+    if non_literal_fields:
+        logger.warning(
+            "Game folder '%s': __init__.py assigns %s to a non-literal expression, ignoring",
+            game_dir.name,
+            sorted(non_literal_fields),
+        )
+    fields = {name: value for name, value in result.literals.items() if name in _MANIFEST_FIELDS}
     return SimpleNamespace(**fields)
 
 

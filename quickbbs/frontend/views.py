@@ -161,6 +161,16 @@ _user_pref_cache: ThreadSafeTTLCache = ThreadSafeTTLCache(
     ttl=settings.USER_PREF_CACHE_TTL,
 )
 
+# TTL cache of SHA256 hashes recently enqueued for thumbnail generation —
+# prevents concurrent requests to the same directory from re-enqueuing the
+# same files before the first batch finishes. generate_missing_thumbnails
+# already skips hashes that already HAVE a thumbnail by the time it runs;
+# this instead skips re-enqueuing hashes that are already queued.
+_thumbnail_enqueue_cache: ThreadSafeTTLCache = ThreadSafeTTLCache(
+    maxsize=settings.THUMBNAIL_ENQUEUE_DEBOUNCE_SIZE,
+    ttl=settings.THUMBNAIL_ENQUEUE_DEBOUNCE_TTL,
+)
+
 
 def _get_show_duplicates_preference(request: WSGIRequest) -> bool:
     """
@@ -185,13 +195,14 @@ def _get_show_duplicates_preference(request: WSGIRequest) -> bool:
     if cached is not None:
         return cached
 
-    try:
-        from user_preferences.models import UserPreferences
+    from user_preferences.models import UserPreferences
 
+    try:
         preferences = UserPreferences.objects.filter(user=request.user).first()
-        result = preferences.show_duplicates if preferences else False
-    except (DatabaseError, OperationalError, AttributeError):
+    except (DatabaseError, OperationalError):
         result = False
+    else:
+        result = preferences.show_duplicates if preferences else False
 
     _user_pref_cache[user_pk] = result
     return result
@@ -265,7 +276,16 @@ def create_search_regex_pattern(text: str) -> str:
         .replace(r"\-", r"[\s_-]+")
     )  # dashes to flexible separator
 
-    return pattern if len(pattern) <= 500 else ""
+    if len(pattern) > 500:
+        return ""
+
+    # Defense-in-depth: cap adjacent separator-class groups. PostgreSQL's
+    # regex engine isn't vulnerable to catastrophic backtracking on this
+    # shape, but bound it anyway rather than trust that indefinitely.
+    if pattern.count(r"[\s_-]+") > 20:
+        return ""
+
+    return pattern
 
 
 def _safe_regex_search(
@@ -861,12 +881,16 @@ def _check_and_enqueue_missing_thumbnails(directory: DirectoryIndex, sort_orderi
     no_thumbs = list(qs[:batch_limit])
     missing_count = len(no_thumbs)
     if missing_count > 0:
-        print(f"{missing_count} entries need thumbnails, enqueuing to task runner")
-        generate_missing_thumbnails.using(priority=50).enqueue(
-            files_needing_thumbnails=no_thumbs,
-            directory_pk=directory.pk,
-            batch_size=missing_count,
-        )
+        to_enqueue = [sha for sha in no_thumbs if sha not in _thumbnail_enqueue_cache]
+        if to_enqueue:
+            logger.debug("%d entries need thumbnails, enqueuing to task runner", len(to_enqueue))
+            generate_missing_thumbnails.using(priority=50).enqueue(
+                files_needing_thumbnails=to_enqueue,
+                directory_pk=directory.pk,
+                batch_size=len(to_enqueue),
+            )
+            for sha in to_enqueue:
+                _thumbnail_enqueue_cache[sha] = True
     return missing_count
 
 

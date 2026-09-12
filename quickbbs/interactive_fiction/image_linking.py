@@ -32,11 +32,12 @@ ingestion.py for the unlink-and-relink contract.
 
 from __future__ import annotations
 
-import ast
 import logging
 import re
 from pathlib import Path
 from typing import Any
+
+from ink_engine.game_folder import read_module_literals
 
 from interactive_fiction.images import link_story_image
 from interactive_fiction.models import StoryImage
@@ -104,11 +105,13 @@ def _load_game_model_var_seeds(game_dir: Path) -> dict[str, list[str]]:
 def _read_game_mapping_literals(game_dir: Path) -> dict[str, Any]:
     """Read every top-level literal assignment from a game's `image_mapping.py`.
 
-    AST-only, matching `ingestion._load_game_manifest`: the game folder
-    lives in the untrusted Albums tree, so its Python is parsed as data
-    and never imported or executed. A missing, unparseable, or
-    non-literal-valued file yields nothing rather than raising — a game
-    is entitled to have no mapping at all.
+    A thin call into `ink_engine.game_folder.read_module_literals()` — the
+    shared AST-as-data primitive every manifest/mapping reader in this
+    app builds on (see `ingestion._load_game_manifest`). A missing or
+    unparseable file yields nothing rather than raising — a game is
+    entitled to have no mapping at all. A name assigned a non-literal
+    value is warned about (every top-level name in this file is
+    meaningful, unlike a manifest's fixed field list) and omitted.
 
     Args:
         game_dir: The game folder to read `image_mapping.py` from.
@@ -119,44 +122,10 @@ def _read_game_mapping_literals(game_dir: Path) -> dict[str, Any]:
         cannot be parsed.
     """
     mapping_path = game_dir / "image_mapping.py"
-    if not mapping_path.is_file():
-        return {}
-    try:
-        tree = ast.parse(mapping_path.read_text(encoding="utf-8"), filename=str(mapping_path))
-    except (OSError, SyntaxError) as exc:
-        logger.warning("Could not parse '%s', treating as no mapping: %s", mapping_path, exc)
-        return {}
-
-    literals: dict[str, Any] = {}
-    for node in tree.body:
-        # AnnAssign as well as Assign: an annotated declaration
-        # (`NAME: dict[str, str | None] = {...}`) is the same data, and
-        # skipping it silently yields an empty mapping that looks like
-        # "this game has no characters" rather than a parse problem.
-        targets: list[ast.expr]
-        if isinstance(node, ast.AnnAssign):
-            targets = [node.target]
-            value_node = node.value
-        elif isinstance(node, ast.Assign):
-            targets = list(node.targets)
-            value_node = node.value
-        else:
-            continue
-
-        # A bare annotation (`NAME: dict[str, str]`) declares a type but no
-        # value; there is nothing to evaluate.
-        if value_node is None:
-            continue
-
-        for target in targets:
-            name = getattr(target, "id", None)
-            if name is None:
-                continue
-            try:
-                literals[name] = ast.literal_eval(value_node)
-            except ValueError:
-                logger.warning("'%s' in '%s' is not a literal, ignoring.", name, mapping_path)
-    return literals
+    result = read_module_literals(mapping_path)
+    for name in sorted(result.skipped):
+        logger.warning("'%s' in '%s' is not a literal, ignoring.", name, mapping_path)
+    return result.literals
 
 
 def find_gallery_images_root(game_dir: Path, source_game_version: str | None):

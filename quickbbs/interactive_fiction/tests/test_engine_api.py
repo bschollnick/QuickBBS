@@ -19,7 +19,7 @@ import ink_engine.engine_plugins
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase
 
-from interactive_fiction.engine_api import discover_api_descriptors
+from interactive_fiction.engine_api import clear_api_descriptor_cache, discover_api_descriptors
 from interactive_fiction.engine_services import bindings_for
 from interactive_fiction.models import EngineAPI, Story, StorySystemConfig
 from interactive_fiction.tests.engine_test_utils import AlbumsPathOverrideMixin
@@ -50,6 +50,12 @@ class DiscoverApiDescriptorsTests(AlbumsPathOverrideMixin, SimpleTestCase):
         self.temp_dir = tempfile.mkdtemp()
         super().setUp()
         self.addCleanup(shutil.rmtree, self.temp_dir, True)
+        # discover_api_descriptors() is cached (cleared only on a real
+        # Story save or scan_if_stories run) -- force a fresh scan for
+        # every test in this class, which exercises the scan mechanism
+        # itself and must not see another test's cached result.
+        clear_api_descriptor_cache()
+        self.addCleanup(clear_api_descriptor_cache)
 
     def test_all_generic_plugin_apis_are_discovered(self):
         """Every generic, story-agnostic engine_plugins/ module that
@@ -66,10 +72,10 @@ class DiscoverApiDescriptorsTests(AlbumsPathOverrideMixin, SimpleTestCase):
         )
 
     def test_scheduling_api_exposes_its_real_is_day_binding(self):
-        """The scheduling API's descriptor carries a real is_day_now
+        """The scheduling API's descriptor carries a real is_day
         binding, not an empty placeholder."""
         descriptor = discover_api_descriptors()["scheduling"]
-        self.assertIn("is_day_now", descriptor.bindings)
+        self.assertIn("is_day", descriptor.bindings)
 
     def test_duplicate_api_name_across_two_files_raises(self):
         """A real, unambiguous configuration error — never silently
@@ -148,6 +154,14 @@ class DiscoverApiDescriptorsGameFolderTests(AlbumsPathOverrideMixin, TestCase):
         self.games_dir = Path(self.temp_dir) / "albums" / "interactive_fiction"
         self.games_dir.mkdir(parents=True)
         self.owner = get_user_model().objects.create_user(username="game_folder_discovery_owner", password="pw")
+        # discover_api_descriptors() is cached (cleared only on a real
+        # Story save or scan_if_stories run) -- force a fresh scan for
+        # every test in this class, which builds its own temp games_dir
+        # and must not see another test's cached result. A Story.save()
+        # in a test body also clears it via the post_save signal, so this
+        # is a belt-and-suspenders guarantee at the boundaries.
+        clear_api_descriptor_cache()
+        self.addCleanup(clear_api_descriptor_cache)
 
     def tearDown(self):
         super().tearDown()
@@ -354,7 +368,7 @@ class BindingsForPerStoryIsolationTests(TestCase):
         story = self._make_story("trusted-opted-in", trusted=True)
         StorySystemConfig.objects.create(story=story, system_name="scheduling")
         result = bindings_for(story, {})
-        self.assertIn("is_day_now", result)
+        self.assertIn("is_day", result)
 
     def test_two_stories_opted_into_the_same_api_are_fully_independent(self):
         """The real per-story isolation requirement: story A's own
@@ -363,7 +377,7 @@ class BindingsForPerStoryIsolationTests(TestCase):
         story_a = self._make_story("story-a", trusted=True)
         story_b = self._make_story("story-b", trusted=False)
         StorySystemConfig.objects.create(story=story_a, system_name="scheduling")
-        self.assertIn("is_day_now", bindings_for(story_a, {}))
+        self.assertIn("is_day", bindings_for(story_a, {}))
         self.assertEqual(bindings_for(story_b, {}), {})
 
     def test_opting_into_a_disabled_api_yields_no_bindings(self):

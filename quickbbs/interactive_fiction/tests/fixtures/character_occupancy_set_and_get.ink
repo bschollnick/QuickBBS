@@ -1,12 +1,12 @@
-EXTERNAL set_location_now(character_id, location_id)
-EXTERNAL where_is_now(character_id)
+EXTERNAL set_location(character_id, location_id)
+EXTERNAL where_is(character_id)
 
-~ temp ignored = set_location_now("traveler", "cellar")
-Result: {where_is_now("traveler")}
+~ temp ignored = set_location("traveler", "cellar")
+Result: {where_is("traveler")}
 -> DONE
 
-=== function set_location_now(character_id, location_id) ===
+=== function set_location(character_id, location_id) ===
 ~ return 0
 
-=== function where_is_now(character_id) ===
+=== function where_is(character_id) ===
 ~ return ""

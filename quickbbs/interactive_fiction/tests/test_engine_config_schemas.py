@@ -8,11 +8,9 @@ enforcement depends on. TestCase (never TransactionTestCase, per standing
 project rule) is used only where a real Story/StorySystemConfig row is
 needed.
 
-The validators' own pure-function coverage (no DB needed) moved to the
-standalone `ink_engine` library's own `tests/test_engine_config_schemas.py`
-(2026-09-08's `ink_engine` extraction — see claude_docs/plans/
-ink_engine_standalone_extraction.md), since `engine_config_schemas.py`
-itself lives there now.
+The validators' own pure-function coverage (no DB needed) lives in the
+standalone `ink_engine` library, beside each plugin that declares one --
+`tests/test_engine_location_graph_config.py` and `tests/test_engine_costs.py`.
 """
 
 from __future__ import annotations
@@ -21,10 +19,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase, TestCase
 
-from ink_engine.engine_config_schemas import (
-    validate_character_occupancy,
-    validate_location_graph,
-)
+from ink_engine.engine_config_schemas import SystemConfigValidationError
 from interactive_fiction.engine_api import discover_api_descriptors
 from interactive_fiction.models import Story, StorySystemConfig
 from interactive_fiction.tests.engine_test_utils import AlbumsPathOverrideMixin
@@ -68,13 +63,23 @@ class DiscoverApiDescriptorsDispatchTests(AlbumsPathOverrideMixin, SimpleTestCas
     tolerate a query neither test needs."""
 
     def test_real_apis_on_disk_are_discovered_with_their_validators(self):
-        """The two real Step 4 APIs (location_graph, character_occupancy)
-        are found, each with its own real validate_config callable."""
+        """Both real APIs are found, and the one declaring a config
+        schema carries its own validator. `character_occupancy` takes no
+        config: its schedules are built as Python objects, never as config
+        this host could store (see that plugin's own module docstring), so
+        its validator accepts an empty config and refuses anything else."""
         descriptors = discover_api_descriptors()
         self.assertIn("location_graph", descriptors)
         self.assertIn("character_occupancy", descriptors)
-        self.assertIs(descriptors["location_graph"].validate_config, validate_location_graph)
-        self.assertIs(descriptors["character_occupancy"].validate_config, validate_character_occupancy)
+        map_validator = descriptors["location_graph"].validate_config
+        self.assertIsNotNone(map_validator)
+        with self.assertRaises(SystemConfigValidationError):
+            map_validator({"locations": {}})
+        occupancy_validator = descriptors["character_occupancy"].validate_config
+        self.assertIsNotNone(occupancy_validator)
+        occupancy_validator({})
+        with self.assertRaises(SystemConfigValidationError):
+            occupancy_validator({"characters": {}})
 
     def test_unregistered_system_name_is_absent_from_discovery(self):
         """A system_name with no real API file backing it is simply

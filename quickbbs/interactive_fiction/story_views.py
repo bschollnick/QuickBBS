@@ -27,9 +27,21 @@ from ink_engine.engine import (
     load_story_root,
 )
 from interactive_fiction.images import find_file_by_path, link_story_image
-from interactive_fiction.models import Story, StoryImage, user_can_access
+from interactive_fiction.models import Story, StoryImage
 from quickbbs.common import can_upload_story
 from thumbnails.engine.exceptions import ThumbnailGenerationError
+
+
+def _accessible_story(request: WSGIRequest, slug: str, *, defer_compiled: bool = False) -> Story | HttpResponse:
+    """Call `views._get_accessible_story()`, imported here (not at module
+    level) because `views.py -> ingestion.py -> story_views.py` already
+    forms a cycle a module-level import would close (confirmed by testing).
+    The one inline import in this file — every caller below goes through
+    this wrapper instead of repeating it.
+    """
+    from interactive_fiction.views import _get_accessible_story  # pylint: disable=import-outside-toplevel
+
+    return _get_accessible_story(request, slug, defer_compiled=defer_compiled)
 
 
 def story_image(request: WSGIRequest, slug: str, tag_name: str) -> HttpResponse:
@@ -54,9 +66,9 @@ def story_image(request: WSGIRequest, slug: str, tag_name: str) -> HttpResponse:
         Http404: If no accessible Story or matching StoryImage exists, or
             the StoryImage has no linked file_index.
     """
-    story = get_object_or_404(Story.objects.defer("compiled_json"), slug=slug, is_available=True)
-    if not user_can_access(story, request.user):
-        return HttpResponse(status=403)
+    story = _accessible_story(request, slug, defer_compiled=True)
+    if isinstance(story, HttpResponse):
+        return story
 
     image = get_object_or_404(StoryImage.objects.select_related("file_index__filetype"), story=story, tag_name=tag_name)
     if image.file_index is None:
@@ -89,9 +101,9 @@ def story_video(request: WSGIRequest, slug: str, tag_name: str) -> HttpResponse:
         Http404: If no accessible Story or matching StoryImage exists, or
             the StoryImage has no linked file_index.
     """
-    story = get_object_or_404(Story.objects.defer("compiled_json"), slug=slug, is_available=True)
-    if not user_can_access(story, request.user):
-        return HttpResponse(status=403)
+    story = _accessible_story(request, slug, defer_compiled=True)
+    if isinstance(story, HttpResponse):
+        return story
 
     video = get_object_or_404(StoryImage.objects.select_related("file_index__filetype"), story=story, tag_name=tag_name)
     if video.file_index is None:
@@ -120,9 +132,9 @@ def story_cover(request: WSGIRequest, slug: str) -> HttpResponse:
             cover_image / the cover's linked file has no generated
             thumbnail yet.
     """
-    story = get_object_or_404(Story.objects.defer("compiled_json"), slug=slug, is_available=True)
-    if not user_can_access(story, request.user):
-        return HttpResponse(status=403)
+    story = _accessible_story(request, slug, defer_compiled=True)
+    if isinstance(story, HttpResponse):
+        return story
     cover = story.cover_image
     if cover is None or cover.file_index is None or cover.file_index.new_ftnail is None:
         return HttpResponse(status=404)

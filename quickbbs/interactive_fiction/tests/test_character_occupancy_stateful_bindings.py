@@ -2,15 +2,15 @@
 bindings" design (2026-08-23; contract updated 2026-09-08 by the
 `ink_engine` standalone-library extraction, see claude_docs/plans/
 ink_engine_standalone_extraction.md): character_occupancy.py's
-set_location_now/where_is_now/who_is_at_now are the first real consumer
+set_location/where_is/who_is_at are the first real consumer
 of Plugin's state_key/init_state/bind fields — proving (1) bindings_for()
 actually resolves them for a real trusted, opted-in story, (2) two
 sessions given independently-built engine_state dicts never leak a
-set_location_now() write into each other (the same per-session isolation
+set_location() write into each other (the same per-session isolation
 requirement test_engine_trust_gate.py's PerSessionIsolationTests proves
 for stateless bindings), and (3) a real save/load round-trip through
 views.py's own _new_game_state()/_load_game_state()/
-_build_current_game_state() persists and restores a set_location_now()
+_build_current_game_state() persists and restores a set_location()
 write across two separate InkRuntimeState instances, sourced only from
 CurrentGame.state -- never from any Python object surviving between them.
 """
@@ -27,15 +27,11 @@ from django.test import TestCase
 from ink_engine.engine import InkRuntimeState, load_story_root
 from ink_engine.engine_plugins import location_graph
 from ink_engine.engine_plugins.character_occupancy import (
-    OccupancyState,
+    CHARACTER_OCCUPANCY,
     ScheduleRule,
     UnknownLocationError,
-    recompute_occupancy,
-    set_location,
-    where_is,
-    who_is_at,
 )
-from ink_engine.engine_plugins.location_graph import initial_state
+from ink_engine.engine_plugins.location_graph import LocationGraph
 from interactive_fiction.engine_services import bindings_for
 from interactive_fiction.models import EngineAPI, Story, StorySystemConfig
 from interactive_fiction.views import (
@@ -65,8 +61,8 @@ class BindingsForResolvesCharacterOccupancyTests(TestCase):
     def test_trusted_opted_in_story_gets_the_real_bindings(self):
         """The real success path yields the full occupancy binding set.
 
-        Grown 2026-08-29 from three to five: `is_at_now`/`is_with_now`/
-        `is_anywhere_now` were added because "is X here" and "is X
+        Grown 2026-08-29 from three to five: `is_at`/`is_with`/
+        `is_anywhere` were added because "is X here" and "is X
         anywhere at all" are different questions that a story reading the
         store by hand tends to conflate."""
         story = Story.objects.create(
@@ -76,13 +72,11 @@ class BindingsForResolvesCharacterOccupancyTests(TestCase):
             compiled_json=_load("character_occupancy_set_and_get.ink.json"),
             is_engine_trusted=True,
         )
-        StorySystemConfig.objects.create(
-            story=story, system_name="character_occupancy", config={"characters": {"traveler": {"schedule": [{"condition": None, "location_id": None}]}}}
-        )
+        StorySystemConfig.objects.create(story=story, system_name="character_occupancy", config={})
         engine_state: dict = {}
         result = bindings_for(story, engine_state)
         self.assertEqual(
-            {"set_location_now", "where_is_now", "who_is_at_now", "is_at_now", "is_with_now", "is_anywhere_now"},
+            {"set_location", "where_is", "who_is_at", "is_at", "is_with", "is_anywhere"},
             set(result),
         )
         # init_state() already ran -- engine_state holds a fresh, empty
@@ -92,7 +86,7 @@ class BindingsForResolvesCharacterOccupancyTests(TestCase):
         # dependency slots regardless of story opt-in) no `location_graph`
         # slot exists at all -- character_occupancy._bind() reads it via
         # a plain `engine_state.get(...)`, so it simply sees `{}`.
-        self.assertEqual(engine_state, {"character_occupancy": OccupancyState().to_dict()})
+        self.assertEqual(engine_state, {"character_occupancy": CHARACTER_OCCUPANCY.init_state(None)})
 
     def test_no_engine_state_dict_yields_no_stateful_bindings_and_logs(self):
         """A caller that forgets to pass engine_state gets no bindings
@@ -105,9 +99,7 @@ class BindingsForResolvesCharacterOccupancyTests(TestCase):
             compiled_json=_load("character_occupancy_set_and_get.ink.json"),
             is_engine_trusted=True,
         )
-        StorySystemConfig.objects.create(
-            story=story, system_name="character_occupancy", config={"characters": {"traveler": {"schedule": [{"condition": None, "location_id": None}]}}}
-        )
+        StorySystemConfig.objects.create(story=story, system_name="character_occupancy", config={})
         self.assertEqual(bindings_for(story), {})
 
 
@@ -118,7 +110,7 @@ class StatefulBindingPerSessionIsolationTests(TestCase):
     built by character_occupancy.py's own bind_stateful: two sessions,
     each with their own engine_state dict (as two real Django requests
     would each build via views.py), must never let one session's
-    set_location_now() write appear in the other's where_is_now()."""
+    set_location() write appear in the other's where_is()."""
 
     def setUp(self):
         self.owner = get_user_model().objects.create_user(username="occupancy_isolation_owner", password="pw")
@@ -133,16 +125,16 @@ class StatefulBindingPerSessionIsolationTests(TestCase):
         StorySystemConfig.objects.create(
             story=self.story,
             system_name="character_occupancy",
-            config={"characters": {"traveler": {"schedule": [{"condition": None, "location_id": None}]}}},
+            config={},
         )
 
     def test_two_sessions_with_independent_engine_state_stay_isolated(self):
         """Both sessions run the SAME compiled story (which itself calls
-        set_location_now("traveler", "cellar") unconditionally), but each is
+        set_location("traveler", "cellar") unconditionally), but each is
         given its own, separately-built engine_state dict -- exactly how
         views.py's _new_game_state() builds one per real request. Neither
         session's own engine_state dict may end up holding the other's
-        data, and each session's own where_is_now() must reflect only
+        data, and each session's own where_is() must reflect only
         its own write."""
         root = load_story_root(self.story.compiled_json)
 
@@ -173,16 +165,16 @@ class StatefulBindingPerSessionIsolationTests(TestCase):
         bindings_a = bindings_for(self.story, engine_state_a)
         bindings_b = bindings_for(self.story, engine_state_b)
 
-        bindings_a["set_location_now"]("traveler", "cellar")
-        self.assertIsNone(bindings_b["where_is_now"]("traveler") or None)
-        bindings_b["set_location_now"]("traveler", "home_bedroom")
-        self.assertEqual(bindings_a["where_is_now"]("traveler"), "cellar")
-        self.assertEqual(bindings_b["where_is_now"]("traveler"), "home_bedroom")
+        bindings_a["set_location"]("traveler", "cellar")
+        self.assertIsNone(bindings_b["where_is"]("traveler") or None)
+        bindings_b["set_location"]("traveler", "home_bedroom")
+        self.assertEqual(bindings_a["where_is"]("traveler"), "cellar")
+        self.assertEqual(bindings_b["where_is"]("traveler"), "home_bedroom")
 
 
 class SaveLoadRoundTripTests(TestCase):
     """A real save/load round trip through views.py's own machinery: a
-    set_location_now() write made during one InkRuntimeState's
+    set_location() write made during one InkRuntimeState's
     continue_story() call must survive being serialized into
     CurrentGame.state and deserialized into a completely SEPARATE,
     freshly-constructed InkRuntimeState -- proving persistence actually
@@ -202,16 +194,16 @@ class SaveLoadRoundTripTests(TestCase):
         StorySystemConfig.objects.create(
             story=self.story,
             system_name="character_occupancy",
-            config={"characters": {"traveler": {"schedule": [{"condition": None, "location_id": None}]}}},
+            config={},
         )
 
     def test_set_location_survives_a_real_save_and_load(self):
         """_new_game_state() runs continue_story() once (which calls
-        set_location_now("traveler", "cellar")), _build_current_game_state()
+        set_location("traveler", "cellar")), _build_current_game_state()
         persists the resulting engine_state, and a completely fresh
         _load_game_state() call -- given only the persisted dict, no
         reference to the original InkRuntimeState/engine_state objects --
-        must resolve where_is_now("traveler") to the same value via a fresh
+        must resolve where_is("traveler") to the same value via a fresh
         binding closure built from the reloaded data."""
         engine_state: dict = {}
         state = _new_game_state(self.story, engine_state)
@@ -231,11 +223,11 @@ class SaveLoadRoundTripTests(TestCase):
 
         reloaded = _load_game_state(self.story, reloaded_raw_state, reloaded_engine_state)
         # _load_game_state() does not call continue_story() again, so
-        # querying where_is_now() directly through its own bindings
+        # querying where_is() directly through its own bindings
         # (rather than re-running the story) proves the reloaded STATE,
-        # not a re-executed set_location_now() call, is what answers.
-        where_is_now = bindings_for(self.story, reloaded_engine_state)["where_is_now"]
-        self.assertEqual(where_is_now("traveler"), "cellar")
+        # not a re-executed set_location() call, is what answers.
+        where_is = bindings_for(self.story, reloaded_engine_state)["where_is"]
+        self.assertEqual(where_is("traveler"), "cellar")
         # And the reload never touched the original session's own dict.
         self.assertEqual(engine_state["character_occupancy"]["locations"]["traveler"], "cellar")
         del reloaded  # constructed only to prove from_dict() itself does not error on the reloaded shape
@@ -285,7 +277,7 @@ class UndeclaredLocationIsFatalTests(TestCase):
         StorySystemConfig.objects.create(
             story=story,
             system_name="character_occupancy",
-            config={"characters": {"traveler": {"schedule": [{"condition": None, "location_id": None}]}}},
+            config={},
         )
         if locations:
             StorySystemConfig.objects.create(
@@ -301,25 +293,20 @@ class UndeclaredLocationIsFatalTests(TestCase):
         story = self._story_declaring(["cellar"], slug="undeclared-ok")
         engine_state: dict = {}
         bindings = bindings_for(story, engine_state)
-        self.assertEqual(bindings["set_location_now"]("traveler", "cellar"), 1)
-        self.assertEqual(bindings["where_is_now"]("traveler"), "cellar")
+        self.assertEqual(bindings["set_location"]("traveler", "cellar"), 1)
+        self.assertEqual(bindings["where_is"]("traveler"), "cellar")
 
     def test_an_undeclared_location_raises(self):
         """A typo'd id is refused at the write, naming the character and
         the value, rather than silently storing it."""
         story = self._story_declaring(["cellar"], slug="undeclared-raises")
-        # The generic map plugin's `init_state()` takes no arguments, so
-        # it cannot see the story's own config; a real story seeds its
-        # map from `initial_state(config)` in its own initializer, as the
-        # reference game does. Seeded here the same way.
-        engine_state = {
-            location_graph.STATE_KEY: initial_state(
-                {"locations": {"cellar": {"known_by_default": True}}}
-            ).to_dict()
-        }
+        # A real story ships its map by instantiating the map plugin over
+        # its config; the slot it seeds is what occupancy checks against.
+        cellar_map = LocationGraph(name="cellar_map", config={"locations": {"cellar": {"known_by_default": True}}})
+        engine_state = {location_graph.STATE_KEY: cellar_map.init_state(None)}
         bindings = bindings_for(story, engine_state)
         with self.assertRaises(UnknownLocationError) as caught:
-            bindings["set_location_now"]("traveler", "celler")
+            bindings["set_location"]("traveler", "celler")
         self.assertIn("celler", str(caught.exception))
         self.assertIn("traveler", str(caught.exception))
 
@@ -329,9 +316,9 @@ class UndeclaredLocationIsFatalTests(TestCase):
         story = self._story_declaring(["cellar"], slug="undeclared-clear")
         engine_state: dict = {}
         bindings = bindings_for(story, engine_state)
-        bindings["set_location_now"]("traveler", "cellar")
-        self.assertEqual(bindings["set_location_now"]("traveler", ""), 1)
-        self.assertEqual(bindings["where_is_now"]("traveler"), "")
+        bindings["set_location"]("traveler", "cellar")
+        self.assertEqual(bindings["set_location"]("traveler", ""), 1)
+        self.assertEqual(bindings["where_is"]("traveler"), "")
 
     def test_a_story_declaring_no_locations_is_not_checked(self):
         """A story tracking its map some other way keeps working.
@@ -342,7 +329,7 @@ class UndeclaredLocationIsFatalTests(TestCase):
         """
         story = self._story_declaring([], slug="undeclared-permissive")
         bindings = bindings_for(story, {})
-        self.assertEqual(bindings["set_location_now"]("traveler", "anywhere_at_all"), 1)
+        self.assertEqual(bindings["set_location"]("traveler", "anywhere_at_all"), 1)
 
 
 class RecomputePopulatesTheStoreTests(TestCase):
@@ -351,17 +338,17 @@ class RecomputePopulatesTheStoreTests(TestCase):
 
     The store is the live layer every presence question is answered from,
     so "nobody is anywhere" and "the schedules never ran" look identical
-    from inside a story. `where_is_now()` reads that store and nothing
+    from inside a story. `where_is()` reads that store and nothing
     else, so a schedule only reaches a story once a recompute has written
     its answer in — this asserts that write actually happens.
     """
 
     def test_the_player_and_the_scheduled_npcs_are_in_the_store(self):
         """A recompute resolves the NPCs and leaves the player untouched."""
-        state = OccupancyState()
+        slot = CHARACTER_OCCUPANCY.init_state(None)
         # The player is registered by the story's own arrival, not by a
         # schedule, so a recompute must preserve that entry.
-        state = set_location(state, "player", "foyer")
+        CHARACTER_OCCUPANCY.place(slot, "player", "foyer")
         schedules = {
             # Always in the cellar: a populated store must contain her.
             "bambi": (ScheduleRule(condition=None, location_id="cellar"),),
@@ -369,33 +356,35 @@ class RecomputePopulatesTheStoreTests(TestCase):
             # answers rather than one entry per declared character.
             "traveler": (ScheduleRule(condition=None, location_id=None),),
         }
-        updated = recompute_occupancy(state, schedules, frozenset(), 0)
-        self.assertEqual(where_is(updated, "player"), "foyer")
-        self.assertEqual(where_is(updated, "bambi"), "cellar")
-        self.assertIsNone(where_is(updated, "traveler"))
-        self.assertEqual(updated.to_dict()["locations"].get("bambi"), "cellar")
+        CHARACTER_OCCUPANCY.recompute(slot, schedules, frozenset(), 0)
+        self.assertEqual(CHARACTER_OCCUPANCY.where_is(slot, "player"), "foyer")
+        self.assertEqual(CHARACTER_OCCUPANCY.where_is(slot, "bambi"), "cellar")
+        self.assertIsNone(CHARACTER_OCCUPANCY.where_is(slot, "traveler", default=None))
+        self.assertEqual(slot["locations"].get("bambi"), "cellar")
 
-    def test_who_is_at_reports_the_npc_beside_the_player(self):
+    def test_characters_at_reports_the_npc_beside_the_player(self):
         """Presence at a location is answered from that same store."""
-        state = set_location(OccupancyState(), "player", "cellar")
+        slot = CHARACTER_OCCUPANCY.init_state(None)
+        CHARACTER_OCCUPANCY.place(slot, "player", "cellar")
         schedules = {"bambi": (ScheduleRule(condition=None, location_id="cellar"),)}
-        updated = recompute_occupancy(state, schedules, frozenset(), 0)
-        self.assertIn("bambi", who_is_at(updated, "cellar"))
-        self.assertIn("player", who_is_at(updated, "cellar"))
+        CHARACTER_OCCUPANCY.recompute(slot, schedules, frozenset(), 0)
+        self.assertIn("bambi", CHARACTER_OCCUPANCY.characters_at(slot, "cellar"))
+        self.assertIn("player", CHARACTER_OCCUPANCY.characters_at(slot, "cellar"))
 
     def test_a_recompute_moves_an_npc_when_the_schedule_answer_changes(self):
         """A stale entry is overwritten, not kept alongside the new one."""
         schedules_day = {"bambi": (ScheduleRule(condition=None, location_id="cellar"),)}
         schedules_night = {"bambi": (ScheduleRule(condition=None, location_id="foyer"),)}
-        state = recompute_occupancy(OccupancyState(), schedules_day, frozenset(), 0)
-        self.assertEqual(where_is(state, "bambi"), "cellar")
-        state = recompute_occupancy(state, schedules_night, frozenset(), 0)
-        self.assertEqual(where_is(state, "bambi"), "foyer")
-        self.assertNotIn("bambi", who_is_at(state, "cellar"))
+        slot = CHARACTER_OCCUPANCY.init_state(None)
+        CHARACTER_OCCUPANCY.recompute(slot, schedules_day, frozenset(), 0)
+        self.assertEqual(CHARACTER_OCCUPANCY.where_is(slot, "bambi"), "cellar")
+        CHARACTER_OCCUPANCY.recompute(slot, schedules_night, frozenset(), 0)
+        self.assertEqual(CHARACTER_OCCUPANCY.where_is(slot, "bambi"), "foyer")
+        self.assertNotIn("bambi", CHARACTER_OCCUPANCY.characters_at(slot, "cellar"))
 
 
 class PlayerLocationFollowsTheStoryTests(TestCase):
-    """Step 11 (b): `where_is_now("player")` changes when the player walks
+    """Step 11 (b): `where_is("player")` changes when the player walks
     from one location knot to another.
 
     The regression guarded here is Justification #2: presence answered
@@ -416,13 +405,10 @@ class PlayerLocationFollowsTheStoryTests(TestCase):
             compiled_json=_load("player_moves_between_locations.ink.json"),
             is_engine_trusted=True,
         )
-        # The config schema requires at least one character; this story's
-        # subject is the PLAYER's own movement, so the declared character
-        # is an unscheduled placeholder.
         StorySystemConfig.objects.create(
             story=story,
             system_name="character_occupancy",
-            config={"characters": {"traveler": {"schedule": [{"condition": None, "location_id": None}]}}},
+            config={},
         )
         engine_state: dict = {}
         bindings = bindings_for(story, engine_state)
@@ -430,13 +416,13 @@ class PlayerLocationFollowsTheStoryTests(TestCase):
 
         first = state.continue_story()
         self.assertIn("foyer", first)
-        self.assertEqual(bindings["where_is_now"]("player"), "foyer")
+        self.assertEqual(bindings["where_is"]("player"), "foyer")
 
         # Walk to the cellar; the store must follow the player there.
         state.choose(0)
         second = state.continue_story()
         self.assertIn("cellar", second)
-        self.assertEqual(bindings["where_is_now"]("player"), "cellar")
+        self.assertEqual(bindings["where_is"]("player"), "cellar")
         self.assertEqual(engine_state["character_occupancy"]["locations"]["player"], "cellar")
 
 
@@ -473,7 +459,7 @@ class ReadingAnotherPluginsSlotNeverInventsItTests(TestCase):
         StorySystemConfig.objects.create(
             story=story,
             system_name="character_occupancy",
-            config={"characters": {"traveler": {"schedule": [{"condition": None, "location_id": None}]}}},
+            config={},
         )
         return story
 
@@ -497,4 +483,4 @@ class ReadingAnotherPluginsSlotNeverInventsItTests(TestCase):
         because there is no longer a second name that could name a slot
         nothing owns."""
         bindings = bindings_for(self._story("shared-slot-permissive"), {})
-        self.assertEqual(bindings["set_location_now"]("traveler", "anywhere_at_all"), 1)
+        self.assertEqual(bindings["set_location"]("traveler", "anywhere_at_all"), 1)

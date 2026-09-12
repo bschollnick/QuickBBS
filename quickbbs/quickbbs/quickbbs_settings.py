@@ -164,6 +164,8 @@ ALIAS_CACHE_SIZE = 250  # macOS alias resolution results (fileindex.py)
 # TTL cache settings
 USER_PREF_CACHE_SIZE = 64  # Max cached user preference lookups (views.py)
 USER_PREF_CACHE_TTL = 10  # Seconds before user preference cache entries expire
+THUMBNAIL_ENQUEUE_DEBOUNCE_SIZE = 2000  # Max SHA256s tracked as "recently enqueued" (views.py)
+THUMBNAIL_ENQUEUE_DEBOUNCE_TTL = 60  # Seconds before a SHA256 can be re-enqueued
 
 # HTTP Cache-Control header settings
 HTTP_CACHE_MAX_AGE = 300  # seconds (5 minutes) for file response Cache-Control headers

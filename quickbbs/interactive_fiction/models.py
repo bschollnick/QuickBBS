@@ -16,7 +16,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.base import ModelBase
 
-from interactive_fiction.engine_api import discover_api_descriptors
+from interactive_fiction.engine_api import clear_api_descriptor_cache, discover_api_descriptors
 from ink_engine.engine_config_schemas import SystemConfigValidationError
 from quickbbs.models import FileIndex
 
@@ -310,6 +310,10 @@ def sync_engine_apis() -> tuple[int, int]:
         A tuple of (number of newly-discovered APIs created, number of
         already-known APIs whose display_name/last_seen_at was refreshed).
     """
+    # Game folders may have been added/removed on disk since the last
+    # discovery pass — clear the cache so this scan sees the real, current
+    # state rather than a stale cached result.
+    clear_api_descriptor_cache()
     descriptors = discover_api_descriptors()
     created_count = 0
     updated_count = 0

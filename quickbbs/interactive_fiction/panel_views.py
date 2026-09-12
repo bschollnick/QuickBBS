@@ -17,7 +17,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.handlers.wsgi import WSGIRequest
 from django.db import transaction
 from django.http import HttpResponse
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import render
 from django.template.loader import render_to_string
 from django.views.decorators.http import require_GET, require_POST
 
@@ -26,8 +26,8 @@ from interactive_fiction.engine_services import (
     game_panel_command,
     game_panel_context,
 )
-from interactive_fiction.models import CurrentGame, Story, user_can_access
-from interactive_fiction.views import _build_current_game_state, _current_game_for_turn
+from interactive_fiction.models import CurrentGame
+from interactive_fiction.views import _build_current_game_state, _current_game_for_turn, _get_accessible_story
 
 
 @login_required
@@ -58,9 +58,9 @@ def play_panel_tab(request: WSGIRequest, slug: str, tab_id: str) -> HttpResponse
     Raises:
         Http404: If no accessible Story exists.
     """
-    story = get_object_or_404(Story, slug=slug, is_available=True)
-    if not user_can_access(story, request.user):
-        return HttpResponse(status=403)
+    story = _get_accessible_story(request, slug)
+    if isinstance(story, HttpResponse):
+        return story
 
     current_game = CurrentGame.objects.filter(user=request.user, story=story).first()
     engine_state = current_game.state.get("engine_state", {}) if current_game else {}
@@ -120,9 +120,9 @@ def play_panel_action(request: WSGIRequest, slug: str, action_id: str, target_id
     Raises:
         Http404: If no accessible Story exists.
     """
-    story = get_object_or_404(Story, slug=slug, is_available=True)
-    if not user_can_access(story, request.user):
-        return HttpResponse(status=403)
+    story = _get_accessible_story(request, slug)
+    if isinstance(story, HttpResponse):
+        return story
 
     current_game = CurrentGame.objects.filter(user=request.user, story=story).first()
     if current_game is None:
@@ -173,9 +173,9 @@ def play_panel_command(request: WSGIRequest, slug: str, command_id: str, target_
     Raises:
         Http404: If no accessible Story matches slug.
     """
-    story = get_object_or_404(Story, slug=slug, is_available=True)
-    if not user_can_access(story, request.user):
-        return HttpResponse(status=403)
+    story = _get_accessible_story(request, slug)
+    if isinstance(story, HttpResponse):
+        return story
 
     try:
         submitted_turn_count = int(request.POST["turn_count"])
@@ -203,6 +203,8 @@ def play_panel_command(request: WSGIRequest, slug: str, command_id: str, target_
     panel_context_dict: dict[str, Any] = {"story": story, "turn_count": current_game.turn_count, "panel_detail": text}
     if panel is not None:
         panel_context_dict.update(panel)
+        # Re-assert: this command's own result text must win even if the
+        # game's own panel dict happens to carry its own "panel_detail" key.
         panel_context_dict["panel_detail"] = text
 
     return HttpResponse(render_to_string("interactive_fiction/play_panel.jinja", panel_context_dict, request=request, using="Jinja2"))

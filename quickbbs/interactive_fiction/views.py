@@ -112,6 +112,44 @@ def _new_game_state(story: Story, engine_state: dict[str, Any], initial_globals:
     return state
 
 
+def _start_new_game(
+    user: "AbstractUser", story: Story, initial_globals: dict[str, Any] | None = None
+) -> tuple[InkRuntimeState, list[dict[str, object]]]:
+    """Build a fresh game for (user, story) and persist it as CurrentGame.
+
+    The shared "start from scratch" sequence `play()`'s first-visit branch,
+    `play_restart()`, and `character_creation_submit()` each need: a fresh
+    `InkRuntimeState` (see `_new_game_state()`), a one-entry opening
+    transcript, and a `CurrentGame` row written (or overwritten, for a
+    restart) to hold them. `update_or_create` is used unconditionally —
+    safe even for a caller that has already confirmed no row exists (the
+    `play()` fresh-game case), since an update_or_create with nothing to
+    update behaves exactly like a plain create.
+
+    Args:
+        user: The player starting the game.
+        story: The story to start.
+        initial_globals: See `_new_game_state()`.
+
+    Returns:
+        `(state, transcript)` — the new game's own `InkRuntimeState`,
+        already advanced to its first stop point and ready to display,
+        and its one-entry opening transcript.
+    """
+    engine_state: dict[str, Any] = {}
+    state = _new_game_state(story, engine_state, initial_globals=initial_globals)
+    transcript = _append_transcript_entry([], state.last_turn_text, chosen_label=None)
+    CurrentGame.objects.update_or_create(
+        user=user,
+        story=story,
+        defaults={
+            "state": _build_current_game_state(state, previous_raw_state=None, transcript=transcript, engine_state=engine_state),
+            "turn_count": state.turn_count,
+        },
+    )
+    return state, transcript
+
+
 def _resolve_radio_image_choice(field: dict[str, Any], post_data: dict[str, str]) -> dict[str, Any]:
     """Resolve one submitted `radio_image` field to its chosen `value` dict.
 
@@ -185,6 +223,35 @@ def _character_creation_globals(story: Story, post_data: dict[str, str], base_gl
     return result
 
 
+def _get_accessible_story(request: WSGIRequest, slug: str, *, defer_compiled: bool = False) -> Story | HttpResponse:
+    """Look up a story by slug and enforce `user_can_access()`.
+
+    The lookup-then-access-check pair every view in this app needs before
+    doing anything else with a story. `defer_compiled=True` skips loading
+    `compiled_json` for views that never touch the Ink graph itself (image/
+    video/cover serving, save-slot management) — the same optimization
+    every one of those views already applied by hand.
+
+    Args:
+        request: The incoming request.
+        slug: The story's slug.
+        defer_compiled: Whether to defer loading `compiled_json`.
+
+    Returns:
+        The story on success, or a 403 `HttpResponse` — callers must check
+        `isinstance(result, HttpResponse)` and return it as-is rather than
+        using it as a `Story`.
+
+    Raises:
+        Http404: If no available Story matches slug.
+    """
+    queryset = Story.objects.defer("compiled_json") if defer_compiled else Story.objects
+    story = get_object_or_404(queryset, slug=slug, is_available=True)
+    if not user_can_access(story, request.user):
+        return HttpResponse(status=403)
+    return story
+
+
 @login_required
 def character_creation(request: WSGIRequest, slug: str) -> HttpResponse:
     """Show a game's own character-creation form (Step: new-game questions).
@@ -206,9 +273,9 @@ def character_creation(request: WSGIRequest, slug: str) -> HttpResponse:
     Raises:
         Http404: If no accessible Story matches slug.
     """
-    story = get_object_or_404(Story, slug=slug, is_available=True)
-    if not user_can_access(story, request.user):
-        return HttpResponse(status=403)
+    story = _get_accessible_story(request, slug)
+    if isinstance(story, HttpResponse):
+        return story
     return render(request, "interactive_fiction/character_creation.jinja", {"story": story, "user": request.user}, using="Jinja2")
 
 
@@ -230,9 +297,9 @@ def character_creation_submit(request: WSGIRequest, slug: str) -> HttpResponse:
     Raises:
         Http404: If no accessible Story matches slug.
     """
-    story = get_object_or_404(Story, slug=slug, is_available=True)
-    if not user_can_access(story, request.user):
-        return HttpResponse(status=403)
+    story = _get_accessible_story(request, slug)
+    if isinstance(story, HttpResponse):
+        return story
 
     # A bare, binding-less state to read the story's own real starting
     # global values from (no EXTERNAL calls fire, no continue_story() —
@@ -241,17 +308,7 @@ def character_creation_submit(request: WSGIRequest, slug: str) -> HttpResponse:
     # default rather than guessing 0.
     base_globals = InkRuntimeState(load_story_root(story.compiled_json), load_list_defs(story.compiled_json)).globals
     initial_globals = _character_creation_globals(story, request.POST, base_globals)
-    engine_state: dict[str, Any] = {}
-    state = _new_game_state(story, engine_state, initial_globals=initial_globals)
-    transcript = _append_transcript_entry([], state.last_turn_text, chosen_label=None)
-    CurrentGame.objects.update_or_create(
-        user=request.user,
-        story=story,
-        defaults={
-            "state": _build_current_game_state(state, previous_raw_state=None, transcript=transcript, engine_state=engine_state),
-            "turn_count": state.turn_count,
-        },
-    )
+    _start_new_game(request.user, story, initial_globals=initial_globals)
     return redirect("if_play", slug=story.slug)
 
 
@@ -620,23 +677,15 @@ def play(request: WSGIRequest, slug: str) -> HttpResponse:
     Raises:
         Http404: If no accessible Story matches slug (via get_object_or_404).
     """
-    story = get_object_or_404(Story, slug=slug, is_available=True)
-    if not user_can_access(story, request.user):
-        return HttpResponse(status=403)
+    story = _get_accessible_story(request, slug)
+    if isinstance(story, HttpResponse):
+        return story
 
     current_game = CurrentGame.objects.filter(user=request.user, story=story).first()
     if current_game is None and story.game_new_game_fields:
         return redirect("if_character_creation", slug=story.slug)
     if current_game is None:
-        engine_state: dict[str, Any] = {}
-        state = _new_game_state(story, engine_state)
-        transcript = _append_transcript_entry([], state.last_turn_text, chosen_label=None)
-        CurrentGame.objects.create(
-            user=request.user,
-            story=story,
-            state=_build_current_game_state(state, previous_raw_state=None, transcript=transcript, engine_state=engine_state),
-            turn_count=state.turn_count,
-        )
+        state, transcript = _start_new_game(request.user, story)
     else:
         state = _load_game_state(story, current_game, current_game.state.get("engine_state", {}))
         transcript = current_game.state.get("transcript", [])
@@ -692,9 +741,9 @@ def play_submit(request: WSGIRequest, slug: str) -> HttpResponse:
     Raises:
         Http404: If no accessible Story matches slug.
     """
-    story = get_object_or_404(Story, slug=slug, is_available=True)
-    if not user_can_access(story, request.user):
-        return HttpResponse(status=403)
+    story = _get_accessible_story(request, slug)
+    if isinstance(story, HttpResponse):
+        return story
 
     try:
         choice_index = int(request.POST["choice"])
@@ -747,9 +796,9 @@ def play_undo(request: WSGIRequest, slug: str) -> HttpResponse:
     Raises:
         Http404: If no accessible Story or CurrentGame exists.
     """
-    story = get_object_or_404(Story, slug=slug, is_available=True)
-    if not user_can_access(story, request.user):
-        return HttpResponse(status=403)
+    story = _get_accessible_story(request, slug)
+    if isinstance(story, HttpResponse):
+        return story
 
     with transaction.atomic():
         current_game = get_object_or_404(CurrentGame.objects.select_for_update(), user=request.user, story=story)
@@ -798,9 +847,9 @@ def play_restart(request: WSGIRequest, slug: str) -> HttpResponse:
     Raises:
         Http404: If no accessible Story matches slug.
     """
-    story = get_object_or_404(Story, slug=slug, is_available=True)
-    if not user_can_access(story, request.user):
-        return HttpResponse(status=403)
+    story = _get_accessible_story(request, slug)
+    if isinstance(story, HttpResponse):
+        return story
 
     if story.game_new_game_fields:
         CurrentGame.objects.filter(user=request.user, story=story).delete()
@@ -808,18 +857,7 @@ def play_restart(request: WSGIRequest, slug: str) -> HttpResponse:
         response["HX-Redirect"] = reverse("if_character_creation", args=[story.slug])
         return response
 
-    engine_state: dict[str, Any] = {}
-    state = _new_game_state(story, engine_state)
-    transcript = _append_transcript_entry([], state.last_turn_text, chosen_label=None)
-    CurrentGame.objects.update_or_create(
-        user=request.user,
-        story=story,
-        defaults={
-            "state": _build_current_game_state(state, previous_raw_state=None, transcript=transcript, engine_state=engine_state),
-            "turn_count": state.turn_count,
-        },
-    )
-
+    state, transcript = _start_new_game(request.user, story)
     return HttpResponse(_render_play_content(request, story, state, transcript=transcript, can_undo=False))
 
 

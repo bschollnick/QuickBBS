@@ -952,7 +952,13 @@ PLAY_LAYOUT = "three_column"
 
     def test_a_panel_that_raises_is_survived_rather_than_fatal(self):
         """A broken panel must not take the whole play page down with it."""
-        (self.game_dir / "sidebar.py").write_text("def panel_context(a, b):\n    raise ValueError('boom')\n", encoding="utf-8")
+        # Correct signature, raising body: the hook is reached and its own
+        # exception is what gets swallowed. A deliberately-wrong signature
+        # would fail at the call instead, proving only that a TypeError is
+        # caught -- not that a genuinely broken panel is survived.
+        (self.game_dir / "sidebar.py").write_text(
+            "def panel_context(engine_state, globals_, bindings):\n    raise ValueError('boom')\n", encoding="utf-8"
+        )
         # sidebar.py was already imported (with its working version) once
         # by setUp()'s own call chain isn't triggered until game_panel_*
         # is actually called -- but evict anyway in case a prior assertion
@@ -1009,7 +1015,7 @@ class GamePanelCommandTests(_AlbumsRootMixin, TestCase):
     bindings a story choice does — `bindings_for(story, engine_state)` —
     rather than a bespoke write path per game, which is the whole point of
     exercising this against a real generic stateful API (scheduling's
-    `advance_clock_now`) rather than a stub.
+    `advance_clock`) rather than a stub.
     """
 
     PANEL_MODULE = """
@@ -1023,7 +1029,7 @@ def panel_context(engine_state, globals_, bindings):
 
 def panel_command(engine_state, globals_, bindings, command_id, target_id):
     if command_id == "advance" and target_id == "clock":
-        new_value = bindings["advance_clock_now"](5)
+        new_value = bindings["advance_clock"](5)
         return f"Advanced to {new_value}."
     return ""
 """

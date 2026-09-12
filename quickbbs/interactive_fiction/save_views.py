@@ -21,8 +21,8 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import require_POST
 
-from interactive_fiction.models import CurrentGame, SaveState, Story, user_can_access
-from interactive_fiction.views import _load_game_state, _render_play_content
+from interactive_fiction.models import CurrentGame, SaveState, Story
+from interactive_fiction.views import _get_accessible_story, _load_game_state, _render_play_content
 
 
 @login_required
@@ -39,9 +39,9 @@ def saves(request: WSGIRequest, slug: str) -> HttpResponse:
     Raises:
         Http404: If no accessible Story matches slug.
     """
-    story = get_object_or_404(Story.objects.defer("compiled_json"), slug=slug, is_available=True)
-    if not user_can_access(story, request.user):
-        return HttpResponse(status=403)
+    story = _get_accessible_story(request, slug, defer_compiled=True)
+    if isinstance(story, HttpResponse):
+        return story
 
     slots = list(SaveState.objects.filter(user=request.user, story=story).order_by("slot").only("slot", "label", "updated_at"))
     return render(
@@ -79,9 +79,9 @@ def saves_save(request: WSGIRequest, slug: str, slot: int) -> HttpResponse:
     Raises:
         Http404: If no accessible Story or CurrentGame exists.
     """
-    story = get_object_or_404(Story.objects.defer("compiled_json"), slug=slug, is_available=True)
-    if not user_can_access(story, request.user):
-        return HttpResponse(status=403)
+    story = _get_accessible_story(request, slug, defer_compiled=True)
+    if isinstance(story, HttpResponse):
+        return story
     if slot < 0 or slot >= settings.MAX_SAVE_SLOTS_PER_STORY:
         return HttpResponse(status=400)
 
@@ -120,9 +120,9 @@ def saves_load(request: WSGIRequest, slug: str, slot: int) -> HttpResponse:
     Raises:
         Http404: If no accessible Story or matching SaveState exists.
     """
-    story = get_object_or_404(Story.objects.defer("compiled_json"), slug=slug, is_available=True)
-    if not user_can_access(story, request.user):
-        return HttpResponse(status=403)
+    story = _get_accessible_story(request, slug, defer_compiled=True)
+    if isinstance(story, HttpResponse):
+        return story
 
     save_state = get_object_or_404(SaveState, user=request.user, story=story, slot=slot)
     # Deep-copied for the same reason as views.py's play_undo(): save_state.state
@@ -156,9 +156,9 @@ def saves_export(request: WSGIRequest, slug: str, slot: int) -> HttpResponse:
         A JSON attachment download, or 404 if no accessible Story or
         matching SaveState exists.
     """
-    story = get_object_or_404(Story.objects.defer("compiled_json"), slug=slug, is_available=True)
-    if not user_can_access(story, request.user):
-        return HttpResponse(status=403)
+    story = _get_accessible_story(request, slug, defer_compiled=True)
+    if isinstance(story, HttpResponse):
+        return story
 
     save_state = get_object_or_404(SaveState, user=request.user, story=story, slot=slot)
     envelope = {
@@ -238,9 +238,9 @@ def saves_import(request: WSGIRequest, slug: str) -> HttpResponse:
     Raises:
         Http404: If no accessible Story matches slug.
     """
-    story = get_object_or_404(Story.objects.defer("compiled_json"), slug=slug, is_available=True)
-    if not user_can_access(story, request.user):
-        return HttpResponse(status=403)
+    story = _get_accessible_story(request, slug, defer_compiled=True)
+    if isinstance(story, HttpResponse):
+        return story
 
     slot = _parse_import_slot(request)
     upload_file = request.FILES.get("save_file")

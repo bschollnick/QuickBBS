@@ -396,7 +396,7 @@ class TestAnonymousAccessIsGated(ViewSmokeTestBase):
     def test_anonymous_requests_redirect_to_login(self):
         """Every gated endpoint redirects an anonymous visitor to LOGIN_URL."""
         if not settings.QUICKBBS_REQUIRE_LOGIN:
-            pytest.skip("QUICKBBS_REQUIRE_LOGIN is disabled; anonymous browsing is allowed by design.")
+            self.skipTest("QUICKBBS_REQUIRE_LOGIN is disabled; anonymous browsing is allowed by design.")
 
         self.client.logout()
         served = []

@@ -62,23 +62,16 @@ discover_api_descriptors()` (QuickBBS's own thin wrapper around
 resolve_bindings()` directly — trust-gating and per-story isolation stay
 exactly where they always were, entirely in this file.
 
-**The OLD `needed_list_names` mechanism has no home in `ink_engine` at
-all** (per the plan's own "not part of this contract" design note) — a
-plugin's `Plugin.bind(own_state, engine_state)` never receives `story`,
-so it cannot call `ink_engine.engine.load_list_defs(story.compiled_json)`
-itself. The one real caller (a converted game's own `occupancy.py`
-module, in its `who_is_here_now()`, needing the `AllCharacters` LIST's
-own item-name->int table) reads it from `engine_state[_LIST_DEFS_KEY]`
-instead — `bindings_for()` below computes it once, from `story`, stashes
-it there BEFORE calling `resolve_bindings()`, then POPS it back out
-immediately afterward. `_LIST_DEFS_KEY` is NOT real per-session state
-(it is the same for every session of a given story, derived purely from
-`story.compiled_json`, never mutated), so it must never reach
-`CurrentGame.state["engine_state"]`'s own persisted JSON — the pop makes
-that true regardless of what a caller does with `engine_state`
-afterward. Safe because `occupancy.py`'s own `_bind()` reads it exactly
-ONCE, synchronously, while building `who_is_here_now`'s closure — never
-deferred to Ink call time — so it is fully consumed before the pop runs.
+**Compiled LIST tables reach a plugin's `bind()` through the engine**, not
+through anything private to this app: `bindings_for()` computes them from
+`story.compiled_json` and passes `list_defs=` to `resolve_bindings()`,
+which hands them to every `bind()` as its own third argument. A plugin's
+`bind(own_state, engine_state, list_defs)` never receives `story`, so it
+cannot load them itself; the one real caller is a converted game's own
+`occupancy.py`, whose `who_is_here_now()` needs the `AllCharacters` LIST's
+item-name->int table. Because the engine owns this mechanism, `if_player`
+gets the same tables from the same code path rather than silently binding
+over an empty one.
 """
 
 from __future__ import annotations
@@ -89,8 +82,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ink_engine.binding import resolve_bindings
+from ink_engine import game_panel
+from ink_engine.engine_config_schemas import SystemConfigValidationError
+from ink_engine.binding import ManifestMismatchError, check_required_plugins, resolve_bindings
 from ink_engine.engine import load_list_defs
+from ink_engine.plugin import Plugin
 from interactive_fiction.engine_api import discover_api_descriptors
 from interactive_fiction.ingestion import read_manifest_value
 from interactive_fiction.models import (
@@ -105,12 +101,6 @@ if TYPE_CHECKING:
     from interactive_fiction.models import Story
 
 logger = logging.getLogger(__name__)
-
-#: Reserved `engine_state` key `bindings_for()` uses to hand a story's own
-#: compiled LIST definitions to a plugin's `bind()` during THIS call only
-#: -- never real per-session state, always popped back out before
-#: `bindings_for()` returns (see this module's own docstring above).
-_LIST_DEFS_KEY = "_list_defs"
 
 
 def bindings_for(story: "Story", engine_state: dict[str, Any] | None = None) -> dict[str, Callable[..., Any]]:
@@ -191,9 +181,8 @@ def bindings_for(story: "Story", engine_state: dict[str, Any] | None = None) -> 
                 name,
             )
             continue
-        if engine_state is None and plugins[name].bind is not None:
-            # Preserves the OLD system's real, documented behavior: a
-            # stateful plugin needs somewhere to put its state, so a
+        if engine_state is None and plugins[name].state_key is not None:
+            # A stateful plugin needs somewhere to put its state, so a
             # caller that forgot to pass engine_state gets none of ITS
             # bindings (a stateless-only plugin is unaffected -- it never
             # needed engine_state in the first place).
@@ -205,15 +194,68 @@ def bindings_for(story: "Story", engine_state: dict[str, Any] | None = None) -> 
             continue
         active_names.append(name)
 
-    real_engine_state = engine_state if engine_state is not None else {}
-    # See _LIST_DEFS_KEY's own docstring above: this is call-scoped data
-    # for whichever plugin's bind() wants a compiled LIST's item table
-    # (today: occupancy.py's who_is_here_now()), never real session state.
-    real_engine_state[_LIST_DEFS_KEY] = load_list_defs(story.compiled_json)
-    try:
-        return resolve_bindings(plugins, active_names, real_engine_state)
-    finally:
-        real_engine_state.pop(_LIST_DEFS_KEY, None)
+    # The game's manifest is its own declaration of what it needs; this
+    # host activates from its own opt-in rows instead, so the two can
+    # drift. Report the drift rather than raising: an admin can fix the
+    # manifest, and refusing to play a story that works here would be a
+    # worse answer than a loud log line.
+    if story.game_required_plugins:
+        try:
+            check_required_plugins(plugins, story.game_required_plugins, active_names)
+        except ManifestMismatchError as mismatch:
+            logger.error("interactive_fiction.engine_services: story %r manifest disagrees with what is active: %s", story, mismatch)
+
+    # Activation order is precedence: a later plugin's binding wins a name
+    # collision. The game's manifest fixes that order; a name the manifest
+    # does not list (an opt-in row left over from before the game's own
+    # plugin took the name over) goes first, so it can never shadow the
+    # game's own binding.
+    manifest_order = [name for name in (story.game_required_plugins or []) if name in active_names]
+    active_names = [name for name in active_names if name not in manifest_order] + manifest_order
+
+    return resolve_bindings(
+        plugins,
+        active_names,
+        engine_state if engine_state is not None else {},
+        list_defs=load_list_defs(story.compiled_json),
+        configs=_valid_configs_for(story, plugins),
+    )
+
+
+def _valid_configs_for(story: "Story", plugins: dict[str, Plugin]) -> dict[str, Any]:
+    """Return the per-plugin config this story's rows attach, validated.
+
+    A row holding an empty config attaches nothing. A row whose config the
+    plugin's own validator rejects is reported and skipped rather than
+    stopping the session: the row is admin data that predates the plugin's
+    current schema, and a story that plays with the plugin's own defaults
+    is a better answer than one that cannot start.
+
+    Args:
+        story: The story whose config rows to read.
+        plugins: Every discoverable plugin, by name.
+
+    Returns:
+        `{plugin name: config}` for every row that attaches a valid config.
+    """
+    configs: dict[str, Any] = {}
+    for row in story.system_configs.all():
+        if row.config in (None, {}) or row.system_name not in plugins:
+            continue
+        validator = plugins[row.system_name].validate_config
+        if validator is not None:
+            try:
+                validator(row.config)
+            except SystemConfigValidationError as error:
+                logger.error(
+                    "interactive_fiction.engine_services: story %r attaches a config to plugin '%s' that it rejects (%s); playing without it",
+                    story,
+                    row.system_name,
+                    error,
+                )
+                continue
+        configs[row.system_name] = row.config
+    return configs
 
 
 def game_panel_context(story: "Story", engine_state: dict[str, Any], globals_: dict[str, Any]) -> dict[str, Any] | None:
@@ -267,16 +309,13 @@ def game_panel_context(story: "Story", engine_state: dict[str, Any], globals_: d
     if not story.is_engine_trusted:
         return None
 
-    module = _game_module(story, "sidebar")
-    build = getattr(module, "panel_context", None) if module is not None else None
-    if not callable(build):
-        return None
-    try:
-        context = build(engine_state, globals_, bindings_for(story, engine_state))
-    except Exception:  # pylint: disable=broad-except
-        logger.exception("interactive_fiction.engine_services: story %r side panel failed to build; rendering without it", story)
-        return None
-    return context if isinstance(context, dict) else None
+    return game_panel.panel_context(
+        _game_module(story, "sidebar"),
+        engine_state=engine_state,
+        globals_=globals_,
+        bindings=bindings_for(story, engine_state),
+        logger=logger,
+    )
 
 
 def _canonical_path(path: str) -> str:
@@ -410,15 +449,15 @@ def game_panel_action(story: "Story", engine_state: dict[str, Any], globals_: di
     if not story.is_engine_trusted:
         return ""
 
-    module = _game_module(story, "sidebar")
-    run = getattr(module, "panel_action", None) if module is not None else None
-    if not callable(run):
-        return ""
-    try:
-        return str(run(engine_state, bindings_for(story, engine_state), globals_, action_id, target_id))
-    except Exception:  # pylint: disable=broad-except
-        logger.exception("interactive_fiction.engine_services: story %r side panel failed on action %r/%r", story, action_id, target_id)
-        return ""
+    return game_panel.panel_action(
+        _game_module(story, "sidebar"),
+        engine_state=engine_state,
+        globals_=globals_,
+        bindings=bindings_for(story, engine_state),
+        action_id=action_id,
+        target_id=target_id,
+        logger=logger,
+    )
 
 
 def game_panel_command(story: "Story", engine_state: dict[str, Any], globals_: dict[str, Any], command_id: str, target_id: str) -> str:
@@ -483,15 +522,15 @@ def game_panel_command(story: "Story", engine_state: dict[str, Any], globals_: d
     if not story.is_engine_trusted:
         return ""
 
-    module = _game_module(story, "sidebar")
-    run = getattr(module, "panel_command", None) if module is not None else None
-    if not callable(run):
-        return ""
-    try:
-        return str(run(engine_state, globals_, bindings_for(story, engine_state), command_id, target_id))
-    except Exception:  # pylint: disable=broad-except
-        logger.exception("interactive_fiction.engine_services: story %r side panel failed on command %r/%r", story, command_id, target_id)
-        return ""
+    return game_panel.panel_command(
+        _game_module(story, "sidebar"),
+        engine_state=engine_state,
+        globals_=globals_,
+        bindings=bindings_for(story, engine_state),
+        command_id=command_id,
+        target_id=target_id,
+        logger=logger,
+    )
 
 
 def play_layout_for(story: "Story") -> str:

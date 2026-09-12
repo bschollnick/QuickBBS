@@ -26,7 +26,7 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
 
-from interactive_fiction.engine import InkRuntimeState, load_list_defs, load_story_root
+from ink_engine.engine import InkRuntimeState, load_list_defs, load_story_root
 from interactive_fiction.engine_services import bindings_for
 from interactive_fiction.models import Story
 
