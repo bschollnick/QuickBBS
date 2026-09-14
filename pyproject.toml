@@ -148,6 +148,7 @@ pyopenssl = "^26.0.0"
 colorama = "^0.4.6"
 wheel = "^0.47.0"
 ink-engine = {path = "../interactive_fiction", develop = true}
+pyyaml = "^6.0.3"
 
 [tool.poetry.extras]
 gunicorn = ["gunicorn"]
