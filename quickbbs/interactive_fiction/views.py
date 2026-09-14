@@ -34,7 +34,7 @@ from django.template.loader import render_to_string
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
-from ink_engine.engine import InkRuntimeState, load_list_defs, load_story_root
+from ink_engine.engine import InkRuntimeState, load_list_defs, load_story_root, start_new_story
 from ink_engine.media_resolver import parse_media_tags
 from interactive_fiction.engine_services import (
     bindings_for,
@@ -88,11 +88,12 @@ def _new_game_state(story: Story, engine_state: dict[str, Any], initial_globals:
     """
     root = load_story_root(story.compiled_json)
     list_defs = load_list_defs(story.compiled_json)
-    state = InkRuntimeState(root, list_defs, engine_bindings=bindings_for(story, engine_state))
-    if initial_globals:
-        state.globals.update(initial_globals)
-    state.continue_story()
-    return state
+    return start_new_story(
+        root,
+        list_defs,
+        engine_bindings=bindings_for(story, engine_state),
+        initial_globals=initial_globals,
+    )
 
 
 def _start_new_game(
