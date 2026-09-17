@@ -7,9 +7,9 @@ authors = [
 description = "Experimental Gallery / File Browser"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
+license = "MIT"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
 dynamic = ["dependencies"]
@@ -43,9 +43,24 @@ mypy_path = "quickbbs"
 django_settings_module = "quickbbs.settings"
 
 [tool.poetry]
-name = "QuickBBS"
-version = "4.1.0"
-description = "Gallery & File Browser"
+# name/version/description live in [project]; duplicating them here had
+# the [tool.poetry] copies silently ignored, and the descriptions had
+# already drifted apart.
+
+# Without this, Poetry guesses what to package and starts walking the
+# repository root -- which holds Albums/, the gallery content tree. Naming
+# the seven real Django apps keeps a build fast and keeps user content out
+# of any artifact. `benchmarks/` and `tmp/` are deliberately absent: they
+# have no __init__.py and are not importable packages.
+packages = [
+    { include = "quickbbs", from = "quickbbs" },
+    { include = "frontend", from = "quickbbs" },
+    { include = "interactive_fiction", from = "quickbbs" },
+    { include = "thumbnails", from = "quickbbs" },
+    { include = "cache_watcher", from = "quickbbs" },
+    { include = "filetypes", from = "quickbbs" },
+    { include = "user_preferences", from = "quickbbs" },
+]
 
 [tool.poetry.group.dev.dependencies]
 locust = "^2.42.0"
@@ -150,9 +165,17 @@ wheel = "^0.47.0"
 ink-engine = {path = "../interactive_fiction", develop = true}
 pyyaml = "^6.0.3"
 
-[tool.poetry.extras]
-gunicorn = ["gunicorn"]
-uvicorn = ["uvicorn"]
-hypercorn = ["hypercorn"]
-granian = ["granian"]
-all-servers = ["gunicorn", "uvicorn", "hypercorn", "granian"]
+[project.optional-dependencies]
+# Pick one production server, or "all-servers" to install every option.
+# Versions are repeated from [tool.poetry.dependencies] because a PEP 621
+# extra carries its own constraint; keep the two in step.
+gunicorn = ["gunicorn (>=23.0.0)"]
+uvicorn = ["uvicorn (>=0.37.0)"]
+hypercorn = ["hypercorn (>=0.17.3)"]
+granian = ["granian (>=2.7.2,<3.0.0)"]
+all-servers = [
+    "gunicorn (>=23.0.0)",
+    "uvicorn (>=0.37.0)",
+    "hypercorn (>=0.17.3)",
+    "granian (>=2.7.2,<3.0.0)",
+]

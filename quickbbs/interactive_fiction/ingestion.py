@@ -26,7 +26,7 @@ for that one folder (Story.game_ingestion_error set, surfaced in Django
 admin per the plan's own decided hard-failure + admin-visible-flag
 behavior) — never a silent skip or a guessed fallback.
 REQUIRED_PLUGINS is copied onto the Story row verbatim from the manifest
-(plain strings, read via `ink_engine.game_folder.read_module_literals()`
+(plain strings, read from `manifest.yaml` via `ink_engine.game_folder.read_manifest()`
 like every other manifest field) — ingestion never resolves these names against
 `discover_api_descriptors()`, since that would require the game's own
 `.py` files to already be loaded (real code execution), which is exactly
@@ -44,16 +44,22 @@ from __future__ import annotations
 
 import logging
 import os
+import zipfile
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from ink_engine.game_folder import read_module_literals
 
-from interactive_fiction.image_linking import reconcile_story_images
-from interactive_fiction.images import find_file_by_path, link_story_image
+from ink_engine.bundle_integrity import recorded_hashes, unrecognized_bundle_version, verify_bundle
+from ink_engine.game_folder import (
+    GameFolderError,
+    check_manifest_supported,
+    read_manifest,
+)
+from ink_engine.game_source import GameSourceError, open_game_source
+from interactive_fiction.bundle_media import build_cover_thumbnail
+from interactive_fiction.images import find_file_by_path
 from interactive_fiction.models import Story
 from interactive_fiction.story_views import (
     create_story_from_compiled_json,
@@ -72,78 +78,54 @@ class _GameManifestError(Exception):
     silently swallowed."""
 
 
-# The only manifest fields ever read (see _resolve_main_story_path,
-# _apply_game_manifest_fields).
-_MANIFEST_FIELDS = ("GAME_TITLE", "GAME_AUTHOR", "REQUIRED_PLUGINS", "MAIN_STORY_FILE", "NEW_GAME_FIELDS", "SOURCE_GAME_VERSION", "PLAY_LAYOUT")
+def _load_game_manifest(game_dir: Path) -> dict[str, Any]:
+    """Read one game folder's `manifest.yaml`.
 
-
-def _load_game_manifest(game_dir: Path) -> Any:
-    """Read one game folder's `__init__.py` manifest, filtered to `_MANIFEST_FIELDS`.
-
-    A thin QuickBBS-specific layer over `ink_engine.game_folder.read_module_literals()`
-    (the shared AST-as-data primitive — never imports/execs the file, since
-    a game folder lives in the untrusted Albums tree and its manifest must
-    be readable before any Story exists to grant it is_engine_trusted):
-    this function's own job is filtering the result down to the fields
-    ingestion cares about, warning (not hard-failing) on one assigned a
-    non-literal expression, and raising only when the file itself is
-    missing — all real QuickBBS ingestion policy, not something the
-    shared primitive should have an opinion on.
+    A thin wrapper over `ink_engine.game_folder.read_manifest()`, which
+    owns the parse and its mtime-keyed cache. This function's own job is
+    QuickBBS ingestion policy: turning "this folder has no readable
+    manifest" into `_GameManifestError`, whose message is stored verbatim
+    in `Story.game_ingestion_error`.
 
     Args:
         game_dir: The game folder's real filesystem path.
 
     Returns:
-        A SimpleNamespace exposing whichever of `_MANIFEST_FIELDS` were
-        found as plain literal assignments (missing fields, including one
-        assigned a non-literal expression, are simply absent attributes,
-        matching the old module's own `getattr(..., default)` call sites).
+        The manifest as a dict. Absent fields are simply absent keys.
 
     Raises:
-        _GameManifestError: `__init__.py` is missing.
+        _GameManifestError: The folder has no readable manifest, or
+            declares a manifest version or story format this engine
+            cannot play.
     """
-    init_path = game_dir / "__init__.py"
-    if not init_path.exists():
-        raise _GameManifestError(f"Game folder '{game_dir.name}' has no __init__.py manifest")
-    result = read_module_literals(init_path)
-    non_literal_fields = result.skipped & set(_MANIFEST_FIELDS)
-    if non_literal_fields:
-        logger.warning(
-            "Game folder '%s': __init__.py assigns %s to a non-literal expression, ignoring",
-            game_dir.name,
-            sorted(non_literal_fields),
-        )
-    fields = {name: value for name, value in result.literals.items() if name in _MANIFEST_FIELDS}
-    return SimpleNamespace(**fields)
+    try:
+        check_manifest_supported(game_dir)
+        return read_manifest(game_dir)
+    except GameFolderError as error:
+        raise _GameManifestError(f"Game folder '{game_dir.name}': {error}") from error
 
 
 def read_manifest_value(game_dir: Path, field: str, default: Any = None) -> Any:
-    """Read one literal value from a game folder's `__init__.py` manifest.
+    """Read one value from a game folder's manifest.
 
     The manifest is the single source of truth for everything about a
     game, so anything a game declares about itself — which play layout it
     wants, what it is called — is read from here rather than copied onto a
     Story column where the two could drift apart.
 
-    Parsed with `ast`, never imported: a game folder lives in the
-    untrusted Albums tree (see `_load_game_manifest`).
-
     Args:
         game_dir: The game folder's real filesystem path.
-        field: The manifest name to read. Must be one of
-            `_MANIFEST_FIELDS`; anything else is not extracted by the
-            parser and so always yields `default`.
+        field: The manifest key to read.
         default: What to return when the folder has no readable manifest,
-            or the manifest does not assign this field.
+            or the manifest does not carry this field.
 
     Returns:
-        The literal value, or `default`.
+        The value, or `default`.
     """
     try:
-        manifest = _load_game_manifest(game_dir)
+        return _load_game_manifest(game_dir).get(field, default)
     except _GameManifestError:
         return default
-    return getattr(manifest, field, default)
 
 
 def _resolve_main_story_path(game_dir: Path, manifest: Any) -> str:
@@ -162,9 +144,9 @@ def _resolve_main_story_path(game_dir: Path, manifest: Any) -> str:
             files present are not a valid fallback, per the plan's own
             "ignore, don't guess" rule.
     """
-    main_story_file = getattr(manifest, "MAIN_STORY_FILE", None)
+    main_story_file = manifest.get("MAIN_STORY_FILE")
     if not main_story_file:
-        raise _GameManifestError(f"Game folder '{game_dir.name}': __init__.py has no MAIN_STORY_FILE")
+        raise _GameManifestError(f"Game folder '{game_dir.name}': manifest.yaml has no MAIN_STORY_FILE")
     main_story_path = game_dir / main_story_file
     if not main_story_path.is_file():
         raise _GameManifestError(f"Game folder '{game_dir.name}': MAIN_STORY_FILE '{main_story_file}' does not exist in this folder")
@@ -229,6 +211,22 @@ def find_inkj_file_by_path(full_filepathname: str) -> FileIndex | None:
         containing directory itself has no DirectoryIndex row).
     """
     return find_file_by_path(full_filepathname, additional_filters={"filetype__fileext__iexact": ".inkj"})
+
+
+def find_game_file_by_path(full_filepathname: str) -> FileIndex | None:
+    """Resolve a story's own source file to its gallery row, whatever it is.
+
+    Unlike `find_inkj_file_by_path` this places no extension filter: a
+    bundle's source is a `.zip`, and filtering for `.inkj` answers None
+    for every bundled game.
+
+    Args:
+        full_filepathname: The source file's real, resolved full path.
+
+    Returns:
+        The FileIndex row, or None if the file is not tracked.
+    """
+    return find_file_by_path(full_filepathname)
 
 
 def _resolve_game_folder(owner, game_dir: Path) -> tuple[Any, str, FileIndex] | None:
@@ -307,7 +305,7 @@ def _ingest_one_game_folder(owner, game_dir: Path) -> bool:
         # in-progress file write. _refresh_from_disk already logs the
         # real reason.
         if _refresh_from_disk(existing, file_entry):
-            _apply_game_manifest_fields(existing, manifest, game_dir)
+            _apply_game_manifest_fields(existing, manifest)
             return True
         return False
 
@@ -369,7 +367,7 @@ def _create_or_repurpose_game_story(owner, game_dir: Path, *, resolved: tuple[An
         None.
     """
     manifest, main_story_fqfn, file_entry = resolved
-    title = str(getattr(manifest, "GAME_TITLE", "") or game_dir.name)
+    title = str(manifest.get("GAME_TITLE") or game_dir.name)
     placeholder = Story.objects.filter(source_fqfn=_placeholder_fqfn(game_dir)).first()
     if placeholder is not None:
         placeholder.title = title
@@ -379,85 +377,29 @@ def _create_or_repurpose_game_story(owner, game_dir: Path, *, resolved: tuple[An
         placeholder.source_sha256 = file_entry.file_sha256 or ""
         placeholder.is_available = True
         placeholder.save(update_fields=["title", "compiled_json", "ink_version", "source_fqfn", "source_sha256", "is_available", "updated_at"])
-        _apply_game_manifest_fields(placeholder, manifest, game_dir)
+        _apply_game_manifest_fields(placeholder, manifest)
         return
 
     story = create_story_from_compiled_json(owner, title, data, source_fqfn=main_story_fqfn, source_sha256=file_entry.file_sha256 or "")
-    _apply_game_manifest_fields(story, manifest, game_dir)
+    _apply_game_manifest_fields(story, manifest)
 
 
-def _apply_game_manifest_fields(story: Story, manifest: Any, game_dir: Path) -> None:
+def _apply_game_manifest_fields(story: Story, manifest: Any) -> None:
     """Copy a game folder's manifest fields onto its Story row and clear
     any prior ingestion error — this folder just ingested successfully.
 
     Args:
         story: The Story row to update (mutated and saved in place).
         manifest: The already-loaded, already-validated manifest module.
-        game_dir: The game folder's real filesystem path — used to
-            resolve any `NEW_GAME_FIELDS` `radio_image` option's own
-            `image` filename to a real, already-scanned gallery
-            FileIndex row (see `_link_new_game_field_images`).
-
     Returns:
         None.
     """
-    story.title = str(getattr(manifest, "GAME_TITLE", "") or story.title)
-    story.game_author = str(getattr(manifest, "GAME_AUTHOR", "") or "")
-    story.game_required_plugins = list(getattr(manifest, "REQUIRED_PLUGINS", []) or [])
-    story.game_new_game_fields = list(getattr(manifest, "NEW_GAME_FIELDS", []) or [])
+    story.title = str(manifest.get("GAME_TITLE") or story.title)
+    story.game_author = str(manifest.get("GAME_AUTHOR") or "")
+    story.game_required_plugins = list(manifest.get("REQUIRED_PLUGINS") or [])
+    story.game_new_game_fields = list(manifest.get("NEW_GAME_FIELDS") or [])
     story.game_ingestion_error = ""
     story.save(update_fields=["title", "game_author", "game_required_plugins", "game_new_game_fields", "game_ingestion_error", "updated_at"])
-    _link_new_game_field_images(story, game_dir)
-
-
-def _new_game_field_image_tag(filename: str) -> str:
-    """Return the synthetic StoryImage tag name for one character-creation
-    image, deterministic from its own filename alone.
-
-    Args:
-        filename: A `NEW_GAME_FIELDS` `radio_image` option's own `image`
-            value (e.g. `"male.png"`) — a plain filename inside the game
-            folder, never a path.
-
-    Returns:
-        The tag name `character_creation()`/its template look up this
-        image under (e.g. `"newgame:male.png"`) — namespaced so it can
-        never collide with a real `# image: <tag_name>` Ink tag the
-        story's own content declares.
-    """
-    return f"newgame:{filename}"
-
-
-def _link_new_game_field_images(story: Story, game_dir: Path) -> None:
-    """Link every `NEW_GAME_FIELDS` `radio_image` option's own image to a
-    real gallery file, so `character_creation.jinja` can serve it via the
-    existing `story_image()` view — these are the game folder's own real
-    UI assets (e.g. a gender-picker icon), not story CONTENT with a
-    `# image:` Ink tag, but they're scanned into the gallery exactly like
-    any other file under Albums/interactive_fiction/<game>/, so the
-    existing StoryImage/FileIndex machinery already knows how to serve
-    them once linked — no separate serving path needed.
-
-    Args:
-        story: The Story row whose `game_new_game_fields` may reference
-            real image filenames.
-        game_dir: The game folder's real filesystem path, used to
-            resolve each filename to its own real FileIndex row.
-
-    Returns:
-        None. A filename that has not been scanned yet is silently left
-        unlinked; the next `verify_stories()` pass links it.
-    """
-    for field in story.game_new_game_fields:
-        if field.get("type") != "radio_image":
-            continue
-        for option in field.get("options", []):
-            filename = option.get("image")
-            if not filename:
-                continue
-            file_entry = find_file_by_path(str(game_dir / filename))
-            if file_entry is not None:
-                link_story_image(story, _new_game_field_image_tag(filename), file_entry)
 
 
 def _placeholder_fqfn(game_dir: Path) -> str:
@@ -520,6 +462,216 @@ def _set_game_ingestion_error(story: Story, error: str) -> None:
     story.save(update_fields=["game_ingestion_error", "is_available", "updated_at"])
 
 
+#: What `check_bundle_integrity()` decided about one bundle.
+INTEGRITY_OK = "ok"
+INTEGRITY_NEW_VERSION = "new_version"
+INTEGRITY_TAMPERED = "tampered"
+INTEGRITY_INVALID = "invalid"
+
+
+def check_bundle_integrity(story: Story, bundle_path: Path) -> tuple[str, str]:
+    """Decide whether a bundle is unchanged, a new release, or tampered with.
+
+    A bundle that fails `verify_bundle()` is refused whatever its version:
+    its own recorded hashes do not describe its own contents, so a changed
+    version string would otherwise launder a corrupt bundle.
+
+    Otherwise the three stored hashes are compared with the bundle's. A
+    difference is a new release when `GAME_VERSION` also changed, and
+    tampering when it did not -- the same bundle claiming to be the same
+    version is not free to have different contents.
+
+    Args:
+        story: The row holding what was recorded at the last ingestion. A
+            row with no stored hashes has never been ingested as a bundle
+            and is treated as a new release, so its hashes get recorded.
+        bundle_path: The `.zip` to check.
+
+    Returns:
+        `(decision, detail)` -- one of the INTEGRITY_* constants, and a
+        human-readable reason (empty when nothing is wrong).
+    """
+    try:
+        problems = verify_bundle(bundle_path)
+        hashes = recorded_hashes(bundle_path)
+        version = str(read_manifest_value(bundle_path, "GAME_VERSION", "") or "")
+    except (GameSourceError, GameFolderError) as error:
+        return INTEGRITY_INVALID, str(error)
+    except (OSError, zipfile.BadZipFile) as error:
+        # verify_bundle() opens the archive itself and lets a corrupt file
+        # raise; a scan reads whatever is on disk and must not die on one.
+        return INTEGRITY_INVALID, f"cannot read bundle '{bundle_path.name}': {error}"
+
+    # A container version this reader does not know is a warning, not a
+    # refusal: the layout has stayed backward-compatible, and refusing a
+    # game over it would be a worse answer than ingesting and saying so.
+    unknown_version = unrecognized_bundle_version(bundle_path)
+    if unknown_version is not None:
+        logger.warning(
+            "interactive_fiction.ingestion: bundle '%s' declares bundle_version %s, which this reader does not know; "
+            "ingesting anyway, but anything the newer format adds is unaccounted for",
+            bundle_path.name,
+            unknown_version,
+        )
+
+    if problems:
+        return INTEGRITY_INVALID, "; ".join(problems)
+
+    stored = (story.bundle_manifest_sha256, story.bundle_directory_sha256, story.bundle_story_sha256)
+    if not any(stored):
+        return INTEGRITY_NEW_VERSION, ""
+    if stored == (hashes["manifest"], hashes["directory"], hashes["story"]):
+        return INTEGRITY_OK, ""
+    if version != story.game_version:
+        return INTEGRITY_NEW_VERSION, ""
+    return INTEGRITY_TAMPERED, (
+        f"bundle contents changed but GAME_VERSION is still '{version}' -- "
+        f"the game has been modified since it was ingested and will not run until an administrator re-approves it"
+    )
+
+
+def record_bundle_hashes(story: Story, bundle_path: Path) -> None:
+    """Store a bundle's own hashes and version on its Story row.
+
+    Args:
+        story: The row to update (mutated and saved in place).
+        bundle_path: The bundle whose claims are recorded.
+    """
+    hashes = recorded_hashes(bundle_path)
+    story.bundle_manifest_sha256 = hashes["manifest"]
+    story.bundle_directory_sha256 = hashes["directory"]
+    story.bundle_story_sha256 = hashes["story"]
+    story.game_version = str(read_manifest_value(bundle_path, "GAME_VERSION", "") or "")
+    story.save(
+        update_fields=[
+            "bundle_manifest_sha256",
+            "bundle_directory_sha256",
+            "bundle_story_sha256",
+            "game_version",
+            "updated_at",
+        ]
+    )
+
+
+def game_bundles() -> list[Path]:
+    """Return every `.zip` bundle under Albums/interactive_fiction/.
+
+    A bundle sits either directly in the games root or one level down in
+    its own game folder (`<game>/<game>.zip`, which is how the published
+    bundles are laid out). Both are found; nothing deeper is, so an
+    archive a game merely SHIPS is never mistaken for the game itself.
+
+    Returns:
+        Every bundle, sorted by path. Empty if the games root does not
+        exist.
+    """
+    games_root = Path(DirectoryIndex.get_albums_root()) / "interactive_fiction"
+    if not games_root.is_dir():
+        return []
+    bundles = [entry for entry in games_root.iterdir() if entry.is_file() and entry.suffix.lower() == ".zip"]
+    for game_dir in (entry for entry in games_root.iterdir() if entry.is_dir()):
+        bundles.extend(entry for entry in game_dir.iterdir() if entry.is_file() and entry.suffix.lower() == ".zip")
+    return sorted(bundles, key=str)
+
+
+def canonical_game_path(path: Path) -> Path:
+    """Return `path` in the form every stored `source_fqfn` uses.
+
+    `DirectoryIndex.get_albums_root()` is `normalize_fqpn()` output --
+    lowercased -- so a path discovered by walking it is already canonical
+    and one handed in by a caller may not be. Comparing the two forms
+    silently matches nothing.
+
+    Args:
+        path: A game folder or bundle path, in any case.
+
+    Returns:
+        The same path, lowercased to match the scan's own form.
+    """
+    return Path(str(path).lower())
+
+
+def _ingest_one_bundle(owner, bundle_path: Path) -> bool:
+    """Create or refresh the one Story for one `.zip` bundle.
+
+    A bundle is self-contained: its story and media are read through
+    `GameSource` rather than resolved against per-file gallery rows, so
+    none of the `FileIndex` machinery the folder path uses applies.
+
+    Integrity is decided first and governs everything after it. A bundle
+    that fails verification, or that changed without saying so, is left
+    unavailable with the reason on the row -- an administrator's problem,
+    never a silent downgrade to "plays anyway".
+
+    Args:
+        owner: The scanner-ingestion owner account.
+        bundle_path: The bundle's real filesystem path.
+
+    Returns:
+        True if a Story row was created or refreshed; False on any
+        failure, in which case a row carries `game_ingestion_error` and
+        is unavailable.
+    """
+    bundle_path = canonical_game_path(bundle_path)
+    existing = Story.objects.filter(source_fqfn=str(bundle_path)).first()
+    decision, detail = check_bundle_integrity(existing or Story(), bundle_path)
+    if decision in (INTEGRITY_INVALID, INTEGRITY_TAMPERED):
+        error = f"Game bundle '{bundle_path.name}': {detail}"
+        logger.error("Game bundle ingestion refused: %s", error)
+        if existing is not None:
+            _set_game_ingestion_error(existing, error)
+        else:
+            _record_game_ingestion_error(owner, bundle_path, error)
+        return False
+
+    try:
+        manifest = _load_game_manifest(bundle_path)
+        source = open_game_source(bundle_path)
+    except (_GameManifestError, GameSourceError) as exc:
+        error = f"Game bundle '{bundle_path.name}': {exc}"
+        logger.error("Game bundle ingestion failed: %s", error)
+        _record_game_ingestion_error(owner, bundle_path, error)
+        return False
+
+    try:
+        main_story_file = manifest.get("MAIN_STORY_FILE")
+        if not main_story_file or not source.exists(main_story_file):
+            error = f"Game bundle '{bundle_path.name}': MAIN_STORY_FILE '{main_story_file}' is not in the bundle"
+            logger.error("Game bundle ingestion failed: %s", error)
+            _record_game_ingestion_error(owner, bundle_path, error)
+            return False
+
+        data, errors = validate_story_upload(source.read_bytes(main_story_file))
+        if data is None:
+            error = f"Game bundle '{bundle_path.name}': MAIN_STORY_FILE is not valid compiled Ink JSON: {'; '.join(errors)}"
+            logger.error("Game bundle ingestion failed: %s", error)
+            _record_game_ingestion_error(owner, bundle_path, error)
+            return False
+    finally:
+        source.close()
+
+    title = str(manifest.get("GAME_TITLE") or bundle_path.stem)
+    story = existing or Story.objects.filter(source_fqfn=_placeholder_fqfn(bundle_path)).first()
+    if story is None:
+        story = create_story_from_compiled_json(owner, title, data, source_fqfn=str(bundle_path), source_sha256="")
+    else:
+        story.title = title
+        story.compiled_json = data
+        story.ink_version = str(data.get("inkVersion", ""))
+        story.source_fqfn = str(bundle_path)
+        story.is_available = True
+        story.save(update_fields=["title", "compiled_json", "ink_version", "source_fqfn", "is_available", "updated_at"])
+
+    _apply_game_manifest_fields(story, manifest)
+    # Recorded once here so playing never re-reads the manifest to find
+    # the story, and the library grid never opens a bundle to draw a card.
+    story.main_story_member = str(main_story_file)
+    story.cover_thumbnail = build_cover_thumbnail(bundle_path)
+    story.save(update_fields=["main_story_member", "cover_thumbnail", "updated_at"])
+    record_bundle_hashes(story, bundle_path)
+    return True
+
+
 def ingest_stories() -> int:
     """Create or refresh a Story for every real game folder under
     Albums/interactive_fiction/.
@@ -542,54 +694,14 @@ def ingest_stories() -> int:
     for game_dir in game_folders():
         if _ingest_one_game_folder(owner, game_dir):
             ingested += 1
+    # Every bundle is re-examined on every pass, not only new ones: a
+    # bundle that changed underneath an ingested row is exactly what the
+    # integrity check exists to catch.
+    for bundle_path in game_bundles():
+        if _ingest_one_bundle(owner, bundle_path):
+            ingested += 1
 
     return ingested
-
-
-def relink_story_images() -> dict[str, int]:
-    """Reconcile every ingested game's content-image links against its tags.
-
-    The graphics half of ingestion, run alongside the story-content half
-    rather than as a separate manual step. For each game folder with a
-    live Story row, every `# image:`/`# video:` tag in its .ink corpus is
-    re-expanded and re-resolved against the gallery, and the story's
-    content-image rows are made to match exactly — links added, links
-    repointed, and rows whose tag or file is gone deleted (see
-    `image_linking.reconcile_story_images`).
-
-    Deleting is the reason this runs unconditionally rather than only when
-    the compiled story changed: an image can leave the gallery without the
-    `.inkj` being touched at all, and an append-only link would keep
-    serving a row pointing at content that is no longer there.
-
-    Args:
-        None.
-
-    Returns:
-        {"linked", "unlinked", "broken", "tags"} totalled across games.
-    """
-    totals = {"linked": 0, "unlinked": 0, "broken": 0, "tags": 0}
-    for game_dir in game_folders():
-        try:
-            manifest = _load_game_manifest(game_dir)
-            main_story_fqfn = _resolve_main_story_path(game_dir, manifest)
-        except _GameManifestError as exc:
-            logger.warning("Skipping image reconcile for '%s': %s", game_dir, exc)
-            continue
-
-        story = Story.objects.filter(source_fqfn=main_story_fqfn).defer("compiled_json").first()
-        if story is None:
-            continue
-
-        try:
-            counts = reconcile_story_images(story, game_dir, getattr(manifest, "SOURCE_GAME_VERSION", None))
-        except OSError as exc:
-            logger.warning("Image reconcile failed for '%s': %s", game_dir, exc)
-            continue
-
-        for key, value in counts.items():
-            totals[key] += value
-    return totals
 
 
 def ingest_stories_in_directory(directory: DirectoryIndex) -> int:
@@ -696,6 +808,15 @@ def verify_stories() -> tuple[int, int, int]:
     tombstoned = restored = refreshed = 0
 
     for story in Story.objects.exclude(source_fqfn="").defer("compiled_json"):
+        # A bundle is one self-contained file, verified by its own hashes
+        # at ingestion; it has no per-file gallery row to look up, and
+        # asking for one answers None and tombstones a live game.
+        if story.bundle_path is not None:
+            if not story.bundle_path.is_file() and story.is_available:
+                _tombstone(story)
+                tombstoned += 1
+            continue
+
         file_entry = find_inkj_file_by_path(story.source_fqfn)
         if file_entry is None:
             if story.is_available:

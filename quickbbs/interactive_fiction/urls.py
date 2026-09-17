@@ -28,6 +28,12 @@ urlpatterns: list[URLPattern] = [
     path("<slug:slug>/saves/<int:slot>/save/", save_views.saves_save, name="if_saves_save"),
     path("<slug:slug>/saves/<int:slot>/load/", save_views.saves_load, name="if_saves_load"),
     path("<slug:slug>/saves/<int:slot>/export/", save_views.saves_export, name="if_saves_export"),
+    path("<slug:slug>/saves/<int:slot>/delete/", save_views.saves_delete, name="if_saves_delete"),
+    # The quicksave has its own routes rather than reusing <int:slot>:
+    # Django's int converter matches digits only, so its negative slot
+    # number would 404 before reaching the view.
+    path("<slug:slug>/saves/quicksave/", save_views.saves_quicksave, name="if_saves_quicksave"),
+    path("<slug:slug>/saves/quickload/", save_views.saves_quickload, name="if_saves_quickload"),
     # `path:` (not `str:`) because tag_name is a path-qualified media tag —
     # "guide/Male/guide12m.jpg", "shared/church8.jpg" — and Django's
     # `str:` converter matches any character EXCEPT "/". Under `str:` every

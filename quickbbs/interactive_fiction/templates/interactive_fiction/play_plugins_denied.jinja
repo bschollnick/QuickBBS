@@ -1,0 +1,27 @@
+<!-- Shown when a story declares plugins but has not been trusted. The
+     player cannot grant that here -- only a superuser can -- so this
+     explains what is missing and points them at the person who can. -->
+<div id="if-play-content">
+    <div class="notification is-warning">
+        <p class="title is-5">{{ story.title }} is not ready to play</p>
+        <p>
+            This game needs its own plugins to run, and an administrator has
+            not yet approved them. Started without them it would load, but
+            almost nothing in it would work.
+        </p>
+        <p>
+            <strong>Ask an administrator to review this game.</strong> They
+            can approve it from the Django admin, where the game's own
+            explanation of what it needs is shown.
+        </p>
+    </div>
+
+    {% if plugin_denied_html %}
+    <div class="content if-plugin-denied-detail">
+        <p class="heading">What this game says it needs</p>
+        {{ plugin_denied_html|safe }}
+    </div>
+    {% endif %}
+
+    <a class="button" href="/if/">Back to the library</a>
+</div>

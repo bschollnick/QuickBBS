@@ -30,7 +30,7 @@ from ink_engine.engine_plugins.character_occupancy import (
 )
 from ink_engine.engine_plugins.location_graph import LocationGraph
 from interactive_fiction.engine_services import bindings_for
-from interactive_fiction.models import EngineAPI, Story, StorySystemConfig
+from interactive_fiction.models import EngineAPI, Story
 from interactive_fiction.views import (
     _build_current_game_state,
     _load_game_state,
@@ -43,6 +43,16 @@ FIXTURES = FilePath(__file__).parent / "fixtures"
 def _load(name: str) -> dict:
     with open(FIXTURES / name, encoding="utf-8") as fixture_file:
         return json.load(fixture_file)
+
+
+def _opt_in(story, plugin_name: str) -> None:
+    """Declare one plugin on a story, the way its manifest would.
+
+    `REQUIRED_PLUGINS` is the story's own declaration of what it
+    activates (`Story.opted_in_plugin_names`).
+    """
+    story.game_required_plugins = [*story.game_required_plugins, plugin_name]
+    story.save(update_fields=["game_required_plugins"])
 
 
 class BindingsForResolvesCharacterOccupancyTests(TestCase):
@@ -69,7 +79,7 @@ class BindingsForResolvesCharacterOccupancyTests(TestCase):
             compiled_json=_load("character_occupancy_set_and_get.ink.json"),
             is_engine_trusted=True,
         )
-        StorySystemConfig.objects.create(story=story, system_name="character_occupancy", config={})
+        _opt_in(story, "character_occupancy")
         engine_state: dict = {}
         result = bindings_for(story, engine_state)
         self.assertEqual(
@@ -96,7 +106,7 @@ class BindingsForResolvesCharacterOccupancyTests(TestCase):
             compiled_json=_load("character_occupancy_set_and_get.ink.json"),
             is_engine_trusted=True,
         )
-        StorySystemConfig.objects.create(story=story, system_name="character_occupancy", config={})
+        _opt_in(story, "character_occupancy")
         self.assertEqual(bindings_for(story), {})
 
 
@@ -119,11 +129,7 @@ class StatefulBindingPerSessionIsolationTests(TestCase):
             compiled_json=_load("character_occupancy_set_and_get.ink.json"),
             is_engine_trusted=True,
         )
-        StorySystemConfig.objects.create(
-            story=self.story,
-            system_name="character_occupancy",
-            config={},
-        )
+        _opt_in(self.story, "character_occupancy")
 
     def test_two_sessions_with_independent_engine_state_stay_isolated(self):
         """Both sessions run the SAME compiled story (which itself calls
@@ -188,11 +194,7 @@ class SaveLoadRoundTripTests(TestCase):
             compiled_json=_load("character_occupancy_set_and_get.ink.json"),
             is_engine_trusted=True,
         )
-        StorySystemConfig.objects.create(
-            story=self.story,
-            system_name="character_occupancy",
-            config={},
-        )
+        _opt_in(self.story, "character_occupancy")
 
     def test_set_location_survives_a_real_save_and_load(self):
         """_new_game_state() runs continue_story() once (which calls
@@ -271,17 +273,9 @@ class UndeclaredLocationIsFatalTests(TestCase):
             compiled_json=_load("character_occupancy_set_and_get.ink.json"),
             is_engine_trusted=True,
         )
-        StorySystemConfig.objects.create(
-            story=story,
-            system_name="character_occupancy",
-            config={},
-        )
+        _opt_in(story, "character_occupancy")
         if locations:
-            StorySystemConfig.objects.create(
-                story=story,
-                system_name="location_graph",
-                config={"locations": {location: {"known_by_default": True} for location in locations}},
-            )
+            _opt_in(story, "location_graph")
         return story
 
     def test_a_declared_location_is_accepted(self):
@@ -402,11 +396,7 @@ class PlayerLocationFollowsTheStoryTests(TestCase):
             compiled_json=_load("player_moves_between_locations.ink.json"),
             is_engine_trusted=True,
         )
-        StorySystemConfig.objects.create(
-            story=story,
-            system_name="character_occupancy",
-            config={},
-        )
+        _opt_in(story, "character_occupancy")
         engine_state: dict = {}
         bindings = bindings_for(story, engine_state)
         state = InkRuntimeState(load_story_root(story.compiled_json), engine_bindings=bindings)
@@ -453,11 +443,7 @@ class ReadingAnotherPluginsSlotNeverInventsItTests(TestCase):
             compiled_json=_load("character_occupancy_set_and_get.ink.json"),
             is_engine_trusted=True,
         )
-        StorySystemConfig.objects.create(
-            story=story,
-            system_name="character_occupancy",
-            config={},
-        )
+        _opt_in(story, "character_occupancy")
         return story
 
     def test_a_plugin_the_story_never_opted_into_contributes_no_slot(self):

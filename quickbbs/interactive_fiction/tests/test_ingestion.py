@@ -7,7 +7,7 @@ Uses real DirectoryIndex/FileIndex rows under a temporary ALBUMS_PATH
 albums root, so a real temp directory registered as ALBUMS_PATH is
 required, not just a bare FileIndex row pointing at an arbitrary path).
 Every game folder is a real directory under
-<ALBUMS_PATH>/interactive_fiction/<game_name>/, with a real __init__.py
+<ALBUMS_PATH>/interactive_fiction/<game_name>/, with a real manifest.yaml
 manifest and a real .inkj file on disk, read by ingest_stories()/
 verify_stories() exactly as the scan command would. TestCase (never
 TransactionTestCase, per standing project rule).
@@ -20,24 +20,25 @@ import os
 import shutil
 import tempfile
 
+import yaml
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 
 from filetypes.models import filetypes
 from interactive_fiction.ingestion import ingest_stories, verify_stories
-from interactive_fiction.models import Story, StoryImage
+from interactive_fiction.models import Story
 from quickbbs.common import normalize_fqpn
 from quickbbs.directoryindex import DirectoryIndex
 from quickbbs.models import FileIndex
 
 COMPILED_JSON = {"inkVersion": 21, "root": [["^Hello, traveler.", "\n", "done", None], "done", None], "listDefs": {}}
 
-DEFAULT_MANIFEST = """
-GAME_TITLE = "Adventure"
-GAME_AUTHOR = "Test Author"
-REQUIRED_PLUGINS = []
-MAIN_STORY_FILE = "adventure.inkj"
-"""
+DEFAULT_MANIFEST = {
+    "GAME_TITLE": "Adventure",
+    "GAME_AUTHOR": "Test Author",
+    "REQUIRED_PLUGINS": [],
+    "MAIN_STORY_FILE": "adventure.inkj",
+}
 
 
 def _write_inkj(directory: str, name: str, data: dict | None = None) -> str:
@@ -48,11 +49,11 @@ def _write_inkj(directory: str, name: str, data: dict | None = None) -> str:
     return path
 
 
-def _write_manifest(directory: str, manifest_source: str = DEFAULT_MANIFEST) -> str:
-    """Write a game folder's __init__.py manifest and return its full path."""
-    path = os.path.join(directory, "__init__.py")
+def _write_manifest(directory: str, manifest_source: dict | None = None) -> str:
+    """Write a game folder's manifest.yaml and return its full path."""
+    path = os.path.join(directory, "manifest.yaml")
     with open(path, "w", encoding="utf-8") as manifest_file:
-        manifest_file.write(manifest_source)
+        yaml.safe_dump(DEFAULT_MANIFEST if manifest_source is None else manifest_source, manifest_file)
     return path
 
 
@@ -109,9 +110,9 @@ class IngestionTestCase(TestCase):
         return normalize_fqpn(directory) + name
 
     def _make_valid_game(
-        self, game_name: str = "adventure", inkj_name: str = "adventure.inkj", manifest_source: str = DEFAULT_MANIFEST
+        self, game_name: str = "adventure", inkj_name: str = "adventure.inkj", manifest_source: dict | None = None
     ) -> tuple[str, DirectoryIndex]:
-        """Create one complete, valid game folder: __init__.py manifest,
+        """Create one complete, valid game folder: manifest.yaml,
         one real .inkj file on disk, and a matching FileIndex row."""
         game_dir, dir_obj = self._make_game_dir(game_name)
         _write_manifest(game_dir, manifest_source)
@@ -158,7 +159,7 @@ class IngestStoriesTests(IngestionTestCase):
         self.assertEqual(Story.objects.count(), 1)
 
     def test_folder_with_no_init_py_records_an_ingestion_error(self):
-        """A game folder missing its mandatory __init__.py manifest is a
+        """A game folder missing its mandatory manifest.yaml is a
         real, explicit ingestion failure — not silently skipped, not
         guessed via a filename fallback."""
         game_dir, dir_obj = self._make_game_dir("no_manifest")
@@ -169,7 +170,7 @@ class IngestStoriesTests(IngestionTestCase):
 
         self.assertEqual(created, 0)
         story = Story.objects.get(title="no_manifest")
-        self.assertIn("__init__.py", story.game_ingestion_error)
+        self.assertIn("manifest.yaml", story.game_ingestion_error)
         self.assertFalse(story.is_available)
 
     def test_main_story_file_not_present_records_an_ingestion_error(self):
@@ -213,12 +214,7 @@ class IngestStoriesTests(IngestionTestCase):
         REQUIRED_PLUGINS' names is an admin-time decision (whether to
         trust this game), not an ingestion-time precondition — a name
         that doesn't (yet) resolve to a discovered API is not an error."""
-        manifest = """
-GAME_TITLE = "Adventure"
-GAME_AUTHOR = "Test Author"
-REQUIRED_PLUGINS = ["not_yet_discoverable_plugin"]
-MAIN_STORY_FILE = "adventure.inkj"
-"""
+        manifest = {**DEFAULT_MANIFEST, "REQUIRED_PLUGINS": ["not_yet_discoverable_plugin"]}
         self._make_valid_game(manifest_source=manifest)
 
         created = ingest_stories()
@@ -416,9 +412,6 @@ class PlayPageGalleryExitLinkTests(IngestionTestCase):
         self.assertEqual(response.status_code, 404)
 
 
-# Kept as a plain data structure (not a hand-written manifest string) so
-# it's rendered via repr() below — avoids duplicating this literal
-# alongside test_views.py's own CHARACTER_CREATION_FIELDS fixture.
 _NEW_GAME_FIELDS = [
     {"var": "player_name", "type": "text", "label": "What is your name?", "default": "Bob"},
     {
@@ -433,85 +426,24 @@ _NEW_GAME_FIELDS = [
     },
 ]
 
-NEW_GAME_FIELDS_MANIFEST = f"""
-GAME_TITLE = "Adventure"
-GAME_AUTHOR = "Test Author"
-REQUIRED_PLUGINS = []
-MAIN_STORY_FILE = "adventure.inkj"
-
-NEW_GAME_FIELDS = {_NEW_GAME_FIELDS!r}
-"""
+NEW_GAME_FIELDS_MANIFEST = {**DEFAULT_MANIFEST, "NEW_GAME_FIELDS": _NEW_GAME_FIELDS}
 
 
 class NewGameFieldsIngestionTests(IngestionTestCase):
-    """A game folder's NEW_GAME_FIELDS manifest entry is copied onto its
-    Story row, and every radio_image option's own image is auto-linked
-    as a StoryImage row under a synthetic "newgame:<filename>" tag —
-    these are ordinary gallery files, scanned into FileIndex like any
-    other file in the game folder, not served through a separate path."""
+    """A game's NEW_GAME_FIELDS manifest entry is copied onto its Story row.
 
-    def _make_png_fileindex(self, dir_obj: DirectoryIndex, name: str, file_sha: str) -> FileIndex:
-        png_filetype = filetypes.objects.get(fileext=".png")
-        return FileIndex.objects.create(
-            home_directory=dir_obj,
-            name=name,
-            file_sha256=file_sha,
-            unique_sha256=("u" + file_sha)[:64],
-            lastscan=0.0,
-            lastmod=0.0,
-            filetype=png_filetype,
-            delete_pending=False,
-            is_generic_icon=False,
-        )
+    The option images themselves are no longer pre-linked at ingestion: a
+    bundled game resolves `newgame:<filename>` from its own bundle at
+    request time (`bundle_media.resolve_tag_in_bundle`).
+    """
 
     def test_new_game_fields_are_copied_onto_the_story(self):
-        """NEW_GAME_FIELDS from the manifest is copied verbatim onto the
-        Story row's game_new_game_fields."""
         self._make_valid_game(manifest_source=NEW_GAME_FIELDS_MANIFEST)
-
-        ingest_stories()
-
-        story = Story.objects.get(title="Adventure")
-        self.assertEqual(len(story.game_new_game_fields), 2)
-        self.assertEqual(story.game_new_game_fields[0]["var"], "player_name")
-        self.assertEqual(story.game_new_game_fields[1]["var"], "player_is_man")
-
-    def test_radio_image_options_are_linked_as_story_images_once_scanned(self):
-        """Once male.png/female.png are real, scanned gallery files in the
-        game folder, ingestion links each to this Story under its own
-        "newgame:<filename>" tag — the same StoryImage mechanism a real
-        `# image:` Ink tag uses."""
-        _, dir_obj = self._make_valid_game(manifest_source=NEW_GAME_FIELDS_MANIFEST)
-        self._make_png_fileindex(dir_obj, "male.png", file_sha="d" * 64)
-        self._make_png_fileindex(dir_obj, "female.png", file_sha="e" * 64)
-
-        ingest_stories()
-
-        story = Story.objects.get(title="Adventure")
-        self.assertTrue(StoryImage.objects.filter(story=story, tag_name="newgame:male.png").exists())
-        self.assertTrue(StoryImage.objects.filter(story=story, tag_name="newgame:female.png").exists())
-
-    def test_unscanned_image_is_left_unlinked_until_a_later_pass(self):
-        """A radio_image option naming a file that hasn't been scanned yet
-        (game folder just unzipped, scanner hasn't run) is silently left
-        unlinked — ingestion doesn't fail because of it."""
-        self._make_valid_game(manifest_source=NEW_GAME_FIELDS_MANIFEST)
-
-        created = ingest_stories()
-
-        self.assertEqual(created, 1)
-        story = Story.objects.get(title="Adventure")
-        self.assertFalse(StoryImage.objects.filter(story=story, tag_name="newgame:male.png").exists())
-
-    def test_a_later_verify_pass_links_images_scanned_after_first_ingestion(self):
-        """A subsequent verify_stories() run retries linking, picking up
-        an image file that only became a real FileIndex row afterward."""
-        _, dir_obj = self._make_valid_game(manifest_source=NEW_GAME_FIELDS_MANIFEST)
         ingest_stories()
         story = Story.objects.get(title="Adventure")
-        self.assertFalse(StoryImage.objects.filter(story=story, tag_name="newgame:male.png").exists())
+        self.assertEqual(story.game_new_game_fields, _NEW_GAME_FIELDS)
 
-        self._make_png_fileindex(dir_obj, "male.png", file_sha="d" * 64)
-        verify_stories()
-
-        self.assertTrue(StoryImage.objects.filter(story=story, tag_name="newgame:male.png").exists())
+    def test_a_game_declaring_none_gets_an_empty_list(self):
+        self._make_valid_game()
+        ingest_stories()
+        self.assertEqual(Story.objects.get(title="Adventure").game_new_game_fields, [])

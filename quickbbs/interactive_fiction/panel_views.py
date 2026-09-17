@@ -23,7 +23,12 @@ from interactive_fiction.engine_services import (
     game_panel_context,
 )
 from interactive_fiction.models import CurrentGame
-from interactive_fiction.views import _build_current_game_state, _current_game_for_turn, _get_accessible_story
+from interactive_fiction.views import (
+    _build_current_game_state,
+    _current_game_for_turn,
+    _get_accessible_story,
+    _render_play_content,
+)
 
 
 @login_required
@@ -186,6 +191,11 @@ def play_panel_command(request: WSGIRequest, slug: str, command_id: str, target_
         previous_raw_state = current_game.state
 
         text = game_panel_command(story, engine_state, state.globals, command_id, target_id)
+        # A command can unlock a story choice -- giving an item, learning a
+        # spell -- and this turn's choices were evaluated before it ran.
+        # Source redisplays the whole place for exactly this (`items.js:1261`,
+        # `dispPlace()` on a command answering "refresh").
+        state.refresh_choices()
 
         transcript = previous_raw_state.get("transcript", [])
         current_game.state = _build_current_game_state(state, previous_raw_state=previous_raw_state, transcript=transcript, engine_state=engine_state)
@@ -203,4 +213,11 @@ def play_panel_command(request: WSGIRequest, slug: str, command_id: str, target_
         # game's own panel dict happens to carry its own "panel_detail" key.
         panel_context_dict["panel_detail"] = text
 
-    return HttpResponse(render_to_string("interactive_fiction/play_panel.jinja", panel_context_dict, request=request, using="Jinja2"))
+    # The refreshed choices live in the story column, not the panel, so the
+    # response carries both fragments, each OOB-swapped by its own wrapper.
+    # Without the second, a command that unlocks a choice updates the panel
+    # and leaves the choice list showing what was true before it ran.
+    return HttpResponse(
+        render_to_string("interactive_fiction/play_panel.jinja", panel_context_dict, request=request, using="Jinja2")
+        + _render_play_content(request, story, state, transcript=transcript, can_undo=bool(previous_raw_state.get("previous_state")), oob=True)
+    )

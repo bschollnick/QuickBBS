@@ -22,10 +22,12 @@ from ink_engine.engine import (
     find_unbound_externals,
     load_story_root,
 )
-from interactive_fiction.images import find_file_by_path, link_story_image
-from interactive_fiction.models import Story, StoryImage
+from interactive_fiction.bundle_media import (
+    resolve_tag_in_bundle,
+    serve_member,
+)
+from interactive_fiction.models import Story
 from quickbbs.common import can_upload_story
-from thumbnails.engine.exceptions import ThumbnailGenerationError
 
 
 def _accessible_story(request: WSGIRequest, slug: str, *, defer_compiled: bool = False) -> Story | HttpResponse:
@@ -35,13 +37,15 @@ def _accessible_story(request: WSGIRequest, slug: str, *, defer_compiled: bool =
     The one inline import in this file — every caller below goes through
     this wrapper instead of repeating it.
     """
-    from interactive_fiction.views import _get_accessible_story  # pylint: disable=import-outside-toplevel
+    # isort:skip keeps this on one line: split across lines, the pylint
+    # disable lands on the imported NAME, where it suppresses nothing.
+    from interactive_fiction.views import _get_accessible_story  # noqa: E501  # pylint: disable=import-outside-toplevel  # isort:skip
 
     return _get_accessible_story(request, slug, defer_compiled=defer_compiled)
 
 
 def story_image(request: WSGIRequest, slug: str, tag_name: str) -> HttpResponse:
-    """Serve a story's linked gallery image by tag name.
+    """Serve one image from a story's bundle, by its own media tag.
 
     Gated by the same user_can_access() check as the story itself (not
     login_required alone) — otherwise a guessable image URL would leak
@@ -51,65 +55,67 @@ def story_image(request: WSGIRequest, slug: str, tag_name: str) -> HttpResponse:
     Args:
         request: The incoming request.
         slug: The story's slug.
-        tag_name: The image tag name to serve (matches a StoryImage.tag_name
-            for this story exactly — no normalization).
+        tag_name: The tag as the story wrote it, resolved by the game's
+            own rules (`bundle_media.resolve_tag_in_bundle`).
 
     Returns:
-        The image, served inline via the linked FileIndex row's own
-        inline_sendfile(), or a 403/404-equivalent response.
+        The image, streamed from inside the bundle, or 404 when the story
+        has no bundle or nothing answers the tag. 403 if the user may not
+        read this story.
 
     Raises:
-        Http404: If no accessible Story or matching StoryImage exists, or
-            the StoryImage has no linked file_index.
+        Http404: If no accessible Story matches slug.
     """
     story = _accessible_story(request, slug, defer_compiled=True)
     if isinstance(story, HttpResponse):
         return story
 
-    image = get_object_or_404(StoryImage.objects.select_related("file_index__filetype"), story=story, tag_name=tag_name)
-    if image.file_index is None:
+    bundle = story.bundle_path
+    if bundle is None:
         return HttpResponse(status=404)
-
-    response = image.file_index.inline_sendfile(request, ranged=False)
-    response["X-Content-Type-Options"] = "nosniff"
-    return response
+    member = resolve_tag_in_bundle(bundle, "image", tag_name)
+    if member is None:
+        return HttpResponse(status=404)
+    return serve_member(request, bundle, member)
 
 
 def story_video(request: WSGIRequest, slug: str, tag_name: str) -> HttpResponse:
-    """Serve a story's linked gallery video by tag name, with Range-request support.
+    """Serve one video from a story's bundle, with Range-request support.
 
-    Gated the same way as story_image() above. Stays a plain sync view —
-    Range-request (HTTP 206) support comes from `inline_sendfile`'s own
-    `ranged=True` parameter (which dispatches to the third-party
-    RangedFileResponse), not from being on the ASGI async path.
+    Gated the same way as story_image() above. A browser cannot seek
+    without Range, so `serve_member` answers 206 for one.
 
     Args:
         request: The incoming request.
         slug: The story's slug.
-        tag_name: The video tag name to serve (matches a StoryImage.tag_name
-            for this story exactly — no normalization).
+        tag_name: The tag as the story wrote it.
 
     Returns:
-        The video, served inline with Range-request support, or a
-        403/404-equivalent response.
+        The video, streamed from inside the bundle, or 404 when the story
+        has no bundle or nothing answers the tag.
 
     Raises:
-        Http404: If no accessible Story or matching StoryImage exists, or
-            the StoryImage has no linked file_index.
+        Http404: If no accessible Story matches slug.
     """
     story = _accessible_story(request, slug, defer_compiled=True)
     if isinstance(story, HttpResponse):
         return story
 
-    video = get_object_or_404(StoryImage.objects.select_related("file_index__filetype"), story=story, tag_name=tag_name)
-    if video.file_index is None:
+    bundle = story.bundle_path
+    if bundle is None:
         return HttpResponse(status=404)
-
-    return video.file_index.inline_sendfile(request, ranged=True)
+    member = resolve_tag_in_bundle(bundle, "video", tag_name)
+    if member is None:
+        return HttpResponse(status=404)
+    return serve_member(request, bundle, member, ranged=True)
 
 
 def story_cover(request: WSGIRequest, slug: str) -> HttpResponse:
     """Serve a story's library-grid cover thumbnail.
+
+    Served from the thumbnail cached on the row at ingestion, never by
+    reading the bundle: a library page is 30 cards, each its own request,
+    and opening a bundle costs ~44 ms against ~0 for a stored blob.
 
     Gated the same way as story_image() and play() (user_can_access(), not
     login_required) so the library page's anonymous public-story branch can
@@ -121,26 +127,22 @@ def story_cover(request: WSGIRequest, slug: str) -> HttpResponse:
 
     Returns:
         The cover thumbnail (always JPEG, per ThumbnailFiles' own output
-        format), or a 403/404-equivalent response.
+        format), or 404 when the game ships no cover -- a cosmetic gap,
+        not an error.
 
     Raises:
-        Http404: If no accessible Story matches slug, or it has no
-            cover_image / the cover's linked file has no generated
-            thumbnail yet.
+        Http404: If no accessible Story matches slug.
     """
     story = _accessible_story(request, slug, defer_compiled=True)
     if isinstance(story, HttpResponse):
         return story
-    cover = story.cover_image
-    if cover is None or cover.file_index is None or cover.file_index.new_ftnail is None:
+
+    thumbnail = story.cover_thumbnail
+    if thumbnail is None or not thumbnail.small_thumb:
         return HttpResponse(status=404)
 
-    try:
-        response = cover.file_index.new_ftnail.send_thumbnail(
-            filename_override=f"{story.slug}-cover.jpg", size="small", index_data_item=cover.file_index
-        )
-    except ThumbnailGenerationError:
-        return HttpResponse(status=404)
+    response = HttpResponse(bytes(thumbnail.small_thumb), content_type="image/jpeg")
+    response["Content-Disposition"] = f'inline; filename="{story.slug}-cover.jpg"'
     response["X-Content-Type-Options"] = "nosniff"
     return response
 
@@ -244,16 +246,12 @@ def upload(request: WSGIRequest) -> HttpResponse:
     rather than every authenticated user. On successful validation, a new
     Story row is created with is_public=False by default (per the plan) —
     the owner opts into sharing afterward via edit(). An optional cover
-    image can be linked at creation time by referencing its existing gallery
-    path (per the fileindex-mapping plan's decision: this app never accepts
-    raw image/video bytes — every image/video must already exist in the
-    gallery tree, synced there by the normal scanner).
+    A cover is not set here: it comes from the game's own bundle, read and
+    thumbnailed at ingestion.
 
     Args:
-        request: The incoming request. POST: "title" (str), "cover_gallery_path"
-            (optional str — the full gallery path of an existing image file
-            to use as the cover), FILES: "story_file" (the compiled
-            .ink.json).
+        request: The incoming request. POST: "title" (str). FILES:
+            "story_file" (the compiled .ink.json).
 
     Returns:
         A redirect to the new story's play page on success; the upload
@@ -266,7 +264,6 @@ def upload(request: WSGIRequest) -> HttpResponse:
     if request.method == "POST":
         title = request.POST.get("title", "").strip()
         upload_file = request.FILES.get("story_file")
-        cover_gallery_path = request.POST.get("cover_gallery_path", "").strip()
         if not title:
             errors.append("Title is required.")
         if upload_file is None:
@@ -276,14 +273,8 @@ def upload(request: WSGIRequest) -> HttpResponse:
         else:
             data, validation_errors = validate_story_upload(upload_file.read()) if upload_file else (None, [])
             errors.extend(validation_errors)
-            if cover_gallery_path and find_file_by_path(cover_gallery_path) is None:
-                errors.append(f"No gallery file found at '{cover_gallery_path}'.")
             if data is not None and not errors:
                 story = create_story_from_compiled_json(request.user, title, data)
-                if cover_gallery_path:
-                    cover_file = find_file_by_path(cover_gallery_path)
-                    if cover_file is not None:
-                        link_story_image(story, cover_file.name, cover_file, is_cover=True)
                 return redirect("if_play", slug=story.slug)
 
     return render(request, "interactive_fiction/upload.jinja", {"errors": errors, "user": request.user}, using="Jinja2")
@@ -314,30 +305,6 @@ def _apply_story_file_replacement(request: WSGIRequest, story: Story) -> list[st
     return errors
 
 
-def _apply_cover_image_selection(request: WSGIRequest, story: Story) -> list[str]:
-    """Validate and apply an optional "cover_gallery_path" selection.
-
-    Args:
-        request: The incoming request. POST: optional "cover_gallery_path"
-            (the full gallery path of an existing image file).
-        story: The story being edited.
-
-    Returns:
-        A list of validation errors (empty if there was no selection, or it
-        was valid and applied).
-    """
-    cover_gallery_path = request.POST.get("cover_gallery_path", "").strip()
-    if not cover_gallery_path:
-        return []
-
-    cover_file = find_file_by_path(cover_gallery_path)
-    if cover_file is None:
-        return [f"No gallery file found at '{cover_gallery_path}'."]
-
-    link_story_image(story, cover_file.name, cover_file, is_cover=True)
-    return []
-
-
 @login_required
 def edit(request: WSGIRequest, slug: str) -> HttpResponse:
     """Replace a story's compiled_json, retitle it, and manage sharing.
@@ -347,18 +314,14 @@ def edit(request: WSGIRequest, slug: str) -> HttpResponse:
     players' CurrentGame/SaveState rows are left untouched here — a stored
     state whose path no longer resolves against the new compiled_json is
     repaired lazily on next load, not here (deferred; see the plan's
-    Save-compatibility repair section). A cover image can be set or replaced
-    by referencing an existing gallery file's path via "cover_gallery_path"
-    — this app never accepts raw image/video bytes (per the
-    fileindex-mapping plan's decision), only references to files already
-    synced into the gallery tree.
+    Save-compatibility repair section). A cover is not set here: it comes
+    from the game's own bundle, thumbnailed at ingestion.
 
     Args:
         request: The incoming request. POST: "title" (optional, str),
-            "is_public" (optional checkbox), "cover_gallery_path" (optional,
-            str — the full gallery path of an existing image file to use
-            as the cover), FILES: "story_file" (optional — omit to edit
-            title/visibility only, without replacing content).
+            "is_public" (optional checkbox). FILES: "story_file"
+            (optional — omit to edit title/visibility only, without
+            replacing content).
 
     Returns:
         The edit form (GET, or POST with errors); a redirect back to the
@@ -374,7 +337,6 @@ def edit(request: WSGIRequest, slug: str) -> HttpResponse:
     errors: list[str] = []
     if request.method == "POST":
         errors.extend(_apply_story_file_replacement(request, story))
-        errors.extend(_apply_cover_image_selection(request, story))
 
         title = request.POST.get("title", "").strip()
         if title:

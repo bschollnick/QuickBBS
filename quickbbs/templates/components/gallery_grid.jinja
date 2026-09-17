@@ -74,8 +74,7 @@
        disabled/login-prompt state regardless of visitor. An authenticated
        user's per-user favorite state (star fill, favorite-first item order)
        must render fresh every request, so authenticated requests skip the
-       cache entirely. Revisit if this becomes a measured perf cost — see
-       claude_docs/plans/favorites_redesign.md. #}
+       cache entirely. Revisit if this becomes a measured perf cost. #}
     {% if user.is_authenticated %}
     <div class="gallery-grid">
         {%- for item in items_to_display -%}

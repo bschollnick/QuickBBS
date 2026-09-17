@@ -52,7 +52,7 @@ class CacheStatisticsTrackingAdmin(admin.ModelAdmin):
         Suggest whether this cache's maxsize looks too small, too large, or fine.
 
         A low hit rate has two unrelated causes (see MonitoredCache.py's module
-        docstring and quickbbs_app_design.md §4.5): eviction pressure, where a key
+        docstring and quickbbs_app_design.md Section 4.5): eviction pressure, where a key
         really is being reused but doesn't survive long enough to be there for the
         second lookup, and cold-key traffic, where most keys are inherently one-shot
         and no maxsize would ever produce a hit. Hit rate alone can't tell those

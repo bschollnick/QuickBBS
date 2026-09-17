@@ -12,17 +12,30 @@ import tempfile
 import textwrap
 from pathlib import Path
 
-import ink_engine.engine_plugins
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase
 
-from interactive_fiction.engine_api import clear_api_descriptor_cache, discover_api_descriptors
+import ink_engine.engine_plugins
+from interactive_fiction.engine_api import (
+    clear_api_descriptor_cache,
+    discover_api_descriptors,
+)
 from interactive_fiction.engine_services import bindings_for
-from interactive_fiction.models import EngineAPI, Story, StorySystemConfig
+from interactive_fiction.models import EngineAPI, Story
 from interactive_fiction.tests.engine_test_utils import AlbumsPathOverrideMixin
 from quickbbs.directoryindex import DirectoryIndex
 
 _COMPILED_JSON = {"inkVersion": 21, "root": [["^Hello.", "\n", "done", None], "done", None], "listDefs": {}}
+
+
+def _opt_in(story, plugin_name: str) -> None:
+    """Declare one plugin on a story, the way its manifest would.
+
+    `REQUIRED_PLUGINS` is the story's own declaration of what it
+    activates (`Story.opted_in_plugin_names`).
+    """
+    story.game_required_plugins = [*story.game_required_plugins, plugin_name]
+    story.save(update_fields=["game_required_plugins"])
 
 
 class DiscoverApiDescriptorsTests(AlbumsPathOverrideMixin, SimpleTestCase):
@@ -64,7 +77,7 @@ class DiscoverApiDescriptorsTests(AlbumsPathOverrideMixin, SimpleTestCase):
         deliberately."""
         descriptors = discover_api_descriptors()
         self.assertEqual(
-            {"scheduling", "location_graph", "character_occupancy", "characters", "cost_table", "skills", "quests"},
+            {"scheduling", "location_graph", "character_occupancy", "characters", "cost_table", "skills", "quests", "inventory"},
             set(descriptors),
         )
 
@@ -318,10 +331,11 @@ class DiscoverApiDescriptorsGameFolderTests(AlbumsPathOverrideMixin, TestCase):
 # a game's own discovery assertions belong in that game's test folder
 # (Albums/interactive_fiction/<game>/tests/).
 
+
 class BindingsForPerStoryIsolationTests(TestCase):
     """engine_services.bindings_for()'s real requirements: per-story
     isolation (a story only gets bindings for APIs it opted into via its
-    own StorySystemConfig rows) and global enable/disable
+    own manifest plugin list) and global enable/disable
     (EngineAPI.is_enabled gates every opted-in API regardless)."""
 
     def setUp(self):
@@ -341,11 +355,11 @@ class BindingsForPerStoryIsolationTests(TestCase):
         """An untrusted story's opt-in config is never enough on its own —
         Story.is_engine_trusted is still checked first."""
         story = self._make_story("untrusted-with-config", trusted=False)
-        StorySystemConfig.objects.create(story=story, system_name="scheduling")
+        _opt_in(story, "scheduling")
         self.assertEqual(bindings_for(story), {})
 
     def test_trusted_story_with_no_config_rows_gets_no_bindings(self):
-        """Trust alone isn't enough — a story with zero StorySystemConfig
+        """Trust alone isn't enough — a story with no declared plugins
         rows has opted into nothing."""
         story = self._make_story("trusted-no-config", trusted=True)
         self.assertEqual(bindings_for(story), {})
@@ -361,17 +375,17 @@ class BindingsForPerStoryIsolationTests(TestCase):
         bindings (see test_no_engine_state_dict_yields_no_stateful_bindings
         in test_engine_config_schemas.py's sibling coverage)."""
         story = self._make_story("trusted-opted-in", trusted=True)
-        StorySystemConfig.objects.create(story=story, system_name="scheduling")
+        _opt_in(story, "scheduling")
         result = bindings_for(story, {})
         self.assertIn("is_day", result)
 
     def test_two_stories_opted_into_the_same_api_are_fully_independent(self):
         """The real per-story isolation requirement: story A's own
-        StorySystemConfig row/opt-in must never affect story B's
+        plugin opt-in must never affect story B's
         bindings_for() result, and vice versa."""
         story_a = self._make_story("story-a", trusted=True)
         story_b = self._make_story("story-b", trusted=False)
-        StorySystemConfig.objects.create(story=story_a, system_name="scheduling")
+        _opt_in(story_a, "scheduling")
         self.assertIn("is_day", bindings_for(story_a, {}))
         self.assertEqual(bindings_for(story_b, {}), {})
 
@@ -380,7 +394,7 @@ class BindingsForPerStoryIsolationTests(TestCase):
         opted-in story."""
         EngineAPI.objects.filter(name="scheduling").update(is_enabled=False)
         story = self._make_story("trusted-disabled-api", trusted=True)
-        StorySystemConfig.objects.create(story=story, system_name="scheduling")
+        _opt_in(story, "scheduling")
         self.assertEqual(bindings_for(story), {})
 
     def test_disabled_api_reference_is_logged_as_an_error(self):
@@ -389,25 +403,17 @@ class BindingsForPerStoryIsolationTests(TestCase):
         silent untrusted-story fallback."""
         EngineAPI.objects.filter(name="scheduling").update(is_enabled=False)
         story = self._make_story("trusted-disabled-logged", trusted=True)
-        StorySystemConfig.objects.create(story=story, system_name="scheduling")
+        _opt_in(story, "scheduling")
         with self.assertLogs("interactive_fiction.engine_services", level=logging.ERROR) as captured:
             bindings_for(story)
         self.assertTrue(any("scheduling" in message and "not enabled" in message for message in captured.output))
 
     def test_missing_api_reference_is_logged_as_an_error(self):
-        """A system_name with no real API file backing it at all (e.g. a
-        real row created while the API still existed on disk, which was
-        then renamed/removed) is the same real, logged misconfiguration
-        class as a disabled one. StorySystemConfig.clean() already
-        prevents CREATING such a row today (confirmed: a plain
-        .objects.create() with an unknown system_name is rejected at
-        save time) — this test reaches the row into that state via a
-        queryset .update(), which bypasses full_clean(), matching the
-        real-world way this could happen (a row valid when created,
-        whose backing API file is deleted afterward)."""
+        """A manifest naming a plugin with no API file backing it -- one
+        renamed or removed after the game was published -- is the same
+        real, logged misconfiguration class as a disabled one."""
         story = self._make_story("trusted-missing-api", trusted=True)
-        config = StorySystemConfig.objects.create(story=story, system_name="scheduling")
-        StorySystemConfig.objects.filter(pk=config.pk).update(system_name="no_such_system")
+        _opt_in(story, "no_such_system")
         with self.assertLogs("interactive_fiction.engine_services", level=logging.ERROR) as captured:
             result = bindings_for(story)
         self.assertEqual(result, {})
@@ -424,3 +430,95 @@ class EngineAPIAdminToggleTests(TestCase):
         does for a real discovery) defaults to disabled."""
         api = EngineAPI.objects.create(name="brand_new_api", display_name="Brand New API")
         self.assertFalse(api.is_enabled)
+
+
+class BundleTrustQueryTests(AlbumsPathOverrideMixin, TestCase):
+    """Which games the trust query can see at all.
+
+    A bundle satisfies neither test the folder path uses -- it is not a
+    directory and holds no `__init__.py` on disk -- so before bundles were
+    handled here a trusted bundle yielded NO module, every EXTERNAL fell
+    through to its Ink stub, and nothing raised. The failure is silent,
+    which is why it is asserted rather than left to a play-time symptom.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # get_albums_root() is normalize_fqpn(ALBUMS_PATH/"albums") --
+        # lowercased, with "albums" appended -- so the games root is under
+        # that, not directly under temp_dir.
+        self.games_root = Path(DirectoryIndex.get_albums_root()) / "interactive_fiction"
+        self.games_root.mkdir(parents=True, exist_ok=True)
+        self.user = get_user_model().objects.create_user(username="trustowner", password="pw")
+        self.addCleanup(clear_api_descriptor_cache)
+        clear_api_descriptor_cache()
+
+    def _make_bundle(self, name: str = "trustgame") -> Path:
+        """Build a minimal real bundle: one package holding a manifest."""
+        import zipfile  # pylint: disable=import-outside-toplevel
+
+        bundle = self.games_root / f"{name}.zip"
+        with zipfile.ZipFile(bundle, "w") as archive:
+            archive.writestr(f"{name}/manifest.yaml", "MAIN_STORY_FILE: story.inkj\n")
+            archive.writestr(f"{name}/__init__.py", "")
+            archive.writestr(f"{name}/story.inkj", '{"inkVersion": 21}')
+        return bundle
+
+    def _story_for(self, bundle: Path, *, trusted: bool) -> Story:
+        return Story.objects.create(
+            owner=self.user,
+            title=bundle.stem,
+            slug=f"{bundle.stem}-story",
+            compiled_json={},
+            source_fqfn=str(bundle),
+            is_engine_trusted=trusted,
+        )
+
+    def test_a_trusted_bundle_is_importable(self):
+        bundle = self._make_bundle()
+        self._story_for(bundle, trusted=True)
+        self.addCleanup(sys.modules.pop, "trustgame", None)
+
+        from interactive_fiction.engine_api import (  # pylint: disable=import-outside-toplevel
+            _trusted_game_module_names,
+        )
+
+        self.assertIn("trustgame", _trusted_game_module_names())
+
+    def test_an_untrusted_bundle_is_not(self):
+        """Trust is the whole gate: a bundle present but unapproved must
+        never become importable."""
+        bundle = self._make_bundle("untrusted")
+        self._story_for(bundle, trusted=False)
+
+        from interactive_fiction.engine_api import (  # pylint: disable=import-outside-toplevel
+            _trusted_game_module_names,
+        )
+
+        self.assertNotIn("untrusted", _trusted_game_module_names())
+
+    def test_a_bundle_with_no_story_row_is_not(self):
+        self._make_bundle("orphan")
+
+        from interactive_fiction.engine_api import (  # pylint: disable=import-outside-toplevel
+            _trusted_game_module_names,
+        )
+
+        self.assertNotIn("orphan", _trusted_game_module_names())
+
+    def test_a_similarly_named_bundle_cannot_borrow_anothers_trust(self):
+        """Matched exactly, not by prefix: `<game>.zip.bak` beside a trusted
+        `<game>.zip` must not inherit it."""
+        trusted = self._make_bundle("real")
+        self._story_for(trusted, trusted=True)
+        impostor = self.games_root / "real.zip.bak"
+        impostor.write_bytes(trusted.read_bytes())
+        self.addCleanup(sys.modules.pop, "real", None)
+
+        from interactive_fiction.engine_api import (  # pylint: disable=import-outside-toplevel
+            _trusted_game_module_names,
+        )
+
+        names = _trusted_game_module_names()
+        self.assertIn("real", names)
+        self.assertEqual(len([n for n in names if n.startswith("real")]), 1)

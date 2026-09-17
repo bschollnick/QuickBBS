@@ -15,10 +15,10 @@ synthetic `interactive_fiction._games.<game>.<module>` namespace requiring
 hand-built parent packages in `sys.modules`. The NEW `discover_plugins()`
 (in `ink_engine.discovery`) never does that — it takes a flat list of
 importable dotted names and uses ordinary Python import machinery for
-every one of them. Putting a trusted game folder's parent on `sys.path`
-so its name resolves is plain packaging, so the engine supplies it as
-`make_game_folder_importable()`; this module decides WHICH folders earn
-that call.
+every one of them. Making a trusted game importable — a folder by its
+parent, a bundle by the archive itself, which `zipimport` resolves — is
+plain packaging, so the engine supplies it as `mount_game()`; this module
+decides WHICH games earn that call.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from pathlib import Path
 from ink_engine.discovery import (
     ENGINE_PLUGIN_PACKAGE,
     discover_plugins,
-    make_game_folder_importable,
+    mount_game,
 )
 from ink_engine.plugin import Plugin
 from quickbbs.directoryindex import DirectoryIndex
@@ -75,9 +75,9 @@ def _trusted_game_module_names() -> list[str]:
         just never executed), logged for visibility.
     """
     # Deferred import: interactive_fiction.models imports THIS module at
-    # module load time (StorySystemConfig.clean() calls
-    # discover_api_descriptors()) -- a top-level import here would be a
-    # real circular import, not just a style preference.
+    # module load time (for discover_api_descriptors()) -- a top-level
+    # import here would be a real circular import, not just a style
+    # preference.
     from interactive_fiction.models import (  # pylint: disable=import-outside-toplevel
         Story,
     )
@@ -86,16 +86,45 @@ def _trusted_game_module_names() -> list[str]:
     if not games_root.is_dir():
         return []
 
+    # A bundle sits either in the games root or one level down in its own
+    # game folder, which is how the published bundles are laid out.
+    candidates = list(games_root.iterdir())
+    candidates.extend(
+        entry for game_dir in games_root.iterdir() if game_dir.is_dir() for entry in game_dir.iterdir() if entry.suffix.lower() == ".zip"
+    )
+
     trusted_names: list[str] = []
-    for game_dir in sorted(p for p in games_root.iterdir() if p.is_dir() and (p / "__init__.py").exists()):
-        folder_prefix = str(game_dir).rstrip("/") + "/"
-        if Story.objects.filter(source_fqfn__startswith=folder_prefix, is_engine_trusted=True).exists():
-            trusted_names.append(make_game_folder_importable(game_dir))
+    for game in sorted(candidates, key=str):
+        if game.is_dir() and (game / "__init__.py").exists():
+            # A folder game's Story points at a file INSIDE it.
+            is_trusted = Story.objects.filter(source_fqfn__startswith=str(game).rstrip("/") + "/", is_engine_trusted=True).exists()
+        elif game.is_file() and game.suffix.lower() == ".zip":
+            # A bundle's Story points at the bundle itself. Matched
+            # exactly: a prefix match would let `<game>.zip.bak` claim
+            # `<game>.zip`'s trust.
+            is_trusted = Story.objects.filter(source_fqfn=str(game), is_engine_trusted=True).exists()
         else:
+            continue
+
+        if not is_trusted:
             logger.info(
                 "interactive_fiction.engine_api: skipping '%s' — no trusted Story marks this game safe to execute (Story.is_engine_trusted)",
-                game_dir.name,
+                game.name,
             )
+            continue
+
+        # mount_game() takes a folder or a bundle and releases its
+        # sys.path entry; make_game_folder_importable() never released
+        # one, so a second game of the same package name resolved to the
+        # first. The mount is held, not released, because the modules it
+        # makes importable stay imported for the worker's life.
+        package = mount_game(game).package
+        # One game can be present as both a folder and a bundle inside it
+        # while a library is being converted. Mounting both would offer
+        # discover_plugins() the same package twice, which it rightly
+        # rejects as a duplicate plugin name.
+        if package not in trusted_names:
+            trusted_names.append(package)
     return trusted_names
 
 

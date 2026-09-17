@@ -14,11 +14,15 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path as FilePath
+from unittest.mock import patch
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.template.loader import get_template
 from django.test import Client, TestCase, override_settings
+from if_session.game_saves import QUICKSAVE_SLOT, SAVE_ENVELOPE_VERSION
+from if_session.session_state import SAVE_FORMAT_VERSION
 
 from interactive_fiction.engine_services import (
     game_panel_action,
@@ -26,7 +30,6 @@ from interactive_fiction.engine_services import (
     game_panel_context,
     play_layout_for,
 )
-from interactive_fiction.images import link_story_image
 from interactive_fiction.models import (
     DEFAULT_PLAY_LAYOUT,
     PLAY_LAYOUTS,
@@ -34,14 +37,26 @@ from interactive_fiction.models import (
     EngineAPI,
     SaveState,
     Story,
-    StoryImage,
-    StorySystemConfig,
 )
-from interactive_fiction.tests.image_test_utils import make_gallery_image
+from interactive_fiction.tests.image_test_utils import (
+    make_gallery_image,
+    make_image_bytes,
+)
 from quickbbs.models import DirectoryIndex
+from thumbnails.models import ThumbnailFiles
 from user_preferences.models import UserPreferences
 
 FIXTURES = FilePath(__file__).parent / "fixtures"
+
+
+def _opt_in(story, plugin_name: str) -> None:
+    """Declare one plugin on a story, the way its manifest would.
+
+    `REQUIRED_PLUGINS` is the story's own declaration of what it
+    activates (`Story.opted_in_plugin_names`).
+    """
+    story.game_required_plugins = [*story.game_required_plugins, plugin_name]
+    story.save(update_fields=["game_required_plugins"])
 
 
 class _AlbumsRootMixin:
@@ -223,11 +238,234 @@ class SaveLoadViewTests(TestCase):
         self.assertEqual(current_game.state, saved_state_before_load)
         self.assertEqual(save_state_after_load.state, saved_state_before_load)
 
+    def test_loading_a_slot_from_a_newer_save_format_is_refused(self):
+        """Refusing to load is the intended outcome, so it reaches the
+        player as a message rather than a 500."""
+        save_state = SaveState.objects.create(
+            user=self.user, story=self.story, slot=1, label="From the future", state={"save_format_version": SAVE_FORMAT_VERSION + 1}
+        )
+        response = self.client.post(f"/if/{self.story.slug}/saves/1/load/", secure=True)
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("cannot be opened", response.content.decode())
+        save_state.refresh_from_db()
+        self.assertEqual(save_state.state, {"save_format_version": SAVE_FORMAT_VERSION + 1})
+
+    def test_playing_a_current_game_from_a_newer_save_format_is_refused(self):
+        current_game = CurrentGame.objects.get(user=self.user, story=self.story)
+        current_game.state = {"save_format_version": SAVE_FORMAT_VERSION + 1}
+        current_game.save(update_fields=["state"])
+
+        response = self.client.get(f"/if/{self.story.slug}/", secure=True)
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("cannot be opened", response.content.decode())
+
     def test_slot_out_of_configured_range_is_rejected(self):
         """A slot number outside [0, MAX_SAVE_SLOTS_PER_STORY) is rejected
         with 400."""
         response = self.client.post(f"/if/{self.story.slug}/saves/99/save/", {}, secure=True)
         self.assertEqual(response.status_code, 400)
+
+
+class SlotNumberingViewTests(TestCase):
+    """Slots are stored from 0 and shown to players from 1."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = get_user_model().objects.create_user(username="ifplayer_num", password="pw")
+        self.story = Story.objects.create(
+            owner=self.user, title="Choices", slug="choices-story-num", compiled_json=_load_compiled_json(), is_public=True
+        )
+        self.client.force_login(self.user)
+        self.client.get(f"/if/{self.story.slug}/", secure=True)
+
+    def test_the_saves_table_numbers_slots_from_one(self):
+        response = self.client.get(f"/if/{self.story.slug}/saves/", secure=True)
+        body = response.content.decode()
+        self.assertIn("<td>1</td>", body)
+        self.assertIn(f"<td>{settings.MAX_SAVE_SLOTS_PER_STORY}</td>", body)
+        self.assertNotIn("<td>0</td>", body)
+
+    def test_the_urls_stay_zero_based(self):
+        """Only the display shifts; the stored number addresses the row."""
+        response = self.client.get(f"/if/{self.story.slug}/saves/", secure=True)
+        self.assertIn(f"/if/{self.story.slug}/saves/0/save/".encode(), response.content)
+
+    def test_saving_slot_zero_reports_slot_one(self):
+        response = self.client.post(f"/if/{self.story.slug}/saves/0/save/", {"label": "First"}, secure=True)
+        self.assertIn(b"Saved to slot 1.", response.content)
+
+    def test_the_export_filename_uses_the_displayed_number(self):
+        self.client.post(f"/if/{self.story.slug}/saves/0/save/", {"label": "First"}, secure=True)
+        response = self.client.get(f"/if/{self.story.slug}/saves/0/export/", secure=True)
+        self.assertIn("slot1.json", response["Content-Disposition"])
+
+    def test_importing_into_displayed_slot_one_writes_stored_slot_zero(self):
+        """The import form is the one place a player types a slot number."""
+        self.client.post(f"/if/{self.story.slug}/saves/0/save/", {"label": "Source"}, secure=True)
+        exported = self.client.get(f"/if/{self.story.slug}/saves/0/export/", secure=True).content
+        SaveState.objects.filter(user=self.user, story=self.story).delete()
+
+        upload = SimpleUploadedFile("save.json", exported, content_type="application/json")
+        self.client.post(f"/if/{self.story.slug}/saves/import/", {"slot": 1, "save_file": upload}, secure=True)
+
+        self.assertTrue(SaveState.objects.filter(user=self.user, story=self.story, slot=0).exists())
+
+    def test_importing_into_displayed_slot_zero_is_refused(self):
+        """0 is below the first real slot once the form counts from 1."""
+        self.client.post(f"/if/{self.story.slug}/saves/0/save/", {"label": "Source"}, secure=True)
+        exported = self.client.get(f"/if/{self.story.slug}/saves/0/export/", secure=True).content
+        upload = SimpleUploadedFile("save.json", exported, content_type="application/json")
+        response = self.client.post(f"/if/{self.story.slug}/saves/import/", {"slot": 0, "save_file": upload}, secure=True)
+        self.assertEqual(response.status_code, 400)
+
+    def test_the_import_form_offers_the_displayed_range(self):
+        response = self.client.get(f"/if/{self.story.slug}/saves/", secure=True)
+        body = response.content.decode()
+        self.assertIn('min="1"', body)
+        self.assertIn(f'max="{settings.MAX_SAVE_SLOTS_PER_STORY}"', body)
+
+
+class DeleteSaveViewTests(TestCase):
+    """POST /if/<slug>/saves/<slot>/delete/."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = get_user_model().objects.create_user(username="ifplayer_del", password="pw")
+        self.story = Story.objects.create(
+            owner=self.user, title="Choices", slug="choices-story-del", compiled_json=_load_compiled_json(), is_public=True
+        )
+        self.client.force_login(self.user)
+        self.client.get(f"/if/{self.story.slug}/", secure=True)
+        self.client.post(f"/if/{self.story.slug}/saves/0/save/", {"label": "Doomed"}, secure=True)
+
+    def test_delete_empties_the_slot(self):
+        response = self.client.post(f"/if/{self.story.slug}/saves/0/delete/", secure=True)
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(SaveState.objects.filter(user=self.user, story=self.story, slot=0).exists())
+
+    def test_deleting_an_empty_slot_is_not_an_error(self):
+        response = self.client.post(f"/if/{self.story.slug}/saves/3/delete/", secure=True)
+        self.assertEqual(response.status_code, 302)
+
+    def test_delete_leaves_the_other_slots_alone(self):
+        self.client.post(f"/if/{self.story.slug}/saves/1/save/", {"label": "Keep"}, secure=True)
+        self.client.post(f"/if/{self.story.slug}/saves/0/delete/", secure=True)
+        self.assertTrue(SaveState.objects.filter(user=self.user, story=self.story, slot=1).exists())
+
+    def test_an_out_of_range_slot_is_refused(self):
+        response = self.client.post(f"/if/{self.story.slug}/saves/99/delete/", secure=True)
+        self.assertEqual(response.status_code, 400)
+
+    def test_delete_and_load_ask_for_confirmation(self):
+        """Both discard something the player cannot get back.
+
+        This page uses plain forms rather than HTMX, so the sidebar's
+        hx-confirm does not apply here and the guard is onsubmit.
+        """
+        body = self.client.get(f"/if/{self.story.slug}/saves/", secure=True).content.decode()
+        self.assertIn("Delete slot 1 (Doomed)? This cannot be undone.", body)
+        self.assertIn("Load slot 1?", body)
+
+    def test_a_label_with_an_apostrophe_does_not_break_the_confirmation(self):
+        """Autoescaping keeps a quote inside the JavaScript string."""
+        self.client.post(f"/if/{self.story.slug}/saves/1/save/", {"label": "Ben's save"}, secure=True)
+        body = self.client.get(f"/if/{self.story.slug}/saves/", secure=True).content.decode()
+        self.assertIn("Ben&#39;s save", body)
+
+    def test_delete_requires_post(self):
+        response = self.client.get(f"/if/{self.story.slug}/saves/0/delete/", secure=True)
+        self.assertEqual(response.status_code, 405)
+
+    def test_another_users_save_is_untouched(self):
+        intruder = get_user_model().objects.create_user(username="intruder_del", password="pw")
+        self.client.force_login(intruder)
+        self.client.post(f"/if/{self.story.slug}/saves/0/delete/", secure=True)
+        self.assertTrue(SaveState.objects.filter(user=self.user, story=self.story, slot=0).exists())
+
+
+class QuicksaveViewTests(TestCase):
+    """POST /if/<slug>/saves/quicksave/ and .../quickload/."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = get_user_model().objects.create_user(username="ifplayer_quick", password="pw")
+        self.story = Story.objects.create(
+            owner=self.user, title="Choices", slug="choices-story-quick", compiled_json=_load_compiled_json(), is_public=True
+        )
+        self.client.force_login(self.user)
+        self.client.get(f"/if/{self.story.slug}/", secure=True)
+
+    def test_quicksave_writes_the_reserved_slot(self):
+        response = self.client.post(f"/if/{self.story.slug}/saves/quicksave/", secure=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(SaveState.objects.filter(user=self.user, story=self.story, slot=QUICKSAVE_SLOT).exists())
+
+    def test_the_quicksave_url_is_reachable_at_all(self):
+        """Django's <int:slot> converter matches digits only.
+
+        Routing the quicksave through the numbered-slot pattern would 404
+        before reaching the view, so it has its own route.
+        """
+        self.assertNotEqual(self.client.post(f"/if/{self.story.slug}/saves/quicksave/", secure=True).status_code, 404)
+
+    def test_quicksave_returns_the_current_turn_not_a_confirmation_page(self):
+        """A quicksave must not interrupt play."""
+        response = self.client.post(f"/if/{self.story.slug}/saves/quicksave/", secure=True)
+        self.assertNotIn(b"<html", response.content.lower())
+
+    def test_quicksave_does_not_touch_a_numbered_slot(self):
+        self.client.post(f"/if/{self.story.slug}/saves/0/save/", {"label": "Mine"}, secure=True)
+        self.client.post(f"/if/{self.story.slug}/saves/quicksave/", secure=True)
+        self.assertEqual(SaveState.objects.get(user=self.user, story=self.story, slot=0).label, "Mine")
+
+    def test_the_quicksave_is_not_listed_among_the_numbered_saves(self):
+        """-1 sorts first, so a missing exclude would put it at the top."""
+        self.client.post(f"/if/{self.story.slug}/saves/quicksave/", secure=True)
+        response = self.client.get(f"/if/{self.story.slug}/saves/", secure=True)
+        self.assertNotIn(b"Quicksave", response.content)
+
+    def test_a_second_quicksave_replaces_the_first(self):
+        self.client.post(f"/if/{self.story.slug}/saves/quicksave/", secure=True)
+        self.client.post(f"/if/{self.story.slug}/saves/quicksave/", secure=True)
+        self.assertEqual(SaveState.objects.filter(user=self.user, story=self.story, slot=QUICKSAVE_SLOT).count(), 1)
+
+    def test_quickload_restores_the_quicksaved_turn(self):
+        current_game = CurrentGame.objects.get(user=self.user, story=self.story)
+        self.client.post(f"/if/{self.story.slug}/play/", {"choice": 0, "turn_count": current_game.turn_count}, secure=True)
+        self.client.post(f"/if/{self.story.slug}/saves/quicksave/", secure=True)
+        quicksaved_state = SaveState.objects.get(user=self.user, story=self.story, slot=QUICKSAVE_SLOT).state
+
+        current_game.refresh_from_db()
+        self.client.post(f"/if/{self.story.slug}/play/", {"choice": 0, "turn_count": current_game.turn_count}, secure=True)
+
+        response = self.client.post(f"/if/{self.story.slug}/saves/quickload/", secure=True)
+
+        self.assertEqual(response.status_code, 200)
+        current_game.refresh_from_db()
+        self.assertEqual(current_game.state, quicksaved_state)
+
+    def test_quickloading_leaves_the_quicksave_in_place(self):
+        self.client.post(f"/if/{self.story.slug}/saves/quicksave/", secure=True)
+        before = SaveState.objects.get(user=self.user, story=self.story, slot=QUICKSAVE_SLOT).state
+        self.client.post(f"/if/{self.story.slug}/saves/quickload/", secure=True)
+        self.assertEqual(SaveState.objects.get(user=self.user, story=self.story, slot=QUICKSAVE_SLOT).state, before)
+
+    def test_quickload_with_no_quicksave_is_a_404(self):
+        response = self.client.post(f"/if/{self.story.slug}/saves/quickload/", secure=True)
+        self.assertEqual(response.status_code, 404)
+
+    def test_quicksave_requires_post(self):
+        self.assertEqual(self.client.get(f"/if/{self.story.slug}/saves/quicksave/", secure=True).status_code, 405)
+
+    def test_quickload_requires_post(self):
+        self.assertEqual(self.client.get(f"/if/{self.story.slug}/saves/quickload/", secure=True).status_code, 405)
+
+    def test_another_users_quicksave_is_not_loadable(self):
+        self.client.post(f"/if/{self.story.slug}/saves/quicksave/", secure=True)
+        intruder = get_user_model().objects.create_user(username="intruder_quick", password="pw")
+        self.client.force_login(intruder)
+        self.client.get(f"/if/{self.story.slug}/", secure=True)
+        self.assertEqual(self.client.post(f"/if/{self.story.slug}/saves/quickload/", secure=True).status_code, 404)
 
 
 class ExportImportViewTests(TestCase):
@@ -244,16 +482,27 @@ class ExportImportViewTests(TestCase):
         self.client.post(f"/if/{self.story.slug}/saves/0/save/", {"label": "Exportable"}, secure=True)
 
     def test_export_returns_a_valid_envelope(self):
-        """The exported file is a JSON envelope with the expected
-        version/story_slug/label/state fields."""
+        """The exported file is the shared envelope, keyed on game_id.
+
+        The old `quickbbs_if_save_version`/`story_slug` pair is retired:
+        the desktop player wrote the same version number with a different
+        identity key, so the two were mutually unimportable while both
+        claiming version 1.
+        """
         response = self.client.get(f"/if/{self.story.slug}/saves/0/export/", secure=True)
         self.assertEqual(response.status_code, 200)
         envelope = json.loads(response.content)
-        self.assertEqual(envelope["quickbbs_if_save_version"], 1)
-        self.assertEqual(envelope["story_slug"], self.story.slug)
+        self.assertEqual(envelope["if_save_version"], SAVE_ENVELOPE_VERSION)
+        self.assertEqual(envelope["game_id"], self.story.slug)
         self.assertEqual(envelope["label"], "Exportable")
         self.assertIn("state", envelope)
         self.assertIn("attachment", response["Content-Disposition"])
+
+    def test_export_records_the_ink_version_as_advisory_metadata(self):
+        """Written for whoever inspects the file, never validated on import."""
+        response = self.client.get(f"/if/{self.story.slug}/saves/0/export/", secure=True)
+        envelope = json.loads(response.content)
+        self.assertEqual(envelope["metadata"]["ink_version"], self.story.ink_version)
 
     def test_import_round_trips_an_exported_save(self):
         """A save exported from slot 0 can be imported into slot 1 of the
@@ -262,7 +511,8 @@ class ExportImportViewTests(TestCase):
         exported_bytes = export_response.content
 
         upload = SimpleUploadedFile("save.json", exported_bytes, content_type="application/json")
-        response = self.client.post(f"/if/{self.story.slug}/saves/import/", {"slot": 1, "save_file": upload}, secure=True)
+        # The form counts from 1, so display slot 2 is stored slot 1.
+        response = self.client.post(f"/if/{self.story.slug}/saves/import/", {"slot": 2, "save_file": upload}, secure=True)
         self.assertEqual(response.status_code, 200)
 
         original = SaveState.objects.get(user=self.user, story=self.story, slot=0)
@@ -271,15 +521,79 @@ class ExportImportViewTests(TestCase):
         self.assertEqual(imported.label, "Exportable")
 
     def test_import_rejects_envelope_for_a_different_story(self):
-        """An envelope whose story_slug doesn't match the target story is
+        """An envelope whose game_id doesn't match the target story is
         rejected with 400, never silently imported."""
         other_story = Story.objects.create(owner=self.user, title="Other", slug="other-story", compiled_json=_load_compiled_json(), is_public=True)
         export_response = self.client.get(f"/if/{self.story.slug}/saves/0/export/", secure=True)
 
         upload = SimpleUploadedFile("save.json", export_response.content, content_type="application/json")
-        response = self.client.post(f"/if/{other_story.slug}/saves/import/", {"slot": 0, "save_file": upload}, secure=True)
+        response = self.client.post(f"/if/{other_story.slug}/saves/import/", {"slot": 1, "save_file": upload}, secure=True)
         self.assertEqual(response.status_code, 400)
         self.assertFalse(SaveState.objects.filter(user=self.user, story=other_story, slot=0).exists())
+
+    def test_import_rejects_a_state_from_a_newer_save_format(self):
+        """The file's own `if_save_version` and the state's
+        `save_format_version` are separate versions. A recognized export
+        file can still hold a state this server cannot read, and that must
+        be refused before it overwrites the slot."""
+        envelope = {
+            "if_save_version": SAVE_ENVELOPE_VERSION,
+            "game_id": self.story.slug,
+            "label": "From the future",
+            "state": {"save_format_version": SAVE_FORMAT_VERSION + 1},
+        }
+        upload = SimpleUploadedFile("save.json", json.dumps(envelope).encode(), content_type="application/json")
+        response = self.client.post(f"/if/{self.story.slug}/saves/import/", {"slot": 4, "save_file": upload}, secure=True)
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(SaveState.objects.filter(user=self.user, story=self.story, slot=3).exists())
+
+    def test_import_reports_why_it_refused(self):
+        """A bare 400 told the player nothing; the library supplies a reason."""
+        envelope = {"if_save_version": SAVE_ENVELOPE_VERSION, "game_id": "someothergame", "state": {}}
+        upload = SimpleUploadedFile("save.json", json.dumps(envelope).encode(), content_type="application/json")
+        response = self.client.post(f"/if/{self.story.slug}/saves/import/", {"slot": 1, "save_file": upload}, secure=True)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(b"different game", response.content)
+
+    def test_import_rejects_an_unrecognized_file(self):
+        """A file that is valid JSON but not a save at all."""
+        upload = SimpleUploadedFile("save.json", b'{"hello": "world"}', content_type="application/json")
+        response = self.client.post(f"/if/{self.story.slug}/saves/import/", {"slot": 1, "save_file": upload}, secure=True)
+        self.assertEqual(response.status_code, 400)
+
+    def test_import_rejects_an_out_of_range_slot(self):
+        """The library owns the range check now, not the view."""
+        export_response = self.client.get(f"/if/{self.story.slug}/saves/0/export/", secure=True)
+        upload = SimpleUploadedFile("save.json", export_response.content, content_type="application/json")
+        response = self.client.post(f"/if/{self.story.slug}/saves/import/", {"slot": 99, "save_file": upload}, secure=True)
+        self.assertEqual(response.status_code, 400)
+
+    def test_a_posted_label_overrides_the_files_own(self):
+        """Preserved from the pre-library behaviour, and easy to lose."""
+        export_response = self.client.get(f"/if/{self.story.slug}/saves/0/export/", secure=True)
+        upload = SimpleUploadedFile("save.json", export_response.content, content_type="application/json")
+        self.client.post(
+            f"/if/{self.story.slug}/saves/import/",
+            {"slot": 3, "save_file": upload, "label": "My own name"},
+            secure=True,
+        )
+        self.assertEqual(SaveState.objects.get(user=self.user, story=self.story, slot=2).label, "My own name")
+
+    def test_export_delete_import_preserves_the_state(self):
+        """The full round trip, which neither application had a test for.
+
+        This is what would have caught the game_name/story_slug
+        divergence between the two applications.
+        """
+        original = SaveState.objects.get(user=self.user, story=self.story, slot=0).state
+        export_response = self.client.get(f"/if/{self.story.slug}/saves/0/export/", secure=True)
+        SaveState.objects.filter(user=self.user, story=self.story, slot=0).delete()
+
+        upload = SimpleUploadedFile("save.json", export_response.content, content_type="application/json")
+        response = self.client.post(f"/if/{self.story.slug}/saves/import/", {"slot": 5, "save_file": upload}, secure=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(SaveState.objects.get(user=self.user, story=self.story, slot=4).state, original)
 
     def test_import_rejects_oversized_upload(self):
         """An upload larger than MAX_SAVE_FILE_UPLOAD_BYTES is rejected
@@ -458,166 +772,58 @@ class EditViewTests(TestCase):
         self.assertEqual(self.story.compiled_json, original_json)
 
 
-class StoryImageViewTests(_AlbumsRootMixin, TestCase):
-    """GET /if/<slug>/image/<tag_name>/ — serving a story's linked gallery image."""
-
-    def setUp(self):
-        self._enable_albums_root()
-        self.client = Client()
-        self.owner = get_user_model().objects.create_user(username="imgowner", password="pw", is_staff=True)
-        self.other_user = get_user_model().objects.create_user(username="imgother", password="pw")
-        self.story = Story.objects.create(
-            owner=self.owner, title="Tagged", slug="tagged-story", compiled_json=_load_tagged_story_json(), is_public=False
-        )
-        file_index = make_gallery_image(self.albums_dir, "cover.jpg")
-        link_story_image(self.story, "cover.jpg", file_index)
-        self.client.force_login(self.owner)
-
-    def test_owner_can_fetch_a_tagged_image(self):
-        """The owner can fetch an image they uploaded for a known tag."""
-        response = self.client.get(f"/if/{self.story.slug}/image/cover.jpg/", secure=True)
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response["Content-Type"], "image/jpeg")
-
-    def test_response_carries_nosniff_header(self):
-        """X-Content-Type-Options: nosniff is set per the plan's stored-XSS mitigation."""
-        response = self.client.get(f"/if/{self.story.slug}/image/cover.jpg/", secure=True)
-        self.assertEqual(response["X-Content-Type-Options"], "nosniff")
-
-    def test_user_without_access_is_forbidden(self):
-        """A user with no grant on this non-public story is rejected with
-        403 — a guessable image URL must not leak private story art."""
-        self.client.force_login(self.other_user)
-        response = self.client.get(f"/if/{self.story.slug}/image/cover.jpg/", secure=True)
-        self.assertEqual(response.status_code, 403)
-
-    def test_unknown_tag_name_is_404(self):
-        """A tag_name with no matching StoryImage row is a plain 404."""
-        response = self.client.get(f"/if/{self.story.slug}/image/nonexistent.jpg/", secure=True)
-        self.assertEqual(response.status_code, 404)
-
-    def test_anonymous_can_fetch_image_of_a_public_story(self):
-        """No login_required on this view — user_can_access() alone gates
-        it, so an anonymous visitor to a public story's image URL is
-        served the image rather than redirected to login."""
-        self.story.is_public = True
-        self.story.save(update_fields=["is_public"])
-        self.client.logout()
-        response = self.client.get(f"/if/{self.story.slug}/image/cover.jpg/", secure=True)
-        self.assertEqual(response.status_code, 200)
-
-
 class StoryCoverViewTests(_AlbumsRootMixin, TestCase):
-    """GET /if/<slug>/cover/ — serving a story's library-grid cover thumbnail."""
+    """GET /if/<slug>/cover/ — served from the thumbnail cached on the row.
+
+    A cover comes from the game's own bundle, thumbnailed once at
+    ingestion; there is no user-supplied cover to upload or edit.
+    """
 
     def setUp(self):
         self._enable_albums_root()
         self.client = Client()
         self.owner = get_user_model().objects.create_user(username="coverowner", password="pw", is_staff=True)
-        self.story = Story.objects.create(
-            owner=self.owner, title="Covered", slug="covered-story", compiled_json=_load_compiled_json(), is_public=True
-        )
+        self.story = Story.objects.create(owner=self.owner, title="Cover Story", slug="cover-story", compiled_json=_load_compiled_json())
+        self.client.force_login(self.owner)
 
-    def test_story_with_no_cover_is_404(self):
-        """A story that never had a cover image set returns 404, not an error."""
+    def test_a_story_with_no_cover_is_404(self):
         response = self.client.get(f"/if/{self.story.slug}/cover/", secure=True)
         self.assertEqual(response.status_code, 404)
 
-    def test_story_with_a_cover_serves_a_jpeg_thumbnail(self):
-        """A story with a cover set via edit()'s cover_gallery_path field
-        serves the generated thumbnail, always as JPEG."""
-        self.client.force_login(self.owner)
-        file_index = make_gallery_image(self.albums_dir, "cover.jpg")
-        self.client.post(
-            f"/if/{self.story.slug}/edit/",
-            {"title": "Covered", "is_public": "on", "cover_gallery_path": file_index.full_filepathname},
-            secure=True,
-        )
-        self.client.logout()
+    def _give_it_a_cover(self) -> None:
+        """Attach a thumbnail row holding real JPEG bytes -- the shape
+        ingestion produces from a bundle's own cover."""
+        row = ThumbnailFiles.objects.create(sha256_hash="c" * 64, small_thumb=make_image_bytes("JPEG"))
+        self.story.cover_thumbnail = row
+        self.story.save(update_fields=["cover_thumbnail"])
+
+    def test_a_cached_cover_is_served_as_jpeg(self):
+        self._give_it_a_cover()
         response = self.client.get(f"/if/{self.story.slug}/cover/", secure=True)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "image/jpeg")
+        self.assertTrue(response.content)
 
+    def test_serving_a_cover_never_opens_the_bundle(self):
+        """The whole point of caching it: a library page is 30 cards, and
+        opening a bundle costs ~44 ms."""
+        self._give_it_a_cover()
+        with patch("interactive_fiction.bundle_media.bundle_source") as opened:
+            self.client.get(f"/if/{self.story.slug}/cover/", secure=True)
+        opened.assert_not_called()
 
-class UploadWithImagesTests(_AlbumsRootMixin, TestCase):
-    """POST /if/upload/ with a "cover_gallery_path" — referencing an existing gallery file."""
+    def test_the_library_grid_marks_a_story_that_has_one(self):
+        self._give_it_a_cover()
+        self.story.is_public = True
+        self.story.save(update_fields=["is_public"])
 
-    def setUp(self):
-        self._enable_albums_root()
-        self.client = Client()
-        self.staff_user = get_user_model().objects.create_user(username="imgstaff", password="pw", is_staff=True)
-
-    def test_uploading_with_a_cover_gallery_path_attaches_the_cover(self):
-        """A cover_gallery_path referencing a real gallery file, submitted
-        alongside a new story, attaches it as a StoryImage row on the
-        newly created story."""
-        self.client.force_login(self.staff_user)
-        file_index = make_gallery_image(self.albums_dir, "cover.jpg")
-        with open(FIXTURES / "section9_tags.ink.json", "rb") as story_file:
-            response = self.client.post(
-                "/if/upload/",
-                {"title": "Story With Images", "story_file": story_file, "cover_gallery_path": file_index.full_filepathname},
-                secure=True,
-            )
-        story = Story.objects.get(title="Story With Images")
-        self.assertRedirects(response, f"/if/{story.slug}/", fetch_redirect_response=False)
-        self.assertTrue(StoryImage.objects.filter(story=story, tag_name="cover.jpg").exists())
-
-    def test_uploading_with_an_unknown_gallery_path_is_rejected(self):
-        """A cover_gallery_path with no matching gallery file is a
-        validation error, not a silent no-op."""
-        self.client.force_login(self.staff_user)
-        with open(FIXTURES / "section9_tags.ink.json", "rb") as story_file:
-            response = self.client.post(
-                "/if/upload/",
-                {"title": "Story With Bad Cover", "story_file": story_file, "cover_gallery_path": "/nonexistent/path.jpg"},
-                secure=True,
-            )
+        response = self.client.get("/if/", secure=True)
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"no gallery file found", response.content.lower())
-        self.assertFalse(Story.objects.filter(title="Story With Bad Cover").exists())
-
-
-class EditWithImagesTests(_AlbumsRootMixin, TestCase):
-    """POST /if/<slug>/edit/ with "cover_gallery_path" — referencing an existing gallery file."""
-
-    def setUp(self):
-        self._enable_albums_root()
-        self.client = Client()
-        self.owner = get_user_model().objects.create_user(username="editimgowner", password="pw", is_staff=True)
-        self.story = Story.objects.create(owner=self.owner, title="Edit Images", slug="edit-images-story", compiled_json=_load_compiled_json())
-        self.client.force_login(self.owner)
-
-    def test_cover_gallery_path_sets_the_cover(self):
-        """A cover_gallery_path referencing a real gallery file sets the
-        story's cover and redirects on success."""
-        file_index = make_gallery_image(self.albums_dir, "cover.jpg")
-        response = self.client.post(
-            f"/if/{self.story.slug}/edit/",
-            {"title": "Edit Images", "cover_gallery_path": file_index.full_filepathname},
-            secure=True,
-        )
-        self.assertEqual(response.status_code, 302)
-        self.story.refresh_from_db()
-        cover = self.story.cover_image
-        self.assertIsNotNone(cover)
-        self.assertEqual(cover.tag_name, "cover.jpg")
-
-    def test_unknown_gallery_path_is_rejected(self):
-        """A cover_gallery_path with no matching gallery file is a
-        validation error, not a silent no-op or a crash."""
-        response = self.client.post(
-            f"/if/{self.story.slug}/edit/",
-            {"title": "Edit Images", "cover_gallery_path": "/nonexistent/path.jpg"},
-            secure=True,
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(b"no gallery file found", response.content.lower())
-        self.assertIsNone(self.story.cover_image)
+        self.assertIn(f"/if/{self.story.slug}/cover/".encode(), response.content)
 
 
 class PlayViewImageTagTests(_AlbumsRootMixin, TestCase):
-    """GET /if/<slug>/ and POST .../play/ — image: tags render as image_urls."""
+    """GET /if/<slug>/ — a non-bundle story resolves no media at all."""
 
     def setUp(self):
         self._enable_albums_root()
@@ -628,22 +834,12 @@ class PlayViewImageTagTests(_AlbumsRootMixin, TestCase):
         )
         self.client.force_login(self.owner)
 
-    def test_image_tag_with_no_matching_story_image_renders_text_only(self):
-        """A story whose 'image: cover.jpg' tag has no matching StoryImage
-        row still plays — the play page just shows no <img> for it, per
-        the plan's work-in-progress-placeholder-tags rule."""
+    def test_a_story_with_no_bundle_plays_text_only(self):
+        """Media comes from the game's own bundle; a story with none
+        still plays, just without pictures."""
         response = self.client.get(f"/if/{self.story.slug}/", secure=True)
         self.assertEqual(response.status_code, 200)
         self.assertNotIn(b"if-story-images", response.content)
-
-    def test_image_tag_with_a_matching_story_image_renders_an_img_tag(self):
-        """Once cover.jpg is linked, the same tag resolves to a servable
-        image URL and an <img> appears in the play page."""
-        file_index = make_gallery_image(self.albums_dir, "cover.jpg")
-        link_story_image(self.story, "cover.jpg", file_index)
-        response = self.client.get(f"/if/{self.story.slug}/", secure=True)
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(f"/if/{self.story.slug}/image/cover.jpg/".encode(), response.content)
 
 
 class LibraryPlayStatusTests(TestCase):
@@ -1057,7 +1253,7 @@ PLAY_LAYOUT = "three_column"
             is_engine_trusted=True,
             source_fqfn=str((self.game_dir / "story.inkj").resolve()).lower(),
         )
-        StorySystemConfig.objects.create(story=self.story, system_name="scheduling", config={})
+        _opt_in(self.story, "scheduling")
 
     def test_the_command_gets_the_real_stateful_binding(self):
         """The function-level contract: `panel_command` is handed real
@@ -1159,7 +1355,7 @@ class PlayLayoutTests(_AlbumsRootMixin, TestCase):
         """
         game_dir = self.albums_dir / "interactive_fiction" / name
         game_dir.mkdir(parents=True)
-        (game_dir / "__init__.py").write_text(manifest, encoding="utf-8")
+        (game_dir / "manifest.yaml").write_text(manifest, encoding="utf-8")
         return Story.objects.create(
             owner=self.user,
             title=name,
@@ -1170,11 +1366,11 @@ class PlayLayoutTests(_AlbumsRootMixin, TestCase):
         )
 
     def test_a_game_gets_the_layout_its_manifest_names(self):
-        story = self._make_game("threecol", 'MAIN_STORY_FILE = "story.inkj"\nPLAY_LAYOUT = "three_column"\n')
+        story = self._make_game("threecol", "MAIN_STORY_FILE: story.inkj\nPLAY_LAYOUT: three_column\n")
         self.assertEqual(play_layout_for(story), PLAY_LAYOUTS["three_column"])
 
     def test_a_game_naming_no_layout_gets_the_default(self):
-        story = self._make_game("plainmanifest", 'MAIN_STORY_FILE = "story.inkj"\n')
+        story = self._make_game("plainmanifest", "MAIN_STORY_FILE: story.inkj\n")
         self.assertEqual(play_layout_for(story), PLAY_LAYOUTS[DEFAULT_PLAY_LAYOUT])
 
     def test_a_story_with_no_game_folder_gets_the_default(self):
@@ -1186,17 +1382,17 @@ class PlayLayoutTests(_AlbumsRootMixin, TestCase):
         """A story ingested against a newer engine may name a layout this
         one does not ship. It should still be playable, just plainer —
         never a 500."""
-        story = self._make_game("futuregame", 'MAIN_STORY_FILE = "story.inkj"\nPLAY_LAYOUT = "holographic"\n')
+        story = self._make_game("futuregame", "MAIN_STORY_FILE: story.inkj\nPLAY_LAYOUT: holographic\n")
         self.assertEqual(play_layout_for(story), PLAY_LAYOUTS[DEFAULT_PLAY_LAYOUT])
 
     def test_a_layout_is_never_taken_as_a_template_path(self):
         """The security property: a manifest names a layout, and the name
         is looked up. A path must not resolve to itself."""
-        story = self._make_game("sneaky", 'MAIN_STORY_FILE = "story.inkj"\nPLAY_LAYOUT = "interactive_fiction/edit.jinja"\n')
+        story = self._make_game("sneaky", "MAIN_STORY_FILE: story.inkj\nPLAY_LAYOUT: interactive_fiction/edit.jinja\n")
         self.assertEqual(play_layout_for(story), PLAY_LAYOUTS[DEFAULT_PLAY_LAYOUT])
 
     def test_a_non_string_layout_is_ignored(self):
-        story = self._make_game("weird", 'MAIN_STORY_FILE = "story.inkj"\nPLAY_LAYOUT = 3\n')
+        story = self._make_game("weird", "MAIN_STORY_FILE: story.inkj\nPLAY_LAYOUT: 3\n")
         self.assertEqual(play_layout_for(story), PLAY_LAYOUTS[DEFAULT_PLAY_LAYOUT])
 
     def test_every_shipped_layout_names_a_template_that_exists(self):

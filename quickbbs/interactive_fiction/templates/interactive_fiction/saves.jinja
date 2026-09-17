@@ -19,34 +19,50 @@
             </tr>
         </thead>
         <tbody>
-            {% for slot_number in range(max_slots) %}
-            {% set existing = slots | selectattr('slot', 'equalto', slot_number) | first %}
+            {# list_game_saves() returns one entry per slot, occupied or
+               not, so this iterates directly rather than filling gaps. #}
+            {% for save in slots %}
+            {# slot_number is the stored, zero-based number and stays in
+               URLs and element ids. Players count from 1, so the visible
+               column is the only place that shifts. #}
+            {% set slot_number = save.gamesave_slot %}
             <tr>
-                <td>{{ slot_number }}</td>
-                <td>{{ existing.label if existing else '(empty)' }}</td>
-                <td>{{ existing.updated_at if existing else '' }}</td>
+                <td>{{ slot_number + 1 }}</td>
+                <td>{{ save.label if save.used else '(empty)' }}</td>
+                <td>{{ save.saved_at if save.used else '' }}</td>
                 <td>
                     <form method="post" action="/if/{{ story.slug }}/saves/{{ slot_number }}/save/" id="if-save-slot-form-{{ slot_number }}">
                         {% csrf_token %}
                     </form>
-                    {% if existing %}
-                    <form method="post" action="/if/{{ story.slug }}/saves/{{ slot_number }}/load/" id="if-load-slot-form-{{ slot_number }}">
+                    {% if save.used %}
+                    {# These are plain forms, not HTMX, so the sidebar's
+                       hx-confirm does not apply. Both discard something
+                       the player cannot get back. #}
+                    <form method="post" action="/if/{{ story.slug }}/saves/{{ slot_number }}/load/" id="if-load-slot-form-{{ slot_number }}"
+                          onsubmit="return confirm('Load slot {{ slot_number + 1 }}? Your current progress in this playthrough will be lost.');">
+                        {% csrf_token %}
+                    </form>
+                    <form method="post" action="/if/{{ story.slug }}/saves/{{ slot_number }}/delete/" id="if-delete-slot-form-{{ slot_number }}"
+                          onsubmit="return confirm('Delete slot {{ slot_number + 1 }}{% if save.label %} ({{ save.label }}){% endif %}? This cannot be undone.');">
                         {% csrf_token %}
                     </form>
                     {% endif %}
                     <div class="field has-addons if-save-slot-actions">
                         <div class="control">
-                            <input class="input is-small" type="text" name="label" form="if-save-slot-form-{{ slot_number }}" placeholder="Label" value="{{ existing.label if existing else '' }}">
+                            <input class="input is-small" type="text" name="label" form="if-save-slot-form-{{ slot_number }}" placeholder="Label" value="{{ save.label if save.used else '' }}">
                         </div>
                         <div class="control">
                             <button type="submit" form="if-save-slot-form-{{ slot_number }}" class="button is-small">Save here</button>
                         </div>
-                        {% if existing %}
+                        {% if save.used %}
                         <div class="control">
                             <button type="submit" form="if-load-slot-form-{{ slot_number }}" class="button is-small is-link">Load</button>
                         </div>
                         <div class="control">
                             <a class="button is-small" href="/if/{{ story.slug }}/saves/{{ slot_number }}/export/">Export</a>
+                        </div>
+                        <div class="control">
+                            <button type="submit" form="if-delete-slot-form-{{ slot_number }}" class="button is-small is-danger is-light">Delete</button>
                         </div>
                         {% endif %}
                     </div>
@@ -61,7 +77,9 @@
         {% csrf_token %}
         <div class="field">
             <label class="label">Slot</label>
-            <input type="number" name="slot" min="0" max="{{ max_slots - 1 }}" value="0">
+            {# Shown 1-based to match the table; saves_import() subtracts
+               one before the library sees it. #}
+            <input type="number" name="slot" min="1" max="{{ max_slots }}" value="1">
         </div>
         <div class="field">
             <label class="label">Label (optional, overrides the file's own label)</label>

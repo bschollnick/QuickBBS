@@ -11,26 +11,22 @@ from __future__ import annotations
 
 import os
 
-from django.db import transaction
 from django.urls import reverse
 
-from interactive_fiction.models import Story, StoryImage
+from interactive_fiction.bundle_media import resolve_tag_in_bundle
+from interactive_fiction.models import Story
 from quickbbs.models import DirectoryIndex, FileIndex
-from thumbnails.models import THUMBNAILFILES_PR_FILEINDEX_FILETYPE, ThumbnailFiles
 
 
 def find_file_by_path(full_filepathname: str, *, additional_filters: dict[str, object] | None = None) -> FileIndex | None:
     """Resolve a gallery file's full path directly to its live FileIndex row.
 
     Shared by story_views.py's upload()/edit() (resolving a "reference an
-    existing gallery file" image/video field, no filetype restriction),
-    interactive_fiction.ingestion.find_inkj_file_by_path (which passes
-    additional_filters to also require a .inkj filetype), and any
-    game-conversion ingestion tooling resolving a `# image:`/`# video:`
-    tag's on-disk path to a FileIndex row to link via link_story_image()
-    below. Lives here rather than in ingestion.py to avoid a circular
-    import (ingestion.py already imports from story_views.py, which needs
-    this function).
+    existing gallery file" lookups, and by
+    `interactive_fiction.ingestion.find_inkj_file_by_path` (which passes
+    additional_filters to also require a .inkj filetype). Lives here
+    rather than in ingestion.py to avoid a circular import (ingestion.py
+    already imports from story_views.py, which needs this function).
 
     Resolves in two steps, both through existing DirectoryIndex machinery
     rather than a bespoke FileIndex query: first the containing directory,
@@ -86,42 +82,6 @@ def find_file_by_path(full_filepathname: str, *, additional_filters: dict[str, o
     return matches.first()
 
 
-def link_story_image(story: Story, tag_name: str, file_index: FileIndex, *, is_cover: bool = False) -> None:
-    """Map a story's Ink tag to a real gallery file, replacing any prior mapping.
-
-    Eagerly generates the linked file's thumbnail (via the same
-    content-addressed `ThumbnailFiles` pipeline every other gallery file
-    already uses) as part of linking, rather than leaving thumbnail
-    generation to the first play-time request — see the design plan's
-    "Resolution" step 4 for the tradeoff this accepts (more ingestion-time
-    work, no first-request latency).
-
-    Args:
-        story: The story the image/video belongs to.
-        tag_name: The Ink `# image: <tag_name>` or `# video: <tag_name>`
-            value this file maps to.
-        file_index: The gallery file this tag resolves to.
-        is_cover: Whether to mark the resulting StoryImage as this story's
-            cover (see StoryImage.is_cover) — the library-grid thumbnail
-            comes from the linked file's own ThumbnailFiles row.
-    """
-    with transaction.atomic():
-        if is_cover:
-            StoryImage.objects.filter(story=story, is_cover=True).exclude(tag_name=tag_name).update(is_cover=False)
-        defaults: dict[str, object] = {"file_index": file_index}
-        if is_cover:
-            defaults["is_cover"] = True
-        StoryImage.objects.update_or_create(story=story, tag_name=tag_name, defaults=defaults)
-
-    if file_index.file_sha256:
-        ThumbnailFiles.get_or_create_thumbnail_record(
-            file_index.file_sha256,
-            suppress_save=False,
-            prefetch_related_thumbnail=THUMBNAILFILES_PR_FILEINDEX_FILETYPE,
-            select_related_fileindex=("filetype",),
-        )
-
-
 #: Media kind (ink_engine.media_resolver.parse_media_tags()'s own "image"/
 #: "video" values) -> the URL name that serves it. Kept here, not in
 #: ink_engine, since a URL name is a Django-routing concept the engine has
@@ -130,39 +90,44 @@ _MEDIA_KIND_URL_NAMES: dict[str, str] = {"image": "if_story_image", "video": "if
 
 
 class DjangoMediaResolver:  # pylint: disable=too-few-public-methods
-    """Resolves media tags against this story's own `StoryImage` rows.
+    """Resolves a turn's media tags against the story's own bundle.
 
     `ink_engine.media_resolver.MediaResolver`'s Django-backed
-    implementation: one batched `StoryImage` query per `resolve()` call.
+    implementation. The game's shipped `image_resolver.py` decides what a
+    tag means, so one fix to those rules reaches both hosts.
     """
 
     def __init__(self, story: Story) -> None:
         """
         Args:
-            story: The story whose own `StoryImage` rows this resolver
-                answers from.
+            story: The story whose bundle this resolver answers from.
         """
         self._story = story
 
     def resolve(self, requests: list[tuple[str, str]]) -> list[str]:
-        """Resolve a turn's media requests against `self._story.images`.
+        """Resolve a turn's media requests against the story's bundle.
 
         Args:
             requests: `ink_engine.media_resolver.parse_media_tags()`'s own
                 output for this turn.
 
         Returns:
-            One `if_story_image`/`if_story_video` URL per request with a
-            matching `StoryImage` row, GROUPED by kind (all images, then
-            all videos — `MediaResolver.resolve()`'s own contract). A tag
-            with no matching row is silently dropped: a work-in-progress
-            story with placeholder tags still plays, text-only.
+            One `if_story_image`/`if_story_video` URL per request the
+            game resolves, GROUPED by kind (all images, then all videos —
+            `MediaResolver.resolve()`'s own contract). An unresolved tag
+            is silently dropped: a work-in-progress story with placeholder
+            tags still plays, text-only. A story with no bundle resolves
+            nothing.
         """
         all_tag_names = [tag_name for _kind, tag_name in requests]
         if not all_tag_names:
             return []
 
-        available = set(self._story.images.filter(tag_name__in=all_tag_names).values_list("tag_name", flat=True))
+        bundle = self._story.bundle_path
+        if bundle is None:
+            return []
+        # The game answers its own tags, by the rules it ships.
+        available = {tag_name for _kind, tag_name in requests if resolve_tag_in_bundle(bundle, _kind, tag_name) is not None}
         grouped: dict[str, list[str]] = {kind: [] for kind in _MEDIA_KIND_URL_NAMES}
         for kind, tag_name in requests:
             if tag_name in available:

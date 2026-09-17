@@ -33,21 +33,28 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.views.decorators.http import require_POST
+from if_session import session_state
+from if_session.game_saves import has_quicksave
 
-from ink_engine.engine import InkRuntimeState, load_list_defs, load_story_root, start_new_story
-from ink_engine.media_resolver import parse_media_tags
+from ink_engine.engine import (
+    InkRuntimeState,
+    load_list_defs,
+    load_story_root,
+    start_new_story,
+)
 from interactive_fiction.engine_services import (
     bindings_for,
     game_panel_context,
     play_layout_for,
+    plugin_denied_html,
 )
+from interactive_fiction.game_saves_database import GameSavesDatabase
 from interactive_fiction.images import DjangoMediaResolver
-from interactive_fiction.ingestion import find_inkj_file_by_path
+from interactive_fiction.ingestion import find_game_file_by_path
 from interactive_fiction.models import (
     CurrentGame,
     SaveState,
     Story,
-    StoryImage,
     user_can_access,
 )
 from quickbbs.common import require_login_if_configured
@@ -86,7 +93,7 @@ def _new_game_state(story: Story, engine_state: dict[str, Any], initial_globals:
         story is marked Story.is_engine_trusted, and already advanced
         through its first continue_story() call so it is ready to display.
     """
-    root = load_story_root(story.compiled_json)
+    root = load_story_root(story.compiled_json, full_build=False)
     list_defs = load_list_defs(story.compiled_json)
     return start_new_story(
         root,
@@ -275,8 +282,9 @@ def character_creation_submit(request: WSGIRequest, slug: str) -> HttpResponse:
         slug: The story's slug.
 
     Returns:
-        A redirect to the normal play page, now with a fresh CurrentGame
-        row whose opening turn already reflects every submitted answer.
+        A redirect to the normal play page — with a fresh CurrentGame row
+        whose opening turn already reflects every submitted answer, or
+        straight to the game in progress when one already exists.
 
     Raises:
         Http404: If no accessible Story matches slug.
@@ -285,12 +293,20 @@ def character_creation_submit(request: WSGIRequest, slug: str) -> HttpResponse:
     if isinstance(story, HttpResponse):
         return story
 
+    # Starting a new game REPLACES any game in progress, so this refuses
+    # once one exists. play() already sends a first-time visitor here and
+    # nobody else afterward, but that guard is on the route in: without
+    # this one, a stale form, a double submit, or a bookmarked URL wipes a
+    # playthrough with no warning and no undo.
+    if CurrentGame.objects.filter(user=request.user, story=story).exists():
+        return redirect("if_play", slug=story.slug)
+
     # A bare, binding-less state to read the story's own real starting
     # global values from (no EXTERNAL calls fire, no continue_story() —
     # constructing InkRuntimeState only runs its global-decl container),
     # so an "add_to" checkbox field can add to the ACTUAL declared
     # default rather than guessing 0.
-    base_globals = InkRuntimeState(load_story_root(story.compiled_json), load_list_defs(story.compiled_json)).globals
+    base_globals = InkRuntimeState(load_story_root(story.compiled_json, full_build=False), load_list_defs(story.compiled_json)).globals
     initial_globals = _character_creation_globals(story, request.POST, base_globals)
     _start_new_game(request.user, story, initial_globals=initial_globals)
     return redirect("if_play", slug=story.slug)
@@ -314,6 +330,31 @@ def _stale_turn_response(request: WSGIRequest, story: Story) -> HttpResponse:
     """
     return HttpResponse(
         render_to_string("interactive_fiction/play_stale.jinja", {"story": story, "user": request.user}, request=request, using="Jinja2"),
+        status=409,
+    )
+
+
+def _unreadable_save_response(request: WSGIRequest, story: Story, error: session_state.SaveFormatError) -> HttpResponse:
+    """Render the refusal partial for a save this server cannot read.
+
+    Refusing to load is the intended outcome, so it reaches the player as
+    a message rather than a 500.
+
+    Args:
+        request: The incoming request.
+        story: The story whose save was refused.
+        error: The refusal, whose message names the two versions.
+
+    Returns:
+        The rendered play_unreadable_save.jinja partial, status 409.
+    """
+    return HttpResponse(
+        render_to_string(
+            "interactive_fiction/play_unreadable_save.jinja",
+            {"story": story, "user": request.user, "reason": str(error)},
+            request=request,
+            using="Jinja2",
+        ),
         status=409,
     )
 
@@ -357,7 +398,10 @@ def _current_game_for_turn(
     # turn plays out, and previous_raw_state must stay exactly as it was
     # before this turn so play_undo() can restore it verbatim.
     engine_state = copy.deepcopy(previous_raw_state.get("engine_state", {}))
-    state = _load_game_state(story, previous_raw_state, engine_state)
+    try:
+        state = _load_game_state(story, previous_raw_state, engine_state)
+    except session_state.SaveFormatError as error:
+        return _unreadable_save_response(request, story, error)
     return current_game, engine_state, state
 
 
@@ -383,10 +427,18 @@ def _load_game_state(story: Story, saved: CurrentGame | SaveState | dict[str, An
         stateful API's DATA is. A path in saved.state that no longer
         resolves against story.compiled_json degrades per
         `InkRuntimeState.from_dict()` rather than raising.
+
+    Raises:
+        session_state.SaveFormatError: The save is from a newer format
+            than this server reads. `from_dict()` reads every field with a
+            default, so an unrecognised envelope would otherwise load as
+            defaulted data rather than an error.
     """
-    root = load_story_root(story.compiled_json)
+    # A request reaches a handful of the story's knots; building the rest
+    # is work thrown away when the request ends.
+    root = load_story_root(story.compiled_json, full_build=False)
     list_defs = load_list_defs(story.compiled_json)
-    raw_state = saved if isinstance(saved, dict) else saved.state
+    raw_state = session_state.read_saved_state(saved if isinstance(saved, dict) else saved.state)
     return InkRuntimeState.from_dict(root, raw_state, list_defs, engine_bindings=bindings_for(story, engine_state))
 
 
@@ -395,7 +447,7 @@ def _play_content_context(
 ) -> dict[str, object]:
     """Build the template context shared by the play page and its partial.
 
-**`state.done` alone is NOT "the story ended".** The engine sets it at
+    **`state.done` alone is NOT "the story ended".** The engine sets it at
     any bare "done"/"end" marker, including mid-turn while choices are
     still pending. The story is over only when `done and not
     current_choices`.
@@ -407,33 +459,41 @@ def _play_content_context(
         transcript: The rolling turn history (oldest first), or None
             if the caller has none to show (e.g. a fresh CurrentGame row
             that hasn't been through _build_current_game_state() yet).
-        can_undo: Whether a "previous_state" exists to undo back to
+        can_undo: Whether a "previous_state" exists to undo back to —
             False for a story's very first turn.
 
     Returns:
-        The context dict for play_content.jinja (and play.jinja, which
-        includes it). "image_urls" resolves every image:/video: tag active
-        on this turn to a servable
-        URL, GROUPED by kind (every resolved image, then every resolved
-        video) — a tag with no matching StoryImage row is silently
-        dropped, not surfaced as an error, so a work-in-progress story
-        with placeholder tags still plays (per the plan).
+        `session_state.turn_context()`'s own seven keys plus this
+        application's "story", "user" and "has_quicksave". "image_urls" resolves every image:/video: tag
+        active on this turn to a servable URL, GROUPED by kind; a tag with
+        tag the game does not resolve is silently dropped, not surfaced
+        as an error, so a work-in-progress story with placeholder tags
+        still plays. Each entry in "choices" is a dict, not a pair — a choice
+        can carry its own pictures.
     """
-    return {
-        "story": story,
-        "text": state.last_turn_text,
-        "choices": list(enumerate(c.text for c in state.current_choices)),
-        "done": state.done and not state.current_choices,
-        "turn_count": state.turn_count,
-        "image_urls": DjangoMediaResolver(story).resolve(parse_media_tags(state.current_tags)),
-        "transcript": transcript or [],
-        "can_undo": can_undo,
-        "user": request.user,
-    }
+    context = session_state.turn_context(
+        state,
+        resolver=DjangoMediaResolver(story),
+        transcript=transcript,
+        can_undo=can_undo,
+    )
+    # This application's own additions, on top of the shared seven: the
+    # template needs the story row, the viewer, and whether the sidebar
+    # should offer Quickload.
+    context["story"] = story
+    context["user"] = request.user
+    context["has_quicksave"] = has_quicksave(story.slug, saves_in=GameSavesDatabase(user=request.user, story=story))
+    return context
 
 
 def _render_play_content(
-    request: WSGIRequest, story: Story, state: InkRuntimeState, *, transcript: list[dict[str, object]] | None = None, can_undo: bool = False
+    request: WSGIRequest,
+    story: Story,
+    state: InkRuntimeState,
+    *,
+    transcript: list[dict[str, object]] | None = None,
+    can_undo: bool = False,
+    oob: bool = False,
 ) -> str:
     """Render the play-content partial for a given state.
 
@@ -443,26 +503,21 @@ def _render_play_content(
         state: The current InkRuntimeState.
         transcript: See _play_content_context().
         can_undo: See _play_content_context().
+        oob: Mark the partial's own wrapper for an htmx out-of-band swap,
+            for a response whose primary target is some other fragment.
 
     Returns:
         The rendered partial HTML.
     """
-    return render_to_string(
-        "interactive_fiction/play_content.jinja",
-        _play_content_context(request, story, state, transcript=transcript, can_undo=can_undo),
-        request=request,
-        using="Jinja2",
-    )
+    context = _play_content_context(request, story, state, transcript=transcript, can_undo=can_undo)
+    context["oob"] = oob
+    return render_to_string("interactive_fiction/play_content.jinja", context, request=request, using="Jinja2")
 
 
 def _build_current_game_state(
     state: InkRuntimeState, previous_raw_state: dict[str, Any] | None, transcript: list[dict[str, object]], engine_state: dict[str, Any]
 ) -> dict[str, Any]:
     """Build the dict written into CurrentGame.state.
-
-    "transcript", "previous_state" and "engine_state" are QuickBBS-level
-    bookkeeping the engine knows nothing about; this is the one place
-    that layers them onto `InkRuntimeState.to_dict()`.
 
     Args:
         state: The current InkRuntimeState, already advanced to this turn.
@@ -478,11 +533,7 @@ def _build_current_game_state(
     Returns:
         The dict to store in CurrentGame.state.
     """
-    data = state.to_dict()
-    data["transcript"] = transcript
-    data["previous_state"] = previous_raw_state
-    data["engine_state"] = engine_state
-    return data
+    return session_state.build_saved_state(state, previous_raw_state, transcript, engine_state)
 
 
 def _append_transcript_entry(transcript: list[dict[str, object]], text: str, chosen_label: str | None) -> list[dict[str, object]]:
@@ -498,10 +549,7 @@ def _append_transcript_entry(transcript: list[dict[str, object]], text: str, cho
         A new list with the entry appended, trimmed to the configured cap
         by dropping the oldest entries first.
     """
-    updated = transcript + [{"text": text, "chosen_label": chosen_label}]
-    if len(updated) > settings.MAX_TRANSCRIPT_TURNS:
-        updated = updated[-settings.MAX_TRANSCRIPT_TURNS :]
-    return updated
+    return session_state.append_transcript_entry(transcript, text, chosen_label, cap=settings.MAX_TRANSCRIPT_TURNS)
 
 
 def _story_play_statuses(user: "AbstractUser | AnonymousUser", stories: list[Story]) -> dict[int, str]:
@@ -554,7 +602,7 @@ def _source_gallery_item_sha256(story: Story) -> str | None:
     """
     if not story.source_fqfn:
         return None
-    file_entry = find_inkj_file_by_path(story.source_fqfn)
+    file_entry = find_game_file_by_path(story.source_fqfn)
     return file_entry.unique_sha256 if file_entry is not None else None
 
 
@@ -595,7 +643,7 @@ def library(request: WSGIRequest) -> HttpResponse:
     start = (current_page - 1) * per_page
     stories = list(story_qs[start : start + per_page])
 
-    cover_story_ids = set(StoryImage.objects.filter(story_id__in=[story.pk for story in stories], is_cover=True).values_list("story_id", flat=True))
+    cover_story_ids = {story.pk for story in stories if story.cover_thumbnail_id}
     play_statuses = _story_play_statuses(request.user, stories)
 
     context = {
@@ -641,13 +689,29 @@ def play(request: WSGIRequest, slug: str) -> HttpResponse:
     if isinstance(story, HttpResponse):
         return story
 
+    # A game that declares plugins is designed around them. Started
+    # untrusted it binds nothing and every EXTERNAL falls through to its
+    # Ink stub -- it would load and then quietly not work, which is worse
+    # than saying so.
+    if story.game_required_plugins and not story.is_engine_trusted:
+        return render(
+            request,
+            "interactive_fiction/play_plugins_denied.jinja",
+            {"story": story, "user": request.user, "plugin_denied_html": plugin_denied_html(story)},
+            using="Jinja2",
+            status=409,
+        )
+
     current_game = CurrentGame.objects.filter(user=request.user, story=story).first()
     if current_game is None and story.game_new_game_fields:
         return redirect("if_character_creation", slug=story.slug)
     if current_game is None:
         state, transcript = _start_new_game(request.user, story)
     else:
-        state = _load_game_state(story, current_game, current_game.state.get("engine_state", {}))
+        try:
+            state = _load_game_state(story, current_game, current_game.state.get("engine_state", {}))
+        except session_state.SaveFormatError as error:
+            return _unreadable_save_response(request, story, error)
         transcript = current_game.state.get("transcript", [])
 
     user_prefs, _created = UserPreferences.objects.get_or_create(user=request.user)
@@ -770,7 +834,10 @@ def play_undo(request: WSGIRequest, slug: str) -> HttpResponse:
         # dict is about to become the new current_game.state verbatim, so
         # nothing built from it (bindings_for()'s stateful closures) may
         # mutate the very dict being restored.
-        state = _load_game_state(story, previous_raw_state, copy.deepcopy(previous_raw_state.get("engine_state", {})))
+        try:
+            state = _load_game_state(story, previous_raw_state, copy.deepcopy(previous_raw_state.get("engine_state", {})))
+        except session_state.SaveFormatError as error:
+            return _unreadable_save_response(request, story, error)
         current_game.state = previous_raw_state
         current_game.turn_count = state.turn_count
         current_game.save(update_fields=["state", "turn_count", "updated_at"])

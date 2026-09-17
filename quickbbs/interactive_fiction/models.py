@@ -8,17 +8,17 @@ earlier (matching the precedent in `quickbbs/models.py` and
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from django.conf import settings
-from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models.base import ModelBase
+from if_session.game_saves import QUICKSAVE_SLOT
 
-from interactive_fiction.engine_api import clear_api_descriptor_cache, discover_api_descriptors
-from ink_engine.engine_config_schemas import SystemConfigValidationError
-from quickbbs.models import FileIndex
+from interactive_fiction.engine_api import (
+    clear_api_descriptor_cache,
+    discover_api_descriptors,
+)
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser, AnonymousUser
@@ -114,6 +114,31 @@ class Story(models.Model):
     # "ingested cleanly" (the normal case for every non-game-folder story
     # too).
     game_ingestion_error = models.CharField(max_length=1024, blank=True, default="")
+    # The bundle's own three integrity hashes, recorded at ingestion and
+    # re-checked on every later scan. A difference is tampering UNLESS
+    # game_version also changed, which marks a new release (see
+    # ingestion.check_bundle_integrity()). The manifest hash lives in the
+    # archive comment; the other two are manifest fields.
+    bundle_manifest_sha256 = models.CharField(max_length=64, blank=True, default="")
+    bundle_directory_sha256 = models.CharField(max_length=64, blank=True, default="")
+    bundle_story_sha256 = models.CharField(max_length=64, blank=True, default="")
+    # The game's own declared release identity (manifest GAME_VERSION),
+    # not the upstream build it was converted from (SOURCE_GAME_VERSION).
+    game_version = models.CharField(max_length=64, blank=True, default="")
+    # Which member of the bundle `compiled_json` was read from, recorded
+    # at ingestion. Provenance, not a lookup: playing reads the story from
+    # `compiled_json`, so nothing resolves this at runtime. It says what
+    # `bundle_story_sha256` is the hash OF, which is what a mismatched or
+    # stale ingest needs to be diagnosed.
+    main_story_member = models.CharField(max_length=1024, blank=True, default="")
+    # The cover, thumbnailed once at ingestion. A bundle has no FileIndex
+    # row, but ThumbnailFiles is content-addressed on sha256_hash, so a
+    # cover owns a row keyed by its own bytes. Caching it here keeps the
+    # library grid -- 30 cards, each a separate request -- from reopening
+    # bundles to serve full-size art.
+    cover_thumbnail = models.ForeignKey(
+        "thumbnails.ThumbnailFiles", on_delete=models.DB_SET_NULL, null=True, blank=True, related_name="if_story_covers"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -132,31 +157,31 @@ class Story(models.Model):
         return self.title
 
     @property
-    def cover_image(self) -> "StoryImage | None":
-        """Return this story's cover StoryImage, if one is set.
-
-        Not a stored FK on Story itself (see StoryImage.is_cover's docstring
-        for why) — one query here; the underlying gallery file is reachable
-        via the returned row's own `file_index` FK.
+    def bundle_path(self) -> "Path | None":
+        """The `.zip` this story is played from, or None for a folder story.
 
         Returns:
-            The StoryImage row with is_cover=True, or None.
+            The bundle's path, or None when `source_fqfn` names anything
+            else (a folder game's `.inkj`, or an uploaded story with no
+            source file at all).
         """
-        return self.images.filter(is_cover=True).first()
+        if not self.source_fqfn.lower().endswith(".zip"):
+            return None
+        return Path(self.source_fqfn)
 
     def opted_in_plugin_names(self) -> list[str]:
-        """Return the plugin names this story has its own config row for.
+        """Return the plugin names this story activates.
 
-        A story only ever gets bindings for a plugin it has explicitly
-        opted into (a real `StorySystemConfig` row exists) — never a flat
-        merge of every globally-enabled plugin (see
+        The game's own manifest (`REQUIRED_PLUGINS`, read at ingestion)
+        is the single declaration of what it needs. A story only ever
+        gets bindings for a plugin named there — never a flat merge of
+        every globally-enabled plugin (see
         `engine_services.bindings_for()`).
 
         Returns:
-            Distinct `StorySystemConfig.system_name` values for this
-            story.
+            The declared plugin names, de-duplicated, order preserved.
         """
-        return list(self.system_configs.values_list("system_name", flat=True).distinct())
+        return list(dict.fromkeys(self.game_required_plugins or []))
 
 
 class StoryAccess(models.Model):
@@ -184,60 +209,6 @@ class StoryAccess(models.Model):
         return f"{self.user} -> {self.story}"
 
 
-class StoryImage(models.Model):
-    """Maps a story's '# image: <tag_name>' or '# video: <tag_name>' Ink tag
-    to a real gallery file.
-
-    ``file_index`` is a real ForeignKey into the main gallery's own
-    `FileIndex` — a story image/video is never stored per-story, and never
-    stores any bytes of its own at all: the underlying file already lives on
-    disk and is already tracked by the normal scanner
-    (`quickbbs/management/commands/scan.py`), exactly like every other file
-    in the gallery. Serving reuses `FileIndex.inline_sendfile`/
-    `async_inline_sendfile` and `ThumbnailFiles.send_thumbnail` directly —
-    see `interactive_fiction/story_views.py`'s `story_image`/`story_video`/
-    `story_cover`.
-
-    ``on_delete=DB_SET_NULL`` (not PROTECT) is deliberate and matches
-    `FileIndex.home_directory`/`FileIndex.new_ftnail`'s own on_delete choice:
-    if the underlying gallery file is ever removed/rescanned away, this
-    mapping should simply go stale (`file_index=None`), not block the
-    delete — there's no shared-blob lifetime to protect here the way an
-    earlier, now-removed `StoryImageBlob` design needed, so this FK doesn't
-    hit the same DB-level/Python-level on_delete mixing restriction that
-    design worked around (Django 6.1 forbids mixing them in one connected FK
-    graph — `FileIndex`/`ThumbnailFiles` already use DB-level `on_delete`
-    throughout, matching every other FK in this file).
-
-    ``is_cover`` (not a Story.cover_image FK) identifies the library-grid
-    cover image, avoiding a typed FK from Story into this model.
-    """
-
-    story = models.ForeignKey(Story, on_delete=models.DB_CASCADE, related_name="images")
-    tag_name = models.CharField(max_length=255, db_index=True)
-    file_index = models.ForeignKey(FileIndex, on_delete=models.DB_SET_NULL, null=True, related_name="story_images")
-    is_cover = models.BooleanField(default=False)
-
-    class Meta:
-        """Model metadata: uniqueness constraints on (story, tag_name) and,
-        partially, on (story) where is_cover=True — at most one cover image
-        per story."""
-
-        constraints = [
-            models.UniqueConstraint(fields=["story", "tag_name"], name="unique_story_image_tag"),
-            models.UniqueConstraint(fields=["story"], condition=models.Q(is_cover=True), name="unique_story_cover_image"),
-        ]
-
-    def __str__(self) -> str:
-        """
-        Return a human-readable description of the image mapping.
-
-        Returns:
-            A string of the form "<story title>: <tag_name>".
-        """
-        return f"{self.story}: {self.tag_name}"
-
-
 class EngineAPI(models.Model):
     """One discovered engine API — a reusable system Python module
     exposing an `ink_engine.plugin.Plugin`.
@@ -247,8 +218,8 @@ class EngineAPI(models.Model):
     metadata ABOUT a scanned-and-found Python module, not story-author
     data). ``is_enabled`` gates whether the API is available to any story
     at all — a separate axis from a specific story's own `is_engine_trusted`
-    flag and its `StorySystemConfig`/binding registration, which decide
-    whether and how THAT story actually uses an enabled API. Disabling an
+    flag and its manifest's own plugin list, which decide whether and how
+    THAT story actually uses an enabled API. Disabling an
     API already in use by some story does not error at disable-time (a
     real "who's using this" check was explicitly decided against as
     unneeded complexity for this admin action) — the effect happens the
@@ -313,96 +284,6 @@ def sync_engine_apis() -> tuple[int, int]:
     return created_count, updated_count
 
 
-class StorySystemConfig(models.Model):
-    """One reusable engine system's own config for one story.
-
-    One row per (story, system_name), not one shared JSONField on
-    `Story`, so each system's config is validated independently.
-
-    ``system_name`` is a plain validated string, never a closed
-    `TextChoices` enum: an enum could not name an API discovered later
-    without a migration. `clean()` checks it against the LIVE set of
-    `Plugin` names discovered on disk — regardless of that API's
-    `EngineAPI.is_enabled` state — then runs that API's own
-    `validate_config` against `config`.
-
-    **Validation applies to untrusted stories too.** This is a separate
-    risk from the EXTERNAL binding-trust `Story.is_engine_trusted`
-    gates: an untrusted story's config could still become an injection
-    surface if a future system read it carelessly.
-    """
-
-    story = models.ForeignKey(Story, on_delete=models.DB_CASCADE, related_name="system_configs")
-    system_name = models.CharField(max_length=64)
-    # Defaults to {} (not nullable) -- a config-less API (validate_config is
-    # None, e.g. engine_plugins/scheduling.py's is_day binding) still needs
-    # a real row to signal "this story wants this API's bindings" (see
-    # engine_services.bindings_for()), even though there's nothing to
-    # actually validate for it.
-    config = models.JSONField(default=dict, blank=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        """Model metadata: at most one config row per (story, system_name)."""
-
-        constraints = [models.UniqueConstraint(fields=["story", "system_name"], name="unique_story_system_config")]
-
-    def clean(self) -> None:
-        """Validate `system_name` against the live API registry, then
-        `config` against that API's own schema.
-
-        Raises:
-            django.core.exceptions.ValidationError: If `system_name` names
-                no real, currently-discoverable `Plugin`, or `config`
-                doesn't match that plugin's own registered schema.
-        """
-        descriptors = discover_api_descriptors()
-        descriptor = descriptors.get(self.system_name)
-        if descriptor is None:
-            raise ValidationError({"system_name": f"'{self.system_name}' is not a real, currently-discoverable engine API"})
-        if descriptor.validate_config is not None:
-            try:
-                descriptor.validate_config(self.config)
-            except SystemConfigValidationError as exc:
-                raise ValidationError({"config": str(exc)}) from exc
-
-    def save(
-        self,
-        *,
-        force_insert: bool | tuple[ModelBase, ...] = False,
-        force_update: bool = False,
-        using: str | None = None,
-        update_fields: Iterable[str] | None = None,
-    ) -> None:
-        """Save, always running `full_clean()` first.
-
-        Django does NOT call `clean()` automatically on `.save()` by
-        default — only `ModelForm`/admin flows call `full_clean()` for
-        you. Overriding `save()` here means every caller (management
-        commands, a future config-loading admin action, `.objects.create()`
-        calls) gets real schema enforcement, not just callers that happen
-        to go through a form; skipping this would make the "closed,
-        validated schema" plan requirement decorative rather than real.
-
-        Args:
-            force_insert: Forwarded to the real `Model.save()`.
-            force_update: Forwarded to the real `Model.save()`.
-            using: Forwarded to the real `Model.save()`.
-            update_fields: Forwarded to the real `Model.save()`.
-        """
-        self.full_clean()
-        super().save(force_insert=force_insert, force_update=force_update, using=using, update_fields=update_fields)
-
-    def __str__(self) -> str:
-        """
-        Return a human-readable description of this system config.
-
-        Returns:
-            A string of the form "<story title>: <system_name>".
-        """
-        return f"{self.story}: {self.system_name}"
-
-
 class CurrentGame(models.Model):
     """The single in-flight game per (user, story), auto-updated on every
     turn — never a named save slot (see SaveState below for those).
@@ -444,9 +325,15 @@ class SaveState(models.Model):
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.DB_CASCADE, related_name="if_saves")
     story = models.ForeignKey(Story, on_delete=models.DB_CASCADE, related_name="saves")
-    slot = models.PositiveSmallIntegerField()  # 0..MAX_SAVE_SLOTS_PER_STORY-1, enforced at the view layer
+    # 0..MAX_SAVE_SLOTS_PER_STORY-1, enforced at the view layer, plus
+    # QUICKSAVE_SLOT (-1). Signed because the quicksave's own number is
+    # negative, which is what keeps it out of every numbered range.
+    slot = models.SmallIntegerField()
     label = models.CharField(max_length=100, blank=True)  # user-editable, e.g. "Before the bridge"
     state = models.JSONField()  # InkRuntimeState.to_dict()
+    # Denormalized out of state["turn_count"], so listing a player's saves
+    # does not de-TOAST every JSONB blob. Mirrors CurrentGame.turn_count.
+    turn_count = models.IntegerField(default=-1)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -458,7 +345,11 @@ class SaveState(models.Model):
             # A view-layer bug can't write slot 99 even if the configured
             # MAX_SAVE_SLOTS_PER_STORY setting is misapplied — the actual,
             # configurable cap is enforced at the view layer, not here.
-            models.CheckConstraint(condition=models.Q(slot__lt=32), name="savestate_slot_ceiling"),
+            # The floor is QUICKSAVE_SLOT; nothing below it is a real save.
+            models.CheckConstraint(
+                condition=models.Q(slot__gte=QUICKSAVE_SLOT) & models.Q(slot__lt=32),
+                name="savestate_slot_ceiling",
+            ),
         ]
 
     def __str__(self) -> str:

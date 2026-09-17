@@ -8,7 +8,9 @@
 <section class="section">
     <h1 class="title">{{ story.title }}</h1>
     <div class="notification is-success">
-        <p>Saved to slot {{ slot }}.</p>
+        {# Rendered only by the numbered-slot save and import views, so
+           slot is always a real slot; players count it from 1. #}
+        <p>Saved to slot {{ slot + 1 }}.</p>
     </div>
     <a class="button" href="/if/{{ story.slug }}/saves/">Back to saves</a>
     <a class="button is-link" href="/if/{{ story.slug }}/">Continue playing</a>

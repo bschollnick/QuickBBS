@@ -168,6 +168,69 @@ class CharacterCreationViewTests(TestCase):
         self.assertEqual(response.status_code, 405)
 
 
+class CharacterCreationResubmitTests(TestCase):
+    """POSTing the creation form again must not wipe a game in progress.
+
+    `play()` only routes a first-time visitor to the form, but that guard
+    is on the way in. The submit view itself replaces `CurrentGame`, so
+    without its own check a stale form, a double submit or a bookmarked
+    URL destroys a playthrough silently.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.user = get_user_model().objects.create_user(username="resubmitplayer", password="pw")
+        self.story = Story.objects.create(
+            owner=self.user,
+            title="Creation Story",
+            slug="resubmit-story",
+            compiled_json=_load_character_creation_globals_json(),
+            is_public=True,
+            game_new_game_fields=CHARACTER_CREATION_FIELDS,
+        )
+        self.client.force_login(self.user)
+        self.client.post(f"/if/{self.story.slug}/new-game/submit/", {"player_name": "Alice"}, secure=True)
+
+    def test_resubmitting_leaves_the_game_in_progress_untouched(self):
+        game = CurrentGame.objects.get(user=self.user, story=self.story)
+        before = game.state
+
+        self.client.post(f"/if/{self.story.slug}/new-game/submit/", {"player_name": "Bob"}, secure=True)
+
+        game.refresh_from_db()
+        self.assertEqual(game.state, before)
+
+    def test_resubmitting_does_not_reapply_the_answers(self):
+        """The second submission's answers must not reach the story."""
+        self.client.post(f"/if/{self.story.slug}/new-game/submit/", {"player_name": "Bob"}, secure=True)
+
+        game = CurrentGame.objects.get(user=self.user, story=self.story)
+        self.assertEqual(game.state["globals"]["player_name"], "Alice")
+
+    def test_resubmitting_redirects_to_the_game_in_progress(self):
+        response = self.client.post(
+            f"/if/{self.story.slug}/new-game/submit/", {"player_name": "Bob"}, secure=True
+        )
+        self.assertRedirects(response, f"/if/{self.story.slug}/", fetch_redirect_response=False)
+
+    def test_resubmitting_creates_no_second_game_row(self):
+        self.client.post(f"/if/{self.story.slug}/new-game/submit/", {"player_name": "Bob"}, secure=True)
+        self.assertEqual(CurrentGame.objects.filter(user=self.user, story=self.story).count(), 1)
+
+    def test_another_players_game_is_unaffected(self):
+        """The guard is per player, not per story."""
+        other = get_user_model().objects.create_user(username="otherplayer", password="pw")
+        other_client = Client()
+        other_client.force_login(other)
+
+        response = other_client.post(
+            f"/if/{self.story.slug}/new-game/submit/", {"player_name": "Carol"}, secure=True
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(CurrentGame.objects.filter(user=other, story=self.story).exists())
+
+
 class PlayRestartWithCharacterCreationTests(TestCase):
     """POST /if/<slug>/restart/ for a story with game_new_game_fields must
     re-ask the creation questions rather than silently reusing the

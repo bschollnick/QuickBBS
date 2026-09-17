@@ -1,5 +1,5 @@
 <!-- Play content partial: transcript + story text + choices for the current turn. -->
-<div id="if-play-content">
+<div id="if-play-content"{% if oob %} hx-swap-oob="true"{% endif %}>
     {% if transcript and transcript|length > 1 %}
     <nav class="panel if-story-transcript-panel">
         <p class="panel-heading">Story so far</p>
@@ -53,8 +53,11 @@
                   class="if-choices">
                 <input type="hidden" name="turn_count" value="{{ turn_count }}">
                 <div class="buttons">
-                    {% for index, choice_text in choices %}
-                    <button type="submit" name="choice" value="{{ index }}" class="button is-link if-choice-button" data-choice-key="{{ index + 1 }}">{{ choice_text|story_html }} <span class="if-choice-key tag is-light">{{ index + 1 }}</span></button>
+                    {# A choice carries its own pictures when the story
+                       tagged it (standard Ink choice tags), which is how a
+                       game asks the player to pick by appearance. #}
+                    {% for choice in choices %}
+                    <button type="submit" name="choice" value="{{ choice.index }}" class="button is-link if-choice-button{% if choice.image_urls %} has-image{% endif %}" data-choice-key="{{ choice.index + 1 }}">{% for url in choice.image_urls %}<img class="if-choice-image" src="{{ url }}" alt="">{% endfor %}{{ choice.text|story_html }} <span class="if-choice-key tag is-light">{{ choice.index + 1 }}</span></button>
                     {% endfor %}
                 </div>
             </form>

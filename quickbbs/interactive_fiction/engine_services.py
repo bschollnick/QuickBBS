@@ -5,7 +5,7 @@ anything, `InkRuntimeState` should be given, and **the ONLY place allowed
 to branch on `Story.is_engine_trusted`.**
 
 **Per-story API isolation**: a story's bindings come from its OWN
-`StorySystemConfig` rows, never a flat merge of every globally-enabled
+its manifest's own `REQUIRED_PLUGINS`, never a flat merge of every globally-enabled
 API. Two stories can each opt into `"scheduling"` independently; neither's
 row, config, or resulting bindings are visible to the other.
 
@@ -30,17 +30,19 @@ cannot load them itself.
 
 from __future__ import annotations
 
+import functools
 import importlib
 import logging
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ink_engine import game_panel
-from ink_engine.engine_config_schemas import SystemConfigValidationError
-from ink_engine.binding import ManifestMismatchError, check_required_plugins, resolve_bindings
+from ink_engine.binding import resolve_bindings
 from ink_engine.engine import load_list_defs
-from ink_engine.plugin import Plugin
+from ink_engine.game_folder import GameFolderError, plugin_denied_text
+from ink_engine.game_source import GameSourceError
 from interactive_fiction.engine_api import discover_api_descriptors
 from interactive_fiction.ingestion import read_manifest_value
 from interactive_fiction.models import (
@@ -68,7 +70,7 @@ def bindings_for(story: "Story", engine_state: dict[str, Any] | None = None) -> 
 
     Args:
         story: The story whose trust flag, and whose own
-            StorySystemConfig rows, decide the answer.
+            manifest, decide the answer.
         engine_state: The session's own mutable, JSON-safe state dict
             (typically `CurrentGame.state.setdefault("engine_state", {})`)
             — required if any opted-into, enabled API declares
@@ -77,10 +79,9 @@ def bindings_for(story: "Story", engine_state: dict[str, Any] | None = None) -> 
 
     Returns:
         The real bindings for every plugin this story has opted into AND
-        that is currently enabled; empty for an untrusted story or a
-        trusted story with no StorySystemConfig rows. An opted-into
-        plugin that is missing or disabled contributes no bindings but is
-        logged loudly.
+        that is currently enabled; empty for an untrusted story or one
+        whose manifest declares no plugins. A declared plugin that is
+        missing or disabled contributes no bindings but is logged loudly.
     """
     if not story.is_engine_trusted:
         return {}
@@ -122,17 +123,6 @@ def bindings_for(story: "Story", engine_state: dict[str, Any] | None = None) -> 
             continue
         active_names.append(name)
 
-    # The game's manifest is its own declaration of what it needs; this
-    # host activates from its own opt-in rows instead, so the two can
-    # drift. Report the drift rather than raising: an admin can fix the
-    # manifest, and refusing to play a story that works here would be a
-    # worse answer than a loud log line.
-    if story.game_required_plugins:
-        try:
-            check_required_plugins(plugins, story.game_required_plugins, active_names)
-        except ManifestMismatchError as mismatch:
-            logger.error("interactive_fiction.engine_services: story %r manifest disagrees with what is active: %s", story, mismatch)
-
     # Activation order is precedence: a later plugin's binding wins a name
     # collision. The game's manifest fixes that order; a name the manifest
     # does not list (an opt-in row left over from before the game's own
@@ -146,44 +136,7 @@ def bindings_for(story: "Story", engine_state: dict[str, Any] | None = None) -> 
         active_names,
         engine_state if engine_state is not None else {},
         list_defs=load_list_defs(story.compiled_json),
-        configs=_valid_configs_for(story, plugins),
     )
-
-
-def _valid_configs_for(story: "Story", plugins: dict[str, Plugin]) -> dict[str, Any]:
-    """Return the per-plugin config this story's rows attach, validated.
-
-    A row holding an empty config attaches nothing. A row whose config the
-    plugin's own validator rejects is reported and skipped rather than
-    stopping the session: the row is admin data that predates the plugin's
-    current schema, and a story that plays with the plugin's own defaults
-    is a better answer than one that cannot start.
-
-    Args:
-        story: The story whose config rows to read.
-        plugins: Every discoverable plugin, by name.
-
-    Returns:
-        `{plugin name: config}` for every row that attaches a valid config.
-    """
-    configs: dict[str, Any] = {}
-    for row in story.system_configs.all():
-        if row.config in (None, {}) or row.system_name not in plugins:
-            continue
-        validator = plugins[row.system_name].validate_config
-        if validator is not None:
-            try:
-                validator(row.config)
-            except SystemConfigValidationError as error:
-                logger.error(
-                    "interactive_fiction.engine_services: story %r attaches a config to plugin '%s' that it rejects (%s); playing without it",
-                    story,
-                    row.system_name,
-                    error,
-                )
-                continue
-        configs[row.system_name] = row.config
-    return configs
 
 
 def game_panel_context(story: "Story", engine_state: dict[str, Any], globals_: dict[str, Any]) -> dict[str, Any] | None:
@@ -423,6 +376,80 @@ def game_panel_command(story: "Story", engine_state: dict[str, Any], globals_: d
         target_id=target_id,
         logger=logger,
     )
+
+
+#: Matches a rendered `href`/`src` attribute, whatever it points at.
+#: Applied AFTER rendering, so it catches what Markdown's own link syntax
+#: produces as well as anything that survived escaping.
+_LINK_ATTRIBUTE_RE = re.compile(r'\s(?:href|src)="[^"]*"', re.IGNORECASE)
+
+
+@functools.cache
+def _screen_markdown() -> Any:
+    """Return the shared Markdown processor for plugin-denied screens.
+
+    Deferred like `fileindex.py`'s own: markdown2 is only needed when an
+    untrusted story is actually opened. `safe_mode="escape"` because the
+    text comes from the untrusted Albums tree.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    import markdown2
+
+    return markdown2.Markdown(extras=["tables", "fenced-code-blocks"], safe_mode="escape")
+
+
+def _without_link_targets(html: str) -> str:
+    """Strip every `href`/`src` from rendered screen HTML.
+
+    `safe_mode="escape"` stops raw HTML but not Markdown's own link
+    syntax: `![x](javascript:alert(1))` renders a live
+    `<img src="javascript:...">`. This screen is explanatory prose shown
+    before a game is trusted -- it has no reason to link anywhere or load
+    anything, so the targets go rather than being allowlisted by scheme.
+
+    Dropping the attribute and keeping the element leaves the text
+    readable; an `<a>` with no `href` is inert.
+
+    Args:
+        html: Rendered Markdown.
+
+    Returns:
+        The same HTML with every link target removed.
+    """
+    return _LINK_ATTRIBUTE_RE.sub("", html)
+
+
+def plugin_denied_html(story: "Story") -> str:
+    """Return the game's plugin-denied screen, rendered to HTML.
+
+    A game that declares plugins is designed around them; run without
+    them it is broken, not reduced. The game explains what its own
+    plugins do, because only it knows -- a host can list names, but not
+    that a game's own occupancy plugin missing means no character is
+    anywhere.
+
+    The screen is rendered in `safe_mode="escape"`: it comes from a game
+    folder in the untrusted Albums tree, and it is shown BEFORE that game
+    has been trusted. Raw markdown2 passes `<script>` straight through,
+    so the game's own HTML is escaped and only Markdown's own constructs
+    render -- the same posture `story_markup.py` takes for story text.
+
+    Args:
+        story: The story whose screen to render.
+
+    Returns:
+        HTML, or "" for a story with no game folder to read one from.
+    """
+    source = story.bundle_path or (Path(story.source_fqfn).parent if story.source_fqfn else None)
+    if source is None:
+        return ""
+    try:
+        text = plugin_denied_text(source)
+    except (GameFolderError, GameSourceError, OSError) as error:
+        logger.warning("interactive_fiction.engine_services: story %r has no readable plugin-denied screen: %s", story, error)
+        return ""
+
+    return _without_link_targets(str(_screen_markdown().convert(text)))
 
 
 def play_layout_for(story: "Story") -> str:

@@ -1,6 +1,8 @@
 """Application-specific settings and configuration for QuickBBS."""
 
+import os
 import re
+from pathlib import Path
 
 SITE_NAME = "QuickBBS Site"
 
@@ -34,21 +36,50 @@ ARCHIVE_ITEMS_PER_PAGE = 21
 SERVER_IP = "0.0.0.0"
 SERVER_PORT = 8888
 
-PRELOAD = ["/albums", "/albums/hentai_idea"]
+# NOTE: possible dead path -- no consumer found outside this file
+# (searched every file type across the repo, 2026-09-17). Commented out
+# rather than deleted in case a deployment script or an unsearched
+# consumer still expects it. Delete once that is confirmed.
+# PRELOAD = ["/albums", "/albums/hentai_idea"]
 
-SERVER_PATH = "/Volumes/Support-8TB/gallery/quickbbs"
-SERVERLOG = f"{SERVER_PATH}/logs/server.log"
+# The installation root: the directory holding `quickbbs/`, `resources/`
+# and `Albums/`. Derived from this file's own location rather than written
+# out, so a checkout works wherever it sits -- the previous absolute path
+# also had the wrong case (`Support-8TB`, `gallery`), which macOS forgives
+# and Linux does not.
+#
+# QUICKBBS_SERVER_PATH overrides it, for a deployment that keeps its
+# content somewhere other than beside the code.
+SERVER_PATH = os.environ.get(
+    "QUICKBBS_SERVER_PATH",
+    str(Path(__file__).resolve().parent.parent.parent),
+)
 ALBUMS_PATH = f"{SERVER_PATH}"
-THUMBNAILS_PATH = f"{SERVER_PATH}/thumbnails"
-STATIC_PATH = f"{SERVER_PATH}/quickbbs/static"
-
 RESOURCES_PATH = f"{SERVER_PATH}/resources"
-TEMPLATES_PATH = f"{RESOURCES_PATH}/templates"
-IMAGES_PATH = f"{RESOURCES_PATH}/images"
-JAVASCRIPT_PATH = f"{RESOURCES_PATH}/javascript"
-CSS_PATH = f"{RESOURCES_PATH}/css"
-FONTS_PATH = f"{RESOURCES_PATH}/fonts"
 ICONS_PATH = f"{RESOURCES_PATH}/images"
+
+# NOTE: possible dead paths -- each of the eight below was searched for
+# across every file type in the repository (2026-09-17) and has no
+# consumer outside this file. `IMAGES_PATH` is independently confirmed
+# dead by `docs/design documents/filetypes_design.md:117`, which records
+# that its last user disappeared when `return_any_icon_filename()` was
+# removed and icons moved to the thumbnail blob column.
+#
+# Commented out rather than deleted: a deployment script, a systemd unit
+# or an operator's own tooling could still read one, and none of that is
+# in this repository to search. Delete once that is ruled out.
+#
+# Note THUMBNAILS_PATH and STATIC_PATH are unused only as *settings* --
+# both directories are real and in use; Django reaches them by other
+# names (STATIC_ROOT, and the thumbnail blob column respectively).
+# SERVERLOG = f"{SERVER_PATH}/logs/server.log"
+# THUMBNAILS_PATH = f"{SERVER_PATH}/thumbnails"
+# STATIC_PATH = f"{SERVER_PATH}/quickbbs/static"
+# TEMPLATES_PATH = f"{RESOURCES_PATH}/templates"   # points at a directory that does not exist
+# IMAGES_PATH = f"{RESOURCES_PATH}/images"
+# JAVASCRIPT_PATH = f"{RESOURCES_PATH}/javascript"
+# CSS_PATH = f"{RESOURCES_PATH}/css"
+# FONTS_PATH = f"{RESOURCES_PATH}/fonts"
 
 
 REGISTRATION_OPEN = True

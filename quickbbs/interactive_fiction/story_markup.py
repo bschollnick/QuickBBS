@@ -34,8 +34,8 @@ from markupsafe import Markup
 # Inline emphasis only. Deliberately no `<img>`, `<a>`, or anything
 # carrying attributes: attributes are where `onerror=`/`javascript:`
 # payloads live, and images belong to the `# image:` tag pipeline
-# (interactive_fiction.image_linking), which resolves them to real
-# gallery files instead of letting story text address arbitrary URLs.
+# (interactive_fiction.bundle_media), which resolves them against the
+# game's own bundle instead of letting story text address arbitrary URLs.
 ALLOWED_TAGS: frozenset[str] = frozenset({"i", "b", "em", "strong"})
 
 # Matches an escaped tag with NO attributes, e.g. "&lt;i&gt;" or

@@ -383,6 +383,10 @@ DATABASES = {
     },
 }
 
+# Seeds filetypes into each new test database, the way refresh_filetypes
+# seeds a new real one.
+TEST_RUNNER = "quickbbs.test_runner.QuickBBSTestRunner"
+
 AUTHENTICATION_BACKENDS = (
     # Needed to login by username in Django admin, regardless of `allauth`
     "django.contrib.auth.backends.ModelBackend",

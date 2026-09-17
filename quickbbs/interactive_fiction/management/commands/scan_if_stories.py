@@ -20,14 +20,10 @@ happens here, in one pass, in this order:
 4. **Sync EngineAPI rows** for the generic `engine_plugins/` and each
    game's own API modules (new ones start disabled, per that function's
    safe-by-default posture).
-5. **Reconcile story images** (`relink_story_images`) — re-resolve every
-   `# image:`/`# video:` tag and make the StoryImage rows match: link,
-   relink, and delete rows whose tag or file is gone.
+A bundled game's media needs no pass of its own: it resolves its own
+tags from its own bundle at request time.
 
 This used to be a standalone script, run by hand.
-It isn't optional bookkeeping — a story whose images are not linked
-renders no graphics at all — so it belongs in the same pass as the
-content it serves.
 
 Usage:
     python manage.py scan_if_stories
@@ -42,11 +38,11 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from interactive_fiction.ingestion import (
+    game_folders,
     ingest_stories,
-    relink_story_images,
     verify_stories,
 )
-from interactive_fiction.models import sync_engine_apis
+from interactive_fiction.models import Story, sync_engine_apis
 from quickbbs.common import normalize_fqpn
 from quickbbs.directoryindex import DirectoryIndex
 from quickbbs.management.commands.add_directories import add_directories
@@ -125,12 +121,18 @@ class Command(BaseCommand):
         if not DirectoryIndex.is_in_albums_tree(start_path):
             raise CommandError(f"'{start_path}' is not within the configured albums root ({DirectoryIndex.get_albums_root()}).")
 
-        cleared = _clear_shas_under(start_path)
-        if cleared:
-            self.stdout.write(f"Cleared SHA256 on {cleared} Interactive Fiction file(s) for recomputation.")
+        # A bundle has no per-file rows to hash, walk or relink: it is one
+        # file, read in place. These three stages exist for folder games
+        # and are skipped outright when there are none, rather than
+        # rehashing and re-walking a tree that holds only bundles.
+        folder_games = bool(game_folders())
+        if folder_games:
+            cleared = _clear_shas_under(start_path)
+            if cleared:
+                self.stdout.write(f"Cleared SHA256 on {cleared} Interactive Fiction file(s) for recomputation.")
 
-        add_directories(max_count=max_count, start_path=start_path)
-        add_files(max_count=max_count, start_path=start_path)
+            add_directories(max_count=max_count, start_path=start_path)
+            add_files(max_count=max_count, start_path=start_path)
 
         tombstoned, restored, refreshed = verify_stories()
         if tombstoned or restored or refreshed:
@@ -138,17 +140,16 @@ class Command(BaseCommand):
 
         ingested = ingest_stories()
         if ingested:
-            self.stdout.write(self.style.SUCCESS(f"Interactive Fiction: {ingested} game folder(s) ingested/refreshed"))
+            self.stdout.write(self.style.SUCCESS(f"Interactive Fiction: {ingested} game(s) ingested/refreshed"))
+
+        # Every bundle is re-examined on each scan (ingest_stories), so a
+        # game disabled for failing its integrity check is reported here
+        # rather than only in the log.
+        refused = Story.objects.exclude(game_ingestion_error="").filter(is_available=False).count()
+        if refused:
+            self.stdout.write(self.style.ERROR(f"Interactive Fiction: {refused} game(s) unavailable — see game_ingestion_error in admin"))
 
         created_count, updated_count = sync_engine_apis()
         self.stdout.write(
             self.style.SUCCESS(f"Engine APIs synced: {created_count} newly discovered (disabled by default), {updated_count} already known.")
-        )
-
-        images = relink_story_images()
-        self.stdout.write(
-            self.style.SUCCESS(
-                f"Story images reconciled: {images['linked']} linked, {images['unlinked']} unlinked, "
-                f"{images['broken']} unresolved, from {images['tags']} distinct tag(s)."
-            )
         )

@@ -5,15 +5,15 @@ from __future__ import annotations
 from django.contrib import admin
 from django.db.models import QuerySet
 from django.http import HttpRequest
+from django.utils.safestring import mark_safe
 
+from interactive_fiction.engine_services import plugin_denied_html
 from interactive_fiction.models import (
     CurrentGame,
     EngineAPI,
     SaveState,
     Story,
     StoryAccess,
-    StoryImage,
-    StorySystemConfig,
 )
 
 
@@ -83,7 +83,22 @@ class StoryAdmin(admin.ModelAdmin):
     list_display = ("title", "owner", "is_public", "is_available", "is_engine_trusted", "has_game_ingestion_error", "updated_at")
     list_filter = ("is_public", "is_available", "is_engine_trusted", GameIngestionErrorFilter)
     search_fields = ("title", "slug", "owner__username", "game_author")
-    readonly_fields = ("created_at", "updated_at", "source_fqfn", "source_sha256")
+    # The bundle fields are ingestion's own record of what was verified —
+    # editing one by hand would make the row disagree with the bundle it
+    # describes, which is the exact condition the integrity check exists
+    # to detect.
+    readonly_fields = (
+        "created_at",
+        "updated_at",
+        "source_fqfn",
+        "source_sha256",
+        "main_story_member",
+        "game_version",
+        "bundle_manifest_sha256",
+        "bundle_directory_sha256",
+        "bundle_story_sha256",
+        "plugin_requirements",
+    )
     # compiled_json holds a full compiled Ink story — real-world stories
     # (a large multi-file corpus can easily run 100+ files) run several
     # MB, and Django's
@@ -96,6 +111,19 @@ class StoryAdmin(admin.ModelAdmin):
     # so simply excluding it from the form is correct, not a workaround.
     exclude = ("compiled_json",)
     inlines = (StoryAccessInline,)
+
+    @admin.display(description="What this game needs")
+    def plugin_requirements(self, obj: Story) -> str:
+        """Render the game's own plugin-denied screen for the approver.
+
+        `is_engine_trusted` is the decision to run this game's Python.
+        The game explains what its plugins do and why they need
+        permission; showing that here puts the explanation in front of
+        the person who actually makes the call.
+        """
+        if not obj.game_required_plugins:
+            return "This game declares no plugins, so nothing needs approval."
+        return mark_safe(plugin_denied_html(obj))  # nosec B703 -- escaped at render (safe_mode)
 
     @admin.display(boolean=True, description="Ingestion error")
     def has_game_ingestion_error(self, obj: Story) -> bool:
@@ -149,15 +177,6 @@ class CurrentGameAdmin(admin.ModelAdmin):
         return super().get_queryset(request).defer("state")
 
 
-@admin.register(StoryImage)
-class StoryImageAdmin(admin.ModelAdmin):
-    """Admin interface for story image/video tag mappings."""
-
-    list_display = ("story", "tag_name", "is_cover", "file_index")
-    search_fields = ("story__title", "tag_name")
-    autocomplete_fields = ("story", "file_index")
-
-
 @admin.register(EngineAPI)
 class EngineAPIAdmin(admin.ModelAdmin):
     """Admin interface for discovered engine APIs -- the Enabled/Disabled
@@ -171,25 +190,6 @@ class EngineAPIAdmin(admin.ModelAdmin):
     list_filter = ("is_enabled",)
     search_fields = ("name", "display_name")
     readonly_fields = ("name", "display_name", "discovered_at", "last_seen_at")
-
-
-@admin.register(StorySystemConfig)
-class StorySystemConfigAdmin(admin.ModelAdmin):
-    """Admin interface for per-story engine-system config.
-
-    Saving here goes through Django's normal admin full_clean() path
-    AND StorySystemConfig.save()'s own explicit full_clean() call (see
-    that method's docstring) — either one alone would already reject an
-    invalid `config` for admin-created rows, but the model-level override
-    additionally covers every non-admin creation path (management
-    commands, `.objects.create()`), which is the real requirement.
-    """
-
-    list_display = ("story", "system_name", "updated_at")
-    list_filter = ("system_name",)
-    search_fields = ("story__title",)
-    autocomplete_fields = ("story",)
-    readonly_fields = ("updated_at",)
 
 
 @admin.register(SaveState)
