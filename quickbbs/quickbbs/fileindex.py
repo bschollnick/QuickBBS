@@ -44,7 +44,7 @@ from thumbnails.models import ThumbnailFiles
 
 # Cyclic import: .models imports from .fileindex, so this must come after the
 # module-level code above to avoid an ImportError at load time.
-from .models import Owners  # noqa: E402  # pylint: disable=wrong-import-position
+from .models import Owners  # pylint: disable=wrong-import-position
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +120,10 @@ class FileIndex(models.Model):
         null=True,
         default=None,
         max_length=64,
-    )  # This is the sha256 of the (file + fqfn). hashlib hexdigest — always lowercase hex; normalize_sha_input() lowercases untrusted request input before lookup.
+    )
+    # The sha256 of (file + fqfn). hashlib hexdigest is always lowercase
+    # hex; normalize_sha_input() lowercases untrusted request input before
+    # lookup.
 
     # lastscan/lastmod are never filtered or ordered on standalone (sorts always
     # follow a home_directory filter), so they carry no index — this also allows
@@ -188,7 +191,7 @@ class FileIndex(models.Model):
     )
 
     # Reverse relationships
-    dir_thumbnail: "RelatedManager[DirectoryIndex]"  # From DirectoryIndex.thumbnail
+    dir_thumbnail: RelatedManager[DirectoryIndex]  # From DirectoryIndex.thumbnail
 
     @property
     def fqpndirectory(self) -> str:
@@ -225,7 +228,7 @@ class FileIndex(models.Model):
         return FileIndex.objects.filter(file_sha256=sha).count()
 
     @staticmethod
-    def return_list_all_identical_files_by_sha(sha: str) -> "QuerySet[FileIndex, dict[str, Any]]":
+    def return_list_all_identical_files_by_sha(sha: str) -> QuerySet[FileIndex, dict[str, Any]]:
         """
         Return a query of all duplicate files based on file SHA256 hash.
 
@@ -254,7 +257,7 @@ class FileIndex(models.Model):
         return cast("QuerySet[FileIndex, dict[str, Any]]", dupes)
 
     @staticmethod
-    def get_identical_file_entries_by_sha(sha: str) -> "QuerySet[FileIndex, dict[str, Any]]":
+    def get_identical_file_entries_by_sha(sha: str) -> QuerySet[FileIndex, dict[str, Any]]:
         """
         Get file entries for identical files based on SHA256 hash
 
@@ -279,8 +282,8 @@ class FileIndex(models.Model):
         sha256_list: list[str],
         sort: int,
         select_related: list[str],
-        user: "AbstractBaseUser | AnonymousUser | None" = None,
-    ) -> "QuerySet[FileIndex]":
+        user: AbstractBaseUser | AnonymousUser | None = None,
+    ) -> QuerySet[FileIndex]:
         """
         Return files matching the provided SHA256 list
 
@@ -306,7 +309,7 @@ class FileIndex(models.Model):
         return files.order_by(*SORT_MATRIX[sort])
 
     @staticmethod
-    def get_by_sha256(sha_value: str, unique: bool, select_related: list[str] | tuple[str, ...]) -> "FileIndex | None":
+    def get_by_sha256(sha_value: str, unique: bool, select_related: list[str] | tuple[str, ...]) -> FileIndex | None:
         """
         Return the FileIndex object by SHA256.
 
@@ -526,7 +529,7 @@ class FileIndex(models.Model):
                 return None
 
             # Extract and normalize file extension
-            fileext = (fs_entry.suffix if fs_entry.suffix else "") or ".none"
+            fileext = (fs_entry.suffix or "") or ".none"
             fileext = ".none" if fileext == "." else fileext
 
             # Check if filetype exists
@@ -545,7 +548,7 @@ class FileIndex(models.Model):
                         "filetype": filetypes.return_filetype(fileext=fileext),
                     }
                 )
-            except (OSError, IOError) as e:
+            except OSError as e:
                 logger.error("Error getting file stats for %s: %s", fs_entry, e)
                 return None
 
@@ -588,8 +591,8 @@ class FileIndex(models.Model):
     @classmethod
     def bulk_sync(
         cls,
-        records_to_update: list["FileIndex"],
-        records_to_create: list["FileIndex"],
+        records_to_update: list[FileIndex],
+        records_to_create: list[FileIndex],
         records_to_delete_ids: list[int],
         bulk_size: int,
     ) -> None:
@@ -702,7 +705,7 @@ class FileIndex(models.Model):
             raise
 
     @classmethod
-    def find_files_without_sha(cls, start_path: str | None = None) -> "QuerySet[FileIndex]":
+    def find_files_without_sha(cls, start_path: str | None = None) -> QuerySet[FileIndex]:
         """
         Find FileIndex files with NULL file_sha256.
 
@@ -721,7 +724,7 @@ class FileIndex(models.Model):
         return files_without_sha
 
     @classmethod
-    def find_broken_link_files(cls, start_path: str | None = None) -> "QuerySet[FileIndex]":
+    def find_broken_link_files(cls, start_path: str | None = None) -> QuerySet[FileIndex]:
         """
         Find link files with NULL virtual_directory.
 
@@ -740,7 +743,7 @@ class FileIndex(models.Model):
         return link_files_without_vdir
 
     @staticmethod
-    def process_link_file(fs_entry: Path, filetype: Any, filename: str) -> "DirectoryIndex | None":
+    def process_link_file(fs_entry: Path, filetype: Any, filename: str) -> DirectoryIndex | None:
         """
         Process link files (.link or .alias) and return the virtual_directory.
 
@@ -850,7 +853,7 @@ class FileIndex(models.Model):
 
             with Image.open(fs_entry) as img:
                 return getattr(img, "is_animated", False)
-        except (AttributeError, IOError, OSError) as e:
+        except (AttributeError, OSError) as e:
             logger.error("Error checking animation for %s: %s", fs_entry, e)
             return False
 
@@ -1161,14 +1164,13 @@ class FileIndex(models.Model):
                         logger.error("Error getting duration for %s: %s", fs_entry, e)
 
                 # Animated GIF detection - only check if not previously checked
-                if filetype.is_image and fext == ".gif" and not self.is_animated:
-                    if FileIndex.is_animated_gif(fs_entry):
-                        self.is_animated = True
-                        update_needed = True
+                if filetype.is_image and fext == ".gif" and not self.is_animated and FileIndex.is_animated_gif(fs_entry):
+                    self.is_animated = True
+                    update_needed = True
 
             return self if update_needed else None
 
-        except (OSError, IOError) as e:
+        except OSError as e:
             logger.error("Error checking file %s: %s", fs_entry, e)
             return None
 
@@ -1200,8 +1202,8 @@ class FileIndex(models.Model):
                 if best_match is None:
                     return "utf-8"
                 encoding = best_match.encoding
-                return encoding if encoding else "utf-8"
-        except (OSError, IOError):
+                return encoding or "utf-8"
+        except OSError:
             return "utf-8"
 
     def get_text_encoding_cached(self) -> str:
@@ -1251,7 +1253,7 @@ class FileIndex(models.Model):
 
             encoding = self.get_text_encoding_cached()
 
-            with open(filename, "r", encoding=encoding) as f:
+            with open(filename, encoding=encoding) as f:
                 content = f.read()
 
                 # Process content based on type
@@ -1268,8 +1270,8 @@ class FileIndex(models.Model):
 
         except UnicodeDecodeError:
             return "<p><em>We are unable to view this file.</em></p>"
-        except (OSError, IOError) as e:
-            return f"<p><em>Error reading file: {str(e)}</em></p>"
+        except OSError as e:
+            return f"<p><em>Error reading file: {e!s}</em></p>"
 
     @classmethod
     def resolve_macos_alias(cls, alias_path: str) -> str:
@@ -1342,7 +1344,11 @@ class FileIndex(models.Model):
         return str(resolved_url.path()).strip()
 
     class Meta:
-        """Model metadata: SHA/name/filetype lookup indexes, partial indexes for unlinked thumbnails and pending deletes, and the trigram search index."""
+        """Model metadata.
+
+        SHA, name and filetype lookup indexes; partial indexes for
+        unlinked thumbnails and pending deletes; the trigram search index.
+        """
 
         verbose_name = "Master Files Index"
         verbose_name_plural = "Master Files Index"

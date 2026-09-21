@@ -190,18 +190,19 @@ class TestProcessLinkFileAlias(AliasResolutionTestBase):
     def test_alias_resolves_through_find_by_physical_path(self) -> None:
         """A resolvable alias returns the translated gallery DirectoryIndex."""
         alias_filetype = SimpleNamespace(fileext=".alias")
-        with override_settings(ALIAS_MAPPING={}):
-            with patch.object(FileIndex, "resolve_macos_alias", return_value=self._physical("masters/videos/diana")):
-                result = FileIndex.process_link_file(Path("/fake/diana-videos.alias"), alias_filetype, "diana-videos.alias")
+        with override_settings(ALIAS_MAPPING={}), patch.object(FileIndex, "resolve_macos_alias", return_value=self._physical("masters/videos/diana")):
+            result = FileIndex.process_link_file(Path("/fake/diana-videos.alias"), alias_filetype, "diana-videos.alias")
         assert result is not None
         assert result.pk == self.dirs["albums/hentai_idea/test/videos/diana"].pk
 
     def test_unresolvable_alias_returns_none(self) -> None:
         """An alias whose target has no gallery copy returns None."""
         alias_filetype = SimpleNamespace(fileext=".alias")
-        with override_settings(ALIAS_MAPPING={}):
-            with patch.object(FileIndex, "resolve_macos_alias", return_value=self._physical("masters/videos/nonexistent")):
-                result = FileIndex.process_link_file(Path("/fake/x.alias"), alias_filetype, "x.alias")
+        with (
+            override_settings(ALIAS_MAPPING={}),
+            patch.object(FileIndex, "resolve_macos_alias", return_value=self._physical("masters/videos/nonexistent")),
+        ):
+            result = FileIndex.process_link_file(Path("/fake/x.alias"), alias_filetype, "x.alias")
         assert result is None
 
     def test_dangling_bookmark_returns_none(self) -> None:

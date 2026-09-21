@@ -180,7 +180,7 @@ class WatchdogManager:
     Do NOT convert to asyncio.Lock - it will break timer-based restarts.
     """
 
-    __slots__ = ("restart_timer", "lock", "monitor_path", "event_handler", "is_running")
+    __slots__ = ("event_handler", "is_running", "lock", "monitor_path", "restart_timer")
 
     def __init__(self) -> None:
         """Initialize the manager with no timer or handler running yet."""
@@ -446,10 +446,7 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
 
         """
         try:
-            if event.is_directory:
-                dirpath = os.path.normpath(event.src_path)
-            else:
-                dirpath = str(pathlib.Path(os.path.normpath(event.src_path)).parent)
+            dirpath = os.path.normpath(event.src_path) if event.is_directory else str(pathlib.Path(os.path.normpath(event.src_path)).parent)
 
             # Add event to lock-free buffer
             optimized_event_buffer.add_event(dirpath)

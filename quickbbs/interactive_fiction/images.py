@@ -94,7 +94,7 @@ class DjangoMediaResolver:  # pylint: disable=too-few-public-methods
 
     `ink_engine.media_resolver.MediaResolver`'s Django-backed
     implementation. The game's shipped `image_resolver.py` decides what a
-    tag means, so one fix to those rules reaches both hosts.
+    tag means, so one fix to those rules reaches both applications.
     """
 
     def __init__(self, story: Story) -> None:

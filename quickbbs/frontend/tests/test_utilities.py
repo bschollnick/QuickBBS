@@ -8,6 +8,8 @@ RED tests:   verify desired behaviour that current code does NOT satisfy.
              exactly which review issue it covers.
 """
 
+import contextlib
+
 import pytest
 from django.conf import settings
 from django.test import TestCase
@@ -116,7 +118,8 @@ class TestConvertToWebpathGreen(TestCase):
         first = convert_to_webpath(full)
         second = convert_to_webpath(full)
         assert first == second
-        assert (full,) in webpaths_cache or True  # cache hit confirmed by identical result
+        # The cache key carries every argument; the second defaults to None.
+        assert (full, None) in webpaths_cache
 
 
 # ===========================================================================
@@ -158,10 +161,8 @@ class TestConvertToWebpathEdgeCases(TestCase):
 
     def test_prefix_miss_does_not_pollute_cache(self):
         """A ValueError on prefix miss must leave the cache empty."""
-        try:
+        with contextlib.suppress(ValueError):
             convert_to_webpath("/unrelated/path.jpg")
-        except ValueError:
-            pass
         assert webpaths_cache.currsize == 0
 
 

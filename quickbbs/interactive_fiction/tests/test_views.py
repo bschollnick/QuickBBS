@@ -39,7 +39,6 @@ from interactive_fiction.models import (
     Story,
 )
 from interactive_fiction.tests.image_test_utils import (
-    make_gallery_image,
     make_image_bytes,
 )
 from quickbbs.models import DirectoryIndex
@@ -231,7 +230,9 @@ class SaveLoadViewTests(TestCase):
         # unchanged by the act of loading it.
         current_game.refresh_from_db()
         response = self.client.post(f"/if/{self.story.slug}/saves/0/load/", secure=True)
-        self.assertEqual(response.status_code, 200)
+        # A plain form POST navigates the window, so it redirects to the
+        # game rather than answering with a bare content fragment.
+        self.assertEqual(response.status_code, 302)
 
         current_game.refresh_from_db()
         save_state_after_load = SaveState.objects.get(user=self.user, story=self.story, slot=0)
@@ -323,6 +324,48 @@ class SlotNumberingViewTests(TestCase):
         body = response.content.decode()
         self.assertIn('min="1"', body)
         self.assertIn(f'max="{settings.MAX_SAVE_SLOTS_PER_STORY}"', body)
+
+
+class LoadResponseShapeTests(TestCase):
+    """A load answers the shape its caller can use.
+
+    The saves page posts a plain form, so the browser navigates the whole
+    window; a bare content fragment renders as the entire document -- the
+    transcript with no page around it. HTMX swaps a fragment into a live
+    page and needs exactly that fragment.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.user = get_user_model().objects.create_user(username="ifplayer_shape", password="pw")
+        self.story = Story.objects.create(
+            owner=self.user,
+            title="Choices",
+            slug="choices-story-shape",
+            compiled_json=_load_compiled_json(),
+            is_public=True,
+        )
+        self.client.force_login(self.user)
+        self.client.get(f"/if/{self.story.slug}/", secure=True)
+        self.client.post(f"/if/{self.story.slug}/saves/0/save/", {"label": "Saved"}, secure=True)
+
+    def test_a_plain_post_redirects_to_the_game(self):
+        response = self.client.post(f"/if/{self.story.slug}/saves/0/load/", secure=True)
+
+        self.assertRedirects(response, f"/if/{self.story.slug}/", fetch_redirect_response=False)
+
+    def test_an_htmx_post_answers_the_content_fragment(self):
+        response = self.client.post(f"/if/{self.story.slug}/saves/0/load/", secure=True, HTTP_HX_REQUEST="true")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(b"<html", response.content.lower())
+
+    def test_a_plain_quickload_redirects_too(self):
+        self.client.post(f"/if/{self.story.slug}/saves/quicksave/", secure=True)
+
+        response = self.client.post(f"/if/{self.story.slug}/saves/quickload/", secure=True)
+
+        self.assertRedirects(response, f"/if/{self.story.slug}/", fetch_redirect_response=False)
 
 
 class DeleteSaveViewTests(TestCase):
@@ -440,7 +483,7 @@ class QuicksaveViewTests(TestCase):
 
         response = self.client.post(f"/if/{self.story.slug}/saves/quickload/", secure=True)
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 302)
         current_game.refresh_from_db()
         self.assertEqual(current_game.state, quicksaved_state)
 

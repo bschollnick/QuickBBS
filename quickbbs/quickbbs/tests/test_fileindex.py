@@ -39,10 +39,9 @@ from django.conf import settings
 from django.test import TestCase, override_settings
 
 from filetypes.models import filetypes
-from quickbbs.common import get_file_sha, normalize_fqpn
+from quickbbs.common import normalize_fqpn
 from quickbbs.fileindex import (
     FILEINDEX_SR_FILETYPE,
-    FILEINDEX_SR_FILETYPE_HOME,
     FileIndex,
     sanitize_filename_for_http,
 )

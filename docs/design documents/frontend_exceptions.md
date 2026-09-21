@@ -1,8 +1,11 @@
 # frontend — Exception Taxonomy
 
+**Date Created:** 2026-08-11  
+**Last Updated:** 2026-09-19  
+**Last Reviewed:** 2026-09-19
+
 **Companion to:** [`frontend_design.md`](frontend_design.md)
 **Author:** Benjamin Schollnick
-**Last Updated:** 2026-08-07
 
 ---
 
@@ -11,7 +14,7 @@
 `frontend` owns two custom exception classes, both defined, raised, and caught
 entirely within a single file. This document also covers the standard/Django
 exceptions that are part of `frontend`'s actual error-handling design — not every
-`try`/`except` in the codebase, only the ones that shape how a request ends up as a
+`try`/`except` in the codebase, only the ones that determine how a request ends up as a
 particular response. Verified directly against `frontend/views.py`,
 `frontend/serve_up.py`, `frontend/file_listings.py`, and `frontend/utilities.py`.
 
@@ -44,9 +47,9 @@ Both exceptions are raised exclusively inside
   to have been deleted from disk by the time of a race-condition re-check.
 
 Inside `_find_directory` itself, an `except (DirectoryNotFoundError,
-DirectoryInvalidError): raise` (`views.py:679`) re-raises both unchanged before the
+DirectoryInvalidError): raise` (`views.py:850`) re-raises both unchanged before the
 broader `except Exception` wraps anything else. The terminal handling happens in
-`view_gallery` (`views.py:751–754`):
+`view_gallery` (`views.py:929–932`):
 
 ```python
 except DirectoryNotFoundError:
@@ -69,7 +72,7 @@ and twice in
 are terminal view functions wired directly in `quickbbs/urls.py` — the exception
 propagates straight to Django's URL-dispatch machinery uncaught by app code.
 
-**`asyncio.CancelledError`** — caught in `download_file` (`views.py:939`) for the sole
+**`asyncio.CancelledError`** — caught in `download_file` (`views.py:1134`) for the sole
 purpose of re-raising it unchanged (bare `raise`) without logging. A client
 disconnecting mid-download is expected, not a failure, so this exists to keep it out
 of error logs while still letting Django's async machinery run its normal cancellation

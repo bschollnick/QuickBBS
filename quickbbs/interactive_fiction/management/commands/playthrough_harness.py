@@ -94,7 +94,11 @@ class Command(BaseCommand):
 
         exceptions = len(errors) - dead_ends
         self.stdout.write(f"{runs} runs x up to {max_steps} steps, {total_steps} total steps.")
-        self.stdout.write(f"Endings reached: {endings}. Hit the step cap (not a failure on its own): {capped}. Dead ends: {dead_ends}. Exceptions: {exceptions}.")
+        self.stdout.write(
+            f"Endings reached: {endings}. "
+            f"Hit the step cap (not a failure on its own): {capped}. "
+            f"Dead ends: {dead_ends}. Exceptions: {exceptions}."
+        )
         if errors:
             self.stdout.write("Details:")
             for line in errors:

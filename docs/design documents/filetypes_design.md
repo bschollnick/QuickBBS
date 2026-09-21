@@ -2,7 +2,10 @@
 
 **Version:** 4.3
 **Author:** Benjamin Schollnick
-**Last Updated:** 2026-08-07
+
+**Date Created:** 2026-08-10  
+**Last Updated:** 2026-09-19  
+**Last Reviewed:** 2026-09-19
 
 **See also:** [`filetypes_erd.md`](filetypes_erd.md) for the entity-relationship
 diagram; [`filetypes_exceptions.md`](filetypes_exceptions.md) for the exception
@@ -116,9 +119,9 @@ The single ORM model, keyed by `fileext`.
 | `generic` | `BooleanField` | `True` = serve a stock icon; `False` = generate/serve a real thumbnail |
 | `icon_filename` | `CharField` | Bare filename of the fallback icon. Retained but currently unreferenced: `settings.IMAGES_PATH`, the path constant it was joined with, has no remaining consumer now that `return_any_icon_filename()` is gone — icons are served from the `thumbnail` blob column via `send_thumbnail()`, not from a path on disk |
 | `color` | `CharField(max_length=7)` | Hex RGB (no `#`), used by the UI |
-| `filetype` | `IntegerField` | Numeric category from `settings.FTYPES` — legacy display grouping, not the runtime capability check (§1.1) |
+| `filetype` | `IntegerField` | Numeric category from `settings.FTYPES` — legacy display grouping, not the runtime capability check (Section 1.1) |
 | `mimetype` | `CharField` | Standard MIME type string |
-| `is_image` / `is_archive` / `is_pdf` / `is_movie` / `is_audio` / `is_dir` / `is_text` / `is_html` / `is_markdown` / `is_link` | `BooleanField` | Per-capability flags — the authoritative type discriminators at runtime (§1.1) |
+| `is_image` / `is_archive` / `is_pdf` / `is_movie` / `is_audio` / `is_dir` / `is_text` / `is_html` / `is_markdown` / `is_link` | `BooleanField` | Per-capability flags — the authoritative type discriminators at runtime (Section 1.1) |
 | `thumbnail` | `BinaryField` | Raw bytes of the fallback icon image, stored in the row |
 
 **Composite indexes (`Meta`):**
@@ -130,7 +133,7 @@ The single ORM model, keyed by `fileext`.
 | `filetypes_text_idx` | `is_text, is_html, is_markdown` | Text-content queries |
 
 Per-column indexes on the individual booleans were dropped once the table was confirmed
-to be fully memory-resident at startup (§1.2) — a single-column database index serves a
+to be fully memory-resident at startup (Section 1.2) — a single-column database index serves a
 query that never actually reaches the database.
 
 Every static lookup method below reads `get_ftype_dict()`, never the database directly.
@@ -211,7 +214,7 @@ after the table changes on disk.
 start) or `{}` (the empty-DB startup state, see below) — or when `force=True`. The
 reset of `_filetypes_dict` to `None` happens unconditionally once the decision to
 reload is made, then `get_ftype_dict()` repopulates it. This is the only way the
-in-memory copy is ever refreshed (§1.2).
+in-memory copy is ever refreshed (Section 1.2).
 
 Guarding on `not _filetypes_dict` rather than `_filetypes_dict is None` matters: the
 empty-DB startup path (`AppConfig.ready()` running against a test DB with no rows yet)
@@ -263,7 +266,7 @@ to `load_filetypes(force=True)`, and otherwise touches nothing at Django startup
 - **Auto-reload signals.** Any save or delete of a `filetypes` row — whether made
   through the admin, a script, or `refresh_filetypes` — runs `load_filetypes(force=True)`
   in whichever process performed the write, refreshing that process's in-memory dict
-  immediately (§1.2's cache-invalidation consequence). The signal fires per write, in the
+  immediately (Section 1.2's cache-invalidation consequence). The signal fires per write, in the
   process that made it; it does not reach into other already-running worker processes,
   which keep serving their own in-memory copy until they reload it themselves or restart.
 
@@ -300,7 +303,7 @@ browsing the registry by category.
 
 Saves and deletes made here go through the same `Model.save()` / `Model.delete()` path
 as any other write, so they trigger the `post_save`/`post_delete` reload signals wired
-in `apps.py` (§4.3) in the worker process handling the admin request.
+in `apps.py` (Section 4.3) in the worker process handling the admin request.
 
 ---
 
@@ -323,7 +326,7 @@ extensions).
 `update_or_create` means the command is safe to re-run at any time; existing rows are
 updated in place rather than duplicated. Each row it writes calls `Model.save()` (or
 `Model.objects.create()`) under the hood, which fires the same `post_save` signal an
-admin edit would (§4.3) — so the process running the command reloads its own in-memory
+admin edit would (Section 4.3) — so the process running the command reloads its own in-memory
 copy as it goes. What the command does not do is reach the in-memory copy held by an
 already-running server worker process; those workers only pick up the change through
 their own next write-triggered reload or a restart.
@@ -343,7 +346,7 @@ icon file's bytes on disk. Neither takes effect until this command runs.
 `refresh_filetypes` is what carries that list into the database.
 
 **Numeric category IDs (`FTYPES`)** — used only for the legacy `filetype` display
-grouping (§4.1), not for runtime capability checks:
+grouping (Section 4.1), not for runtime capability checks:
 
 | Key | ID | Notes |
 |---|---|---|
@@ -367,7 +370,7 @@ grouping (§4.1), not for runtime capability checks:
    `quickbbs_settings.py`.
 2. Run `python manage.py refresh_filetypes`.
 3. The row is inserted or updated, and the process running the command reloads its own
-   in-memory copy as it writes (§4.6); other already-running server workers see the
+   in-memory copy as it writes (Section 4.6); other already-running server workers see the
    change only on their own next write-triggered reload or a full restart.
 
 ---
@@ -383,7 +386,7 @@ ASGI event loop. Two paths reach it depending on server mode:
 | WSGI (runserver, gunicorn) | First request | `FiletypeLoaderMiddleware.__call__` calls `load_filetypes()` directly |
 | ASGI (uvicorn, hypercorn) | First request | `FiletypeLoaderMiddleware.__acall__` wraps it in `sync_to_async` |
 
-`apps.py`'s `ready()` deliberately does neither (§4.3) — both paths converge on the same
+`apps.py`'s `ready()` deliberately does neither (Section 4.3) — both paths converge on the same
 middleware-driven first-request load, so there is exactly one load path per worker
 regardless of server mode. Once loaded, every subsequent read is a plain dict access
 with no sync/async bridging involved.

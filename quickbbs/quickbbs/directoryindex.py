@@ -96,7 +96,7 @@ DIRECTORYINDEX_SR_FILETYPE_THUMB_PARENT = ("filetype", "thumbnail", "parent_dire
 DIRECTORYINDEX_SR_PARENT = ("parent_directory",)
 
 
-def _clear_directoryindex_cache(directories: list["DirectoryIndex"]) -> None:
+def _clear_directoryindex_cache(directories: list[DirectoryIndex]) -> None:
     """
     Clear directoryindex_cache entries for invalidated directories.
 
@@ -240,11 +240,11 @@ class DirectoryIndex(models.Model):
     )
     # Reverse relationships
     # From DirectoryIndex.parent_directory (self-referential)
-    parent_dir: "RelatedManager[DirectoryIndex]"
+    parent_dir: RelatedManager[DirectoryIndex]
     # From FileIndex.home_directory
-    FileIndex_entries: "RelatedManager[FileIndex]"
+    FileIndex_entries: RelatedManager[FileIndex]
     # From FileIndex.virtual_directory
-    Virtual_FileIndex: "RelatedManager[FileIndex]"
+    Virtual_FileIndex: RelatedManager[FileIndex]
 
     class Meta:
         """Model metadata: composite indexes for parent/SHA lookups and the trigram search index."""
@@ -262,7 +262,7 @@ class DirectoryIndex(models.Model):
         ]
 
     @staticmethod
-    def add_directory(fqpn_directory: str, thumbnail: bytes = b"") -> tuple[bool, "DirectoryIndex | None"]:  # pylint: disable=unused-argument
+    def add_directory(fqpn_directory: str, thumbnail: bytes = b"") -> tuple[bool, DirectoryIndex | None]:  # pylint: disable=unused-argument
         """
         Create a new directory entry or update the existing one.
 
@@ -528,7 +528,7 @@ class DirectoryIndex(models.Model):
             return False
 
     @staticmethod
-    def invalidate_caches(index_dirs: list["DirectoryIndex"]) -> bool:
+    def invalidate_caches(index_dirs: list[DirectoryIndex]) -> bool:
         """Invalidate the scan cache for multiple directories (batch path).
 
         Extracts the SHA256s and delegates to _invalidate_by_shas, which also
@@ -680,7 +680,7 @@ class DirectoryIndex(models.Model):
         return all_shas
 
     @staticmethod
-    def delete_directory_record(index_dir: "DirectoryIndex", cache_only: bool = False) -> None:
+    def delete_directory_record(index_dir: DirectoryIndex, cache_only: bool = False) -> None:
         """
         Delete the Directory_Index record and ensure cache cleanup.
 
@@ -790,21 +790,21 @@ class DirectoryIndex(models.Model):
         # Single aggregate query for ALL file counts by type
         file_aggregates = self.FileIndex_entries.filter(delete_pending=False).aggregate(
             total_files=Count("id"),
-            **{f"type_{ft[1:]}": Count("id", filter=Q(filetype__fileext=ft)) for ft in filetypes_dict.keys()},
+            **{f"type_{ft[1:]}": Count("id", filter=Q(filetype__fileext=ft)) for ft in filetypes_dict},
         )
 
         # Directory count (separate table, still needs its own query)
         dir_count = DirectoryIndex.objects.filter(parent_directory=self.pk, delete_pending=False).count()
 
         # Build result dictionary from aggregates
-        totals = {ft[1:]: file_aggregates.get(f"type_{ft[1:]}", 0) for ft in filetypes_dict.keys()}
+        totals = {ft[1:]: file_aggregates.get(f"type_{ft[1:]}", 0) for ft in filetypes_dict}
         totals["dir"] = dir_count
         totals["all_files"] = file_aggregates["total_files"]
 
         return totals
 
     @staticmethod
-    def search_for_directory_by_sha(sha_256: str) -> tuple[bool, "DirectoryIndex | None"]:
+    def search_for_directory_by_sha(sha_256: str) -> tuple[bool, DirectoryIndex | None]:
         """
         Return the database object matching the dir_fqpn_sha256.
 
@@ -844,7 +844,7 @@ class DirectoryIndex(models.Model):
         return result
 
     @staticmethod
-    def search_for_directory(fqpn_directory: str) -> tuple[bool, "DirectoryIndex | None"]:
+    def search_for_directory(fqpn_directory: str) -> tuple[bool, DirectoryIndex | None]:
         """
         Return the database object matching the fqpn_directory.
         Returns (False, None) when no matching directory exists.
@@ -866,7 +866,7 @@ class DirectoryIndex(models.Model):
         return DirectoryIndex.search_for_directory_by_sha(sha_256)
 
     @classmethod
-    def find_by_physical_path(cls, physical_path: str) -> "DirectoryIndex | None":
+    def find_by_physical_path(cls, physical_path: str) -> DirectoryIndex | None:
         """
         Locate the gallery directory for a physical (drive-level) path.
 
@@ -968,8 +968,8 @@ class DirectoryIndex(models.Model):
         sort: int,
         select_related: list[str],
         prefetch_related: list[str],
-        user: "AbstractBaseUser | AnonymousUser | None" = None,
-    ) -> "QuerySet[DirectoryIndex]":
+        user: AbstractBaseUser | AnonymousUser | None = None,
+    ) -> QuerySet[DirectoryIndex]:
         """
         Return directories matching the provided SHA256 list
 
@@ -1005,8 +1005,8 @@ class DirectoryIndex(models.Model):
         self,
         sort: int,
         additional_filters: dict[str, Any] | None = None,
-        user: "AbstractBaseUser | AnonymousUser | None" = None,
-    ) -> "QuerySet":
+        user: AbstractBaseUser | AnonymousUser | None = None,
+    ) -> QuerySet:
         """
         Return a values("pk") queryset of this directory's files, deduplicated by file_sha256.
 
@@ -1052,8 +1052,8 @@ class DirectoryIndex(models.Model):
         additional_filters: dict[str, Any] | None = None,
         fields_only: list[str] | tuple[str, ...] | None = None,
         select_related: list[str] | tuple[str, ...] | None = None,
-        user: "AbstractBaseUser | AnonymousUser | None" = None,
-    ) -> "QuerySet[FileIndex] | list[FileIndex]":
+        user: AbstractBaseUser | AnonymousUser | None = None,
+    ) -> QuerySet[FileIndex] | list[FileIndex]:
         """
         Return the files in the current directory
 
@@ -1149,7 +1149,7 @@ class DirectoryIndex(models.Model):
     @cached(
         distinct_files_cache, key=lambda self, sort=0, user=None: hashkey(self, sort, user.pk if user is not None and user.is_authenticated else None)
     )
-    def get_distinct_file_shas(self, sort: int = 0, user: "AbstractBaseUser | AnonymousUser | None" = None) -> list[str]:
+    def get_distinct_file_shas(self, sort: int = 0, user: AbstractBaseUser | AnonymousUser | None = None) -> list[str]:
         """
         Get distinct file SHA256s for this directory with caching.
 
@@ -1214,7 +1214,7 @@ class DirectoryIndex(models.Model):
     @cached(
         all_files_shas_cache, key=lambda self, sort=0, user=None: hashkey(self, sort, user.pk if user is not None and user.is_authenticated else None)
     )
-    def get_all_file_shas(self, sort: int = 0, user: "AbstractBaseUser | AnonymousUser | None" = None) -> list[str]:
+    def get_all_file_shas(self, sort: int = 0, user: AbstractBaseUser | AnonymousUser | None = None) -> list[str]:
         """
         Get all file SHA256s for this directory (duplicates included) with caching.
 
@@ -1299,8 +1299,8 @@ class DirectoryIndex(models.Model):
         fields_only: list[str] | tuple[str, ...] | None = None,
         select_related: list[str] | tuple[str, ...] | None = None,
         prefetch_related: list[str] | tuple[str, ...] | None = None,
-        user: "AbstractBaseUser | AnonymousUser | None" = None,
-    ) -> "QuerySet[DirectoryIndex]":
+        user: AbstractBaseUser | AnonymousUser | None = None,
+    ) -> QuerySet[DirectoryIndex]:
         """
         Return the directories in the current directory
 
@@ -1516,7 +1516,7 @@ class DirectoryIndex(models.Model):
                 # record.home_directory = self  # Already set in filedata dict
                 records_to_create.append(record)
 
-            except (OSError, IOError, ValueError, TypeError) as e:
+            except (OSError, ValueError, TypeError) as e:
                 logger.error("Error processing new file %s: %s", fs_entry, e)
                 continue
 
@@ -1587,7 +1587,7 @@ class DirectoryIndex(models.Model):
                     if db_dir_entry.lastmod != fs_stat.st_mtime:
                         db_dir_entry.lastmod = fs_stat.st_mtime
                         updated_records.append(db_dir_entry)
-                except (OSError, IOError) as e:
+                except OSError as e:
                     logger.error("Error checking directory %s: %s", db_dir_entry.fqpndirectory, e)
 
         if updated_records:
@@ -1838,10 +1838,10 @@ class DirectoryIndex(models.Model):
         for fs_entry in creation_fs_file_names_dict.values():
             if not fs_entry.is_dir():
                 fileext = fs_entry.suffix.lower() if fs_entry.suffix else ""
-                if fileext and fileext != ".":
-                    # Only batch non-link files (links are processed specially in process_filedata)
-                    if fileext not in [".link", ".alias"]:
-                        new_file_paths.append(str(fs_entry))
+                # Only batch non-link files (links are processed specially
+                # in process_filedata).
+                if fileext and fileext != "." and fileext not in (".link", ".alias"):
+                    new_file_paths.append(str(fs_entry))
 
         # Parallel SHA256 computation for new files
         new_sha_results = {}
@@ -1907,7 +1907,7 @@ def get_ordered_sibling_dirs(parent_pk: int, sort: int) -> list[tuple[str, str]]
     )
 
 
-def update_database_from_disk(directory_record: "DirectoryIndex") -> "DirectoryIndex | None":
+def update_database_from_disk(directory_record: DirectoryIndex) -> DirectoryIndex | None:
     """
     Update database entries to match filesystem state for a given directory.
 

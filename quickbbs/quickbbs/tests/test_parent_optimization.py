@@ -5,7 +5,6 @@ import shutil
 import tempfile
 
 import pytest
-from django.core.management import call_command
 from django.test import TestCase, override_settings
 
 from quickbbs.directoryindex import DIRECTORYINDEX_SR_PARENT

@@ -93,12 +93,7 @@ class GameSavesDatabase:
         is the whole reason this method exists apart from `read_game_save`.
         """
         del game_id
-        rows = (
-            self._saves()
-            .exclude(slot=QUICKSAVE_SLOT)
-            .order_by("slot")
-            .only("slot", "label", "turn_count", "updated_at")
-        )
+        rows = self._saves().exclude(slot=QUICKSAVE_SLOT).order_by("slot").only("slot", "label", "turn_count", "updated_at")
         return [
             {
                 "gamesave_slot": row.slot,

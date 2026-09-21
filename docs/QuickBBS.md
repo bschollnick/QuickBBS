@@ -1,6 +1,10 @@
 QuickBBS Gallery
 ================
 
+**Date Created:** 2025-10-19  
+**Last Updated:** 2026-09-20  
+**Last Reviewed:** 2026-09-20
+
 A high-performance Django-based gallery and file browser application with hybrid file system + database design.   
 
 ## Features
@@ -226,7 +230,8 @@ When that directory is next accessed (via the web) the cached data will be detec
 - **Smart Text Processing**: Handles text files, markdown, and HTML with size limits (1MB) and encoding detection
 - **Optimized Breadcrumb Generation**: Efficient breadcrumb building with list comprehensions
 
-Diagram source: [`request_flow_diagram.mmd`](request_flow_diagram.mmd)
+Diagram source: [`request_flow_diagram.mmd`](request_flow_diagram.mmd) — the
+file and the copy below are kept identical; edit the `.mmd` and paste it here.
 
 ```mermaid
 graph TD
@@ -353,10 +358,11 @@ The pagination, caching, and `sync_to_async` strategies used by this app are des
 
 **Key Components**:
 - **`settings.py`**: Main Django configuration with database caching and security settings
-- **`quickbbs_settings.py`**: Application-specific configuration (paths, image sizes, file mappings).  As of v4.00, user-tunable settings — including the in-memory cache sizes and the `ALIAS_MAPPING` override table — live here so they can be customized without touching core files.  Note the **"Here Be Dragons"** section: those settings are customizable but can have adverse effects if set incorrectly.
-- **`models.py`**: database models
-    - **FileIndex**: The database model for the Files in QuickBBS
-    - **DirectoryIndex**: The database model for the Directories in QuickBBS
+- **`quickbbs_settings.py`**: Application-specific configuration (paths, image sizes, file mappings).  As of v4.00, user-tunable settings — including the in-memory cache sizes — live here so they can be customized without touching core files.  The `ALIAS_MAPPING` override table lives in `secrets.py` instead, since its entries are machine-specific paths that must stay out of version control.  Note the **"Here Be Dragons"** section: those settings are customizable but can have adverse effects if set incorrectly.
+- **`fileindex.py`** / **`directoryindex.py`**: the two core database models
+    - **FileIndex** (`fileindex.py`): The database model for the Files in QuickBBS
+    - **DirectoryIndex** (`directoryindex.py`): The database model for the Directories in QuickBBS
+- **`models.py`**: the remaining shared models (`Owners`)
 - **`tasks.py`**: Background tasks (thumbnail generation, daily cleanup)
 - **URL Configuration**: Centralized routing for all application endpoints
 
@@ -369,7 +375,7 @@ Background work (thumbnail generation, daily cleanup) runs on **Django's built-i
 
 **Key Components**:
 - **`ThumbnailFiles` Model**: One record per unique file content (SHA256-indexed), holding all three thumbnail sizes as binary fields — duplicate files share a single record
-- **`thumbnail_engine.py`**: `FastImageProcessor` dispatcher that selects the best available backend for each file type:
+- **`engine/engine.py`**: `FastImageProcessor` dispatcher that selects the best available backend for each file type:
 	- **PDF**: PyMuPDF renders the first page (cross-platform); PDFKit is the optional macOS GPU-accelerated equivalent
 	- **Images**: PIL/Pillow (cross-platform); Core Image is the optional macOS GPU-accelerated equivalent
 	- **Video**: ffmpeg extracts a frame from the halfway point of the video (cross-platform); AVFoundation is the optional macOS in-process equivalent
@@ -388,14 +394,17 @@ QuickBBS uses HTMX-enabled endpoints for dynamic gallery interactions. All endpo
 - **`GET /albums/`** - Root gallery listing
 - **`GET /albums/{path}`** - Directory gallery view with pagination
 - **`GET /view_item/{sha256}/`** - Individual file viewer with metadata
+- **`GET /favorites/`** - The current user's favorited files and directories
+- **`POST /favorite/toggle/`** - Add or remove a favorite
+- **`GET /if/`** - Interactive Fiction application
 
 #### Search & Discovery
 - **`GET /search/?searchtext={query}&page={n}`** - File and directory search
 - **`GET /search/`** - Search interface (no query parameters)
 
 #### Media & Downloads
-- **`GET /thumbnail2_file/{sha256}`** - File thumbnail (small/medium/large)
-- **`GET /thumbnail2_directory/{dir_sha256}`** - Directory thumbnail
+- **`GET /thumbnail_file/{sha256}`** - File thumbnail (small/medium/large)
+- **`GET /thumbnail_directory/{dir_sha256}`** - Directory thumbnail
 - **`GET /download_file/?{params}`** - Direct file download with range support
 
 #### Reports & Preferences

@@ -7,13 +7,14 @@ import shutil
 import tempfile
 
 import pytest
-from django.test import SimpleTestCase
+from django.test import RequestFactory, SimpleTestCase
 
 from frontend.serve_up import (
     SizedFileWrapper,
     _parse_range_header,
     _safe_join,
     open_sized_file,
+    send_file_response,
 )
 
 pytestmark = pytest.mark.api
@@ -175,3 +176,100 @@ class TestOpenSizedFile(SimpleTestCase):
             assert wrapper.read() == b"x" * 42
         finally:
             wrapper.close()
+
+
+class TestRangedFileResponse(SimpleTestCase):
+    """Ranged downloads through `send_file_response`.
+
+    A media player asks for byte ranges rather than the whole file, so a
+    wrong offset or length here is a video that will not seek. These
+    drive the real response and read the bytes back, rather than testing
+    the header parser alone.
+    """
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.file_path = os.path.join(self.temp_dir, "clip.bin")
+        # 1024 bytes whose value at every offset is known, so a returned
+        # slice can be compared against the exact expected bytes.
+        self.data = bytes(range(256)) * 4
+        with open(self.file_path, "wb") as handle:
+            handle.write(self.data)
+        self.factory = RequestFactory()
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _send(self, range_header: str | None):
+        """Return the response for one request, with or without a Range."""
+        extra = {"HTTP_RANGE": range_header} if range_header else {}
+        return send_file_response(
+            "clip.bin",
+            open(self.file_path, "rb"),  # the response closes it
+            "application/octet-stream",
+            False,
+            request=self.factory.get("/media/clip.bin", **extra),
+        )
+
+    @staticmethod
+    def _body(response) -> bytes:
+        return b"".join(response.streaming_content)
+
+    def test_no_range_header_sends_the_whole_file(self):
+        """Without a Range header the response is an ordinary 200."""
+        response = self._send(None)
+        assert response.status_code == 200
+        assert self._body(response) == self.data
+
+    def test_a_leading_range_returns_exactly_those_bytes(self):
+        """`bytes=0-99` returns the first 100 bytes, not 99 or 101."""
+        response = self._send("bytes=0-99")
+        assert response.status_code == 206
+        assert response["Content-Range"] == f"bytes 0-99/{len(self.data)}"
+        assert response["Content-Length"] == "100"
+        assert self._body(response) == self.data[0:100]
+
+    def test_a_mid_file_range_returns_the_right_slice(self):
+        """A range starting inside the file seeks rather than re-reading."""
+        response = self._send("bytes=100-199")
+        assert response.status_code == 206
+        assert response["Content-Range"] == f"bytes 100-199/{len(self.data)}"
+        assert self._body(response) == self.data[100:200]
+
+    def test_an_open_ended_range_runs_to_the_end(self):
+        """`bytes=500-` sends everything from 500 onwards."""
+        response = self._send("bytes=500-")
+        assert response.status_code == 206
+        assert response["Content-Range"] == f"bytes 500-1023/{len(self.data)}"
+        assert self._body(response) == self.data[500:]
+
+    def test_a_suffix_range_returns_the_final_bytes(self):
+        """`bytes=-100` means the LAST 100 bytes, not the first 100."""
+        response = self._send("bytes=-100")
+        assert response.status_code == 206
+        assert response["Content-Range"] == f"bytes 924-1023/{len(self.data)}"
+        assert self._body(response) == self.data[-100:]
+
+    def test_a_single_byte_range_is_one_byte(self):
+        """`bytes=0-0` is a one-byte range, the form a player uses to probe."""
+        response = self._send("bytes=0-0")
+        assert response.status_code == 206
+        assert response["Content-Length"] == "1"
+        assert self._body(response) == self.data[0:1]
+
+    def test_a_range_past_the_end_is_refused(self):
+        """A range starting beyond the file answers 416, not 206."""
+        response = self._send("bytes=5000-6000")
+        assert response.status_code == 416
+
+    def test_a_ranged_response_advertises_range_support(self):
+        """`Accept-Ranges: bytes` is what tells a player it may seek."""
+        response = self._send("bytes=0-99")
+        assert response["Accept-Ranges"] == "bytes"
+
+    def test_the_ranges_reassemble_into_the_original_file(self):
+        """Consecutive ranges cover the file exactly once, with no gap or
+        overlap -- which is what a resumed download depends on."""
+        first = self._body(self._send("bytes=0-511"))
+        second = self._body(self._send("bytes=512-1023"))
+        assert first + second == self.data

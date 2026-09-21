@@ -39,14 +39,13 @@ def pytest_configure(config):
     # The database name at runtime during pytest must start with "test_".
     # We can't check the *active* connection name here (Django hasn't set it
     # up yet), but we can verify the TEST key is configured safely.
-    if db_name and not db_name.startswith("test_"):
-        if not test_name.startswith("test_"):
-            pytest.exit(
-                f"SAFETY ABORT: Configured test database name '{test_name}' does not "
-                f"start with 'test_'. Refusing to run tests to protect production data. "
-                f"Set DATABASES['default']['TEST']['NAME'] to a name starting with 'test_'.",
-                returncode=3,
-            )
+    if db_name and not db_name.startswith("test_") and not test_name.startswith("test_"):
+        pytest.exit(
+            f"SAFETY ABORT: Configured test database name '{test_name}' does not "
+            f"start with 'test_'. Refusing to run tests to protect production data. "
+            f"Set DATABASES['default']['TEST']['NAME'] to a name starting with 'test_'.",
+            returncode=3,
+        )
 
 
 def pytest_collection_modifyitems(config, items):

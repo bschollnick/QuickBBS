@@ -208,9 +208,7 @@ class CharacterCreationResubmitTests(TestCase):
         self.assertEqual(game.state["globals"]["player_name"], "Alice")
 
     def test_resubmitting_redirects_to_the_game_in_progress(self):
-        response = self.client.post(
-            f"/if/{self.story.slug}/new-game/submit/", {"player_name": "Bob"}, secure=True
-        )
+        response = self.client.post(f"/if/{self.story.slug}/new-game/submit/", {"player_name": "Bob"}, secure=True)
         self.assertRedirects(response, f"/if/{self.story.slug}/", fetch_redirect_response=False)
 
     def test_resubmitting_creates_no_second_game_row(self):
@@ -223,9 +221,7 @@ class CharacterCreationResubmitTests(TestCase):
         other_client = Client()
         other_client.force_login(other)
 
-        response = other_client.post(
-            f"/if/{self.story.slug}/new-game/submit/", {"player_name": "Carol"}, secure=True
-        )
+        response = other_client.post(f"/if/{self.story.slug}/new-game/submit/", {"player_name": "Carol"}, secure=True)
 
         self.assertEqual(response.status_code, 302)
         self.assertTrue(CurrentGame.objects.filter(user=other, story=self.story).exists())

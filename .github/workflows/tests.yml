@@ -1,0 +1,100 @@
+name: tests
+
+# Runs automatically on a push to main and on a pull request aimed at it.
+# `workflow_dispatch` also puts a "Run workflow" button in the Actions tab,
+# for re-running by hand without pushing a commit.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+
+    # The suite talks to a real PostgreSQL; settings.py names no other engine.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: quickbbs
+          POSTGRES_USER: quickbbs
+          POSTGRES_PASSWORD: quickbbs
+        ports:
+          - 5432:5432
+        # Steps start as soon as the container does, which is before
+        # PostgreSQL accepts connections; wait for it to answer.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      # pyproject.toml resolves ink-engine at ../interactive_fiction, so
+      # this repo is checked out into a subdirectory and ink_engine beside
+      # it, reproducing the sibling layout the path dependency expects.
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          path: Quickbbs
+
+      - name: Check out ink_engine beside it
+        uses: actions/checkout@v4
+        with:
+          repository: bschollnick/ink_engine
+          path: interactive_fiction
+
+      - name: Install Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Poetry
+        run: pipx install poetry
+
+      - name: Install dependencies
+        working-directory: Quickbbs
+        run: |
+          poetry lock
+          poetry install
+
+      # secrets.py is not committed, and settings.py raises without it.
+      - name: Write secrets.py for the test database
+        working-directory: Quickbbs
+        run: |
+          cat > quickbbs/quickbbs/secrets.py <<'EOF'
+          SECRET_KEY = "ci-only-not-a-real-key"
+          ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
+          INTERNAL_IPS = ["127.0.0.1"]
+          DATABASE_NAME = "quickbbs"
+          DATABASE_USER = "quickbbs"
+          DATABASE_PASSWORD = "quickbbs"
+          DATABASE_HOST = "localhost"
+          DATABASE_PORT = "5432"
+          EOF
+
+      - name: Apply migrations
+        working-directory: Quickbbs/quickbbs
+        run: poetry run python manage.py migrate
+
+      # The FileType table is populated from settings, not by a migration,
+      # so a fresh database has none until this runs.
+      - name: Populate the FileType table
+        working-directory: Quickbbs/quickbbs
+        run: poetry run python manage.py refresh_filetypes --refresh-filetypes
+
+      - name: Run the test suite
+        working-directory: Quickbbs/quickbbs
+        run: poetry run python -m pytest -q
+
+      # mypy (157 errors) and ruff (53 under E,F) do not pass on this repo
+      # yet, so neither gates a run. Add them as steps once each is clean;
+      # a step that cannot fail reports nothing.

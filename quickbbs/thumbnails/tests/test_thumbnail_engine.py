@@ -158,12 +158,14 @@ class TestWhitecheckGate(TestCase):
         cross-platform backend, and the retry's output is stored."""
         white_result = {"small": self.white, "medium": self.white, "large": self.white}
         normal_result = {"small": self.normal, "medium": self.normal, "large": self.normal}
-        with mock.patch(
-            "thumbnails.models.create_thumbnails_from_path",
-            side_effect=[white_result, normal_result],
-        ) as generator:
-            with self.assertLogs("thumbnails.models", level="WARNING") as captured:
-                thumbnail = self._generate()
+        with (
+            mock.patch(
+                "thumbnails.models.create_thumbnails_from_path",
+                side_effect=[white_result, normal_result],
+            ) as generator,
+            self.assertLogs("thumbnails.models", level="WARNING") as captured,
+        ):
+            thumbnail = self._generate()
 
         assert generator.call_count == 2
         assert generator.call_args_list[1].kwargs["backend"] == "image"

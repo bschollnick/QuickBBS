@@ -117,12 +117,12 @@ class cache_startup(AppConfig):
             lock_fd.flush()
             atexit.register(self._cleanup_lock, lock_fd, lock_file_path)
             logger.info("Acquired watchdog lock (PID %s) - production server worker", os.getpid())
-        except (IOError, OSError, BlockingIOError) as e:
+        except (OSError, BlockingIOError) as e:
             logger.warning("Failed to acquire lock file: %s", e)
             if lock_fd is not None:
                 try:
                     lock_fd.close()
-                except (IOError, OSError, AttributeError) as close_error:
+                except (OSError, AttributeError) as close_error:
                     logger.debug("Failed to close lock file: %s", close_error)
             logger.info("Watchdog already running in another worker (PID %s) - skipping", os.getpid())
 

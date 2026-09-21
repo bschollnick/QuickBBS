@@ -97,7 +97,7 @@ class VideoBackend(AbstractBackend):
             Dictionary mapping size names to thumbnail bytes.
         """
         with Image.open(io.BytesIO(image_bytes)) as img:
-            return self._process_pil_image(img, sizes, output_format, quality)
+            return self._image_backend._process_pil_image(img, sizes, output_format, quality)
 
     def process_data(
         self,
@@ -119,7 +119,7 @@ class VideoBackend(AbstractBackend):
             Dictionary mapping size names to thumbnail bytes.
         """
         img_copy = pil_image.copy()
-        return self._process_pil_image(img_copy, sizes, output_format, quality)
+        return self._image_backend._process_pil_image(img_copy, sizes, output_format, quality)
 
 
 def _generate_thumbnail_to_pil(

@@ -149,7 +149,7 @@ def resolve_tag_in_bundle(story_path: Path, kind: str, tag: str) -> str | None:
     """Resolve one media tag to a path inside the bundle.
 
     The game's own `image_resolver.resolve_tag()` decides, so the rules
-    live with the game and one fix reaches both hosts. A game shipping no
+    live with the game and one fix reaches both applications. A game shipping no
     resolver answers its tags literally.
 
     Args:
@@ -172,7 +172,7 @@ def resolve_tag_in_bundle(story_path: Path, kind: str, tag: str) -> str | None:
 
 
 #: Extension -> content type for what a game ships. `mimetypes` alone
-#: answers None for several of these depending on the host's own registry.
+#: answers None for several of these depending on the application's own registry.
 _CONTENT_TYPES = {
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",

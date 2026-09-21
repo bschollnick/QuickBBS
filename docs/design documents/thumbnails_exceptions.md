@@ -1,8 +1,11 @@
 # thumbnails — Exception Taxonomy
 
+**Date Created:** 2026-08-07  
+**Last Updated:** 2026-09-19  
+**Last Reviewed:** 2026-09-19
+
 **Companion to:** [`thumbnails_design.md`](thumbnails_design.md)
 **Author:** Benjamin Schollnick
-**Last Updated:** 2026-08-07
 
 ---
 
@@ -15,7 +18,7 @@ backend modules, where each is caught, and the two exceptions consumed cross-app
 [`quickbbs`](quickbbs_exceptions.md) — see
 [`high_level_exception_flow.md`](high_level_exception_flow.md) for that full picture.
 Verified directly against `thumbnails/exceptions.py`, `thumbnails/models.py`,
-`thumbnails/views.py`, `thumbnails/thumbnail_engine.py`, and every backend module
+`thumbnails/views.py`, `thumbnails/engine/engine.py`, and every backend module
 (`core_image_thumbnails.py`, `pdfkit_thumbnails.py`, `pdf_thumbnails.py`,
 `avfoundation_video_thumbnails.py`, `video_thumbnails.py`).
 
@@ -66,8 +69,8 @@ requested page (`:121`), render failed (`:140`), TIFF representation failed
 unsupported output format in
 [`core_image_thumbnails.py`](thumbnails_design.md#47-core_image_thumbnailspy--coreimagebackend)
 (`:416`); an unrecognized backend-type selector in
-[`FastImageProcessor._create_backend`](thumbnails_design.md#43-thumbnail_enginepy--fastimageprocessor)
-(`thumbnail_engine.py:239`); an unsupported image format in the ffmpeg backend
+[`FastImageProcessor._create_backend`](thumbnails_design.md#43-engineenginepy)
+(`engine/engine.py:248`); an unsupported image format in the ffmpeg backend
 (`video_thumbnails.py:323`).
 
 **`OrphanedThumbnail`** — `thumbnails/models.py:393`, inside
@@ -97,7 +100,7 @@ except Exception as e:  # TODO: narrow once thumbnail backend exception
     # logger.exception (full traceback).
 ```
 
-**`send_thumbnail`** (`models.py:740`) catches `(AttributeError, ObjectDoesNotExist)`
+**`send_thumbnail`** (`models.py:662`) catches `(AttributeError, ObjectDoesNotExist)`
 around a reverse `FileIndex` relation lookup — logs at DEBUG and continues with
 `index_data_item=None` rather than failing the whole thumbnail request over a missing
 optional lookup.
@@ -143,7 +146,7 @@ gallery.")`. The same two exceptions are also caught, independently, by
 [`high_level_exception_flow.md`](high_level_exception_flow.md) for the comparison.
 
 **Backend-availability probing** — `FastImageProcessor._create_backend`
-(`thumbnail_engine.py:233`) catches `(ImportError, RuntimeError, OSError)` around
+(`engine/engine.py:310`) catches `(ImportError, RuntimeError, OSError)` around
 importing `CoreImageBackend` for the `"auto"` backend-type selector on Apple Silicon;
 on failure it silently falls through to the cross-platform PIL backend rather than
 raising. This is an availability probe, not error recovery from a real failure.
@@ -156,7 +159,7 @@ raising. This is an availability probe, not error recovery from a real failure.
   `OrphanedFileIndex` catch in `thumbnail_file` and at its `(AttributeError,
   IndexError)` catch, as described above.
 - **`ImportError`** — used throughout the backend-detection code purely as an
-  availability probe (e.g. `thumbnail_engine.py`'s "Core Image backend not
+  availability probe (e.g. `engine/engine.py`'s "Core Image backend not
   available," and the numerous `except ImportError` guards around optional
   native-framework imports in `core_image_thumbnails.py`, `pdfkit_thumbnails.py`,
   `avfoundation_video_thumbnails.py`, `video_thumbnails.py`, `pil_thumbnails.py`) — this

@@ -1,8 +1,11 @@
 # filetypes — Entity-Relationship Diagram
 
+**Date Created:** 2026-08-07  
+**Last Updated:** 2026-09-20  
+**Last Reviewed:** 2026-09-20
+
 **Companion to:** [`filetypes_design.md`](filetypes_design.md)
 **Author:** Benjamin Schollnick
-**Last Updated:** 2026-08-07
 
 ---
 
@@ -19,8 +22,8 @@ participant with outgoing foreign keys of its own. Verified against
 
 ```mermaid
 erDiagram
-    filetypes ||--o{ DirectoryIndex : "referenced by DirectoryIndex.filetype (CASCADE)"
-    filetypes ||--o{ FileIndex : "referenced by FileIndex.filetype (CASCADE)"
+    filetypes ||--o{ DirectoryIndex : "referenced by DirectoryIndex.filetype (DB_CASCADE)"
+    filetypes ||--o{ FileIndex : "referenced by FileIndex.filetype (DB_CASCADE)"
 
     filetypes {
         string fileext PK "e.g. '.jpg', '.dir', '.none' — always lowercase"
@@ -56,6 +59,10 @@ erDiagram
 ---
 
 ## Reading the diagram
+**On the `DB_` prefix:** every foreign key in this schema uses `models.DB_CASCADE`
+or `models.DB_SET_NULL` — DB-enforced `ON DELETE` constraints that require Django
+6.1 or newer, not the app-level `models.CASCADE`/`models.SET_NULL`.
+
 
 **One row per registered extension, keyed by the extension itself.** `fileext` is the
 primary key — there's no separate surrogate ID a lookup has to go through.
@@ -67,9 +74,9 @@ foreign key `to_field="fileext"` rather than the usual implicit PK, so the FK co
 **No foreign keys point out of this table.** `filetypes` is a small, mostly-static
 lookup table (seeded by `manage.py refresh_filetypes`) loaded once into a module-level
 dict at startup and served from memory thereafter
-([`filetypes_design.md` §1.2](filetypes_design.md#12-the-registry-is-read-constantly-and-changes-almost-never))
+([`filetypes_design.md` Section 1.2](filetypes_design.md#12-the-registry-is-read-constantly-and-changes-almost-never))
 — every lookup elsewhere in the codebase reads that dict, never the database directly.
-The `CASCADE` on both incoming foreign keys means deleting a `filetypes` row would
+The `DB_CASCADE` on both incoming foreign keys means deleting a `filetypes` row would
 delete every `DirectoryIndex`/`FileIndex` row that references it, which is why
 extensions are retired by unregistering them, not by deleting rows out from under
 live data.

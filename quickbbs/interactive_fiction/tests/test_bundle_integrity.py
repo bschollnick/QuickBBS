@@ -216,7 +216,7 @@ class PluginDeniedScreenTests(TestCase):
         )
 
         html = plugin_denied_html(self.story)
-        self.assertIn("world is empty", html, "the game's own screen should be used, not the host fallback")
+        self.assertIn("world is empty", html, "the game's own screen should be used, not the application fallback")
         self.assertIn("<table>", html)
 
     def test_a_games_html_is_escaped(self):

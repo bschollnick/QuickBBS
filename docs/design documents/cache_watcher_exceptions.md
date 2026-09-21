@@ -1,8 +1,11 @@
 # cache_watcher — Exception Taxonomy
 
+**Date Created:** 2026-08-07  
+**Last Updated:** 2026-09-19  
+**Last Reviewed:** 2026-09-19
+
 **Companion to:** [`cache_watcher_design.md`](cache_watcher_design.md)
 **Author:** Benjamin Schollnick
-**Last Updated:** 2026-08-07
 
 ---
 

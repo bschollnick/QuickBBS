@@ -23,6 +23,7 @@ from interactive_fiction.ingestion import (
 from interactive_fiction.models import Story
 from interactive_fiction.tests.bundle_fixtures import write_bundle
 
+
 class BundleIngestionTestCase(TestCase):
     """Each test ingests a synthetic bundle into a temp games root."""
 
@@ -207,7 +208,9 @@ class VerifyBundleStoriesTests(BundleIngestionTestCase):
     """
 
     def test_an_ingested_bundle_survives_a_verify_pass(self):
-        from interactive_fiction.ingestion import verify_stories  # pylint: disable=import-outside-toplevel
+        from interactive_fiction.ingestion import (
+            verify_stories,  # pylint: disable=import-outside-toplevel
+        )
 
         bundle = self._place_bundle()
         _ingest_one_bundle(self.owner, bundle)
@@ -223,7 +226,9 @@ class VerifyBundleStoriesTests(BundleIngestionTestCase):
     def test_a_bundle_that_really_vanished_is_tombstoned(self):
         """The check still has to work: a deleted bundle is a real
         tombstone, not something to skip past."""
-        from interactive_fiction.ingestion import verify_stories  # pylint: disable=import-outside-toplevel
+        from interactive_fiction.ingestion import (
+            verify_stories,  # pylint: disable=import-outside-toplevel
+        )
 
         bundle = self._place_bundle()
         _ingest_one_bundle(self.owner, bundle)

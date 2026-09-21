@@ -1,8 +1,11 @@
 # frontend — Entity-Relationship Diagram
 
+**Date Created:** 2026-08-11  
+**Last Updated:** 2026-09-19  
+**Last Reviewed:** 2026-09-19
+
 **Companion to:** [`frontend_design.md`](frontend_design.md)
 **Author:** Benjamin Schollnick
-**Last Updated:** 2026-08-07
 
 ---
 
@@ -70,5 +73,5 @@ for the models themselves.
 on a gallery visit (`_find_directory()` in `views.py`) — frontend causes rows to be
 created/updated, but the model and the rules for what makes a row valid belong
 entirely to `quickbbs`
-([§1.1](quickbbs_app_design.md#11-the-filesystem-is-the-source-of-truth-the-database-is-a-cache),
+([Section 1.1](quickbbs_app_design.md#11-the-filesystem-is-the-source-of-truth-the-database-is-a-cache),
 "the filesystem is the source of truth").

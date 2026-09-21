@@ -1,6 +1,10 @@
 Screenshots
 ===========
 
+**Date Created:** 2026-08-11  
+**Last Updated:** 2026-09-20  
+**Last Reviewed:** 2026-09-20
+
 A tour of QuickBBS's gallery UI, PDF handling, and video playback.
 
 ## Filetype color legend
@@ -8,7 +12,7 @@ A tour of QuickBBS's gallery UI, PDF handling, and video playback.
 Every gallery cell is tinted by its filetype, so you can tell at a glance what
 you're looking at before the thumbnail even loads. The color comes from the
 `color` field on the matching `filetypes` row and is applied as a CSS custom
-property per cell (`templates/macros/gallery.jinja`).
+property per cell — `--item-bg-color` in `templates/macros/gallery.jinja`.
 
 These colors are **not hardcoded** — they're just the defaults seeded by
 `python manage.py refresh_filetypes` (see `filetypes/management/commands/refresh_filetypes.py`).
@@ -22,8 +26,8 @@ the configuration lives.
 | Color | Default hex | Applies to |
 |---|---|---|
 | ![#DAEFF5](https://placehold.co/60x20/DAEFF5/DAEFF5.png) | `#DAEFF5` | Directories |
-| ![#FAEBF4](https://placehold.co/60x20/FAEBF4/FAEBF4.png) | `#FAEBF4` | Images / graphics, text files |
-| ![#FDEDB1](https://placehold.co/60x20/FDEDB1/FDEDB1.png) | `#FDEDB1` | PDFs, links, EPUBs |
+| ![#FAEBF4](https://placehold.co/60x20/FAEBF4/FAEBF4.png) | `#FAEBF4` | Images / graphics, text files, markdown |
+| ![#FDEDB1](https://placehold.co/60x20/FDEDB1/FDEDB1.png) | `#FDEDB1` | PDFs, links, EPUBs, Ink stories (`.ink`, `.inkj`) |
 | ![#CCCCCC](https://placehold.co/60x20/CCCCCC/CCCCCC.png) | `#CCCCCC` | Movies, audio |
 | ![#B2DECE](https://placehold.co/60x20/B2DECE/B2DECE.png) | `#B2DECE` | Archives |
 | ![#FEF7DF](https://placehold.co/60x20/FEF7DF/FEF7DF.png) | `#FEF7DF` | HTML files |

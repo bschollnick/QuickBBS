@@ -3,8 +3,10 @@
 # pylint: disable=no-name-in-module  # pyobjc uses dynamic imports
 
 import traceback
-from functools import lru_cache
 from pathlib import Path
+
+from cachetools import cached
+from django.conf import settings
 
 # Try to import PDFKit (part of Quartz) and related macOS frameworks
 try:
@@ -15,9 +17,13 @@ try:
 except ImportError:
     PDFKIT_AVAILABLE = False
 
+from quickbbs.MonitoredCache import create_cache
+
 from .base import AbstractBackend
 from .core_image_thumbnails import CoreImageBackend, autorelease_pool
 from .exceptions import PDFProcessingError
+
+_scale_cache = create_cache(settings.PDFKIT_SCALE_CACHE_SIZE, "pdfkit_scale", monitored=settings.CACHE_MONITORING)
 
 
 class PDFKitBackend(AbstractBackend):
@@ -67,7 +73,7 @@ class PDFKitBackend(AbstractBackend):
         self._image_backend = CoreImageBackend()
 
     @staticmethod
-    @lru_cache(maxsize=500)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
+    @cached(_scale_cache)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
     def _calculate_optimal_scale(page_width: float, page_height: float, target_width: int, target_height: int) -> float:
         """Calculate the optimal scale to render a PDF page at a target size.
 

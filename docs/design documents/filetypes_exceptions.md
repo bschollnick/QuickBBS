@@ -1,8 +1,11 @@
 # filetypes — Exception Taxonomy
 
+**Date Created:** 2026-08-10  
+**Last Updated:** 2026-09-19  
+**Last Reviewed:** 2026-09-19
+
 **Companion to:** [`filetypes_design.md`](filetypes_design.md)
 **Author:** Benjamin Schollnick
-**Last Updated:** 2026-08-10
 
 ---
 
@@ -80,10 +83,10 @@ states it raises `KeyError` if the extension isn't registered — its implementa
 a bare dict lookup, `get_ftype_dict()[fileext]`. In practice this path is defensive
 rather than a real error path a caller needs to handle: both call sites that matter —
 `DirectoryIndex.add_directory()`
-([`quickbbs_app_design.md` §4.2](quickbbs_app_design.md#42-directoryindexpy--directoryindex))
+([`quickbbs_app_design.md` Section 4.2](quickbbs_app_design.md#42-directoryindexpy--directoryindex))
 passing the literal, always-registered `.dir` extension, and
 `FileIndex.from_filesystem()`
-([§4.3](quickbbs_app_design.md#43-fileindexpy--fileindex)) passing a filesystem-derived
+([Section 4.3](quickbbs_app_design.md#43-fileindexpy--fileindex)) passing a filesystem-derived
 extension — either use a hardcoded, known-good value or are guarded beforehand by
 [`filetype_exists_by_ext(fileext)`](filetypes_design.md#filetype_exists_by_extfileext)
 (`fileindex.py:579`, checked immediately before `return_filetype()` is called at

@@ -1,8 +1,11 @@
 # thumbnails — Entity-Relationship Diagram
 
+**Date Created:** 2026-08-07  
+**Last Updated:** 2026-09-20  
+**Last Reviewed:** 2026-09-20
+
 **Companion to:** [`thumbnails_design.md`](thumbnails_design.md)
 **Author:** Benjamin Schollnick
-**Last Updated:** 2026-08-07
 
 ---
 
@@ -19,7 +22,7 @@ foreign key from its own side. Verified against `thumbnails/models.py` and
 
 ```mermaid
 erDiagram
-    ThumbnailFiles ||--o{ FileIndex : "referenced by FileIndex.new_ftnail (SET_NULL)"
+    ThumbnailFiles ||--o{ FileIndex : "referenced by FileIndex.new_ftnail (DB_SET_NULL)"
 
     ThumbnailFiles {
         int id PK
@@ -39,13 +42,17 @@ erDiagram
 ---
 
 ## Reading the diagram
+**On the `DB_` prefix:** every foreign key in this schema uses `models.DB_CASCADE`
+or `models.DB_SET_NULL` — DB-enforced `ON DELETE` constraints that require Django
+6.1 or newer, not the app-level `models.CASCADE`/`models.SET_NULL`.
+
 
 **The join key is a content hash, not a row-to-row foreign key from the source side.**
 [`ThumbnailFiles`](thumbnails_design.md#410-modelspy--thumbnailfiles)`.sha256_hash` is
 the SHA256 of the file's *content*, matching `FileIndex.file_sha256` — not
 `FileIndex.id` or `FileIndex.unique_sha256`. That's what lets every duplicate copy of
 a file across the whole collection
-([§1.3](quickbbs_app_design.md#13-identical-files-are-the-same-file) of
+([Section 1.3](quickbbs_app_design.md#13-identical-files-are-the-same-file) of
 `quickbbs_app_design.md`) share exactly one `ThumbnailFiles` row: they all carry the
 same `file_sha256`, so `get_or_create_thumbnail_record()` finds and reuses the same
 row for every one of them, regardless of how many directories the file appears in.
@@ -56,6 +63,6 @@ live on the same row rather than three separate rows or a size column — a sing
 
 **[`FileIndex`](quickbbs_erd.md)`.new_ftnail` is the only pointer between the two
 models, and it's nullable.** A `FileIndex` row with no thumbnail generated yet (or a
-non-thumbnailable filetype) simply has `new_ftnail = None`; `SET_NULL` means deleting
+non-thumbnailable filetype) simply has `new_ftnail = None`; `DB_SET_NULL` means deleting
 a `ThumbnailFiles` row un-links every `FileIndex` row pointing at it rather than
 cascading the delete.

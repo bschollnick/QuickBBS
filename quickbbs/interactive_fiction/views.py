@@ -34,6 +34,7 @@ from django.template.loader import render_to_string
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 from if_session import session_state
+from if_session.character_creation import answers_to_globals
 from if_session.game_saves import has_quicksave
 
 from ink_engine.engine import (
@@ -104,7 +105,7 @@ def _new_game_state(story: Story, engine_state: dict[str, Any], initial_globals:
 
 
 def _start_new_game(
-    user: "AbstractUser", story: Story, initial_globals: dict[str, Any] | None = None
+    user: AbstractUser, story: Story, initial_globals: dict[str, Any] | None = None
 ) -> tuple[InkRuntimeState, list[dict[str, object]]]:
     """Build a fresh game for (user, story) and persist it as CurrentGame.
 
@@ -139,79 +140,6 @@ def _start_new_game(
         },
     )
     return state, transcript
-
-
-def _resolve_radio_image_choice(field: dict[str, Any], post_data: dict[str, str]) -> dict[str, Any]:
-    """Resolve one submitted `radio_image` field to its chosen `value` dict.
-
-    Args:
-        field: The field's own manifest entry (`options`, `default`).
-        post_data: The submitted form data, keyed by the field's own
-            `var` name.
-
-    Returns:
-        The chosen option's own `value` dict (e.g.
-        `{"player_gender": "futa"}`), or an empty dict if the field
-        declares no options at all.
-    """
-    options = field.get("options", [])
-    submitted_index = post_data.get(field["var"])
-    if submitted_index is not None and submitted_index.isdigit() and int(submitted_index) < len(options):
-        return dict(options[int(submitted_index)]["value"])
-    default_option = next((opt for opt in options if opt["value"] == field.get("default")), options[0] if options else None)
-    return dict(default_option["value"]) if default_option is not None else {}
-
-
-def _character_creation_globals(story: Story, post_data: dict[str, str], base_globals: dict[str, Any]) -> dict[str, Any]:
-    """Resolve one submitted character-creation form into real Ink globals.
-
-    Args:
-        story: The story whose `game_new_game_fields` describes the form
-            that was submitted.
-        post_data: The submitted form data (`request.POST`), keyed by
-            each field's own `var` name.
-        base_globals: The compiled story's own already-initialized VAR
-            defaults (a fresh `InkRuntimeState.globals`, built before
-            calling `continue_story()`) — read by an `add_to` checkbox
-            field (e.g. a lottery-cash bonus) so it adds to the story's
-            REAL declared starting value, not a guessed `0`, in case a
-            future field ever changes the base value first.
-
-    Returns:
-        Every Ink global to set before the story's first turn: each
-        field's own chosen value (a `radio_image` field's `value` is
-        itself a dict of `{var_name: value}` pairs, merged in directly).
-        A missing/invalid submission for a field falls back to that
-        field's own declared `default`.
-    """
-    result: dict[str, Any] = {}
-    additive_fields: list[dict[str, Any]] = []
-    for field in story.game_new_game_fields:
-        var_name = field["var"]
-        field_type = field["type"]
-        if field_type == "text":
-            result[var_name] = post_data.get(var_name, field.get("default", ""))
-        elif field_type == "radio_image":
-            result.update(_resolve_radio_image_choice(field, post_data))
-        elif field_type == "checkbox":
-            submitted = post_data.get(var_name)
-            checked = submitted == "on" if submitted is not None else bool(field.get("default", False))
-            if "add_to" in field:
-                # Deferred until every other field's own value is resolved
-                # (see below) so an additive field can add to a base value
-                # another field just set, not just the manifest's own
-                # static default.
-                additive_fields.append({"checked": checked, "add_to": field["add_to"]})
-                continue
-            result[var_name] = checked
-            for linked_var, value_map in field.get("linked_vars", {}).items():
-                result[linked_var] = value_map[str(checked)]
-    for additive in additive_fields:
-        if not additive["checked"]:
-            continue
-        for target_var, amount in additive["add_to"].items():
-            result[target_var] = result.get(target_var, base_globals.get(target_var, 0)) + amount
-    return result
 
 
 def _get_accessible_story(request: WSGIRequest, slug: str, *, defer_compiled: bool = False) -> Story | HttpResponse:
@@ -307,7 +235,7 @@ def character_creation_submit(request: WSGIRequest, slug: str) -> HttpResponse:
     # so an "add_to" checkbox field can add to the ACTUAL declared
     # default rather than guessing 0.
     base_globals = InkRuntimeState(load_story_root(story.compiled_json, full_build=False), load_list_defs(story.compiled_json)).globals
-    initial_globals = _character_creation_globals(story, request.POST, base_globals)
+    initial_globals = answers_to_globals(story.game_new_game_fields, request.POST, story_defaults=base_globals)
     _start_new_game(request.user, story, initial_globals=initial_globals)
     return redirect("if_play", slug=story.slug)
 
@@ -552,7 +480,7 @@ def _append_transcript_entry(transcript: list[dict[str, object]], text: str, cho
     return session_state.append_transcript_entry(transcript, text, chosen_label, cap=settings.MAX_TRANSCRIPT_TURNS)
 
 
-def _story_play_statuses(user: "AbstractUser | AnonymousUser", stories: list[Story]) -> dict[int, str]:
+def _story_play_statuses(user: AbstractUser | AnonymousUser, stories: list[Story]) -> dict[int, str]:
     """Classify each story's play state for the given user.
 
     Reads straight from CurrentGame.state's JSON rather than reconstructing

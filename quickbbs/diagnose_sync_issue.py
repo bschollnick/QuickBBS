@@ -8,14 +8,13 @@ This simulates the sync process to identify what's causing the issue.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "quickbbs.settings")
 
 import django
 
 django.setup()
-
-from pathlib import Path
 
 from quickbbs.common import normalize_string_title
 from quickbbs.directoryindex import DirectoryIndex
@@ -40,12 +39,7 @@ def analyze_sync_for_directory(fqpn: str):
     print()
 
     # Get DB files
-    db_files = list(
-        FileIndex.objects.filter(
-            home_directory=directory.pk,
-            delete_pending=False
-        ).values_list("name", flat=True)
-    )
+    db_files = list(FileIndex.objects.filter(home_directory=directory.pk, delete_pending=False).values_list("name", flat=True))
 
     print(f"Files in database: {len(db_files)}")
     print()
@@ -114,7 +108,7 @@ def analyze_sync_for_directory(fqpn: str):
                 print(f"  '{name}'")
                 # Check if case variation exists in DB
                 if name.lower() in db_names_lower_set:
-                    db_name = [n for n in db_files if n.lower() == name.lower()][0]
+                    db_name = next(n for n in db_files if n.lower() == name.lower())
                     print(f"    → DB has: '{db_name}' (case mismatch!)")
             if len(fs_file_names_for_creation) > 20:
                 print(f"  ... and {len(fs_file_names_for_creation) - 20} more")
@@ -137,7 +131,7 @@ def analyze_sync_for_directory(fqpn: str):
             for db_name, fs_name in case_mismatches[:20]:
                 print(f"  DB: '{db_name}'")
                 print(f"  FS: '{fs_name}'")
-                print(f"  → These MATCH (case-insensitive), should UPDATE not DELETE/CREATE")
+                print("  → These MATCH (case-insensitive), should UPDATE not DELETE/CREATE")
                 print()
             if len(case_mismatches) > 20:
                 print(f"  ... and {len(case_mismatches) - 20} more")
@@ -148,6 +142,7 @@ def analyze_sync_for_directory(fqpn: str):
     except Exception as e:
         print(f"Error scanning filesystem: {e}")
         import traceback
+
         traceback.print_exc()
 
 
@@ -169,12 +164,7 @@ def find_directories_with_issues():
                 continue
 
             # Get DB files
-            db_files = list(
-                FileIndex.objects.filter(
-                    home_directory=directory.pk,
-                    delete_pending=False
-                ).values_list("name", flat=True)
-            )
+            db_files = list(FileIndex.objects.filter(home_directory=directory.pk, delete_pending=False).values_list("name", flat=True))
 
             if not db_files:
                 continue
@@ -189,16 +179,13 @@ def find_directories_with_issues():
 
             # Files that match case-insensitively but not exactly
             matching_lower = db_names_lower_set & fs_names_lower_set
-            case_mismatches = sum(
-                1 for db_name in db_files
-                if db_name.lower() in matching_lower
-                and db_name not in fs_file_names
-            )
+            case_mismatches = sum(1 for db_name in db_files if db_name.lower() in matching_lower and db_name not in fs_file_names)
 
             if case_mismatches > 0:
                 problematic_dirs.append((directory.fqpndirectory, case_mismatches, len(db_files)))
 
-        except Exception:
+        except Exception as error:  # noqa: BLE001  (a diagnostic scan reports and moves on)
+            print(f"  skipped {directory.fqpndirectory}: {type(error).__name__}: {error}")
             continue
 
     if problematic_dirs:

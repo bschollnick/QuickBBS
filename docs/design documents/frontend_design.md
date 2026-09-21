@@ -2,7 +2,10 @@
 
 **Version:** 4.16  
 **Author:** Benjamin Schollnick  
-**Last Updated:** 2026-08-07
+
+**Date Created:** 2026-08-11  
+**Last Updated:** 2026-09-19  
+**Last Reviewed:** 2026-09-19
 
 **See also:** [`frontend_erd.md`](frontend_erd.md) for the entity-relationship diagram;
 [`frontend_exceptions.md`](frontend_exceptions.md) for the exception taxonomy.
@@ -99,7 +102,7 @@ cleaned up.
   maintenance are explicit goals, not afterthoughts.
 - **Content arrives however you already put files somewhere.** SFTP, FTP, Samba, a
   file manager, a sync tool — the gallery does not care. It reads what is on disk
-  (§1.1), so any means of getting files there works and none is privileged.
+  (Section 1.1), so any means of getting files there works and none is privileged.
 - **Format-agnostic.** Broad file-format support is a deliberate goal, inherited from
   the project's BBS lineage — a bulletin board served whatever people brought to it.
 - **Cross-platform.** The server runs on macOS, Windows, and Linux; the client is any
@@ -137,7 +140,7 @@ individual item is intended to preserve where you were.
 
 ### 1.6 Read-only keeps the threat model small
 
-Because the gallery only reads the albums tree and accepts no uploads (§1.1), the
+Because the gallery only reads the albums tree and accepts no uploads (Section 1.1), the
 realistic risks today are **hardware failure** and **someone gaining filesystem access
 they should not have** — not attacks arriving through the application. There is no
 write path for a request to abuse.
@@ -146,7 +149,7 @@ This is partly *why* uploads do not exist yet. Accepting them means introducing
 per-file ownership and the controls that let each owner manage their own files without
 touching anyone else's. That is a question of scale and correctness, not of effort, and
 it is deferred until it can be done properly. Adding uploads therefore also means
-revisiting this principle and §1.1's derivable-data rule together.
+revisiting this principle and Section 1.1's derivable-data rule together.
 
 None of that excuses careless input handling. Requests still carry untrusted data —
 paths, search terms, filenames destined for headers — and every one of those is
@@ -620,7 +623,7 @@ moving between items in one directory typically issues no queries at all.
 Returns `HttpResponseBadRequest` when no SHA is provided or no matching `FileIndex`
 row exists.
 
-**Duplicate-aware navigation:** both branches have the same shape — fetch the
+**Duplicate-aware navigation:** both branches follow the same sequence — fetch the
 `(directory, sort)`-keyed cached SHA list once, then resolve position, prev, and next
 with list arithmetic.
 
@@ -745,7 +748,7 @@ two-gigabyte file and a two-megabyte one cost the same in memory.
 
 A request with no range, or one that cannot be satisfied as written, is answered with
 the whole file as a stream rather than an error — the viewer still gets their video
-(§1.8).
+(Section 1.8).
 
 Returns a `StreamingHttpResponse` backed by `_async_file_range_iterator` (an `aiofiles`
 async generator yielding `RANGE_CHUNK_SIZE` = 64 KB chunks). Used by
@@ -871,7 +874,7 @@ and the same directory must produce the same keys on every platform.
 An entry that cannot be read is skipped rather than aborting the scan — one
 permission-denied file does not blank the directory around it. A directory that cannot
 be read at all reports failure rather than an empty listing, so a transient error is
-never mistaken for "everything was deleted" (§1.8).
+never mistaken for "everything was deleted" (Section 1.8).
 
 **This is the function the codebase actually calls.** `quickbbs/directoryindex.py`
 imports `return_disk_listing_sync` directly for `update_database_from_disk()`. It
@@ -995,7 +998,7 @@ lives.
 **What is its purpose?** Lists files whose content appears many times across the
 collection, and where each copy lives.
 
-Since files are identified by content (§1.2), it is possible to ask which content is
+Since files are identified by content (Section 1.2), it is possible to ask which content is
 most heavily cross-filed. This report answers that: content appearing more than five
 times, ordered by how often, with the directory holding each copy. Two queries do the
 work regardless of result size — one to find the heavily duplicated content, one to
@@ -1005,7 +1008,7 @@ Routed at `reports/duplicate_files.html`; renders `reports/duplicate_files.jinja
 Files pending deletion are excluded.
 
 > **Status: deprecated proof-of-concept.** This report was written to validate the
-> SHA-based duplicate-detection system (§1.2), not as a feature for ongoing use. A high
+> SHA-based duplicate-detection system (Section 1.2), not as a feature for ongoing use. A high
 > duplicate count is *not* a problem to act on — cross-filing the same file into many
 > directories is normal and expected, and de-duplication already prevents the redundant
 > work. The report is retained only because it may be useful for debugging the SHA
@@ -1199,9 +1202,9 @@ so the reasoning is not lost, not as a roadmap.
 - **Scripting / interactive files.** A way for content in the tree to do something when
   viewed, adding interactivity beyond static display.
 - **Uploads, with per-file ownership.** Prerequisite for accepting content through the
-  application rather than out-of-band (§1.6).
+  application rather than out-of-band (Section 1.6).
 
-The first two trace back to the QuickBBS lineage (§1.3): a bulletin board was a place
+The first two trace back to the QuickBBS lineage (Section 1.3): a bulletin board was a place
 people *did* things, not only a place files were served from. These would bring some of
 that back in an HTML-era form.
 
@@ -1209,15 +1212,15 @@ that back in an HTML-era form.
 none should be added without deciding the question deliberately:
 
 - Blog posts kept as files in the albums tree stay inside the derivable-data rule
-  (§1.1) — the post *is* the file. The tension appears only if posts acquire state the
+  (Section 1.1) — the post *is* the file. The tension appears only if posts acquire state the
   filesystem cannot express: authored-vs-modified dates independent of file
   timestamps, draft status, comments. Each of those must either be encoded in the file
   itself or become a deliberate exception alongside user accounts.
 - Script state raises the same question more sharply, since anything a script
   accumulates while running is by definition not derivable from re-reading the tree.
-- Uploads end the read-only posture (§1.1) and enlarge the threat model (§1.6). They
+- Uploads end the read-only posture (Section 1.1) and enlarge the threat model (Section 1.6). They
   require per-file ownership so each owner can manage their own files without affecting
   anyone else's — the reason they have been deferred rather than simply not built.
 
 Separately, tagging, metadata, ratings, comments, and editing are considered useful but
-unbuilt (§1.7); they are not listed here because they raise no principle conflict.
+unbuilt (Section 1.7); they are not listed here because they raise no principle conflict.

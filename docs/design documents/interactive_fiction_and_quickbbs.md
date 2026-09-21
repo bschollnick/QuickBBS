@@ -2,7 +2,10 @@
 
 **Version:** 2.0
 **Author:** Benjamin Schollnick
-**Last Updated:** 2026-08-26
+
+**Date Created:** 2026-09-09  
+**Last Updated:** 2026-09-20  
+**Last Reviewed:** 2026-09-20
 
 **See also:** [`interactive_fiction_implementation_guide.md`](interactive_fiction_implementation_guide.md)
 for the step-by-step build plan, per-model field detail, and how-to instructions for
@@ -31,9 +34,9 @@ process start and stop, not just a computation.
   runtime model assumes a live process or a persistent in-browser session (a
   Ren'Py-style render loop, a Twine story whose state lives in `localStorage`, a
   Z-machine interpreter that expects a long-lived terminal session) don't fit this
-  shape without working against it.
+  structure without working against it.
 - **Consequence: one request in, one response out.** Playing a turn is read state →
-  compute → write state, the same shape as any other QuickBBS view that reads a row,
+  compute → write state, the same sequence as any other QuickBBS view that reads a row,
   does work, and saves it back — not a special case requiring its own process
   management, worker pool, or session affinity.
 
@@ -52,9 +55,10 @@ version bump is needed and the dependency has had no commits in years.
   would have.** Supporting Ink's full call-stack feature set (tunnels, functions,
   threads, LISTs, sequences/cycles/shuffles with a seeded RNG) instead of only linear
   branching pushed the build well past what a small script would need. That cost was
-  accepted deliberately, in exchange for owning a dependency-free implementation that
-  fits QuickBBS's specific integration needs — turn-by-turn state serialization
-  mid-story, host-function binding on QuickBBS's own terms rather than a third-party
+  accepted deliberately, in exchange for owning an implementation with no
+  third-party Ink runtime behind it, fitting QuickBBS's specific integration
+  needs — turn-by-turn state serialization
+  mid-story binding of application functions on QuickBBS's own terms rather than a third-party
   port's assumptions about how it would be embedded.
 - **Consequence: the server never runs a compiler.** Authors compile `.ink` source to
   JSON offline, using Inky or the `inklecate` command-line tool; QuickBBS only ever
@@ -90,7 +94,7 @@ doesn't understand yet, at worst, never an unhandled exception.
 
 ### 1.4 A silent wrong answer is worse than a stopped turn
 
-§1.3 says an unimplemented construct degrades rather than raising. That is right for
+Section 1.3 says an unimplemented construct degrades rather than raising. That is right for
 a construct the interpreter does not understand, and wrong for a fact the story got
 wrong: degrading a bad value produces an answer that is confidently incorrect, and
 the player has no way to tell.
@@ -99,7 +103,12 @@ the player has no way to tell.
   the wrong case is loud. Placing a character at a location the story never declared
   raises rather than storing it; a story that declares no map at all is simply not
   checked, because there the system genuinely does not know.
-- **Why this is not §1.3 inverted.** The distinguishing question is whether a plausible
+- **Each write path is checked separately.** The check runs only when the caller
+  passes the declared vocabulary to compare against, and that argument is optional so
+  that a story with no map still works. A caller that omits it stores whatever it was
+  given. So "a bad location raises" describes the write paths that pass the
+  vocabulary, not the system as a whole — every path that can store a value needs it.
+- **Why this is not Section 1.3 inverted.** The distinguishing question is whether a plausible
   answer exists. An unimplemented Ink construct has an obvious safe reading — skip it —
   and skipping is visible in the prose. A mistyped location id has no safe reading:
   the store accepts any string, so every later symptom is an empty presence list or a
@@ -166,7 +175,7 @@ the same problem QuickBBS already solved once.
 - **Consequence: this design point was reached by building the alternative first and
   proving it unnecessary, not by reasoning it out in advance.** An earlier iteration
   gave `interactive_fiction` its own content-addressed blob table (mirroring
-  `ThumbnailFiles`'s shape) so story images could be evaluated end-to-end without
+  `ThumbnailFiles`'s field layout) so story images could be evaluated end-to-end without
   waiting on the rest of the gallery's ingestion path to be ready. Once that path was
   proven — a story's images are ordinary files under `Albums/`, scanned and tracked by
   the gallery exactly like everything else — the blob table was redundant with what
@@ -178,7 +187,7 @@ the same problem QuickBBS already solved once.
 
 ### 1.8 A story's engine-level logic runs as trusted Python only on explicit, per-story authorization
 
-Ink's `EXTERNAL` declarations let a story call out to host-provided functions.
+Ink's `EXTERNAL` declarations let a story call out to functions the application provides.
 QuickBBS can bind real Python behind an `EXTERNAL` call — but a game folder lives in
 the same `Albums/` tree as any other user-suppliable gallery content, and a game
 folder's own manifest is data an uploader controls, not a decision an administrator
@@ -214,7 +223,7 @@ in ways a single hard-coded system can't anticipate for every future story.
 - **The rule.** `engine_plugins/` provides base mechanics — schedule evaluation,
   location-graph reachability, timed-event bookkeeping, a percentile skill-check
   roll — as plain, stateless-by-convention functions and dataclasses, deliberately
-  decoupled from each other (no plugin imports another plugin's internal shape). A
+  decoupled from each other (no plugin imports another plugin's internal types). A
   game that needs more than the base mechanic supplies writes its own extension module
   inside its own game folder, wrapping or extending a base plugin's behavior with
   whatever is specific to that story; that game-specific module is what the story's
@@ -225,7 +234,7 @@ in ways a single hard-coded system can't anticipate for every future story.
   unit rather than a required subclass or config override baked into the base plugin,
   adding support for one story's particular needs never requires changing
   `engine_plugins/` itself, and never risks breaking a different story already
-  depending on that plugin's current shape.
+  depending on that plugin's current interface.
 - **Consequence: a plugin depends on another only where the concept genuinely
   requires it, and then in one direction.** Location tracking has no concept of a
   character, and a game wanting only a map never adopts occupancy. The reverse is not
@@ -234,6 +243,14 @@ in ways a single hard-coded system can't anticipate for every future story.
   at a location the story never declared. That dependency is expressed as an ordinary
   state-slot read, not an import — occupancy still has no `location_graph` type in its
   signatures, and a story that declares no map is simply unchecked rather than broken.
+
+  **A check a caller can skip is a check some write path does not get.** The
+  vocabulary is passed as a parameter that defaults to "do not check", which is what
+  lets a mapless story work at all. The Ink-facing binding passes it; a game's own
+  Python code calling the placement API directly is a second write path, and if it
+  omits the parameter that path is unchecked. Nothing warns, and the id is stored.
+  When a plugin's guard is opt-in, the design owes an answer for every caller, not
+  just the one the engine ships.
 
   The distinction matters because the symmetric reading is wrong in a way that looks
   right: read as "occupancy must not consult the map", it leaves a mistyped location id
@@ -244,7 +261,7 @@ in ways a single hard-coded system can't anticipate for every future story.
 
 ### 1.10 Every capability has two halves, and a test lives with the half it tests
 
-§1.9 establishes that engine plugins are generic and games extend them. That split
+Section 1.9 establishes that engine plugins are generic and games extend them. That split
 is easy to state and easy to erode: a single game-specific fact compiled into a base
 plugin, or one game-specific test filed with the engine's, and the boundary stops
 being real. This principle names the split explicitly and says where each half's
@@ -255,7 +272,7 @@ capability is added.
 
   | | Engine half | Game half |
   |---|---|---|
-  | Lives in | `interactive_fiction/engine_plugins/<name>.py` | `Albums/interactive_fiction/<game>/<name>.py` |
+  | Lives in | `ink_engine`'s `engine_plugins/<name>.py` | `Albums/interactive_fiction/<game>/<name>.py` |
   | Knows | opaque id strings, numbers, generic data shapes | that game's real names, numbers, prose, and rules |
   | Never contains | any specific story's facts | anything another game would also need |
   | Tests live in | `interactive_fiction/tests/` | `Albums/interactive_fiction/<game>/tests/` |
@@ -266,7 +283,15 @@ capability is added.
   already failed.
 - **The game half is where every real fact lives** — the item catalog, the prices,
   the schedules, the skill names, the starting placements, the `EXTERNAL` bindings
-  the story's Ink actually calls, and the `EngineAPIDescriptor` that registers them.
+  the story's Ink actually calls, and the `Plugin` that registers them.
+
+  Opacity has a price the game half pays: because ids are compared as strings,
+  the engine cannot tell that two of them name one room. Presence answers "is
+  this the same string", not "is this the same place", so a room with a second
+  id is a second room, and a character placed at one is invisible to a player
+  standing in the other. Nothing raises, and the symptom is indistinguishable
+  from the character legitimately being elsewhere. Keeping one id per place is
+  the game half's job and is worth a test of its own.
 - **Consequence: tests follow their half, and the directory is the assertion.** An
   engine test that needs a story to exercise is written against a fixture, not
   against a real game's content; a test that asserts "the mayor is at city hall on
@@ -277,7 +302,7 @@ capability is added.
 - **Consequence: the boundary is checkable, not just intended.** "Does
   `interactive_fiction/tests/` contain a test named after a game?" and "does
   `engine_plugins/<name>.py` name a game's facts in executable code?" are both
-  mechanical checks (implementation guide §7.6 gives the exact commands). A
+  mechanical checks (implementation guide Section 7.6 gives the exact commands). A
   capability that cannot pass them has not been split, whatever its module layout
   suggests. Note the second check must ignore comments and docstrings: those
   legitimately cite plan filenames and give a game-folder path as an example, and a
@@ -297,14 +322,15 @@ fiction games inside the gallery. It owns:
   trust, and game-manifest metadata (author, required plugins, character-creation
   field definitions).
 - **A fresh owner/public/specific-user access model** (`StoryAccess`,
-  `user_can_access()`) — QuickBBS has no working precedent for this to extend (§1.6).
+  `user_can_access()`) — QuickBBS has no working precedent for this to extend (Section 1.6).
 - **Player progress**, split between an always-current auto-saved state
-  (`CurrentGame`) and explicit, player-controlled save slots (`SaveState`) (§1.5).
+  (`CurrentGame`) and explicit, player-controlled save slots (`SaveState`) (Section 1.5).
 - **Story images and video**, referenced by custom Ink tags and resolved to the
-  gallery's own tracked `FileIndex` rows (§1.7).
-- **A discoverable plugin/trust system** (`engine_api.py`, `engine_services.py`,
-  `engine_plugins/`) — generic reusable engine-level building blocks a trusted story
-  can extend with its own game-specific logic (§1.8, §1.9).
+  gallery's own tracked `FileIndex` rows (Section 1.7).
+- **A discoverable plugin/trust system** (`engine_api.py`, `engine_services.py`
+  here; the generic plugins themselves in `ink_engine`) — reusable
+  engine-level building blocks a trusted story can extend with its own
+  game-specific logic (Section 1.8, Section 1.9).
 
 A game becomes playable one of two ways: an author uploads its compiled JSON through
 a form, or its game folder — a directory under `Albums/interactive_fiction/`
@@ -352,10 +378,10 @@ Author's machine (offline)
 ```
 
 Playing a turn is: load `Story.compiled_json` → resolve this story's real EXTERNAL
-bindings via `engine_services.bindings_for()` (trust-gated per §1.8) → rehydrate an
+bindings via `engine_services.bindings_for()` (trust-gated per Section 1.8) → rehydrate an
 `InkRuntimeState` from the player's saved state dict → advance one step → serialize
 the new state back. No step in that path holds a long-lived process open between
-requests (§1.1).
+requests (Section 1.1).
 
 ---
 
@@ -367,25 +393,21 @@ choices (including conditional visibility and once-only/sticky pruning), variabl
 and the full arithmetic/comparison/logic/string operator set, tunnels, functions and
 threads, LIST values with their complete operator family, sequences/cycles/shuffles
 backed by a seeded RNG port, the remaining visit-count/turn-count/tag operations,
-`EXTERNAL` function dispatch to real host bindings (falling back to a story's own Ink
+`EXTERNAL` function dispatch to the application's real bindings (falling back to a story's own Ink
 fallback when no binding is provided or the story isn't trusted), and full
 `to_dict()`/`from_dict()` state serialization — a saved game round-trips through plain
 JSON, including a call frame mid-tunnel or mid-function-call and every transient
 mid-eval-run flag needed to resume correctly. It is validated against real
 `inklecate`-compiled output and real `inklecate`/`inkjs` play transcripts, not only
-hand-authored test fixtures (§1.3) — the project's standing rule is that an algorithm
+hand-authored test fixtures (Section 1.3) — the project's standing rule is that an algorithm
 this central is checked against real data before being trusted, not spot-checked.
-
-Not yet implemented in the interpreter: Ink's `ref` keyword (pass-by-reference
-function parameters) — no section of the build has added it, and a story whose logic
-depends on a function mutating the caller's variable through a `ref` parameter will
-silently operate on a local copy instead.
 
 Beyond the interpreter, the full play loop is built: routes are wired and
 access-gated, the library view lists accessible games for real, and play, undo,
 restart, character creation, save/load/export/import, upload, edit, and image/video
 serving are all real, working views — not stubs. A trust-gated plugin/discovery
-system (`engine_api.py`, `engine_services.py`, `engine_plugins/`) lets a game extend
+system (`engine_api.py` and `engine_services.py` here, over `ink_engine`'s own
+plugins) lets a game extend
 the interpreter with real Python for scheduling, location tracking, character
 occupancy, and skill checks, each a generic base a trusted game's own extension module
 can wrap. Story images and video are anchored to the gallery's own `FileIndex` rows,
@@ -394,7 +416,7 @@ never a separate copy.
 Not yet built: **save-compatibility repair.** A saved game can outlive the story it
 was saved against (an author re-uploads a revised version, or a scanner-ingested file
 changes on disk); today, a stale saved path that no longer resolves degrades per
-`InkRuntimeState.from_dict()`'s general unresolvable-content handling (§1.3) rather
+`InkRuntimeState.from_dict()`'s general unresolvable-content handling (Section 1.3) rather
 than being detected and actively recovered to the nearest still-valid point. See the
 companion implementation guide for exact status and the build order for what's left.
 
@@ -411,9 +433,9 @@ companion implementation guide for exact status and the build order for what's l
   rejected outright, naming the missing function(s), rather than accepted and left to
   fail mid-play. For an untrusted story that fallback is always what runs; for a
   trusted story, a real Python binding runs instead when one is registered for that
-  call (§1.8).
+  call (Section 1.8).
 - **A saved game can outlive the story it was saved against.** Today this degrades
-  per the interpreter's general unresolvable-content handling (§1.3) — the intended
+  per the interpreter's general unresolvable-content handling (Section 1.3) — the intended
   active repair (recovering to the nearest still-valid ancestor container, always
   surfaced to the player, never a silent broken state) is designed but not yet built;
   see the implementation guide.
@@ -438,7 +460,7 @@ companion implementation guide for exact status and the build order for what's l
   untrusted `Albums/` tree as any other user-suppliable content and must be readable
   before any `Story` row exists to grant it trust. Only once `Story.is_engine_trusted`
   is set does the game folder's own Python modules ever actually get imported and run
-  (§1.7).
+  (Section 1.7).
 - **Story images and video, once linked, are a stored-content surface, not a trusted
   one.** They are served back to other users under the site's own origin through the
   gallery's existing serving path, subject to the same content-type and serving
@@ -449,42 +471,28 @@ companion implementation guide for exact status and the build order for what's l
 ## 6. Module structure
 
 ```
-interactive_fiction/
+interactive_fiction/                  # THIS repo's Django app. The Ink
+                                      # interpreter and the generic plugins
+                                      # live in the separate ink_engine
+                                      # repository, not here.
     __init__.py
     apps.py
-    models.py            # Story, StoryAccess, StoryImage, EngineAPI,
-                          # StorySystemConfig, CurrentGame, SaveState,
-                          # user_can_access()
-    engine.py             # InkRuntimeState and the Ink interpreter — containers,
-                           # output, diverts, choices, variables, tunnels,
-                           # functions, threads, LISTs, sequences/cycles/shuffles
-                           # with seeded RNG, EXTERNAL dispatch, full state
-                           # serialization; `ref` parameters not implemented
-    engine_api.py          # EngineAPIDescriptor, discover_api_descriptors() —
-                            # the plugin-discovery/trust-gate mechanism
+    models.py            # Story, StoryAccess, EngineAPI, CurrentGame,
+                          # SaveState, user_can_access(), sync_engine_apis()
+    engine_api.py          # discover_api_descriptors() — wraps the engine's
+                            # discover_plugins() with this application's
+                            # trust gate and caching
     engine_services.py      # bindings_for() — the single call site that branches
                              # on Story.is_engine_trusted to assemble a story's
                              # real EXTERNAL bindings
-    engine_config_schemas.py # Hand-coded (non-eval) validators for each plugin's
-                              # StorySystemConfig.config shape
-    engine_plugins/          # Generic, reusable engine-level building blocks
-        __init__.py
-        character_occupancy.py  # schedule-driven "who is where" state; refuses a
-                                 # location the story's map does not declare
-        characters.py            # per-character keyed storage (attributes, known-set)
-        containers.py             # holders declared to BE containers
-        costs.py                   # what an action costs, and whether it is affordable
-        inventory.py                # item placement and holder inventories
-        item_text.py                 # an item's description, chosen by where it is
-        location_graph.py             # the map: declared places, discovery, details
-        quests.py                      # quests, goals, and a journal
-        scheduling.py                   # minute-based clock and timed-event bookkeeping
-        skills.py                        # percentile roll-under skill-check mechanic
     ingestion.py            # Game-folder discovery, manifest parsing, and
                              # Story creation/drift-verification, anchored to
                              # the gallery's own DirectoryIndex/FileIndex
-    images.py                # Resolves an image/video tag to a real FileIndex
-                              # row and links it as a StoryImage
+    images.py                # Resolves an image/video tag to a real FileIndex row
+    bundle_media.py           # media served out of a bundled game
+    game_saves_database.py     # the database-backed game-saves store
+    story_markup.py             # story text to HTML
+    signals.py                   # cache invalidation on Story save
     views.py                  # library(), play(), play_submit(), play_undo(),
                                # play_restart(), character_creation(...),
                                # preferences(), and the shared engine-state
@@ -493,51 +501,32 @@ interactive_fiction/
                                  # upload(), edit(), and upload/edit validation
     save_views.py                # saves(), saves_save()/saves_load(),
                                   # saves_export()/saves_import()
+    panel_views.py                # the game-panel command API
     urls.py                       # all routes registered under the "if/" prefix
-    admin.py                       # Story, StoryAccess, StoryImage, EngineAPI,
-                                    # StorySystemConfig, CurrentGame, SaveState
+    admin.py                       # Story, StoryAccess, EngineAPI,
+                                    # CurrentGame, SaveState
     management/commands/
         scan_if_stories.py          # scanner-ingestion entry point: walks
                                      # Albums/interactive_fiction/, verifies then
                                      # ingests, then syncs discovered plugins
+        playthrough_harness.py       # scripted playthrough for content checking
     migrations/
     templates/interactive_fiction/
-    tests/
-        test_engine_paths.py                     # container/path addressing
-        test_engine_output_stream.py               # text/glue/whitespace assembly
-        test_engine_choices.py                       # diverts, choices, pruning
-        test_engine_variables.py                      # variables, eval stack, ops
-        test_engine_tunnels.py                         # call stack, tunnels
-        test_engine_functions_threads.py                # function calls, threads
-        test_engine_lists.py                             # LIST values and operators
-        test_engine_rng.py                                # sequences/cycles/shuffles,
-                                                            # seeded RNG
-        test_engine_metadata_tags.py                       # remaining eval-stack ops,
-                                                            # tags
-        test_engine_external_and_validation.py              # EXTERNAL fallback,
-                                                             # story validation
-        test_engine_serialization.py                        # state round-trip
-        test_engine_api.py                                   # plugin discovery
-        test_engine_config_schemas.py                        # plugin config schemas
-        test_engine_trust_gate.py                            # is_engine_trusted gate
-        test_engine_systems_location.py                      # location_graph plugin
-        test_engine_systems_scheduling.py                     # scheduling plugin
-        test_engine_systems_skills.py                          # skills plugin
-        test_character_occupancy_stateful_bindings.py           # stateful EXTERNAL
-                                                                 # binding lifecycle
-        test_character_creation.py                              # manifest-driven
-                                                                 # new-game form flow
-        test_images.py                                          # image/video tag
-                                                                 # linking
-        test_ingestion.py                                        # game-folder
-                                                                  # ingestion
-        test_views.py                                             # play/save/load/
-                                                                   # export/import
-                                                                   # end to end
+    tests/                            # THIS application's tests. The interpreter's
+                                      # own test suite lives in ink_engine.
+        test_engine_api.py             # plugin discovery
+        test_engine_trust_gate.py       # the trust gate
+        test_ingestion.py                # game-folder ingestion and drift
+        test_bundle_*.py                  # bundled-game ingestion, integrity,
+                                           # media, serving
+        test_character_creation.py         # initial-globals seeding
+        test_game_saves_database.py         # the database-backed saves store
+        test_story_markup.py                 # story text to HTML
+        test_views.py                         # routes and access gating
 ```
 
 **Engine tests only.** Every file above tests the engine half, against
-fixtures rather than any real game's content (§1.9). A test that asserts
+fixtures rather than any real game's content (Section 1.9). A test that asserts
 something about a particular story's characters, items, or schedule does
 not belong here — it belongs beside that game.
 
@@ -553,7 +542,7 @@ Albums/interactive_fiction/<game>/
                               # e.g. skills.py, occupancy.py, locations.py,
                               # scheduling.py: the real names, numbers and
                               # rules, plus the EXTERNAL bindings and the
-                              # EngineAPIDescriptor that registers them
+                              # Plugin that registers them
     image_mapping.py           # game data, read AST-only by image_linking
     tests/                      # THIS GAME's tests -- content assertions,
         conftest.py              # binding behaviour, schedule fidelity.

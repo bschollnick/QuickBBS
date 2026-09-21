@@ -33,7 +33,7 @@ import httpx
 from locust import TaskSet, User, between, events, task
 
 # Global variable to track size validation results
-_size_validation_stats = {
+_size_validation_stats: dict[str, Any] = {
     "total_downloads": 0,
     "successful_validations": 0,
     "size_mismatches": 0,
@@ -110,8 +110,8 @@ class HttpxClient:
         url = path
         request_name = name or path
         start_time = time.time()
-        response = None
-        exception = None
+        response: httpx.Response | None = None
+        exception: Exception | None = None
         response_length = 0
         actual_bytes_read = 0
 
@@ -352,7 +352,7 @@ def on_test_stop(environment, **kwargs):
             if stats["expected_bytes"]:
                 print(f"  Expected size:     {format_bytes(stats['expected_bytes'])} ({stats['expected_bytes']:,} bytes)")
             else:
-                print(f"  Expected size:     N/A")
+                print("  Expected size:     N/A")
 
             print(f"  Total downloads:   {stats['total']:,}")
             print(f"  Successful:        {stats['successful']:,}")
@@ -365,7 +365,7 @@ def on_test_stop(environment, **kwargs):
             # Add Locust statistics if available
             if file_name in stats_dict:
                 locust_stats = stats_dict[file_name]
-                print(f"  Locust Statistics:")
+                print("  Locust Statistics:")
                 print(f"    Requests:        {locust_stats.num_requests:,}")
                 print(f"    Failures:        {locust_stats.num_failures:,}")
                 print(f"    Avg size:        {format_bytes(locust_stats.avg_content_length)}")

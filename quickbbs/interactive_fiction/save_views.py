@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, cast
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -50,7 +51,7 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser
 
 
-def _request_user(request: WSGIRequest) -> "AbstractUser":
+def _request_user(request: WSGIRequest) -> AbstractUser:
     """Return the signed-in user behind a `@login_required` view.
 
     `request.user` is typed `User | AnonymousUser` because Django cannot
@@ -58,7 +59,8 @@ def _request_user(request: WSGIRequest) -> "AbstractUser":
     anonymous case is unreachable; asserting it states that invariant
     once instead of repeating a cast at each use.
     """
-    assert request.user.is_authenticated
+    if not request.user.is_authenticated:
+        raise PermissionDenied("This view requires a signed-in user.")
     return cast("AbstractUser", request.user)
 
 
@@ -334,6 +336,12 @@ def _resume_from_saved_state(request: WSGIRequest, story: Story, saved_state: di
     current_game.state = saved_state
     current_game.turn_count = state.turn_count
     current_game.save(update_fields=["state", "turn_count", "updated_at"])
+    if not request.htmx:
+        # A plain form POST navigates the whole window, so a bare content
+        # fragment would render as the entire document -- the transcript
+        # with no page around it. The state is already saved above, so a
+        # redirect lands on the game exactly where this load put it.
+        return redirect("if_play", slug=story.slug)
     return HttpResponse(
         _render_play_content(
             request,

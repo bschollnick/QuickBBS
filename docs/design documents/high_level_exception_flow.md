@@ -1,8 +1,11 @@
 # QuickBBS — High-Level Exception Flow
 
+**Date Created:** 2026-08-11  
+**Last Updated:** 2026-09-19  
+**Last Reviewed:** 2026-09-19
+
 **Companion to:** all per-app exception-taxonomy files
 **Author:** Benjamin Schollnick
-**Last Updated:** 2026-08-07
 
 ---
 

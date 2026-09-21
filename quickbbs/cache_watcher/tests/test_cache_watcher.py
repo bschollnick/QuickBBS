@@ -823,7 +823,7 @@ class TestWatchdogManagerStart(TestCase):
 
         mock_timer = MagicMock()
         mock_timer.is_alive.return_value = True
-        with patch("cache_watcher.models.watchdog") as mock_wdog, patch("cache_watcher.models.threading.Timer", return_value=mock_timer):
+        with patch("cache_watcher.models.watchdog"), patch("cache_watcher.models.threading.Timer", return_value=mock_timer):
             self.manager.start()
         assert self.manager.is_running is True
 
@@ -1105,9 +1105,8 @@ class TestWatchdogManagerScheduleRestart(TestCase):
 
         mock_timer = MagicMock()
         mock_timer.is_alive.return_value = True
-        with patch("cache_watcher.models.threading.Timer", return_value=mock_timer):
-            with self.manager.lock:
-                self.manager._schedule_restart()
+        with patch("cache_watcher.models.threading.Timer", return_value=mock_timer), self.manager.lock:
+            self.manager._schedule_restart()
         assert self.manager.restart_timer is mock_timer
 
     def test_schedule_restart_starts_timer(self):
@@ -1116,9 +1115,8 @@ class TestWatchdogManagerScheduleRestart(TestCase):
 
         mock_timer = MagicMock()
         mock_timer.is_alive.return_value = True
-        with patch("cache_watcher.models.threading.Timer", return_value=mock_timer):
-            with self.manager.lock:
-                self.manager._schedule_restart()
+        with patch("cache_watcher.models.threading.Timer", return_value=mock_timer), self.manager.lock:
+            self.manager._schedule_restart()
         mock_timer.start.assert_called_once()
 
     def test_schedule_restart_timer_is_daemon(self):
@@ -1127,9 +1125,8 @@ class TestWatchdogManagerScheduleRestart(TestCase):
 
         mock_timer = MagicMock()
         mock_timer.is_alive.return_value = True
-        with patch("cache_watcher.models.threading.Timer", return_value=mock_timer):
-            with self.manager.lock:
-                self.manager._schedule_restart()
+        with patch("cache_watcher.models.threading.Timer", return_value=mock_timer), self.manager.lock:
+            self.manager._schedule_restart()
         assert mock_timer.daemon is True
 
     def test_schedule_restart_cancels_existing_timer(self):
@@ -1142,9 +1139,8 @@ class TestWatchdogManagerScheduleRestart(TestCase):
 
         new_timer = MagicMock()
         new_timer.is_alive.return_value = True
-        with patch("cache_watcher.models.threading.Timer", return_value=new_timer):
-            with self.manager.lock:
-                self.manager._schedule_restart()
+        with patch("cache_watcher.models.threading.Timer", return_value=new_timer), self.manager.lock:
+            self.manager._schedule_restart()
 
         old_timer.cancel.assert_called_once()
         assert self.manager.restart_timer is new_timer
@@ -1157,9 +1153,8 @@ class TestWatchdogManagerScheduleRestart(TestCase):
 
         mock_timer = MagicMock()
         mock_timer.is_alive.return_value = True
-        with patch("cache_watcher.models.threading.Timer", return_value=mock_timer) as mock_cls:
-            with self.manager.lock:
-                self.manager._schedule_restart()
+        with patch("cache_watcher.models.threading.Timer", return_value=mock_timer) as mock_cls, self.manager.lock:
+            self.manager._schedule_restart()
         args = mock_cls.call_args[0]
         assert args[0] == WATCHDOG_RESTART_INTERVAL
 

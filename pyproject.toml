@@ -63,6 +63,7 @@ packages = [
 ]
 
 [tool.poetry.group.dev.dependencies]
+ruff = "^0.16.8"
 locust = "^2.42.0"
 httpx = {extras = ["http2"], version = "^0.28.1"}
 black = "^26"
@@ -133,7 +134,7 @@ numpy = "^2.1.3"
 xattr = "^1.1.0"
 psycopg = {extras = ["c"], version = "^3.2.3"}
 gunicorn = {version = ">=23.0.0", optional = true}
-uvicorn = {version = ">=0.37.0", optional = true}
+uvicorn = {extras = ["standard"], version = ">=0.37.0", optional = true}
 hypercorn = {version = ">=0.17.3", optional = true}
 django-compression-middleware = "^0.5.0"
 cachetools = "^7"
@@ -170,12 +171,79 @@ pyyaml = "^6.0.3"
 # Versions are repeated from [tool.poetry.dependencies] because a PEP 621
 # extra carries its own constraint; keep the two in step.
 gunicorn = ["gunicorn (>=23.0.0)"]
-uvicorn = ["uvicorn (>=0.37.0)"]
+uvicorn = ["uvicorn[standard] (>=0.37.0)"]
 hypercorn = ["hypercorn (>=0.17.3)"]
 granian = ["granian (>=2.7.2,<3.0.0)"]
 all-servers = [
     "gunicorn (>=23.0.0)",
-    "uvicorn (>=0.37.0)",
+    "uvicorn[standard] (>=0.37.0)",
     "hypercorn (>=0.17.3)",
     "granian (>=2.7.2,<3.0.0)",
 ]
+
+[tool.ruff]
+line-length = 150
+
+[tool.ruff.lint]
+# E (pycodestyle) and F (pyflakes) only: real errors -- undefined names,
+# unused imports, broken syntax. The style families ruff also offers
+# disagree with black and isort, which own formatting here.
+# Errors, modernisation and correctness families. E501 is black's job, W
+# is pycodestyle style, and "I" is dropped because isort owns import order.
+select = ["E4", "E7", "E9", "F", "UP", "RUF", "B", "SIM", "PYI", "BLE", "S", "FURB"]
+
+[tool.ruff.lint.per-file-ignores]
+# S101: `assert` is how a test asserts. S106: a test fixture's password
+# is not a leaked credential.
+"**/tests/*" = ["S101", "S106"]
+"**/test_*.py" = ["S101", "S106"]
+# RUF012: `list_filter`, `search_fields`, `indexes`, `constraints` and
+# the rest are Django's own declarative API. The framework reads them off
+# the class; annotating them ClassVar is not how Django is written.
+"**/admin.py" = ["RUF012"]
+"**/models.py" = ["RUF012"]
+"quickbbs/quickbbs/directoryindex.py" = ["RUF012"]
+# RUF012: `tasks` is Locust's declarative API, same as Django's above.
+"quickbbs/benchmarks/locustfile_downloads.py" = ["RUF012"]
+
+# S308/S704: both escape first and re-enable an allowlist of bare tags
+# (no attributes), so no attribute-based payload survives. Verified by
+# running script/img/onclick/javascript: payloads through them.
+"quickbbs/interactive_fiction/admin.py" = ["S308"]
+"quickbbs/interactive_fiction/story_markup.py" = ["S704"]
+# S108: a fixed lock path is how one worker of many claims the watchdog.
+# S101: `x is not None` after logic that already guarantees it --
+# narrowing for the type checker, never validation, so stripping them
+# under `python -O` changes nothing.
+"quickbbs/quickbbs/favorite.py" = ["RUF012", "S101"]
+"quickbbs/thumbnails/models.py" = ["RUF012", "S101"]
+# S603: a benchmark runs the load-test command it was told to run.
+"quickbbs/benchmarks/run_download_benchmark.py" = ["S603"]
+# S311: sampling for a benchmark and a random walk through a story's
+# choices. Neither is a security decision.
+"quickbbs/benchmarks/benchmark_models.py" = ["E402", "S311"]
+"quickbbs/interactive_fiction/management/commands/playthrough_harness.py" = ["S311"]
+# RUF002/RUF003: an en dash in a numeric range and a multiplication sign
+# are the characters meant, not mistyped ASCII.
+"quickbbs/cache_watcher/models.py" = ["RUF002"]
+"quickbbs/quickbbs/tests/test_bulk_cache_clearing.py" = ["RUF003"]
+# SIM115: the handle is passed to FileResponse/SizedFileWrapper, which
+# closes it; closing it here would empty the response.
+"quickbbs/frontend/serve_up.py" = ["SIM115"]
+"quickbbs/quickbbs/fileindex.py" = ["RUF012", "S101", "SIM115"]
+"quickbbs/frontend/tests/test_serve_up.py" = ["S101", "S106", "SIM115"]
+# SIM115: the lock handle is held for the life of the process, because
+# closing it releases the flock. atexit does the cleanup.
+"quickbbs/cache_watcher/apps.py" = ["S108", "SIM115"]
+# A standalone script must call django.setup() before it can import a
+# model, so its model imports cannot sit at the top of the file.
+"quickbbs/SCRIPT_test_case_sensitivity.py" = ["E402"]
+"quickbbs/check_all_file_names.py" = ["E402"]
+"quickbbs/check_sha.py" = ["E402"]
+"quickbbs/diagnose_sync_issue.py" = ["E402"]
+
+# These modules import names so that Django can read them as settings.
+# Nothing in the module uses them, which is the point.
+"quickbbs/quickbbs/settings.py" = ["F401"]
+# S104: a self-hosted gallery binds all interfaces on purpose.
+"quickbbs/quickbbs/quickbbs_settings.py" = ["F401", "S104"]

@@ -59,7 +59,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def bindings_for(story: "Story", engine_state: dict[str, Any] | None = None) -> dict[str, Callable[..., Any]]:
+def bindings_for(story: Story, engine_state: dict[str, Any] | None = None) -> dict[str, Callable[..., Any]]:
     """Return the real Python bindings a story's InkRuntimeState should get.
 
     A stateful `Plugin` is handed its own private slice of `engine_state`
@@ -139,7 +139,7 @@ def bindings_for(story: "Story", engine_state: dict[str, Any] | None = None) -> 
     )
 
 
-def game_panel_context(story: "Story", engine_state: dict[str, Any], globals_: dict[str, Any]) -> dict[str, Any] | None:
+def game_panel_context(story: Story, engine_state: dict[str, Any], globals_: dict[str, Any]) -> dict[str, Any] | None:
     """Return the side-panel data a game supplies for its play page.
 
     Some games are more than prose: a converted game's own original may
@@ -216,7 +216,7 @@ def _canonical_path(path: str) -> str:
         return str(path).lower()
 
 
-def game_folder_for(story: "Story") -> Path | None:
+def game_folder_for(story: Story) -> Path | None:
     """Return the game folder a story was ingested from, if any.
 
     A story is tied to its game folder by `source_fqfn` living inside it —
@@ -246,7 +246,7 @@ def game_folder_for(story: "Story") -> Path | None:
     return games_root_path / remainder.split("/", maxsplit=1)[0]
 
 
-def _game_module(story: "Story", module_stem: str) -> Any:
+def _game_module(story: Story, module_stem: str) -> Any:
     """Return one submodule of a story's own game folder.
 
     Gated on `story.is_engine_trusted` directly, same as `bindings_for()`.
@@ -279,7 +279,7 @@ def _game_module(story: "Story", module_stem: str) -> Any:
         return None
 
 
-def game_panel_action(story: "Story", engine_state: dict[str, Any], globals_: dict[str, Any], action_id: str, target_id: str) -> str:
+def game_panel_action(story: Story, engine_state: dict[str, Any], globals_: dict[str, Any], action_id: str, target_id: str) -> str:
     """Run one of a game panel's row actions and return what it answers.
 
     The per-click companion to `game_panel_context`: a game that ships a
@@ -329,7 +329,7 @@ def game_panel_action(story: "Story", engine_state: dict[str, Any], globals_: di
     )
 
 
-def game_panel_command(story: "Story", engine_state: dict[str, Any], globals_: dict[str, Any], command_id: str, target_id: str) -> str:
+def game_panel_command(story: Story, engine_state: dict[str, Any], globals_: dict[str, Any], command_id: str, target_id: str) -> str:
     """Run one of a game panel's turn-advancing commands (Use/Cast/Give/Drop).
 
     The write-capable counterpart to `game_panel_action`. A game's
@@ -419,12 +419,12 @@ def _without_link_targets(html: str) -> str:
     return _LINK_ATTRIBUTE_RE.sub("", html)
 
 
-def plugin_denied_html(story: "Story") -> str:
+def plugin_denied_html(story: Story) -> str:
     """Return the game's plugin-denied screen, rendered to HTML.
 
     A game that declares plugins is designed around them; run without
     them it is broken, not reduced. The game explains what its own
-    plugins do, because only it knows -- a host can list names, but not
+    plugins do, because only it knows -- an application can list names, but not
     that a game's own occupancy plugin missing means no character is
     anywhere.
 
@@ -452,7 +452,7 @@ def plugin_denied_html(story: "Story") -> str:
     return _without_link_targets(str(_screen_markdown().convert(text)))
 
 
-def play_layout_for(story: "Story") -> str:
+def play_layout_for(story: Story) -> str:
     """Return the template that renders this story's play page.
 
     A game chooses its own page shape by naming one of the engine's

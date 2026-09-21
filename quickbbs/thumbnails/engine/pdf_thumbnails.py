@@ -1,12 +1,16 @@
 """PyMuPDF (fitz) backend for cross-platform PDF thumbnail generation."""
 
-from functools import lru_cache
-
 import fitz  # PyMuPDF
+from cachetools import cached
+from django.conf import settings
 from PIL import Image, ImageOps
+
+from quickbbs.MonitoredCache import create_cache
 
 from .base import AbstractBackend
 from .pil_thumbnails import ImageBackend
+
+_zoom_cache = create_cache(settings.PDF_ZOOM_CACHE_SIZE, "pdf_zoom", monitored=settings.CACHE_MONITORING)
 
 
 class PDFBackend(AbstractBackend):
@@ -35,7 +39,7 @@ class PDFBackend(AbstractBackend):
         self._image_backend = ImageBackend()
 
     @staticmethod
-    @lru_cache(maxsize=500)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
+    @cached(_zoom_cache)  # ASYNC-SAFE: Pure function (no DB/IO, deterministic computation)
     def _calculate_optimal_zoom(page_width: float, page_height: float, target_width: int, target_height: int) -> float:
         """
         Calculate the optimal zoom to render a PDF page slightly larger than target size.
@@ -150,7 +154,7 @@ class PDFBackend(AbstractBackend):
             return output
 
         except Exception as e:
-            raise Exception(f"Error processing PDF: {e}")
+            raise RuntimeError(f"Error processing PDF: {e}") from e
 
     def process_from_memory(
         self,
@@ -194,7 +198,7 @@ class PDFBackend(AbstractBackend):
             return output
 
         except Exception as e:
-            raise Exception(f"Error processing PDF bytes: {e}")
+            raise RuntimeError(f"Error processing PDF bytes: {e}") from e
 
     def process_data(
         self,
@@ -286,7 +290,7 @@ if __name__ == "__main__":
 
     # Generate thumbnails from PDF file
     try:
-        thumbnails = backend.process_pdf_file(
+        thumbnails = backend.process_from_file(
             file_path="test.pdf",
             sizes=test_sizes,
             output_format="JPEG",

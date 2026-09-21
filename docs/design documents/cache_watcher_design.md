@@ -2,7 +2,10 @@
 
 **Version:** 4.4
 **Author:** Benjamin Schollnick
-**Last Updated:** 2026-08-07
+
+**Date Created:** 2026-08-08  
+**Last Updated:** 2026-09-19  
+**Last Reviewed:** 2026-09-19
 
 **See also:** [`cache_watcher_erd.md`](cache_watcher_erd.md) for the entity-relationship
 diagram; [`cache_watcher_exceptions.md`](cache_watcher_exceptions.md) for the
@@ -13,7 +16,7 @@ exception taxonomy.
 ## 1. Guiding Principles
 
 `cache_watcher` implements the live half of the invalidation strategy that
-[`quickbbs_app_design.md`](quickbbs_app_design.md) §1.1 describes at the data layer: the
+[`quickbbs_app_design.md`](quickbbs_app_design.md) Section 1.1 describes at the data layer: the
 filesystem is the source of truth, and a directory record just knows whether it can still
 be trusted. This app is the mechanism that notices the filesystem changed in the first
 place, so its principles are about noticing quickly and cheaply, not about what happens
@@ -21,7 +24,7 @@ with that knowledge afterward.
 
 ### 1.1 Notice, don't verify
 
-Carried down from [quickbbs §1.1](quickbbs_app_design.md#11-the-filesystem-is-the-source-of-truth-the-database-is-a-cache).
+Carried down from [quickbbs Section 1.1](quickbbs_app_design.md#11-the-filesystem-is-the-source-of-truth-the-database-is-a-cache).
 The data layer already owns re-derivation — rescanning, reconciling membership, deciding
 what changed. The watcher's only job is telling it *that* something changed and *where*,
 as fast as it can, and then getting out of the way.
@@ -38,7 +41,7 @@ as fast as it can, and then getting out of the way.
 
 ### 1.2 No scheduled sweep here either
 
-Carried down from [quickbbs §1.1](quickbbs_app_design.md#11-the-filesystem-is-the-source-of-truth-the-database-is-a-cache).
+Carried down from [quickbbs Section 1.1](quickbbs_app_design.md#11-the-filesystem-is-the-source-of-truth-the-database-is-a-cache).
 The watcher only runs inside a running web server process — there is no standalone
 watcher process, and nothing here polls the filesystem on a timer. A directory changed
 while no server was running is invisible to this app entirely; the `scan` management
@@ -204,7 +207,7 @@ filesystem activity — like copying in a whole folder of files — into one pen
 instead of reacting separately to every single file that changed.
 
 **What is its purpose?** Defines `LockFreeEventBuffer`, the deduplicating buffer for
-pending directory paths that implements §1.3's bundling.
+pending directory paths that implements Section 1.3's bundling.
 
 Uses `threading.RLock`, not `asyncio.Lock` — watchdog delivers events from OS threads
 that exist outside any asyncio event loop, so an `asyncio.Lock` here would simply never
@@ -299,7 +302,7 @@ directory's listing can no longer be trusted as-is.
 
 **What is its purpose?** Defines `CacheFileMonitorEventHandler`, a
 `watchdog.FileSystemEventHandler` subclass that converts raw filesystem events into
-batched `DirectoryIndex` invalidations — the concrete implementation of §1.1 and §1.3.
+batched `DirectoryIndex` invalidations — the concrete implementation of Section 1.1 and Section 1.3.
 
 ```
 event arrives (on_created / on_deleted / on_modified / on_moved)
@@ -326,7 +329,7 @@ handler, starts one for `EVENT_PROCESSING_DELAY` seconds.
 running for this handler — subsequent events during the window are folded into the same
 buffer rather than resetting or multiplying the timer. This is what bundles a burst of
 events for one directory (e.g. copying a folder full of files) into a single invalidation
-pass instead of one per file — see §1.3.
+pass instead of one per file — see Section 1.3.
 
 **Generation counter.** Each new timer carries a monotonically increasing
 `timer_generation`. When a timer fires, it first checks that its generation still
@@ -381,7 +384,7 @@ Fields: `cache_name`, `hits`, `misses`, `current_size`, `max_size`, `last_snapsh
 
 This model is unrelated to directory invalidation — it is a read side-channel for
 observing the health of the LRU caches described in
-[`quickbbs_app_design.md`](quickbbs_app_design.md) §5, not part of the invalidation path
+[`quickbbs_app_design.md`](quickbbs_app_design.md) Section 5, not part of the invalidation path
 itself.
 
 ---
@@ -409,7 +412,7 @@ disabled, since rows are managed exclusively by the snapshot task.
 
 **Sizing Advice column.** A low hit rate alone doesn't say what to do about it — it
 has two unrelated causes (see
-[`quickbbs_app_design.md` §4.5](quickbbs_app_design.md#45-monitoredcachepy) for the
+[`quickbbs_app_design.md` Section 4.5](quickbbs_app_design.md#45-monitoredcachepy) for the
 full reasoning): eviction pressure,
 where a key is really being reused but doesn't survive long enough in the cache to be
 there for the second lookup, and cold-key traffic, where most keys are inherently
@@ -489,7 +492,7 @@ idempotent, and it is OS-level behavior rather than a bug in this app.
 ### Event buffer overflow
 
 `LockFreeEventBuffer` caps at 200 unique pending directories; beyond that, the oldest
-50% are dropped with a logged warning (§4.3). Ordinary gallery usage does not approach
+50% are dropped with a logged warning (Section 4.3). Ordinary gallery usage does not approach
 this limit — it guards against an unusually wide burst spanning many distinct
 directories at once, not against high event volume within a few.
 

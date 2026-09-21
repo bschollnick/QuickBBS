@@ -1,6 +1,17 @@
 # QuickBBS Database Entity Relationship Diagram
 
-This ERD shows the QuickBBS application models and their relationships, generated from the current codebase (2026-07-06, post-migration `quickbbs.0040` which removed the unused `file_links` M2M).
+**Date Created:** 2025-11-14  
+**Last Updated:** 2026-09-20  
+**Last Reviewed:** 2026-09-20
+
+This ERD shows the QuickBBS application models and their relationships, read
+from the Django model definitions at head migrations `quickbbs.0043`,
+`cache_watcher.0014` and `user_preferences.0004`.
+
+**Every foreign key in this schema uses the DB-enforced `on_delete` variants**
+— `models.DB_CASCADE` and `models.DB_SET_NULL` — which emit real
+`ON DELETE` constraints and require Django 6.1 or newer. They are not the
+app-level `models.CASCADE`/`models.SET_NULL`.
 
 ```mermaid
 erDiagram
@@ -15,8 +26,10 @@ erDiagram
     %% Thumbnail Storage
     ThumbnailFiles |o--o{ FileIndex : "new_ftnail"
 
-    %% Cache Tracking
-    DirectoryIndex ||--o| fs_Cache_Tracking : "Cache_Watcher (1:1)"
+    %% Favorites
+    User ||--o{ Favorite : "user"
+    FileIndex |o--o{ Favorite : "file"
+    DirectoryIndex |o--o{ Favorite : "directory"
 
     %% User & Ownership
     User ||--o| Owners : "ownerdetails (1:1)"
@@ -28,14 +41,16 @@ erDiagram
         bigint id PK
         string fqpndirectory UK "fully qualified pathname, normalized"
         string dir_fqpn_sha256 UK "sha256 of directory path"
-        bigint parent_directory FK "self-referential, SET_NULL"
+        bigint parent_directory FK "self-referential, DB_SET_NULL"
         float lastscan "Unix timestamp"
         float lastmod "Unix timestamp"
+        bool cache_invalidated "True = needs rescan (merged from fs_Cache_Tracking)"
+        float cache_lastscan "Unix timestamp of last scan/invalidation write"
         string name_sort "NaturalSortField over fqpndirectory"
         bool is_generic_icon
         bool delete_pending "soft-delete flag"
-        string filetype FK "to filetypes.fileext, always .dir"
-        int thumbnail FK "to FileIndex (cover image), SET_NULL"
+        string filetype FK "to filetypes.fileext, always .dir, DB_CASCADE, db_index=False"
+        int thumbnail FK "to FileIndex (cover image), DB_SET_NULL"
     }
 
     %% Core File Model
@@ -49,16 +64,16 @@ erDiagram
         string name_sort "NaturalSortField over name"
         bigint duration "video duration (nullable)"
         bigint size "file size in bytes"
-        bigint home_directory FK "to DirectoryIndex, SET_NULL"
-        bigint virtual_directory FK "to DirectoryIndex (link target), SET_NULL"
+        bigint home_directory FK "to DirectoryIndex, DB_SET_NULL"
+        bigint virtual_directory FK "to DirectoryIndex (link target), DB_SET_NULL"
         bool is_animated "animated GIF flag"
         bool ignore
         bool delete_pending "soft-delete flag"
         bool cover_image "flagged directory cover"
-        string filetype FK "to filetypes.fileext, CASCADE"
+        string filetype FK "to filetypes.fileext, DB_CASCADE"
         bool is_generic_icon
-        bigint new_ftnail FK "to ThumbnailFiles, SET_NULL"
-        int ownership FK "OneToOne to Owners, CASCADE"
+        bigint new_ftnail FK "to ThumbnailFiles, DB_SET_NULL"
+        int ownership FK "OneToOne to Owners, DB_CASCADE"
     }
 
     %% File Type Definitions
@@ -91,14 +106,6 @@ erDiagram
         blob large_thumb
     }
 
-    %% Cache Tracking
-    fs_Cache_Tracking {
-        bigint id PK
-        float lastscan "Unix timestamp"
-        bool invalidated
-        bigint directory FK "OneToOne to DirectoryIndex, CASCADE"
-    }
-
     %% Cache Statistics (standalone, no relationships)
     CacheStatisticsTracking {
         bigint id PK
@@ -113,22 +120,27 @@ erDiagram
 
     %% Ownership
     Owners {
-        int id PK
-        uuid uuid
-        int ownerdetails FK "OneToOne to auth.User"
+        bigint id PK
+        uuid uuid "nullable, indexed"
+        int ownerdetails FK "OneToOne to auth.User, DB_CASCADE"
     }
 
     %% User Preferences
     UserPreferences {
         bigint id PK
-        int user FK "OneToOne to auth.User"
+        int user FK "OneToOne to auth.User, DB_CASCADE"
         bool show_duplicates
+        string if_font_size "small | medium | large, default medium"
+        string if_text_width "narrow | medium | wide, default medium"
     }
 
-    %% Favorites (stub model, no relationships yet)
-    Favorites {
-        int id PK
-        uuid uuid
+    %% Favorites
+    Favorite {
+        bigint id PK
+        bigint user FK "to auth.User, DB_CASCADE"
+        bigint file FK "to FileIndex, nullable, DB_CASCADE"
+        bigint directory FK "to DirectoryIndex, nullable, DB_CASCADE"
+        datetime created "auto_now_add"
     }
 
     %% Django User Model (django.contrib.auth)
@@ -153,7 +165,12 @@ Master directory index for the gallery filesystem. Each record represents a fold
   - Has many files — reverse accessor `FileIndex_entries` (from `FileIndex.home_directory`)
   - Is the link target for `.link`/`.alias` files — reverse accessor `Virtual_FileIndex` (from `FileIndex.virtual_directory`)
   - Has an optional cover image (`thumbnail` → `FileIndex`)
-  - Tracked by the cache system — reverse accessor `Cache_Watcher` (1:1 from `fs_Cache_Tracking.directory`)
+  - Has many favorites — reverse accessor from `Favorite.directory`
+- **Cache tracking**: `cache_invalidated` and `cache_lastscan` live on this model.
+  They were merged here from the former `cache_watcher.fs_Cache_Tracking`, which
+  was deleted in migration `cache_watcher.0014`. Neither field is indexed —
+  every access path reaches the row via `dir_fqpn_sha256` or the primary key, and
+  leaving them unindexed keeps watcher-driven `UPDATE`s HOT-eligible.
 
 #### FileIndex (`quickbbs_fileindex`)
 Master file index for all files in the gallery. One row per physical file path.
@@ -170,7 +187,7 @@ Master file index for all files in the gallery. One row per physical file path.
   - Can serve as a directory's cover image — reverse accessor `dir_thumbnail` (from `DirectoryIndex.thumbnail`)
   - Optional ownership (`ownership` 1:1 → `Owners`)
 
-> **Note (2026-07-06):** The former `DirectoryIndex.file_links` ManyToMany to `FileIndex` was removed in migration `quickbbs.0040`. It was never populated; the directory↔file relationship is fully expressed by the `home_directory` / `virtual_directory` / `thumbnail` foreign keys. See `claude_docs/fable_m2m.md` for the analysis.
+> **Note (2026-07-06):** The former `DirectoryIndex.file_links` ManyToMany to `FileIndex` was removed in migration `quickbbs.0040`. It was never populated; the directory↔file relationship is fully expressed by the `home_directory` / `virtual_directory` / `thumbnail` foreign keys.
 
 ### Supporting Models
 
@@ -188,12 +205,6 @@ Binary storage for generated thumbnails (three sizes per unique file content).
 - **Design**: one record per unique `file_sha256` — all duplicate files link to the same record via `FileIndex.new_ftnail`
 - **Integrity**: a CheckConstraint forbids empty-bytes (`b""`) thumbnails — sizes are either NULL (not generated) or real data
 
-#### fs_Cache_Tracking (`CacheWatcher_fs_cache_tracking`, `cache_watcher` app)
-Tracks which directories have been scanned and whether their cached state is still valid.
-- **Primary Key**: Auto-incrementing `id` (BigAutoField)
-- **OneToOne**: `directory` → `DirectoryIndex` (CASCADE — cache rows die with their directory)
-- **Purpose**: the Watchdog filesystem monitor sets `invalidated=True` when a directory changes; gallery views re-sync invalidated directories on demand
-
 #### CacheStatisticsTracking (`cache_statistics_tracking`, `cache_watcher` app)
 Standalone persistence for in-process LRU cache statistics (no FK relationships).
 - **Unique Key**: `cache_name` — one row per monitored cache (e.g. `directoryindex`, `fileindex`, layout caches)
@@ -206,10 +217,19 @@ Ownership link between files and Django users (groundwork for a permissions syst
 #### UserPreferences (`user_preferences_userpreferences`, `user_preferences` app)
 Per-user gallery preferences.
 - **OneToOne**: `user` → Django `User`
-- **Settings**: `show_duplicates` (whether item navigation includes duplicate files)
+- **Settings**: `show_duplicates` (whether item navigation includes duplicate
+  files), `if_font_size` and `if_text_width` (Interactive Fiction reader display,
+  each `small`/`medium`/`large` or `narrow`/`medium`/`wide`, defaulting to `medium`)
 
-#### Favorites (`quickbbs_favorites`)
-Placeholder for future favorites functionality — stub with `id` and `uuid` only, no relationships yet.
+#### Favorite (`quickbbs_favorite`)
+One row per favorited item, per user. Added in migration `quickbbs.0043`.
+- **Primary Key**: Auto-incrementing `id` (BigAutoField)
+- **Foreign keys**: `user` → Django `User`, `file` → `FileIndex` (nullable),
+  `directory` → `DirectoryIndex` (nullable) — all `DB_CASCADE`
+- **Constraints**: `favorite_exactly_one_target` (a CheckConstraint enforcing that
+  exactly one of `file`/`directory` is set), plus `unique_user_file_favorite` and
+  `unique_user_directory_favorite`
+- **Index**: `["user", "-created"]` — the listing order for a user's favorites page
 
 ### Third-Party / Framework Tables (not diagrammed)
 
@@ -221,12 +241,18 @@ Placeholder for future favorites functionality — stub with `id` and `uuid` onl
 | `allauth.mfa` | `Authenticator` | Passkeys / MFA (WebAuthn) |
 | `django-dbtasks` (`dbtasks`) | `ScheduledTask` | Background task queue (`manage.py taskrunner`) |
 
+The `interactive_fiction` app owns five models of its own — `Story`,
+`StoryAccess`, `EngineAPI`, `CurrentGame` and `SaveState`. They are a
+self-contained subsystem with no foreign keys into the gallery models above, so
+they are not diagrammed here; see
+[`interactive_fiction_and_quickbbs.md`](design%20documents/interactive_fiction_and_quickbbs.md).
+
 ## Key Relationships Explained
 
 ### Directory Hierarchy
 ```
 DirectoryIndex (parent)
-    ↓ parent_directory (self-referential FK, SET_NULL)
+    ↓ parent_directory (self-referential FK, DB_SET_NULL)
 DirectoryIndex (child)
     ↓ FileIndex_entries (reverse of home_directory FK)
 FileIndex (files in directory)
@@ -250,7 +276,7 @@ DirectoryIndex (the directory the shortcut resolves to)
 ### Cache Invalidation
 ```
 Watchdog observes filesystem change
-    → fs_Cache_Tracking.invalidated = True   (1:1 with DirectoryIndex)
+    → DirectoryIndex.cache_invalidated = True
     → next gallery request re-syncs the directory and re-validates
 ```
 
@@ -277,8 +303,14 @@ Watchdog observes filesystem change
 - Partial indexes on `sha256_hash` for "has small thumb" / "missing small thumb" checks
 - CheckConstraint: no `b""` thumbnail values (NULL or real data only)
 
-### fs_Cache_Tracking
-- `(directory, invalidated)` composite; `directory` unique (OneToOne)
+### Favorite
+- `(user, -created)` composite (`quickbbs_fa_user_id_456b99_idx`) — favorites listing order
+- CheckConstraint `favorite_exactly_one_target`; unique constraints on
+  `(user, file)` and `(user, directory)`
+
+### DirectoryIndex cache fields
+`cache_invalidated` and `cache_lastscan` carry no index, deliberately — see the
+DirectoryIndex description above.
 
 ## Design Patterns
 
@@ -306,5 +338,9 @@ Watchdog observes filesystem change
 
 - PostgreSQL-specific features in use: partial indexes, trigram GIN indexes (`pg_trgm`), `DISTINCT ON`
 - Migration `quickbbs.0040` (2026-07-06) dropped the empty `quickbbs_directoryindex_file_links` join table
+- Migrations `cache_watcher.0013`/`0014` copied `fs_Cache_Tracking`'s two columns
+  onto `DirectoryIndex` and then deleted that model
+- Migration `quickbbs.0043` added the `Favorite` model
+- Migration `user_preferences.0004` added `if_font_size` and `if_text_width`
 - Cache tracking integrates with the Watchdog filesystem monitor
 - Models are designed for ASGI/async compatibility (see CLAUDE.md / `.claude/critical-runtime.md`)

@@ -62,7 +62,7 @@ from quickbbs.models import (
 class BenchmarkResult:
     """Store benchmark results with timing statistics."""
 
-    __slots__ = ("name", "times", "query_count", "max_query_count", "result_count")
+    __slots__ = ("max_query_count", "name", "query_count", "result_count", "times")
 
     def __init__(self, name: str):
         self.name = name
@@ -105,7 +105,7 @@ class BenchmarkResult:
         )
 
 
-def benchmark_query(name: str, query_func: Callable, iterations: int = BENCHMARK_ITERATIONS, samples: list = None) -> BenchmarkResult:
+def benchmark_query(name: str, query_func: Callable, iterations: int = BENCHMARK_ITERATIONS, samples: list | None = None) -> BenchmarkResult:
     """
     Benchmark a database query function.
 
@@ -591,7 +591,7 @@ def main() -> None:
         # Append models.py contents
         models_path = PROJECT_ROOT / "quickbbs" / "models.py"
         if models_path.exists():
-            with open(models_path, "r") as models_file:
+            with open(models_path) as models_file:
                 f.write(models_file.read())
         else:
             f.write(f"WARNING: Could not find models.py at {models_path}\n")

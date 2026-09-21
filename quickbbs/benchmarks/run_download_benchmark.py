@@ -61,7 +61,7 @@ def parse_server_workers(server_type: str) -> dict[str, Any]:
     if not script_path.exists():
         return {}
 
-    config = {}
+    config: dict[str, Any] = {}
 
     try:
         with open(script_path, encoding="utf-8") as f:
@@ -100,7 +100,7 @@ def parse_database_config() -> dict[str, Any]:
     if not settings_path.exists():
         return {}
 
-    config = {}
+    config: dict[str, Any] = {}
 
     try:
         with open(settings_path, encoding="utf-8") as f:
@@ -295,7 +295,7 @@ def run_warmup_sequence(host: str, insecure: bool = False) -> dict[str, Any]:
                 conn_max_age_str = str(db["conn_max_age"]) if db["conn_max_age"] is not None else "None (pool managed)"
                 print(f"  CONN_MAX_AGE: {conn_max_age_str}")
             if "pool" in db:
-                print(f"  Connection Pool:")
+                print("  Connection Pool:")
                 pool = db["pool"]
                 if "min_size" in pool:
                     print(f"    Min size: {pool['min_size']}")
@@ -551,7 +551,7 @@ def print_summary(results: dict[str, Any], host: str, users: int) -> None:
             if "conn_max_age" in db:
                 conn_max_age = db["conn_max_age"]
                 if conn_max_age is None:
-                    print(f"  CONN_MAX_AGE:      None (pool managed)")
+                    print("  CONN_MAX_AGE:      None (pool managed)")
                 else:
                     print(f"  CONN_MAX_AGE:      {conn_max_age}s")
             if "pool" in db:
@@ -581,7 +581,7 @@ def print_summary(results: dict[str, Any], host: str, users: int) -> None:
             print(f"  Success rate:           {success_rate:.1f}%")
 
         # Display per-file breakdown
-        if "by_file" in validation and validation["by_file"]:
+        if validation.get("by_file"):
             print()
             print("  Per-File Breakdown:")
             for file_name, stats in sorted(validation["by_file"].items()):
@@ -589,7 +589,7 @@ def print_summary(results: dict[str, Any], host: str, users: int) -> None:
                 if stats.get("expected_bytes"):
                     print(f"      Expected size:   {format_bytes(stats['expected_bytes'])} ({stats['expected_bytes']:,} bytes)")
                 else:
-                    print(f"      Expected size:   N/A")
+                    print("      Expected size:   N/A")
                 print(f"      Downloads:       {stats['total']:,} total, {stats['successful']:,} OK, {stats['mismatches']:,} failed")
                 if stats["total"] > 0:
                     file_success_rate = (stats["successful"] / stats["total"]) * 100
@@ -601,7 +601,7 @@ def print_summary(results: dict[str, Any], host: str, users: int) -> None:
     print()
 
     print("Connection Times (ms)")
-    print(f"              min    mean   median   p90    p95    p99    max")
+    print("              min    mean   median   p90    p95    p99    max")
     print(
         f"Total:     {total['min_ms']:7.0f} {total['avg_ms']:7.0f} {total['median_ms']:7.0f} "
         f"{total['p90_ms']:7.0f} {total['p95_ms']:7.0f} {total['p99_ms']:7.0f} {total['max_ms']:7.0f}"
@@ -623,7 +623,7 @@ def print_summary(results: dict[str, Any], host: str, users: int) -> None:
 
         print(f"  Transfer rate:  {format_bytes(stats['avg_size_bytes'] * stats['rps'])}/sec (aggregate)")
         print(f"  RPS:            {stats['rps']:.2f}")
-        print(f"  Latency:")
+        print("  Latency:")
         print(f"    Median:       {stats['median_ms']:.0f} ms")
         print(f"    90th %ile:    {stats['p90_ms']:.0f} ms")
         print(f"    95th %ile:    {stats['p95_ms']:.0f} ms")
@@ -1032,6 +1032,8 @@ def generate_enhanced_html_report(results: dict[str, Any], output_file: Path, ho
                 transfer_speed = endpoint_stats["avg_size_bytes"] / (endpoint_stats["avg_ms"] / 1000)
                 transfer_speed_str = f"{format_bytes(transfer_speed)}/sec"
 
+            mismatch_badge = '<span class="failure-badge">Failed</span>' if stats["mismatches"] > 0 else ""
+
             html_content += f"""
         <div class="file-section">
             <div class="file-header">{file_name}</div>
@@ -1050,7 +1052,7 @@ def generate_enhanced_html_report(results: dict[str, Any], output_file: Path, ho
                 </div>
                 <div class="file-stat">
                     <div class="file-stat-label">Mismatches</div>
-                    <div class="file-stat-value">{stats['mismatches']:,} {'<span class="failure-badge">Failed</span>' if stats['mismatches'] > 0 else ''}</div>
+                    <div class="file-stat-value">{stats['mismatches']:,} {mismatch_badge}</div>
                 </div>
 """
 
@@ -1225,7 +1227,7 @@ def main() -> int:
     # Print summary
     print_summary(results, args.host, args.users)
 
-    print(f"\nDetailed results available:")
+    print("\nDetailed results available:")
     print(f"  Locust HTML:       {csv_prefix}.html (standard Locust report)")
     print(f"  Enhanced HTML:     {enhanced_html_file} (with validation data)")
     print(f"  JSON data:         {json_file}")

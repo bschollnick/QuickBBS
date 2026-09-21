@@ -232,10 +232,7 @@ def toggle_favorite(request: WSGIRequest) -> HttpResponse:
     is_dir = request.POST.get("is_dir") == "true"
 
     try:
-        if is_dir:
-            new_state = Favorite.toggle(request.user, dir_sha256=sha256)
-        else:
-            new_state = Favorite.toggle(request.user, file_sha256=sha256)
+        new_state = Favorite.toggle(request.user, dir_sha256=sha256) if is_dir else Favorite.toggle(request.user, file_sha256=sha256)
     except ValueError:
         return HttpResponseBadRequest(content="Unknown favorite target.")
 
@@ -811,7 +808,7 @@ def _find_directory(paths: dict) -> DirectoryIndex:
             # - Database record creation
             success, directory = DirectoryIndex.add_directory(dirpath)
 
-            if not success:
+            if not success or directory is None:
                 # Physical directory doesn't exist on filesystem
                 logger.info("Directory not found on filesystem: %s", dirpath)
                 raise DirectoryNotFoundError(f"Gallery not found: {dirpath}")
@@ -824,10 +821,14 @@ def _find_directory(paths: dict) -> DirectoryIndex:
 
             # Reload for view rendering: add_directory uses
             # update_or_create without prefetch_related.
-            _, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha)
+            _, reloaded = DirectoryIndex.search_for_directory_by_sha(dir_sha)
+
+            if reloaded is None:
+                logger.info("Directory sync failed: %s", dirpath)
+                raise DirectoryNotFoundError(f"Gallery sync failed: {dirpath}")
 
             # Sync newly created directory to populate file entries
-            directory = update_database_from_disk(directory)
+            directory = update_database_from_disk(reloaded)
 
             if not directory:
                 logger.info("Directory sync failed: %s", dirpath)

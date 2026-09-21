@@ -150,6 +150,6 @@ def discover_api_descriptors() -> dict[str, Plugin]:
     if cached is not None:
         return cached
 
-    descriptors = discover_plugins([ENGINE_PLUGIN_PACKAGE] + _trusted_game_module_names())
+    descriptors = discover_plugins([ENGINE_PLUGIN_PACKAGE, *_trusted_game_module_names()])
     _api_descriptor_cache[_API_DESCRIPTOR_CACHE_KEY] = descriptors
     return descriptors

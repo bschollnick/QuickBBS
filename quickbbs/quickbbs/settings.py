@@ -18,7 +18,105 @@ from dbtasks import Periodic
 from django_htmx.jinja import django_htmx_script, htmx_script
 
 from quickbbs import __version__ as QUICKBBS_VERSION
-from quickbbs.quickbbs_settings import *  # pylint: disable=wildcard-import,unused-wildcard-import  # intentional: re-exports all settings constants to this module
+
+# Every name here is a Django setting this module must expose. The import
+# is the re-export: Django reads them off this module, not the other one.
+from quickbbs.quickbbs_settings import (
+    _DIRECTORY_COVER_QUERIES,
+    ALBUMS_PATH,
+    ALIAS_CACHE_SIZE,
+    ALL_FILES_SHAS_CACHE_SIZE,
+    ALL_SUPPORTED_FILETYPES,
+    ARCHIVE_FILE_TYPES,
+    ARCHIVE_ITEMS_PER_PAGE,
+    AUDIO_FILE_TYPES,
+    BATCH_SIZES,
+    BOOK_FILE_TYPES,
+    BREADCRUMBS_CACHE_SIZE,
+    CACHE_MONITORING,
+    CORE_IMAGE_QUALITY,
+    DEFAULT_SORT_ORDER,
+    DIR_COUNTS_CACHE_SIZE,
+    DIRECTORY_COVER_NAMES,
+    DIRECTORY_SHA_CACHE_SIZE,
+    DIRECTORY_SYNC_BATCH_SIZE,
+    DIRECTORY_SYNC_CHUNK_SIZE,
+    DIRECTORYINDEX_CACHE_SIZE,
+    DISTINCT_FILES_CACHE_SIZE,
+    ENCODING_CACHE_SIZE,
+    ENCODING_DETECT_READ_SIZE,
+    EVENT_PROCESSING_DELAY,
+    EXTENSIONS_TO_IGNORE,
+    FILE_COUNTS_CACHE_SIZE,
+    FILEINDEX_CACHE_SIZE,
+    FILEINDEX_DOWNLOAD_CACHE_SIZE,
+    FILES_TO_IGNORE,
+    FTYPES,
+    GALLERY_ITEMS_PER_PAGE,
+    GET_VIEW_URL_CACHE_SIZE,
+    GRAPHIC_FILE_TYPES,
+    HTML_FILE_TYPES,
+    HTTP_CACHE_MAX_AGE,
+    ICONS_PATH,
+    IF_LIBRARY_ITEMS_PER_PAGE,
+    IF_SCAN_DEFAULT_OWNER,
+    IGNORE_DOT_FILES,
+    IMAGE_SIZE,
+    ITEM_VIEW_THUMBNAIL_BATCH_LIMIT,
+    LAYOUT_MANAGER_CACHE_SIZE,
+    LINK_FILE_TYPES,
+    MAC_OPTIMIZATION_WHITECHECK,
+    MACINTOSH_OPTIMIZATIONS,
+    MARKDOWN_FILE_TYPES,
+    MAX_DIRECTORY_DEPTH,
+    MAX_SAVE_FILE_UPLOAD_BYTES,
+    MAX_SAVE_SLOTS_PER_STORY,
+    MAX_SEARCH_RESULTS,
+    MAX_STORY_IMAGE_UPLOAD_BYTES,
+    MAX_STORY_UPLOAD_BYTES,
+    MAX_TEXT_FILE_DISPLAY_SIZE,
+    MAX_TRANSCRIPT_TURNS,
+    MOVIE_FILE_TYPES,
+    NORMALIZED_PATHS_CACHE_SIZE,
+    NORMALIZED_STRINGS_CACHE_SIZE,
+    PDF_FILE_TYPES,
+    PDF_ZOOM_CACHE_SIZE,
+    PDFKIT_SCALE_CACHE_SIZE,
+    PIL_IMAGE_QUALITY,
+    PIL_LOAD_TRUNCATED_IMAGES,
+    PIL_MAX_IMAGE_PIXELS,
+    QUICKBBS_REQUIRE_LOGIN,
+    RAR_FILE_TYPES,
+    REGISTRATION_OPEN,
+    RESOURCES_PATH,
+    SEARCH_ITEMS_PER_PAGE,
+    SERVER_IP,
+    SERVER_PATH,
+    SERVER_PORT,
+    SHA256_MAX_WORKERS,
+    SHA256_PARALLEL_THRESHOLD,
+    SIBLING_DIRS_CACHE_SIZE,
+    SITE_HEADER_IMAGE_SETTINGS,
+    SITE_NAME,
+    SMALL_THUMBNAIL_SAFEGUARD_SIZE,
+    SNAPSHOT_MIN_INTERVAL,
+    STATIC_ASSET_CACHE_MAX_AGE,
+    STORY_COVER_THUMB_SIZE,
+    STORY_IMAGE_CONTENT_TYPES,
+    SUPPORTED_INK_VERSIONS,
+    TASK_RETAIN_DAYS,
+    TEXT_FILE_TYPES,
+    THUMBNAIL_BATCH_LIMIT,
+    THUMBNAIL_ENQUEUE_DEBOUNCE_SIZE,
+    THUMBNAIL_ENQUEUE_DEBOUNCE_TTL,
+    USER_PREF_CACHE_SIZE,
+    USER_PREF_CACHE_TTL,
+    VACUUM_DEAD_RATIO_THRESHOLD,
+    VACUUM_MIN_LIVE_ROWS,
+    WATCHDOG_RESTART_INTERVAL,
+    WEBPATHS_CACHE_SIZE,
+    ZIP_FILE_TYPES,
+)
 
 #
 #   Debug, enables the debugging mode
@@ -78,16 +176,13 @@ class SuppressCancelledErrorFilter(logging.Filter):
         # Check if this is a CancelledError exception
         if record.exc_info:
             exc_type = record.exc_info[0]
-            if exc_type and exc_type.__name__ == "CancelledError":
-                # Check if it's from asgiref (expected) vs application code (unexpected)
-                if record.name.startswith("asyncio") or "asgiref" in record.pathname:
-                    return False
+            # From asgiref (expected) rather than application code
+            # (unexpected).
+            if exc_type and exc_type.__name__ == "CancelledError" and (record.name.startswith("asyncio") or "asgiref" in record.pathname):
+                return False
 
         # Check if message contains the specific asgiref error
-        if "CancelledError exception in shielded future" in record.getMessage():
-            return False
-
-        return True
+        return "CancelledError exception in shielded future" not in record.getMessage()
 
 
 logger = logging.getLogger(__name__)

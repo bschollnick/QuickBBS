@@ -1,4 +1,8 @@
 
+**Date Created:** 2025-10-12  
+**Last Updated:** 2026-09-20  
+**Last Reviewed:** 2026-09-20
+
 ## Pre-Version 1 (2014 and earlier)
 **Technology**: Twisted Matrix Framework
 
@@ -439,7 +443,7 @@ Version 4.00 is a major release marking the culmination of the "march to v4" eff
   - Orphaned files are deleted; orphaned directories are removed only if empty (uses `os.rmdir()` for safety)
   - Summary output includes counts of mirror-removed files and directories when non-zero
   - Normalization consistency: mirror cleanup uses the same path normalization (whitespace strip, spaces→underscores, title case) as the forward copy
-- **Mirror Exclude Command**: Added support for excluding paths from mirror mode cleanup
+- **Exclude Option**: Added `--exclude`, which skips any source directory whose name contains one of the given fragments and preserves its target counterpart.  It applies to the whole run, not only to mirror-mode cleanup
 
 **macOS Thumbnail Engine:**
 - **macOS GPU Optimizations Re-enabled for Testing**: After further tuning, macOS Core Image optimizations were re-enabled for testing (previously disabled due to interminent thumbnail corruption)
@@ -489,7 +493,7 @@ Version 4.1 builds on the v4.00 foundation, raising the minimum Django requireme
 **Code Quality & Cleanup:**
 - **Dead Code Removal**: Removed orphaned files/directories (stale `wsgi.py` duplicate, unused `3rd_party_libraries.py`, unwired `filter_ips` middleware, `prototypes/`/`depreciated/` scratch directories, stale `filetypes` constants file), an unused benchmark method, unused imports, and stale commented-out code blocks
 - **Filetypes Hardening**: Removed a dead dictionary alias in `filetypes`, fixed guard code, and changed a silent failure on filetype-reload failure into an explicit exception (a silent failure here could risk data corruption or unintended deletion)
-- **Naming Consistency**: Renamed `new_viewgallery` → `view_gallery`, `thumbnail2_dir` → `thumbnail_dir`, `thumbnail2_file` → `thunbmail_file` for clarity
+- **Naming Consistency**: Renamed `new_viewgallery` → `view_gallery`, `thumbnail2_dir` → `thumbnail_dir`, `thumbnail2_file` → `thumbnail_file` for clarity
 - **Type Hint Fixes**: Additional type hint corrections across touched modules
 - **Test Suite Expansion**: Expanded test coverage for the API, web responses, and directory/file-count caching
 

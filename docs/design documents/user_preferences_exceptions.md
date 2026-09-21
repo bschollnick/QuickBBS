@@ -1,8 +1,11 @@
 # user_preferences — Exception Taxonomy
 
+**Date Created:** 2026-08-07  
+**Last Updated:** 2026-09-20  
+**Last Reviewed:** 2026-09-20
+
 **Companion to:** N/A (no standalone `user_preferences_design.md` exists yet)
 **Author:** Benjamin Schollnick
-**Last Updated:** 2026-08-07
 
 ---
 
@@ -18,7 +21,7 @@ across every source file in the app.
 
 ## No exception handling
 
-`toggle_show_duplicates` (`user_preferences/views.py:15–35`) is the app's one
+`toggle_show_duplicates` (`user_preferences/views.py:15–60`) is the app's one
 consequential write path: it wraps a `UserPreferences.objects.get_or_create(...)` call
 and a `preferences.save()` inside `transaction.atomic()`, with no exception handling
 around either. An error at either step (a database failure, a constraint violation)
@@ -29,5 +32,5 @@ app-level handling of its own.
 This is consistent with the read side: reading `UserPreferences.show_duplicates`
 elsewhere in the codebase is handled at the *caller's* side, not here — see
 [`frontend_exceptions.md`](frontend_exceptions.md)'s
-`_get_show_duplicates_preference`, which catches `(DatabaseError, OperationalError,
-AttributeError)` around its own lookup of this same model.
+`_get_show_duplicates_preference`, which catches
+`(DatabaseError, OperationalError)` around its own lookup of this same model.

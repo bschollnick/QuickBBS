@@ -204,7 +204,7 @@ def compare_server_config(results: list[dict[str, Any]]) -> None:
                 value = "N/A"
 
             values.append(value)
-            row += f" | {str(value):>24}"
+            row += f" | {value!s:>24}"
 
         # Mark if configuration changed
         if len(set(values)) > 1:
@@ -282,10 +282,7 @@ def compare_metrics(results: list[dict[str, Any]]) -> None:
 
             # Add performance indicator
             if change != "N/A" and change != "0.0%":
-                if higher_is_better:
-                    indicator = "✓" if "+" in change else "✗"
-                else:
-                    indicator = "✗" if "+" in change else "✓"
+                indicator = ("✓" if "+" in change else "✗") if higher_is_better else "✗" if "+" in change else "✓"
                 row += f" | {change:>8} {indicator}"
             else:
                 row += f" | {change:>8}  "

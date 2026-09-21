@@ -83,15 +83,7 @@ class AdminMasterIndex(admin.ModelAdmin):
         """
         if obj.new_ftnail is None:
             return False
-        if any(
-            [
-                obj.new_ftnail.small_thumb,
-                obj.new_ftnail.medium_thumb,
-                obj.new_ftnail.large_thumb,
-            ]
-        ):
-            return True
-        return False
+        return bool(any([obj.new_ftnail.small_thumb, obj.new_ftnail.medium_thumb, obj.new_ftnail.large_thumb]))
 
     def display_fqpndirectory(self, obj: FileIndex) -> str:
         """

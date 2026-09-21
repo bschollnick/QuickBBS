@@ -42,12 +42,8 @@ class GameSavesDatabaseTestCase(TestCase):
         self.other_user = get_user_model().objects.create_user(username="someoneelse", password="x")
         # These tests exercise SaveState rows only, never the interpreter,
         # so a minimal compiled story is enough and keeps them fast.
-        self.story = Story.objects.create(
-            owner=self.user, title="The Haunted House", slug="thehauntedhouse", compiled_json=A_COMPILED_STORY
-        )
-        self.other_story = Story.objects.create(
-            owner=self.user, title="Another Game", slug="anothergame", compiled_json=A_COMPILED_STORY
-        )
+        self.story = Story.objects.create(owner=self.user, title="The Haunted House", slug="thehauntedhouse", compiled_json=A_COMPILED_STORY)
+        self.other_story = Story.objects.create(owner=self.user, title="Another Game", slug="anothergame", compiled_json=A_COMPILED_STORY)
         self.game_saves_database = GameSavesDatabase(user=self.user, story=self.story)
 
     def test_it_satisfies_the_protocol(self) -> None:
@@ -56,39 +52,52 @@ class GameSavesDatabaseTestCase(TestCase):
 
 class SaveAndLoadTests(GameSavesDatabaseTestCase):
     def test_a_saved_game_can_be_loaded_back(self) -> None:
-        save_game("thehauntedhouse", 0, a_state(), "Before the bridge",
-                  saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN)
-        self.assertEqual(load_game_save("thehauntedhouse", 0, saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS),
-                         a_state())
+        save_game(
+            "thehauntedhouse", 0, a_state(), "Before the bridge", saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN
+        )
+        self.assertEqual(load_game_save("thehauntedhouse", 0, saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS), a_state())
 
     def test_saving_writes_exactly_one_row(self) -> None:
-        save_game("thehauntedhouse", 0, a_state(), "x",
-                  saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN)
+        save_game("thehauntedhouse", 0, a_state(), "x", saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN)
         self.assertEqual(SaveState.objects.count(), 1)
 
     def test_turn_count_is_denormalized_onto_the_row(self) -> None:
         """So a listing never has to de-TOAST the JSONB state column."""
-        save_game("thehauntedhouse", 0, a_state(turn_count=42), "x",
-                  saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN)
+        save_game(
+            "thehauntedhouse", 0, a_state(turn_count=42), "x", saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN
+        )
         self.assertEqual(SaveState.objects.get(slot=0).turn_count, 42)
 
     def test_a_state_without_a_turn_count_stores_the_column_default(self) -> None:
         """The column is NOT NULL, so None becomes -1 rather than failing."""
-        save_game("thehauntedhouse", 0, {"save_format_version": SAVE_FORMAT_VERSION}, "x",
-                  saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN)
+        save_game(
+            "thehauntedhouse",
+            0,
+            {"save_format_version": SAVE_FORMAT_VERSION},
+            "x",
+            saves_in=self.game_saves_database,
+            maximum_gamesave_slots=MAX_SLOTS,
+            saved_at=WHEN,
+        )
         self.assertEqual(SaveState.objects.get(slot=0).turn_count, -1)
 
     def test_saving_the_same_slot_twice_updates_rather_than_duplicates(self) -> None:
         for turn in (1, 2):
-            save_game("thehauntedhouse", 0, a_state(turn_count=turn), f"Save {turn}",
-                      saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN)
+            save_game(
+                "thehauntedhouse",
+                0,
+                a_state(turn_count=turn),
+                f"Save {turn}",
+                saves_in=self.game_saves_database,
+                maximum_gamesave_slots=MAX_SLOTS,
+                saved_at=WHEN,
+            )
         self.assertEqual(SaveState.objects.count(), 1)
         self.assertEqual(SaveState.objects.get(slot=0).turn_count, 2)
 
     def test_the_read_reports_the_database_write_time_not_the_passed_one(self) -> None:
         """updated_at is auto_now, so the column owns the timestamp."""
-        save_game("thehauntedhouse", 0, a_state(), "x",
-                  saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN)
+        save_game("thehauntedhouse", 0, a_state(), "x", saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN)
         row = SaveState.objects.get(slot=0)
         game_save = self.game_saves_database.read_game_save("thehauntedhouse", 0)
         assert game_save is not None
@@ -103,31 +112,33 @@ class IsolationTests(GameSavesDatabaseTestCase):
 
     def test_another_users_save_is_not_visible(self) -> None:
         other_players_saves = GameSavesDatabase(user=self.other_user, story=self.story)
-        save_game("thehauntedhouse", 0, a_state(turn_count=1), "Mine",
-                  saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN)
+        save_game(
+            "thehauntedhouse", 0, a_state(turn_count=1), "Mine", saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN
+        )
         self.assertIsNone(other_players_saves.read_game_save("thehauntedhouse", 0))
 
     def test_another_storys_save_is_not_visible(self) -> None:
         other_players_saves = GameSavesDatabase(user=self.user, story=self.other_story)
-        save_game("thehauntedhouse", 0, a_state(turn_count=1), "Mine",
-                  saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN)
+        save_game(
+            "thehauntedhouse", 0, a_state(turn_count=1), "Mine", saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN
+        )
         self.assertIsNone(other_players_saves.read_game_save("anothergame", 0))
 
     def test_deleting_does_not_touch_another_users_same_slot(self) -> None:
         other_players_saves = GameSavesDatabase(user=self.other_user, story=self.story)
-        save_game("thehauntedhouse", 0, a_state(), "Mine",
-                  saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN)
-        save_game("thehauntedhouse", 0, a_state(), "Theirs",
-                  saves_in=other_players_saves, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN)
+        save_game("thehauntedhouse", 0, a_state(), "Mine", saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN)
+        save_game("thehauntedhouse", 0, a_state(), "Theirs", saves_in=other_players_saves, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN)
         self.game_saves_database.delete_game_save("thehauntedhouse", 0)
         self.assertIsNotNone(other_players_saves.read_game_save("thehauntedhouse", 0))
 
     def test_saving_does_not_overwrite_another_users_same_slot(self) -> None:
         other_players_saves = GameSavesDatabase(user=self.other_user, story=self.story)
-        save_game("thehauntedhouse", 0, a_state(turn_count=1), "Mine",
-                  saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN)
-        save_game("thehauntedhouse", 0, a_state(turn_count=2), "Theirs",
-                  saves_in=other_players_saves, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN)
+        save_game(
+            "thehauntedhouse", 0, a_state(turn_count=1), "Mine", saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN
+        )
+        save_game(
+            "thehauntedhouse", 0, a_state(turn_count=2), "Theirs", saves_in=other_players_saves, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN
+        )
         self.assertEqual(SaveState.objects.count(), 2)
         game_save = self.game_saves_database.read_game_save("thehauntedhouse", 0)
         assert game_save is not None
@@ -141,8 +152,9 @@ class ListingTests(GameSavesDatabaseTestCase):
         self.assertTrue(all(entry["used"] is False for entry in listing))
 
     def test_an_occupied_slot_reports_its_label_and_turn_count(self) -> None:
-        save_game("thehauntedhouse", 2, a_state(turn_count=12), "Here",
-                  saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN)
+        save_game(
+            "thehauntedhouse", 2, a_state(turn_count=12), "Here", saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN
+        )
         entry = list_game_saves("thehauntedhouse", saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS)[2]
         self.assertTrue(entry["used"])
         self.assertEqual(entry["label"], "Here")
@@ -157,15 +169,13 @@ class ListingTests(GameSavesDatabaseTestCase):
 
     def test_the_quicksave_is_excluded_from_the_summary_itself(self) -> None:
         quicksave("thehauntedhouse", a_state(), saves_in=self.game_saves_database, saved_at=WHEN)
-        save_game("thehauntedhouse", 0, a_state(), "Real",
-                  saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN)
+        save_game("thehauntedhouse", 0, a_state(), "Real", saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN)
         summaries = self.game_saves_database.summarize_game_saves("thehauntedhouse")
         self.assertEqual([s["gamesave_slot"] for s in summaries], [0])
 
     def test_a_listing_does_not_load_the_state_column(self) -> None:
         """The reason summarize_game_saves exists apart from read_game_save."""
-        save_game("thehauntedhouse", 0, a_state(), "x",
-                  saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN)
+        save_game("thehauntedhouse", 0, a_state(), "x", saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN)
         with self.assertNumQueries(1):
             summaries = self.game_saves_database.summarize_game_saves("thehauntedhouse")
             # Touching a deferred field would issue a second query.
@@ -173,8 +183,7 @@ class ListingTests(GameSavesDatabaseTestCase):
 
     def test_only_this_users_saves_are_listed(self) -> None:
         other_players_saves = GameSavesDatabase(user=self.other_user, story=self.story)
-        save_game("thehauntedhouse", 0, a_state(), "Theirs",
-                  saves_in=other_players_saves, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN)
+        save_game("thehauntedhouse", 0, a_state(), "Theirs", saves_in=other_players_saves, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN)
         listing = list_game_saves("thehauntedhouse", saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS)
         self.assertTrue(all(entry["used"] is False for entry in listing))
 
@@ -190,11 +199,11 @@ class QuicksaveTests(GameSavesDatabaseTestCase):
         self.assertTrue(SaveState.objects.filter(slot=QUICKSAVE_SLOT).exists())
 
     def test_it_does_not_disturb_a_numbered_save(self) -> None:
-        save_game("thehauntedhouse", 0, a_state(turn_count=1), "Mine",
-                  saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN)
+        save_game(
+            "thehauntedhouse", 0, a_state(turn_count=1), "Mine", saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS, saved_at=WHEN
+        )
         quicksave("thehauntedhouse", a_state(turn_count=2), saves_in=self.game_saves_database, saved_at=WHEN)
-        self.assertEqual(load_game_save("thehauntedhouse", 0, saves_in=self.game_saves_database,
-                                        maximum_gamesave_slots=MAX_SLOTS)["turn_count"], 1)
+        self.assertEqual(load_game_save("thehauntedhouse", 0, saves_in=self.game_saves_database, maximum_gamesave_slots=MAX_SLOTS)["turn_count"], 1)
 
     def test_has_quicksave_answers_without_loading_state(self) -> None:
         quicksave("thehauntedhouse", a_state(), saves_in=self.game_saves_database, saved_at=WHEN)

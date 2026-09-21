@@ -91,9 +91,7 @@ class GameResolverTests(BundleFixtureTestCase):
         self.assertEqual(resolve_tag_in_bundle(self.bundle, "image", "hero/standing.jpg"), "hero/portrait.jpg")
 
     def test_a_tag_the_resolver_passes_through_still_resolves(self):
-        self.assertEqual(
-            resolve_tag_in_bundle(self.bundle, "image", "villain/portrait.jpg"), "villain/portrait.jpg"
-        )
+        self.assertEqual(resolve_tag_in_bundle(self.bundle, "image", "villain/portrait.jpg"), "villain/portrait.jpg")
 
     def test_a_resolver_answering_nothing_answers_none(self):
         self.assertIsNone(resolve_tag_in_bundle(self.bundle, "image", "nobody/nothing.jpg"))
@@ -114,7 +112,7 @@ class OpenBundleCacheTests(BundleFixtureTestCase):
         for index in range(MAX_OPEN_BUNDLES + 1):
             bundle_source(self.tmp / f"filler{index}.zip")  # each answers None, the real one stays
         close_all_bundles()
-        with self.assertRaises(Exception):
+        with self.assertRaises(ValueError):
             source.read_bytes("manifest.yaml")
 
 
@@ -135,9 +133,7 @@ class NewGameImageTests(BundleFixtureTestCase):
         """A game FOLDER keeps these at its root; the bundler places them
         under `UI/`. Both layouts are searched rather than either being
         assumed."""
-        self.assertEqual(
-            resolve_tag_in_bundle(self.bundle, "image", f"newgame:{NEW_GAME_IMAGE}"), f"UI/{NEW_GAME_IMAGE}"
-        )
+        self.assertEqual(resolve_tag_in_bundle(self.bundle, "image", f"newgame:{NEW_GAME_IMAGE}"), f"UI/{NEW_GAME_IMAGE}")
 
     def test_an_undeclared_image_is_not_invented(self):
         self.assertIsNone(resolve_tag_in_bundle(self.bundle, "image", "newgame:no_such_option.png"))

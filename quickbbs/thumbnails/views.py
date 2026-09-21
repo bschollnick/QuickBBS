@@ -48,8 +48,11 @@ def thumbnail_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pylin
         Http404: If the directory cannot be found.
     """
     # Use optimized model method with prefetched relationships
+    if dir_sha256 is None:
+        raise Http404("No directory sha256 supplied")
+
     success, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha256)
-    if not success:
+    if not success or directory is None:
         logger.warning("Directory not found for thumbnail request: %s", dir_sha256)
         raise Http404(f"Directory not found: {dir_sha256}")
 
@@ -104,7 +107,7 @@ def thumbnail_dir(request: WSGIRequest, dir_sha256: str | None = None):  # pylin
     if not directory.thumbnail.new_ftnail:
         try:
             thumbnail = ThumbnailFiles.get_or_create_thumbnail_record(
-                directory.thumbnail.file_sha256,
+                str(directory.thumbnail.file_sha256),
                 suppress_save=False,
                 prefetch_related_thumbnail=THUMBNAILFILES_PR_FILEINDEX_FILETYPE,
                 select_related_fileindex=("filetype",),

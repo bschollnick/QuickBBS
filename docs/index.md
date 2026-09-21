@@ -1,6 +1,10 @@
 QuickBBS Documentation
 =======================
 
+**Date Created:** 2025-12-21  
+**Last Updated:** 2026-09-08  
+**Last Reviewed:** 2026-09-20
+
 Start with [`QuickBBS.md`](QuickBBS.md) for the full feature list, installation, management commands, and configuration reference.
 
 ## See Also

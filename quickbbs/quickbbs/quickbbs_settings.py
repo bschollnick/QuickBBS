@@ -191,6 +191,8 @@ DIRECTORY_SHA_CACHE_SIZE = 1000  # Directory SHA256 hash computations (common.py
 NORMALIZED_PATHS_CACHE_SIZE = 1000  # Normalized path lookups (common.py)
 ENCODING_CACHE_SIZE = 1000  # Text file encoding detection results (fileindex.py)
 ALIAS_CACHE_SIZE = 250  # macOS alias resolution results (fileindex.py)
+PDF_ZOOM_CACHE_SIZE = 500  # PDF page zoom calculations (thumbnails/engine/pdf_thumbnails.py)
+PDFKIT_SCALE_CACHE_SIZE = 500  # PDF page scale calculations (thumbnails/engine/pdfkit_thumbnails.py)
 
 # TTL cache settings
 USER_PREF_CACHE_SIZE = 64  # Max cached user preference lookups (views.py)

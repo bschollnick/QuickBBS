@@ -13,7 +13,7 @@ import logging
 import os
 import platform
 import threading
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from .config import config
 from .exceptions import MediaProcessingError, UnsupportedFormatError
@@ -198,11 +198,11 @@ def is_all_white_thumbnail(small_thumb: bytes | memoryview | None) -> bool:
 class FastImageProcessor:
     """Multi-backend image processor with automatic backend selection and caching."""
 
-    __slots__ = ("image_sizes", "backend_type", "_backend")
+    __slots__ = ("_backend", "backend_type", "image_sizes")
 
     # Class-level backend cache to reuse backend instances.
     # Protected by _backend_lock for thread safety in multi-threaded workers.
-    _backend_cache: dict = {}
+    _backend_cache: ClassVar[dict[str, Any]] = {}
     _backend_lock = threading.Lock()
 
     def __init__(self, image_sizes: dict[str, tuple[int, int]], backend: BackendType = "auto"):
@@ -637,7 +637,8 @@ if __name__ == "__main__":
     thumbnails_auto = create_thumbnails_from_path(image_filename, IMAGE_SIZES, output="JPEG", backend="auto")
     processor = _get_cached_processor(IMAGE_SIZES, "auto")
     print(
-        f"Auto Backend (using {processor.current_backend}): {len(thumbnails_auto['small']):,} / {len(thumbnails_auto['medium']):,} / {len(thumbnails_auto['large']):,} bytes"
+        f"Auto Backend (using {processor.current_backend}): "
+        f"{len(thumbnails_auto['small']):,} / {len(thumbnails_auto['medium']):,} / {len(thumbnails_auto['large']):,} bytes"
     )
 
     print()
@@ -653,7 +654,8 @@ if __name__ == "__main__":
     processor_ffmpeg = FastImageProcessor(VIDEO_SIZES, backend="video")
     thumbnails_ffmpeg = processor_ffmpeg.process_image_file(video_filename, output_format="JPEG", quality=85)
     print(
-        f"FFmpeg Backend: Duration={thumbnails_ffmpeg.get('duration', 'N/A')}s, Sizes: {len(thumbnails_ffmpeg['small']):,} / {len(thumbnails_ffmpeg['medium']):,} / {len(thumbnails_ffmpeg['large']):,} bytes"
+        f"FFmpeg Backend: Duration={thumbnails_ffmpeg.get('duration', 'N/A')}s, Sizes: "
+        f"{len(thumbnails_ffmpeg['small']):,} / {len(thumbnails_ffmpeg['medium']):,} / {len(thumbnails_ffmpeg['large']):,} bytes"
     )
     output_disk("test_thumb_ffmpeg_small.jpg", thumbnails_ffmpeg["small"])
     output_disk("test_thumb_ffmpeg_medium.jpg", thumbnails_ffmpeg["medium"])
@@ -664,7 +666,8 @@ if __name__ == "__main__":
         processor_av = FastImageProcessor(VIDEO_SIZES, backend="corevideo")
         thumbnails_av = processor_av.process_image_file(video_filename, output_format="JPEG", quality=85)
         print(
-            f"AVFoundation Backend: Duration={thumbnails_av.get('duration', 'N/A')}s, Sizes: {len(thumbnails_av['small']):,} / {len(thumbnails_av['medium']):,} / {len(thumbnails_av['large']):,} bytes"
+            f"AVFoundation Backend: Duration={thumbnails_av.get('duration', 'N/A')}s, Sizes: "
+            f"{len(thumbnails_av['small']):,} / {len(thumbnails_av['medium']):,} / {len(thumbnails_av['large']):,} bytes"
         )
         output_disk("test_thumb_av_small.jpg", thumbnails_av["small"])
         output_disk("test_thumb_av_medium.jpg", thumbnails_av["medium"])
@@ -683,7 +686,8 @@ if __name__ == "__main__":
     processor_pdf = FastImageProcessor(PDF_SIZES, backend="pdf")
     thumbnails_pdf = processor_pdf.process_image_file(pdf_filename, output_format="JPEG", quality=85)
     print(
-        f"PDF Backend (using {processor_pdf.current_backend}): Sizes: {len(thumbnails_pdf['small']):,} / {len(thumbnails_pdf['medium']):,} / {len(thumbnails_pdf['large']):,} bytes"
+        f"PDF Backend (using {processor_pdf.current_backend}): Sizes: "
+        f"{len(thumbnails_pdf['small']):,} / {len(thumbnails_pdf['medium']):,} / {len(thumbnails_pdf['large']):,} bytes"
     )
     output_disk("test_thumb_pdf_small.jpg", thumbnails_pdf["small"])
     output_disk("test_thumb_pdf_medium.jpg", thumbnails_pdf["medium"])

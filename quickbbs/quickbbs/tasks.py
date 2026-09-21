@@ -240,7 +240,7 @@ def get_vacuum_candidates(
     with connection.cursor() as cursor:
         cursor.execute(sql, [min_live_rows, scale_factor_threshold])
         columns = [col[0] for col in cursor.description]
-        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+        return [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
 
 
 def get_table_dead_tuple_count(table_name: str) -> int | None:

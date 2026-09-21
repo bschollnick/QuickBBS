@@ -17,6 +17,7 @@ import json
 from pathlib import Path
 
 import yaml
+
 from ink_engine.bundler import build_bundle, select_bundle_contents
 
 #: A minimal compiled story: it plays to an immediate end.
@@ -129,9 +130,7 @@ def write_game_directory(
     }
     (game_dir / "manifest.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
     (game_dir / "story.inkj").write_text(json.dumps(COMPILED_STORY), encoding="utf-8")
-    (game_dir / "__init__.py").write_text(
-        "from . import image_resolver\n" if with_resolver else "", encoding="utf-8"
-    )
+    (game_dir / "__init__.py").write_text("from . import image_resolver\n" if with_resolver else "", encoding="utf-8")
     if with_resolver:
         (game_dir / "image_resolver.py").write_text(_RESOLVER_SOURCE, encoding="utf-8")
 

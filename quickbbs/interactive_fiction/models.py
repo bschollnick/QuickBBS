@@ -157,7 +157,7 @@ class Story(models.Model):
         return self.title
 
     @property
-    def bundle_path(self) -> "Path | None":
+    def bundle_path(self) -> Path | None:
         """The `.zip` this story is played from, or None for a folder story.
 
         Returns:
@@ -364,7 +364,7 @@ class SaveState(models.Model):
         return f"{base} ({self.label})" if self.label else base
 
 
-def user_can_access(story: Story, user: "AbstractUser | AnonymousUser") -> bool:
+def user_can_access(story: Story, user: AbstractUser | AnonymousUser) -> bool:
     """Return whether the given user may view/play the given story.
 
     Args:

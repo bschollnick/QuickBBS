@@ -1,6 +1,7 @@
 """Middleware to ensure filetypes are loaded once per worker process."""
 
 from asgiref.sync import iscoroutinefunction, sync_to_async
+
 from filetypes.models import load_filetypes
 
 

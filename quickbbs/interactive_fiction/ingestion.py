@@ -51,7 +51,11 @@ from typing import Any
 from django.conf import settings
 from django.contrib.auth import get_user_model
 
-from ink_engine.bundle_integrity import recorded_hashes, unrecognized_bundle_version, verify_bundle
+from ink_engine.bundle_integrity import (
+    recorded_hashes,
+    unrecognized_bundle_version,
+    verify_bundle,
+)
 from ink_engine.game_folder import (
     GameFolderError,
     check_manifest_supported,

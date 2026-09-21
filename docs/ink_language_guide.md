@@ -1,5 +1,9 @@
 # Ink: A Working Reference
 
+**Date Created:** 2026-09-09  
+**Last Updated:** 2026-09-20  
+**Last Reviewed:** 2026-09-20
+
 Standard Ink — syntax, structure, and runtime behaviour that holds for any Ink
 story, regardless of what you are writing or what runs it.
 
@@ -7,19 +11,18 @@ story, regardless of what you are writing or what runs it.
 inferred from documentation. Where a claim is subtle, the test that proves it
 is included so it can be re-run.
 
-inkle's own reference is vendored in the repo at
-`quickbbs/interactive_fiction/ink_reference/` — read that for what Ink *does*;
-read this for what it does when you get it subtly wrong. (The headline case
-below, §1.1, is not covered upstream at all.)
+inkle's own *Writing with Ink* is the reference for what Ink **does**; read
+this for what it does when you get it subtly wrong. (The headline case below,
+1.1, is not covered by inkle at all.)
 
 Two companion documents carry what this one deliberately leaves out:
 
-- **Host/engine concerns** — `EXTERNAL` binding contracts, media tags, and
-  notes for anyone implementing an Ink interpreter — live in
+- **Application and engine concerns** — `EXTERNAL` binding contracts, media
+  tags, and notes for anyone implementing an Ink interpreter — live in
   [`interactive_fiction — Implementation Guide`](design%20documents/interactive_fiction_implementation_guide.md).
 - **Converting an existing game into Ink** — verifying a port against its
-  original source, state-ownership decisions, and audit methodology — lives in
-  the conversion's own plan (`claude_docs/plans/a_spell_for_all.md`).
+  original source, state-ownership decisions, and audit methodology — is
+  out of scope here, and tracked with the conversion itself.
 
 ```bash
 inklecate -o out.json story.ink            # compile
@@ -78,7 +81,7 @@ Hub.
 The guarded choice sitting on the very next line behaves correctly.
 
 Note it is `*` — a **once-only** choice — that loops. Marking a choice `*`
-gives no protection here; see §1.2.
+gives no protection here; see section 1.2.
 
 This is worth banning outright rather than policing case by case: the guarded
 form is equivalent everywhere, so there is never a reason to write the wrapped
@@ -105,7 +108,7 @@ Choose.
 -> main
 ```
 
-After taking A once it is gone; B stays forever. This is why §1.1 is
+After taking A once it is gone; B stays forever. This is why section 1.1 is
 surprising: the wrapped form defeats tracking that otherwise works fine.
 
 **`*` strands players.** A knot whose only exits are once-only leaves a
@@ -249,7 +252,7 @@ When auditing for this, **survey by what the choice does, not by its
 label**: exit-type choices are not all called "Leave" or "Exit" — they are
 also "Say goodbye to…", "Head home", "Step out", "Slip away".
 
-`-> END` used as a *placeholder* is the same bug wearing a different hat: an
+`-> END` used as a *placeholder* is the same bug in another form: an
 arrest scene ending `-> END` made being arrested an unconditional game over,
 with the entire courtroom unreachable.
 
@@ -322,7 +325,7 @@ compares equal and the type error never surfaces. Do not rely on a comparison
 to catch a wrong return type.
 
 **Floats and integers compare equal too:** `6.0 == 6` is true. That is
-usually what you want — a host binding returning a float still satisfies an
+usually what you want — a binding returning a float still satisfies an
 integer gate — but it means a comparison will not tell you which type you
 actually got.
 
@@ -479,10 +482,10 @@ There is no "for each". Anything of the form "every member of this list does
 X" must be written as one explicit choice or block per member.
 
 Relatedly, **a plain divert cannot return to its caller** — that is what
-tunnels are for (§1.8). Where a scene must resume one of two different
+tunnels are for (section 1.8). Where a scene must resume one of two different
 callers, either use a tunnel or carry an explicit "where to go back to" VAR.
 
-### 1.18 Threads inject choices ahead of the host's own
+### 1.18 Threads inject choices ahead of the knot's own
 
 `<- other_knot` pulls another knot's choices into this one. The threaded
 choices are listed **first**:
@@ -504,6 +507,82 @@ script) selects choices by index.
 
 ---
 
+### 1.19 Diverts can be assembled programmatically
+
+Inkle documents this (*Writing with Ink*, "Advanced: storing diverts as
+variables" and "Advanced: sending divert targets as parameters"): a knot
+address is a type of value, written with `->`, that can be stored in a `VAR`,
+returned from a function, and passed as a typed parameter. Runtime dispatch
+is therefore ordinary Ink, not a workaround:
+
+```ink
+=== function target_for(who) ===
+{ who == "a":
+    ~ return -> charm_a
+}
+~ return -> charm_none
+
+=== start ===
+~ temp where = target_for(picked_now())
+-> dispatch(where)
+
+=== dispatch(-> where) ===
+-> where
+```
+
+This resolves at runtime, including when the id arrives from an `EXTERNAL`
+binding and when the pick happens across a choice.
+
+**Two reminders when assembling one.** Both compile, so neither is caught by
+a build:
+
+A divert target is not a string. Assigning a string and diverting to it
+produces *no output at all* — no error, no text:
+
+```ink
+VAR d = "target_b"
+-> d            // compiles; emits nothing
+```
+
+This also rules out building a target name inside Ink: `~ temp t = who +
+"_charm"` followed by `-> t` is the same case. A name assembled at runtime
+has to be resolved to a real divert target by the application — an
+`EXTERNAL` binding can look the knot up and return one, and Ink then
+diverts to it.
+
+A parameter must be declared with `->`. Written without it, the parameter
+receives the knot's **read count** rather than its address — inkle notes
+this too:
+
+```ink
+-> sleep(waking)          // `waking` is a NUMBER here
+=== sleep(where) ===      // missing the `->`
+Value is {where}          // prints 0
+```
+
+Write `=== sleep(-> where) ===` and call `-> sleep(-> waking)`.
+
+**A stored divert cannot be tunnelled to.** `-> knot ->` works with a literal
+knot name, but `-> where ->` where `where` holds a divert target compiles and
+then emits nothing — the flow does not arrive and does not return:
+
+```ink
+VAR w = -> scene
+-> w            // works
+-> w ->         // compiles; emits nothing
+```
+
+This matters when the destination ends in `->->`: entered by a plain `-> w`
+it has no tunnel to return from, so the story ends there instead of
+continuing. Route to knots that end in a plain divert, or wrap the
+destination in a knot of your own that ends the way the caller expects.
+
+**A typed parameter will not take a call inline.** `-> dispatch(target_for(x))`
+fails to compile (`expects a divert target ... but saw target_for(x)`); assign
+to a `~ temp` first, as above.
+
+---
+
 ## Part 2 — Verifying a story
 
 ### 2.1 Randomized playthrough is the highest-value test
@@ -511,7 +590,7 @@ script) selects choices by index.
 Drive the compiled story with random choices — say 40 runs of up to 600
 steps, fixed seeds — and report steps taken, dead ends and errors. It finds
 what unit tests do not: unreachable content, crashes deep in a branch, and
-the §1.1 hang. **Pin the story seed** (the runtime seeds from the wall clock
+the section 1.1 hang. **Pin the story seed** (the runtime seeds from the wall clock
 by default) or failures are unreproducible.
 
 A **dead end** — no choices offered while text is still pending — is a real

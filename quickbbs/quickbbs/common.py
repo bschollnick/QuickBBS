@@ -7,8 +7,9 @@ import os
 import pathlib
 import sys
 import threading
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import TYPE_CHECKING, Callable, TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from cachetools import cached
 from cachetools.keys import hashkey
@@ -228,7 +229,7 @@ def get_file_sha(fqfn: str) -> tuple[str | None, str | None]:
             digest.update(str(fqfn).title().encode("utf-8"))
             unique_sha256 = digest.hexdigest()
         return file_sha256, unique_sha256
-    except (FileNotFoundError, OSError, IOError) as exc:
+    except (FileNotFoundError, OSError) as exc:
         logger.error("Error producing SHA 256 for: %s - %s", fqfn, exc)
         return None, None
 
@@ -347,7 +348,7 @@ def _batch_compute_file_shas(file_paths: list[str], max_workers: int | None = No
             path = future_to_path[future]
             try:
                 results[path] = future.result()
-            except (OSError, IOError, ValueError) as e:
+            except (OSError, ValueError) as e:
                 logger.error("Error computing SHA256 for %s: %s", path, e)
                 results[path] = (None, None)
 
@@ -357,7 +358,7 @@ def _batch_compute_file_shas(file_paths: list[str], max_workers: int | None = No
         for path in file_paths:
             try:
                 results[path] = get_file_sha(path)
-            except (OSError, IOError, ValueError) as path_error:
+            except (OSError, ValueError) as path_error:
                 logger.error("Error computing SHA256 for %s: %s", path, path_error)
                 results[path] = (None, None)
 

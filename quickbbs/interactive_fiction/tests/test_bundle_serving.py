@@ -15,7 +15,11 @@ from interactive_fiction.bundle_media import (
     resolve_tag_in_bundle,
 )
 from interactive_fiction.models import Story
-from interactive_fiction.tests.bundle_fixtures import NEW_GAME_IMAGE, VIDEO_BYTES, VIDEO_TAG, write_bundle
+from interactive_fiction.tests.bundle_fixtures import (
+    NEW_GAME_IMAGE,
+    VIDEO_TAG,
+    write_bundle,
+)
 
 #: Tags the synthetic bundle really ships.
 AN_IMAGE_TAG = "hero/portrait.jpg"

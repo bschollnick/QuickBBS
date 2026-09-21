@@ -103,7 +103,7 @@ class Favorite(models.Model):
     @classmethod
     def toggle(
         cls,
-        user: "AbstractBaseUser | AnonymousUser",
+        user: AbstractBaseUser | AnonymousUser,
         *,
         file_sha256: str | None = None,
         dir_sha256: str | None = None,
@@ -175,7 +175,7 @@ class Favorite(models.Model):
     @classmethod
     def is_favorited(
         cls,
-        user: "AbstractBaseUser | AnonymousUser | None",
+        user: AbstractBaseUser | AnonymousUser | None,
         *,
         file_sha256: str | None = None,
         dir_sha256: str | None = None,
@@ -206,7 +206,7 @@ class Favorite(models.Model):
         return cls.objects.filter(user=user, **lookup).exists()
 
     @classmethod
-    def for_user(cls, user: "AbstractBaseUser | AnonymousUser | None") -> "tuple[QuerySet[DirectoryIndex], QuerySet[FileIndex]]":
+    def for_user(cls, user: AbstractBaseUser | AnonymousUser | None) -> tuple[QuerySet[DirectoryIndex], QuerySet[FileIndex]]:
         """
         Return the directories and files favorited by the given user.
 
@@ -246,11 +246,11 @@ class Favorite(models.Model):
 
     @staticmethod
     def annotate_is_favorited(
-        queryset: "QuerySet[DirectoryIndex] | QuerySet[FileIndex]",
-        user: "AbstractBaseUser | AnonymousUser | None",
+        queryset: QuerySet[DirectoryIndex] | QuerySet[FileIndex],
+        user: AbstractBaseUser | AnonymousUser | None,
         *,
         target_field: str,
-    ) -> "QuerySet[Any]":
+    ) -> QuerySet[Any]:
         """
         Annotate a DirectoryIndex/FileIndex queryset with `is_favorited`.
 

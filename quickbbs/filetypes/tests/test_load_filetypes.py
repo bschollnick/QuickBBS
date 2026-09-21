@@ -59,8 +59,7 @@ class TestLoadFiletypesFailurePropagates(TestCase):
         """A DatabaseError during reload must propagate, not be swallowed."""
         load_filetypes(force=True)  # warm the cache first
 
-        with mock.patch.object(filetypes_models, "get_ftype_dict", side_effect=DatabaseError("boom")):
-            with self.assertRaises(DatabaseError):
-                load_filetypes(force=True)
+        with mock.patch.object(filetypes_models, "get_ftype_dict", side_effect=DatabaseError("boom")), self.assertRaises(DatabaseError):
+            load_filetypes(force=True)
 
         self.assertIsNone(filetypes_models._filetypes_dict)  # pylint: disable=protected-access

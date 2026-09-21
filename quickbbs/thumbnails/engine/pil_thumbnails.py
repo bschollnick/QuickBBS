@@ -1,5 +1,6 @@
 """PIL/Pillow backend for image thumbnail generation."""
 
+import contextlib
 import io
 
 from PIL import Image, ImageOps
@@ -145,10 +146,8 @@ class ImageBackend(AbstractBackend):
             # Note: img_copy reference itself is never changed (reassignments happen
             # inside _process_pil_image to a different variable), so this closes
             # the original copy we created
-            try:
+            with contextlib.suppress(OSError, AttributeError):
                 img_copy.close()
-            except (OSError, AttributeError):
-                pass  # Ignore errors during cleanup
 
     def _process_pil_image(
         self,
@@ -247,13 +246,12 @@ class ImageBackend(AbstractBackend):
 
             return results
 
-        except (
-            Exception
-        ):  # TODO: narrow to PIL-specific exception types (PIL.UnidentifiedImageError, PIL.Image.DecompressionBombError, OSError) once PIL error hierarchy is audited
+        except Exception:
+            # TODO: narrow to PIL-specific exception types
+            # (UnidentifiedImageError, DecompressionBombError, OSError)
+            # once the PIL error hierarchy is audited.
             # MEMORY: Clean up working image on error (if not the original)
             if working_img is not original_img:
-                try:
+                with contextlib.suppress(OSError, AttributeError):
                     working_img.close()
-                except (OSError, AttributeError):
-                    pass
             raise

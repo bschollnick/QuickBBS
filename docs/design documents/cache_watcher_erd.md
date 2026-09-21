@@ -1,8 +1,11 @@
 # cache_watcher — Entity-Relationship Diagram
 
+**Date Created:** 2026-08-07  
+**Last Updated:** 2026-09-20  
+**Last Reviewed:** 2026-09-20
+
 **Companion to:** [`cache_watcher_design.md`](cache_watcher_design.md)
 **Author:** Benjamin Schollnick
-**Last Updated:** 2026-08-07
 
 ---
 
@@ -18,7 +21,7 @@ keys in either direction. Verified against `cache_watcher/models.py`.
 ```mermaid
 erDiagram
     CacheStatisticsTracking {
-        int id PK
+        bigint id PK
         string cache_name "unique"
         bigint hits
         bigint misses
@@ -46,7 +49,7 @@ clearing a cache has no effect on the historical rows already written.
 
 **The rest of `cache_watcher`'s real work has no database representation at all.**
 The filesystem-event buffering, debouncing, and directory-invalidation logic described
-in [`cache_watcher_design.md` §4](cache_watcher_design.md#4-component-reference)
+in [`cache_watcher_design.md` Section 4](cache_watcher_design.md#4-component-reference)
 operates entirely on
 [`DirectoryIndex`](quickbbs_app_design.md#42-directoryindexpy--directoryindex) rows it
 doesn't own (see [`high_level_dependency_diagram.md`](high_level_dependency_diagram.md))

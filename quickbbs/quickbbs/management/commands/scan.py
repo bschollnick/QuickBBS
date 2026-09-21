@@ -673,7 +673,7 @@ class Command(BaseCommand):
             print(f"Deleted {deleted_count} records marked as delete_pending")
 
         max_count = options.get("max_count", 0)
-        start_path = options.get("start", None)
+        start_path = options.get("start")
 
         # Validate start_path if provided
         if start_path:

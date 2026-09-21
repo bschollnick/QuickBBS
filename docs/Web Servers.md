@@ -1,5 +1,9 @@
 ## Running Web Servers
 
+**Date Created:** 2025-10-12  
+**Last Updated:** 2026-09-20  
+**Last Reviewed:** 2026-09-20
+
 QuickBBS supports multiple web server options for both development and production deployment. Starting with version 3.5.0, the application is fully ASGI-compatible.
 
 ### Installing a Web Server
@@ -205,8 +209,8 @@ uvicorn quickbbs.asgi:application \
 - For 4 cores: `--workers 8`
 
 **Performance Dependencies:**
-- ✅ `httptools` - Fast HTTP/1.1 parsing (installed)
-- ⚪ `uvloop` - Fast event loop (optional, 20-30% boost)
+- ✅ `httptools` - Fast HTTP/1.1 parsing (installed with the `uvicorn` extra)
+- ✅ `uvloop` - Fast event loop (always installed; a main dependency, not optional)
 
 **Pros:** Fast, async support, excellent HTTP/1.1 performance, modern
 **Cons:** No HTTP/2 support (use Hypercorn for HTTP/2)

@@ -1,8 +1,11 @@
 # QuickBBS — High-Level Dependency Diagram
 
+**Date Created:** 2026-08-07  
+**Last Updated:** 2026-09-19  
+**Last Reviewed:** 2026-09-19
+
 **Companion to:** all per-app design documents and per-app ERDs
 **Author:** Benjamin Schollnick
-**Last Updated:** 2026-08-07
 
 ---
 
@@ -106,5 +109,5 @@ two trees everything else hangs off), then [`filetypes_erd.md`](filetypes_erd.md
 satellites), then [`frontend_erd.md`](frontend_erd.md) and
 [`cache_watcher_erd.md`](cache_watcher_erd.md) (the two apps with no tables of their
 own), then [`user_preferences_erd.md`](user_preferences_erd.md) (the smallest, most
-self-contained piece) — and use this diagram only for the shape of *how* those pieces
+self-contained piece) — and use this diagram only for *how* those pieces
 call into each other, not for any schema detail.

@@ -39,7 +39,7 @@ def _accessible_story(request: WSGIRequest, slug: str, *, defer_compiled: bool =
     """
     # isort:skip keeps this on one line: split across lines, the pylint
     # disable lands on the imported NAME, where it suppresses nothing.
-    from interactive_fiction.views import _get_accessible_story  # noqa: E501  # pylint: disable=import-outside-toplevel  # isort:skip
+    from interactive_fiction.views import _get_accessible_story  # pylint: disable=import-outside-toplevel  # isort:skip
 
     return _get_accessible_story(request, slug, defer_compiled=defer_compiled)
 

@@ -34,8 +34,6 @@ from quickbbs.cache_registry import (
 )
 from quickbbs.common import get_dir_sha, normalize_fqpn
 from quickbbs.directoryindex import (
-    DIRECTORYINDEX_SR_FILETYPE_THUMB,
-    DIRECTORYINDEX_SR_FILETYPE_THUMB_PARENT,
     DIRECTORYINDEX_SR_PARENT,
     DirectoryIndex,
 )
@@ -855,7 +853,7 @@ class TestMakeSiblingLinkMixedCaseAlbumsPath(TestCase):
     def _add_siblings(self) -> DirectoryIndex:
         """Register alpha/beta/gamma as siblings and return the beta record."""
         for name in ("alpha", "beta", "gamma"):
-            found, record = DirectoryIndex.add_directory(os.path.join(self.mixed_case_root, "albums", name) + os.sep)
+            _found, record = DirectoryIndex.add_directory(os.path.join(self.mixed_case_root, "albums", name) + os.sep)
             assert record is not None, f"add_directory failed for {name}"
             if name == "beta":
                 beta = record

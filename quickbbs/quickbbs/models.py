@@ -28,7 +28,7 @@ class Owners(models.Model):
 
     # Reverse one-to-one relationship: accessing owners_instance.fileindex
     # returns the related FileIndex (or raises DoesNotExist). From FileIndex.ownership.
-    fileindex: "FileIndex"
+    fileindex: FileIndex
 
     class Meta:
         """Model metadata: admin display names."""
@@ -72,13 +72,13 @@ from .fileindex import (  # noqa: E402  # pylint: disable=wrong-import-position
 )
 
 __all__ = [
-    "Owners",
-    "Favorite",
     "DirectoryIndex",
+    "Favorite",
     "FileIndex",
+    "Owners",
     "directoryindex_cache",
-    "get_view_url_cache",
+    "distinct_files_cache",
     "fileindex_cache",
     "fileindex_download_cache",
-    "distinct_files_cache",
+    "get_view_url_cache",
 ]

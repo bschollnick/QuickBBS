@@ -36,7 +36,7 @@ class StoryTrustFlagDefaultsTests(TestCase):
         """A Story created without passing is_engine_trusted explicitly
         must default to False — the unsafe direction (True by default)
         would silently trust every scanner-ingested .inkj file and every
-        user upload, reopening the 'never bind host functions
+        user upload, reopening the 'never bind application functions
         to arbitrary content' decision this field exists to preserve."""
         story = Story.objects.create(
             owner=self.owner,

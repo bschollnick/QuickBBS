@@ -39,7 +39,7 @@ def build_context_info(
     unique_file_sha256: str,
     sort_order_value: int = 0,
     show_duplicates: bool = False,
-    user: "AbstractBaseUser | AnonymousUser | None" = None,
+    user: AbstractBaseUser | AnonymousUser | None = None,
 ) -> dict | HttpResponseBadRequest:
     """
     Build context information for item view using optimized single-pass dictionary creation.
@@ -75,6 +75,8 @@ def build_context_info(
     start_time = time.perf_counter()
     webpath = convert_to_webpath(entry.fqpndirectory.replace("//", "/"))
     directory_entry = entry.home_directory
+    if directory_entry is None:
+        return HttpResponseBadRequest(content="Entry has no home directory.")
 
     # Get navigation data from the directory's cached ordered SHA list.
     # Both branches share the same shape: fetch the (directory, sort)-keyed
@@ -246,7 +248,7 @@ def layout_manager(  # pylint: disable=too-many-locals
     directory=None,
     sort_ordering: int = 0,
     show_duplicates: bool = False,
-    user: "AbstractBaseUser | AnonymousUser | None" = None,
+    user: AbstractBaseUser | AnonymousUser | None = None,
 ) -> dict:
     """
     Manage gallery layout with optimized database-level pagination.
