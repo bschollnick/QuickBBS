@@ -2,18 +2,15 @@
 
 from __future__ import annotations
 
-import os
-import shutil
-import tempfile
-
 import pytest
 from django.contrib.auth import get_user_model
-from django.test import Client, TestCase, override_settings
+from django.test import Client
 
 from filetypes.models import filetypes
 from frontend.report_views import _get_duplicate_sha_data
 from frontend.tests.test_views import assert_not_login_redirect
 from quickbbs.models import DirectoryIndex, FileIndex
+from quickbbs.tests.albums_root import AlbumsRootTestCase
 
 
 def _get_ft(fileext: str) -> filetypes:
@@ -41,18 +38,12 @@ def _make_fileindex(directory: DirectoryIndex, name: str, file_sha: str, unique_
     )
 
 
-class DuplicateReportTestBase(TestCase):
+class DuplicateReportTestBase(AlbumsRootTestCase):
     """Common tempdir/ALBUMS_PATH setup plus a >5-duplicate FileIndex fixture."""
 
     def setUp(self) -> None:
-        self.temp_dir = tempfile.mkdtemp()
-        os.makedirs(os.path.join(self.temp_dir, "albums"), exist_ok=True)
-        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
-        self._settings_override.enable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        _, self.dir_obj = DirectoryIndex.add_directory(os.path.join(self.temp_dir, "albums") + "/")
-        assert self.dir_obj is not None
+        super().setUp()
+        self.dir_obj = self.add_directory()
         ft = _get_ft(".txt")
 
         # 6 files sharing one SHA — triggers the dupe_count__gt=5 filter.
@@ -62,12 +53,6 @@ class DuplicateReportTestBase(TestCase):
 
         # A file with a unique SHA — must not appear in the report.
         _make_fileindex(self.dir_obj, "unique.txt", _sha("solo"), _sha("usolo"), ft)
-
-    def tearDown(self) -> None:
-        self._settings_override.disable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
 
 
 @pytest.mark.api

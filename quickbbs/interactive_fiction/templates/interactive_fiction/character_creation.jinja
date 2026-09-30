@@ -3,7 +3,7 @@
 {% block title %}{{ story.title }} — New Adventure{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="/resources/css/interactive-fiction.css?v=7">
+<link rel="stylesheet" href="/resources/css/interactive-fiction.css?v=8">
 {% endblock %}
 
 {% block content %}
@@ -15,19 +15,25 @@
 
     <form method="post" class="if-character-creation-form" action="{{ url('if_character_creation_submit', kwargs={'slug': story.slug}) }}">
         {% csrf_token %}
+        {#- `previous_answers` is the player's last submission for this story
+            (after a restart): a field it names starts at that answer, and a
+            checkbox it omits was left clear. Without it, each field shows
+            its declared default. -#}
         {% for field in story.game_new_game_fields %}
+        {% set previous = previous_answers.get(field.var) if previous_answers else none %}
         <div class="field{% if field.type == 'checkbox' %} if-character-creation-checkbox-row{% endif %}">
             <label class="label">{{ field.label }}</label>
             {% if field.type == 'text' %}
             <div class="control">
-                <input class="input" type="text" name="{{ field.var }}" value="{{ field.default }}">
+                <input class="input" type="text" name="{{ field.var }}" value="{{ previous if previous is not none else field.default }}">
             </div>
             {% elif field.type == 'radio_image' %}
             <div class="control if-character-creation-options">
                 {% for option in field.options %}
+                {% set is_checked = (previous == loop.index0|string) if previous is not none else (option.value == field.default) %}
                 <label class="if-character-creation-option">
                     <input type="radio" name="{{ field.var }}" value="{{ loop.index0 }}"
-                        {% if option.value == field.default %}checked{% endif %}>
+                        {% if is_checked %}checked{% endif %}>
                     <img src="{{ url('if_story_image', kwargs={'slug': story.slug, 'tag_name': 'newgame:' ~ option.image}) }}" alt="{{ option.label }}" title="{{ option.label }}">
                     <span>{{ option.label }}</span>
                 </label>
@@ -35,8 +41,9 @@
             </div>
             {% elif field.type == 'checkbox' %}
             <div class="control">
+                {% set is_checked = (previous == 'on') if previous_answers else field.default %}
                 <label class="checkbox">
-                    <input type="checkbox" name="{{ field.var }}" {% if field.default %}checked{% endif %}>
+                    <input type="checkbox" name="{{ field.var }}" {% if is_checked %}checked{% endif %}>
                     Yes
                 </label>
             </div>

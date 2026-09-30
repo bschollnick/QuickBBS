@@ -14,11 +14,15 @@ Example:
     watchdog.shutdown()
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import sys
 
+from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
+from watchdog.observers.api import BaseObserver, ObservedWatch
 
 logger = logging.getLogger()
 
@@ -68,16 +72,9 @@ class WatchdogMonitor:
 
     def __init__(self) -> None:
         """Initialize the watchdog monitor."""
-        self.my_observer = None
-        self.my_event_handler = None
-        self.current_watch = None
-
-    def on_event(self, event) -> None:
-        """Handle filesystem events.
-
-        Args:
-            event: Filesystem event to process
-        """
+        self.my_observer: BaseObserver | None = None
+        self.my_event_handler: FileSystemEventHandler | None = None
+        self.current_watch: ObservedWatch | None = None
 
     def startup(self, monitor_path: str, event_handler=None, force_recreate: bool = False) -> None:
         """
@@ -148,7 +145,9 @@ class WatchdogMonitor:
                 self.my_event_handler = None
                 logger.debug("Observer stopped and cleaned up")
 
-            except Exception as e:  # TODO: narrow to (RuntimeError, OSError) — watchdog observer stop can raise undocumented internal errors
+            # watchdog documents no exception types for unscheduling or stopping
+            # the platform observer; the references below are cleared either way.
+            except Exception as e:  # pylint: disable=broad-exception-caught
                 logger.error("Error stopping observer: %s", e, exc_info=True)
                 # Still clear references even if stop failed
                 self.my_observer = None

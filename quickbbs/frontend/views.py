@@ -14,6 +14,7 @@ import pathlib
 import re
 import time
 import urllib.parse
+from collections.abc import Sequence
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
@@ -23,7 +24,6 @@ from django.db.models import BooleanField, Count, Q, Value
 from django.db.utils import DatabaseError, OperationalError
 from django.http import (
     Http404,
-    HttpRequest,
     HttpResponse,
     HttpResponseBadRequest,
     HttpResponseNotFound,
@@ -31,7 +31,6 @@ from django.http import (
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_POST
 from django.views.decorators.vary import vary_on_headers
-from django_htmx.middleware import HtmxDetails
 
 from frontend.managers import (
     _get_files_needing_thumbnails,
@@ -66,6 +65,7 @@ from quickbbs.models import (
     FileIndex,
 )
 from quickbbs.MonitoredCache import ThreadSafeTTLCache
+from quickbbs.request_types import HtmxHttpRequest
 from quickbbs.tasks import generate_missing_thumbnails, snapshot_cache_statistics
 
 # =============================================================================
@@ -95,12 +95,6 @@ class DirectoryInvalidError(Exception):
     """Raised when a directory path is invalid or inaccessible."""
 
 
-class HtmxHttpRequest(HttpRequest):
-    """HttpRequest class with HTMX details."""
-
-    htmx: HtmxDetails
-
-
 logger = logging.getLogger()
 
 
@@ -114,7 +108,7 @@ def get_page_param(request: WSGIRequest) -> int:
     Returns:
         Page number (minimum 1); defaults to 1 for missing or non-numeric values
     """
-    raw_value = request.POST.get("page") or request.GET.get("page", 1)
+    raw_value = request.POST.get("page") or request.GET.get("page", "1")
     try:
         return max(1, int(raw_value))
     except (ValueError, TypeError):
@@ -284,74 +278,55 @@ def create_search_regex_pattern(text: str) -> str:
     return pattern
 
 
-def _safe_regex_search(
+def _regex_search(
     model,
     field_name: str,
     regex_pattern: str,
-    fallback_text: str,
-    order_by: tuple,
+    order_by: Sequence[str],
     **filter_kwargs,
 ):
     """
-    Perform regex search with automatic fallback to icontains on failure.
+    Search one model field with a case-insensitive regex.
 
     ASYNC-SAFE: Pure ORM operations, no blocking I/O
 
     Args:
         model: Django model class to query
         field_name: Name of field to search (e.g., "fqpndirectory", "name")
-        regex_pattern: Regex pattern to search with
-        fallback_text: Text to use for icontains fallback if regex fails
-        order_by: Tuple of field names for ordering
-        **filter_kwargs: Additional filter arguments and queryset methods
+        regex_pattern: Pattern from `create_search_regex_pattern()`, which
+            escapes the search text, so PostgreSQL accepts every pattern it builds.
+        order_by: Field names for ordering
+        **filter_kwargs: Additional filter arguments, plus the optional
+            `prefetch_fields` and `annotate_kwargs` applied to the queryset
 
     Returns:
         QuerySet with results
     """
-    # Extract queryset methods from kwargs
     prefetch_fields = filter_kwargs.pop("prefetch_fields", [])
     annotate_kwargs = filter_kwargs.pop("annotate_kwargs", {})
 
-    try:
-        # Try regex search first
-        filter_lookup = {f"{field_name}__iregex": regex_pattern}
-        qs = model.objects.filter(**filter_lookup, **filter_kwargs)
-    except (DatabaseError, OperationalError) as e:
-        print(f"Regex search failed for {model.__name__}.{field_name}, using fallback: {e}")
-        # Fallback to case-insensitive contains
-        filter_lookup = {f"{field_name}__icontains": fallback_text.strip()}
-        qs = model.objects.filter(**filter_lookup, **filter_kwargs)
-
-    # Apply prefetch if provided
+    qs = model.objects.filter(**{f"{field_name}__iregex": regex_pattern}, **filter_kwargs)
     if prefetch_fields:
         qs = qs.prefetch_related(*prefetch_fields)
-
-    # Apply annotations if provided
     if annotate_kwargs:
         qs = qs.annotate(**annotate_kwargs)
-
-    # Apply ordering
     return qs.order_by(*order_by)
 
 
-# Sixth argument is a keyword-only flag; bundling it into a config object would
-# be heavier than the problem it solves.
-def get_search_results(  # pylint: disable=too-many-arguments
-    searchtext: str,
+def get_search_results(
     search_regex_pattern: str,
     sort_order_value: int,
-    prefetch_dirs: list[str],
-    prefetch_files: list[str],
+    prefetch_dirs: Sequence[str],
+    prefetch_files: Sequence[str],
     *,
     include_annotations: bool = True,
 ) -> tuple:
     """
     Get both directory and file search results with optimized queries.
 
-    ASYNC-SAFE: Uses _safe_regex_search which is async-safe
+    ASYNC-SAFE: Uses _regex_search which is async-safe
 
     Args:
-        searchtext: Original search text for fallback
         search_regex_pattern: Compiled regex pattern
         sort_order_value: Sort order index
         prefetch_dirs: List of related fields to prefetch for directories (required)
@@ -401,11 +376,10 @@ def get_search_results(  # pylint: disable=too-many-arguments
     }
 
     # Directory search with optimized prefetching
-    dirs = _safe_regex_search(
+    dirs = _regex_search(
         DirectoryIndex,
         "fqpndirectory",
         search_regex_pattern,
-        searchtext,
         order_by,
         prefetch_fields=prefetch_dirs,
         annotate_kwargs=dir_annotations,
@@ -413,11 +387,10 @@ def get_search_results(  # pylint: disable=too-many-arguments
     )
 
     # File search with optimized prefetching
-    files = _safe_regex_search(
+    files = _regex_search(
         FileIndex,
         "name",
         search_regex_pattern,
-        searchtext,
         order_by,
         prefetch_fields=prefetch_files,
         annotate_kwargs=favorite_annotation,
@@ -428,7 +401,6 @@ def get_search_results(  # pylint: disable=too-many-arguments
 
 
 def _get_paginated_search_results(
-    searchtext: str,
     regex_pattern: str,
     sort_order: int,
     page: int,
@@ -446,7 +418,6 @@ def _get_paginated_search_results(
     for pages that will never be rendered.
 
     Args:
-        searchtext: Original search text for fallback
         regex_pattern: Compiled regex pattern
         sort_order: Sort order index
         page: Current page number (1-indexed)
@@ -461,7 +432,7 @@ def _get_paginated_search_results(
     # Pass empty prefetch tuples and skip annotations — we only need SHA values
     # here for pagination, so the sliced query stays a plain filtered scan.
     # Full object hydration (with prefetch/annotate) happens in the caller via __in lookups.
-    dirs_qs, files_qs = get_search_results(searchtext, regex_pattern, sort_order, (), (), include_annotations=False)
+    dirs_qs, files_qs = get_search_results(regex_pattern, sort_order, (), (), include_annotations=False)
 
     dirs_count = dirs_qs.count()
     files_count = files_qs.count()
@@ -491,7 +462,7 @@ def _get_paginated_search_results(
 
 @require_login_if_configured
 @vary_on_headers("HX-Request")
-def search_viewresults(request: WSGIRequest):
+def search_viewresults(request: HtmxHttpRequest):
     """
     View the search results Gallery page using shared patterns.
 
@@ -510,7 +481,7 @@ def search_viewresults(request: WSGIRequest):
     template_name = _determine_template(request, "search")
 
     # Get search parameters (support both POST and GET)
-    searchtext = request.POST.get("searchtext") or request.GET.get("searchtext", default=None)
+    searchtext = request.POST.get("searchtext") or request.GET.get("searchtext", "")
     current_page = get_page_param(request)
 
     # Build base context using shared function
@@ -541,7 +512,6 @@ def search_viewresults(request: WSGIRequest):
     items_per_page = settings.SEARCH_ITEMS_PER_PAGE
 
     dir_shas, file_shas, total_items = _get_paginated_search_results(
-        searchtext,
         search_regex_pattern,
         context["sort"],
         current_page,
@@ -621,7 +591,7 @@ def search_viewresults(request: WSGIRequest):
 
 @login_required
 @vary_on_headers("HX-Request")
-def favorites_view(request: WSGIRequest) -> HttpResponse:  # pylint: disable=too-many-locals
+def favorites_view(request: HtmxHttpRequest) -> HttpResponse:  # pylint: disable=too-many-locals
     """
     View the requesting user's favorited directories and files.
 
@@ -729,7 +699,7 @@ def favorites_view(request: WSGIRequest) -> HttpResponse:  # pylint: disable=too
     return response
 
 
-def _determine_template(request: WSGIRequest, template_type: str = "gallery") -> str:
+def _determine_template(request: HtmxHttpRequest, template_type: str = "gallery") -> str:
     """
     Determine which template to use based on HTMX request type.
 
@@ -801,7 +771,7 @@ def _find_directory(paths: dict) -> DirectoryIndex:
         # never prefetched here.
         found, directory = DirectoryIndex.search_for_directory_by_sha(dir_sha)
 
-        if not found:
+        if not found or directory is None:
             # Create directory record - add_directory handles:
             # - Physical path validation (returns False, None if path doesn't exist)
             # - Parent directory creation (recursive)
@@ -893,7 +863,7 @@ def _check_and_enqueue_missing_thumbnails(directory: DirectoryIndex, sort_orderi
 
 @require_login_if_configured
 @vary_on_headers("HX-Request")
-def view_gallery(request: WSGIRequest):
+def view_gallery(request: HtmxHttpRequest):
     """
     View the requested Gallery page using optimized helper functions.
 

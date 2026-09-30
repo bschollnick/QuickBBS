@@ -2,12 +2,9 @@
 item view's link to a scanner-ingested .inkj story's play page.
 
 Reuses frontend.tests.test_views.ViewSmokeTestBase's fixture (a real temp
-ALBUMS_PATH synced through update_database_from_disk(), with
-frontend.utilities._ALBUMS_PATH_LOWER patched to match — that module
-captures ALBUMS_PATH at import time, so override_settings alone cannot
-redirect convert_to_webpath()) rather than hand-rolling the same setup,
-since build_context_info() calls convert_to_webpath() internally and needs
-this exact fixture shape to avoid raising.
+ALBUMS_PATH synced through update_database_from_disk()), since
+build_context_info() calls convert_to_webpath() internally and raises for a
+path outside ALBUMS_PATH.
 """
 
 from __future__ import annotations

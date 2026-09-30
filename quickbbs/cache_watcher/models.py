@@ -20,6 +20,8 @@ operation, so a single change may invalidate more than once. Cache
 invalidation is idempotent, so this is harmless.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import pathlib
@@ -132,16 +134,16 @@ class LockFreeEventBuffer:
 # ============================================================================
 # The following globals are intentionally module-scoped and thread-safe:
 #
-# 1. optimized_event_buffer: Lock-free event buffer for batch processing
-#    - Thread-safe via LockFreeEventBuffer implementation (uses threading.Lock internally)
+# 1. optimized_event_buffer: event buffer for batch processing
+#    - Thread-safe via LockFreeEventBuffer, which takes a threading.RLock on every call
 #    - Global scope required because watchdog event handlers need shared access
 #    - Survives watchdog restarts to prevent event loss
 #
 # 2. processing_semaphore: Serializes cache invalidation operations
 #    - MUST be threading.Semaphore (not asyncio.Lock) - watchdog uses OS threads
 #    - Acts as mutex (Semaphore(1)) to prevent concurrent cache invalidation
-#    - Shared across all handler instances to coordinate multi-process safety
-#    - Semaphore used instead of Lock to support timeout operations
+#    - Shared across all handler instances in this process; it does not coordinate processes
+#    - Acquired non-blocking: a caller that finds it held skips its run
 #
 # Threading Model:
 #    - Watchdog observer runs in separate OS threads (not asyncio event loop)
@@ -184,11 +186,11 @@ class WatchdogManager:
 
     def __init__(self) -> None:
         """Initialize the manager with no timer or handler running yet."""
-        self.restart_timer = None
+        self.restart_timer: threading.Timer | None = None
         # MUST be threading.Lock (see class docstring for why)
         self.lock = threading.Lock()
         self.monitor_path = os.path.join(settings.ALBUMS_PATH, "albums")
-        self.event_handler = None
+        self.event_handler: CacheFileMonitorEventHandler | None = None
         self.is_running = False
 
     def start(self, force_recreate: bool = False) -> None:
@@ -235,9 +237,9 @@ class WatchdogManager:
                     self.event_handler = None
                     self.is_running = False
                     logger.info("Watchdog stopped")
-                # TODO: narrow to watchdog library's specific exception types
-                # once they are documented (RuntimeError, OSError, threading errors)
-                except Exception as e:
+                # watchdog documents no exception types for stopping an observer;
+                # one escaping here would stop cache invalidation silently.
+                except Exception as e:  # noqa: BLE001  # pylint: disable=broad-exception-caught
                     logger.error("Error stopping watchdog: %s", e)
 
     def shutdown(self) -> None:
@@ -257,9 +259,9 @@ class WatchdogManager:
                     self.event_handler = None
                     self.is_running = False
                     logger.info("Watchdog completely shut down")
-                # TODO: narrow to watchdog library's specific exception types
-                # once they are documented (RuntimeError, OSError, threading errors)
-                except Exception as e:
+                # watchdog documents no exception types for stopping an observer;
+                # one escaping here would stop cache invalidation silently.
+                except Exception as e:  # noqa: BLE001  # pylint: disable=broad-exception-caught
                     logger.error("Error stopping watchdog: %s", e)
 
     def _process_pending_events(self) -> None:
@@ -277,40 +279,23 @@ class WatchdogManager:
 
         # Try to acquire the semaphore with blocking
         # Use non-blocking to check if another thread is already processing
-        if not processing_semaphore.acquire(blocking=False):
+        # Non-blocking, so `with` cannot be used; the finally below releases it.
+        if not processing_semaphore.acquire(blocking=False):  # pylint: disable=consider-using-with
             logger.warning("Could not acquire processing lock - another thread is processing events")
             return
 
         try:
-            # Get unique paths from buffer (automatic deduplication)
             paths_to_process = optimized_event_buffer.get_events_to_process()
-
             if paths_to_process:
                 logger.info("Processing %d unique directory changes before restart", len(paths_to_process))
-
-                # Convert paths to SHAs and batch query for DirectoryIndex objects
-                sha_list = [get_dir_sha(path) for path in paths_to_process]
-                index_dirs = list(DirectoryIndex.objects.filter(dir_fqpn_sha256__in=sha_list).only("dir_fqpn_sha256", "id", "fqpndirectory"))
-
-                if index_dirs:
-                    # Process cache invalidation
-                    DirectoryIndex.invalidate_caches(index_dirs)
-                    logger.info("Successfully processed pending events before restart")
-
-                # Explicitly delete large objects to free memory
-                del paths_to_process
-                del sha_list
-                del index_dirs
+                _apply_directory_changes(paths_to_process, log_prefix="[Restart]")
+                logger.info("Successfully processed pending events before restart")
 
         except (RuntimeError, DatabaseError, OSError, AttributeError) as e:
             logger.error("Error processing pending events before restart: %s", e)
         finally:
             processing_semaphore.release()
             close_old_connections()
-            # Force garbage collection to free memory from processed events
-            # NOTE: Manual gc.collect() commented out - Python's automatic GC is sufficient
-            # See bug_hunt.md issue #7 for details
-            # gc.collect()
 
     def restart(self) -> None:
         """Restart the watchdog process and schedule the next restart."""
@@ -339,7 +324,9 @@ class WatchdogManager:
             self.start(force_recreate=True)
             restart_successful = True
             logger.info("Watchdog restart completed successfully")
-        except Exception as e:  # TODO: narrow once watchdog restart failure modes are catalogued (watchdog.observers errors, OSError, RuntimeError)
+        # Runs on the restart timer's thread; whatever fails, the next restart
+        # must still be scheduled below.
+        except Exception as e:  # pylint: disable=broad-exception-caught
             logger.error("Error during watchdog restart: %s", e, exc_info=True)
 
         # Always try to schedule next restart, even if this restart failed
@@ -370,7 +357,9 @@ class WatchdogManager:
             else:
                 logger.error("⚠ Timer failed to start!")
 
-        except Exception as e:  # TODO: narrow to (RuntimeError, threading.Error) — threading.Timer failure modes are not well-documented
+        # threading.Timer documents no failure modes; a failure here must not
+        # propagate into the caller's locked section.
+        except Exception as e:  # pylint: disable=broad-exception-caught
             logger.error("Error scheduling restart: %s", e, exc_info=True)
 
 
@@ -395,7 +384,7 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
     def __init__(self) -> None:
         """Initialize the event handler with no pending timer."""
         super().__init__()
-        self.event_timer = None
+        self.event_timer: threading.Timer | None = None
         # MUST be threading.Lock (see class docstring for why)
         self.timer_lock = threading.Lock()
         # Timer generation counter - incremented each time a new timer is created
@@ -446,7 +435,8 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
 
         """
         try:
-            dirpath = os.path.normpath(event.src_path) if event.is_directory else str(pathlib.Path(os.path.normpath(event.src_path)).parent)
+            src_path = os.path.normpath(os.fsdecode(event.src_path))
+            dirpath = src_path if event.is_directory else str(pathlib.Path(src_path).parent)
 
             # Add event to lock-free buffer
             optimized_event_buffer.add_event(dirpath)
@@ -468,7 +458,9 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
                     self.event_timer.start()
                 # else: Timer exists - events will be picked up when it fires or after processing completes
 
-        except Exception as e:  # TODO: narrow once watchdog event types are enumerated — filesystem events can raise many OS-level errors
+        # Runs on watchdog's observer thread: an exception escaping it would
+        # stop event delivery for the rest of the process.
+        except Exception as e:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             logger.error("Error buffering event %s: %s", event.src_path, e)
 
     def _process_buffered_events(self, expected_generation: int) -> None:
@@ -493,7 +485,8 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
 
         # Try to acquire the global semaphore without blocking
         # If we can't acquire it, another thread is already processing
-        if not processing_semaphore.acquire(blocking=False):
+        # Non-blocking, so `with` cannot be used; the finally below releases it.
+        if not processing_semaphore.acquire(blocking=False):  # pylint: disable=consider-using-with
             # Another thread is processing - clear our timer reference and exit
             with self.timer_lock:
                 if expected_generation == self.timer_generation:
@@ -501,84 +494,10 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
             return
 
         try:
-            # Get unique paths from lock-free buffer (automatic deduplication)
             paths_to_process = optimized_event_buffer.get_events_to_process()
-
             if paths_to_process:
                 logger.info("[Gen %d] Processing %d buffered directory changes", expected_generation, len(paths_to_process))
-
-                # Convert paths to SHAs and build path->SHA mapping for reverse lookup
-                path_to_sha = {path: get_dir_sha(path) for path in paths_to_process}
-                sha_list = list(path_to_sha.values())
-
-                # Load only required fields to reduce memory footprint
-                index_dirs = list(DirectoryIndex.objects.filter(dir_fqpn_sha256__in=sha_list).only("dir_fqpn_sha256", "id", "fqpndirectory"))
-
-                # Process existing directories (current behavior)
-                if index_dirs:
-                    # This method runs on a watchdog OS thread, never inside
-                    # Django's ASGI event loop, so no async bridging is needed.
-                    DirectoryIndex.invalidate_caches(index_dirs)
-
-                # NEW: Handle paths that don't exist in DirectoryIndex
-                found_shas = {d.dir_fqpn_sha256 for d in index_dirs}
-                missing_shas = set(sha_list) - found_shas
-
-                if missing_shas:
-                    # Get the original paths for missing SHAs
-                    sha_to_path = {sha: path for path, sha in path_to_sha.items()}
-                    missing_paths = [sha_to_path[sha] for sha in missing_shas]
-
-                    # Filter to only directories that actually exist on filesystem
-                    verified_paths = [p for p in missing_paths if os.path.isdir(p)]
-
-                    if verified_paths:
-                        logger.info(
-                            "[Gen %d] Found %d new directories not in DirectoryIndex, creating placeholders: %s",
-                            expected_generation,
-                            len(verified_paths),
-                            verified_paths[:5],  # Log first 5 for debugging
-                        )
-
-                        # Create placeholder DirectoryIndex entries using add_directory.
-                        # New rows are born cache_invalidated=True by field default,
-                        # so no separate tracking write is needed.
-                        created_dirs = []
-                        parent_dirs_to_invalidate = []
-
-                        for path in verified_paths:
-                            # Use DirectoryIndex.add_directory which handles parent creation
-                            # Returns (success, directory_object); these paths are known to be
-                            # missing from DirectoryIndex, so success means newly created.
-                            success, dir_obj = DirectoryIndex.add_directory(path)
-
-                            if success and dir_obj:
-                                created_dirs.append(dir_obj)
-                                logger.debug("Created DirectoryIndex placeholder for: %s", path)
-
-                                # Track parent directory for invalidation
-                                if dir_obj.parent_directory:
-                                    parent_dirs_to_invalidate.append(dir_obj.parent_directory)
-
-                        if created_dirs:
-                            logger.info(
-                                "[Gen %d] Created %d DirectoryIndex placeholders (born invalidated)",
-                                expected_generation,
-                                len(created_dirs),
-                            )
-
-                        # Invalidate parent directories so they rescan and update subdirectory lists
-                        if parent_dirs_to_invalidate:
-                            # Deduplicate parents
-                            unique_parents = list({p.dir_fqpn_sha256: p for p in parent_dirs_to_invalidate if p}.values())
-
-                            if unique_parents:
-                                logger.info(
-                                    "[Gen %d] Invalidating %d parent directories for new subdirectories",
-                                    expected_generation,
-                                    len(unique_parents),
-                                )
-                                DirectoryIndex.invalidate_caches(unique_parents)
+                _apply_directory_changes(paths_to_process, log_prefix=f"[Gen {expected_generation}]")
 
         except (RuntimeError, DatabaseError, OSError, AttributeError) as e:
             logger.error("Error processing buffered events: %s", e)
@@ -592,19 +511,53 @@ class CacheFileMonitorEventHandler(FileSystemEventHandler):
                     self.event_timer = None
             # Watchdog runs in background thread - must close connections
             close_old_connections()
-            # Force garbage collection to free memory from processed events
-            # NOTE: Manual gc.collect() commented out - Python's automatic GC is sufficient
-            # See bug_hunt.md issue #7 for details
-            # gc.collect()
+
+
+def _apply_directory_changes(paths: set[str], *, log_prefix: str) -> None:
+    """Invalidate the DirectoryIndex rows for changed paths, and add rows for new directories.
+
+    A path with no DirectoryIndex row that is a directory on disk is added with
+    `DirectoryIndex.add_directory` (born invalidated), and its parent is
+    invalidated so the parent's subdirectory list is rescanned.
+    """
+    path_to_sha = {path: get_dir_sha(path) for path in paths}
+    index_dirs = list(DirectoryIndex.objects.filter(dir_fqpn_sha256__in=path_to_sha.values()).only("dir_fqpn_sha256", "id", "fqpndirectory"))
+    if index_dirs:
+        # Runs on a watchdog or timer thread, never inside the ASGI event loop.
+        DirectoryIndex.invalidate_caches(index_dirs)
+
+    found_shas = {directory.dir_fqpn_sha256 for directory in index_dirs}
+    new_paths = [path for path, sha in path_to_sha.items() if sha not in found_shas and os.path.isdir(path)]
+    if not new_paths:
+        return
+    logger.info("%s Found %d new directories not in DirectoryIndex, creating placeholders: %s", log_prefix, len(new_paths), new_paths[:5])
+
+    parents: dict[int, DirectoryIndex] = {}
+    created = 0
+    for path in new_paths:
+        success, directory = DirectoryIndex.add_directory(path)
+        if not (success and directory):
+            continue
+        created += 1
+        logger.debug("Created DirectoryIndex placeholder for: %s", path)
+        if directory.parent_directory:
+            parents[directory.parent_directory.pk] = directory.parent_directory
+
+    if created:
+        logger.info("%s Created %d DirectoryIndex placeholders (born invalidated)", log_prefix, created)
+    if parents:
+        logger.info("%s Invalidating %d parent directories for new subdirectories", log_prefix, len(parents))
+        DirectoryIndex.invalidate_caches(list(parents.values()))
 
 
 class CacheStatisticsTracking(models.Model):
     """
     Periodic snapshot of MonitoredLRUCache hit/miss statistics.
 
-    One row per cache name. Updated by the snapshot_cache_statistics periodic
-    task. Provides persistent, history-queryable cache performance data that
-    is immune to HTTP caching issues.
+    One row per cache name, written by snapshot_cache_statistics() (called from the
+    gallery view when CACHE_MONITORING is on, at most once per SNAPSHOT_MIN_INTERVAL).
+    Rows for caches no longer registered are deleted at startup by
+    reconcile_cache_statistics_rows().
 
     Table name: cache_statistics_tracking
     """

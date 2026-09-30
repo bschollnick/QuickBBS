@@ -6,8 +6,8 @@ sessions given independently-built engine_state dicts never leak a
 set_location() write into each other (the same per-session isolation
 requirement test_engine_trust_gate.py's PerSessionIsolationTests proves
 for stateless bindings), and (3) a real save/load round-trip through
-views.py's own _new_game_state()/_load_game_state()/
-_build_current_game_state() persists and restores a set_location()
+views.py's own _new_game_state()/_load_game_state() and
+session_state.build_saved_state() persists and restores a set_location()
 write across two separate InkRuntimeState instances, sourced only from
 CurrentGame.state -- never from any Python object surviving between them.
 """
@@ -20,6 +20,7 @@ from pathlib import Path as FilePath
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from if_session import session_state
 
 from ink_engine.engine import InkRuntimeState, load_story_root
 from ink_engine.engine_plugins import location_graph
@@ -32,7 +33,6 @@ from ink_engine.engine_plugins.location_graph import LocationGraph
 from interactive_fiction.engine_services import bindings_for
 from interactive_fiction.models import EngineAPI, Story
 from interactive_fiction.views import (
-    _build_current_game_state,
     _load_game_state,
     _new_game_state,
 )
@@ -83,7 +83,7 @@ class BindingsForResolvesCharacterOccupancyTests(TestCase):
         engine_state: dict = {}
         result = bindings_for(story, engine_state)
         self.assertEqual(
-            {"set_location", "where_is", "who_is_at", "is_at", "is_with", "is_anywhere"},
+            {"set_location", "where_is", "previous_location", "assigned_location", "who_is_at", "is_at", "is_with", "is_anywhere"},
             set(result),
         )
         # init_state() already ran -- engine_state holds a fresh, empty
@@ -198,7 +198,7 @@ class SaveLoadRoundTripTests(TestCase):
 
     def test_set_location_survives_a_real_save_and_load(self):
         """_new_game_state() runs continue_story() once (which calls
-        set_location("traveler", "cellar")), _build_current_game_state()
+        set_location("traveler", "cellar")), build_saved_state()
         persists the resulting engine_state, and a completely fresh
         _load_game_state() call -- given only the persisted dict, no
         reference to the original InkRuntimeState/engine_state objects --
@@ -208,7 +208,7 @@ class SaveLoadRoundTripTests(TestCase):
         state = _new_game_state(self.story, engine_state)
         self.assertEqual(state.last_turn_text, "Result: cellar\n")
 
-        saved = _build_current_game_state(state, previous_raw_state=None, transcript=[], engine_state=engine_state)
+        saved = session_state.build_saved_state(state, None, [], engine_state)
         # Simulate a real save round trip through JSON (a Django JSONField
         # would do this too) -- proves the persisted shape is genuinely
         # JSON-safe, not just a Python dict that happens to look right.

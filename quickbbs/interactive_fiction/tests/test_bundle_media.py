@@ -12,14 +12,18 @@ is a fact about that game's content and belongs with the game, not here.
 
 from __future__ import annotations
 
+import io
 import shutil
 import tempfile
 from pathlib import Path
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
+from PIL import Image
 
+from ink_engine.bundler import build_bundle, select_bundle_contents
 from interactive_fiction.bundle_media import (
     MAX_OPEN_BUNDLES,
+    build_cover_thumbnail,
     bundle_source,
     close_all_bundles,
     cover_member,
@@ -30,6 +34,7 @@ from interactive_fiction.tests.bundle_fixtures import (
     NEW_GAME_IMAGE,
     VIDEO_TAG,
     write_bundle,
+    write_game_directory,
 )
 
 
@@ -151,3 +156,25 @@ class CoverImageTests(BundleFixtureTestCase):
 
     def test_a_missing_bundle_answers_none(self):
         self.assertIsNone(cover_member(self.tmp / "no_such_bundle.zip"))
+
+
+class CoverThumbnailTests(TestCase):
+    """A bundle's cover is thumbnailed into a `ThumbnailFiles` row."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.addCleanup(close_all_bundles)
+
+    def test_a_real_cover_gives_all_three_thumbnails(self):
+        game_dir = write_game_directory(self.tmp / "covergame", with_cover=True)
+        buffer = io.BytesIO()
+        Image.new("RGB", (300, 200), "blue").save(buffer, format="JPEG")
+        (game_dir / "cover.jpg").write_bytes(buffer.getvalue())
+        bundle = build_bundle(select_bundle_contents(game_dir), self.tmp / "covergame.zip")
+
+        row = build_cover_thumbnail(bundle)
+
+        self.assertIsNotNone(row)
+        for thumb in (row.small_thumb, row.medium_thumb, row.large_thumb):
+            self.assertEqual(bytes(thumb[:3]), b"\xff\xd8\xff")

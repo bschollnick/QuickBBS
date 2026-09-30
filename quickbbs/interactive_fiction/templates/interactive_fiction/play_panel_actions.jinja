@@ -1,0 +1,37 @@
+{#
+  An action section: a panel section whose layout is "actions". The contract
+  is documented once, in ink_engine/game_panel.py; the desktop player's
+  renderActionsSection (if_player shell/app.js) draws the same thing.
+
+  One row per group, with the group's picture and a button per action.
+  Picking an action POSTs its group and label to take-action/ with the
+  turn_count guard, exactly like a story choice; the view looks the action
+  up in the game's current panel, so the page never names a knot.
+#}
+<div class="if-panel-section if-panel-story-actions">
+  {% if section.heading %}<h3 class="if-panel-heading">{{ section.heading }}</h3>{% endif %}
+  {% if section.groups %}
+  <ul class="if-panel-list">
+    {% for group in section.groups %}
+    <li class="if-panel-row if-panel-action-group">
+      {% for url in group.image_urls[:1] %}<img class="if-panel-row-image" src="{{ url }}" alt="">{% endfor %}
+      <span class="if-panel-story-action-list">
+        {% for action in group.actions %}
+        <form hx-post="/if/{{ story.slug }}/take-action/"
+              hx-target="#if-play-content"
+              hx-swap="outerHTML"
+              hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+          <input type="hidden" name="turn_count" value="{{ turn_count }}">
+          <input type="hidden" name="group" value="{{ action.group }}">
+          <input type="hidden" name="label" value="{{ action.label }}">
+          <button type="submit" class="button is-small if-panel-story-action"{% if done %} disabled{% endif %}>{{ action.label }}</button>
+        </form>
+        {% endfor %}
+      </span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% elif section.empty_text %}
+  <p class="if-panel-empty">{{ section.empty_text }}</p>
+  {% endif %}
+</div>

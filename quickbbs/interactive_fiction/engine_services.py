@@ -38,10 +38,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ink_engine import game_panel
 from ink_engine.binding import resolve_bindings
-from ink_engine.engine import load_list_defs
+from ink_engine.engine import BindingSandbox, load_list_defs
 from ink_engine.game_folder import GameFolderError, plugin_denied_text
+from ink_engine.game_panel import CommandResult, GamePanel
 from ink_engine.game_source import GameSourceError
 from interactive_fiction.engine_api import discover_api_descriptors
 from interactive_fiction.ingestion import read_manifest_value
@@ -83,12 +83,31 @@ def bindings_for(story: Story, engine_state: dict[str, Any] | None = None) -> di
         whose manifest declares no plugins. A declared plugin that is
         missing or disabled contributes no bindings but is logged loudly.
     """
+    return binding_sandbox_for(story, engine_state).bind(engine_state if engine_state is not None else {})
+
+
+def binding_sandbox_for(story: Story, engine_state: dict[str, Any] | None = None) -> BindingSandbox:
+    """Return `bindings_for()`'s bindings as a `BindingSandbox` over `engine_state`.
+
+    Passed as `engine_bindings`, it gives the state the same bindings and
+    lets an interlude's return re-evaluate the choices it set aside.
+
+    Args:
+        story: As for `bindings_for()`.
+        engine_state: As for `bindings_for()`.
+
+    Returns:
+        A sandbox whose `bind` builds the story's bindings over any dict of
+        `engine_state`'s form; it builds none for an untrusted story or one
+        whose manifest declares no plugins.
+    """
+    state = engine_state if engine_state is not None else {}
     if not story.is_engine_trusted:
-        return {}
+        return BindingSandbox(state=state, bind=_no_bindings)
 
     system_names = story.opted_in_plugin_names()
     if not system_names:
-        return {}
+        return BindingSandbox(state=state, bind=_no_bindings)
 
     plugins = discover_api_descriptors()
     enabled_names = set(EngineAPI.objects.filter(name__in=system_names, is_enabled=True).values_list("name", flat=True))
@@ -131,12 +150,17 @@ def bindings_for(story: Story, engine_state: dict[str, Any] | None = None) -> di
     manifest_order = [name for name in (story.game_required_plugins or []) if name in active_names]
     active_names = [name for name in active_names if name not in manifest_order] + manifest_order
 
-    return resolve_bindings(
-        plugins,
-        active_names,
-        engine_state if engine_state is not None else {},
-        list_defs=load_list_defs(story.compiled_json),
-    )
+    list_defs = load_list_defs(story.compiled_json)
+
+    def _bind(plugin_state: dict[str, Any]) -> dict[str, Callable[..., Any]]:
+        return resolve_bindings(plugins, active_names, plugin_state, list_defs=list_defs)
+
+    return BindingSandbox(state=state, bind=_bind)
+
+
+def _no_bindings(_plugin_state: dict[str, Any]) -> dict[str, Callable[..., Any]]:
+    """Bind nothing: the bindings of an untrusted story, or one declaring no plugins."""
+    return {}
 
 
 def game_panel_context(story: Story, engine_state: dict[str, Any], globals_: dict[str, Any]) -> dict[str, Any] | None:
@@ -183,8 +207,13 @@ def game_panel_context(story: Story, engine_state: dict[str, Any], globals_: dic
     if not story.is_engine_trusted:
         return None
 
-    return game_panel.panel_context(
-        _game_module(story, "sidebar"),
+    return _game_panel(story, engine_state, globals_).context()
+
+
+def _game_panel(story: Story, engine_state: dict[str, Any], globals_: dict[str, Any]) -> GamePanel:
+    """Return a trusted story's view of its game's panel hooks, with this session's real bindings."""
+    return GamePanel(
+        module=_game_module(story, "sidebar"),
         engine_state=engine_state,
         globals_=globals_,
         bindings=bindings_for(story, engine_state),
@@ -318,19 +347,11 @@ def game_panel_action(story: Story, engine_state: dict[str, Any], globals_: dict
     if not story.is_engine_trusted:
         return ""
 
-    return game_panel.panel_action(
-        _game_module(story, "sidebar"),
-        engine_state=engine_state,
-        globals_=globals_,
-        bindings=bindings_for(story, engine_state),
-        action_id=action_id,
-        target_id=target_id,
-        logger=logger,
-    )
+    return _game_panel(story, engine_state, globals_).action(action_id, target_id)
 
 
 def game_panel_command(story: Story, engine_state: dict[str, Any], globals_: dict[str, Any], command_id: str, target_id: str) -> str:
-    """Run one of a game panel's turn-advancing commands (Use/Cast/Give/Drop).
+    """Run one of a game panel's state-changing commands (Use/Cast/Give/Drop).
 
     The write-capable counterpart to `game_panel_action`. A game's
     `sidebar.py` may expose
@@ -364,18 +385,28 @@ def game_panel_command(story: Story, engine_state: dict[str, Any], globals_: dic
         A panel command that raises is logged and treated as a no-op;
         `engine_state` may have been PARTIALLY MUTATED by the failed call.
     """
-    if not story.is_engine_trusted:
-        return ""
+    return game_panel_command_result(story, engine_state, globals_, command_id, target_id).message
 
-    return game_panel.panel_command(
-        _game_module(story, "sidebar"),
-        engine_state=engine_state,
-        globals_=globals_,
-        bindings=bindings_for(story, engine_state),
-        command_id=command_id,
-        target_id=target_id,
-        logger=logger,
-    )
+
+def game_panel_command_result(story: Story, engine_state: dict[str, Any], globals_: dict[str, Any], command_id: str, target_id: str) -> CommandResult:
+    """Run a game panel's command, as `game_panel_command()`, and answer its whole result.
+
+    Args:
+        story: The story being played.
+        engine_state: The session's own mutable `engine_state` dict.
+        globals_: The runtime's own Ink globals.
+        command_id: The command the row offered.
+        target_id: What the command was invoked on.
+
+    Returns:
+        `ink_engine.game_panel.CommandResult`: the message, and the knot to
+        play as the command's reaction, if any. An empty result for an
+        untrusted story, or one whose panel does not answer this command.
+    """
+    if not story.is_engine_trusted:
+        return CommandResult()
+
+    return _game_panel(story, engine_state, globals_).command_result(command_id, target_id)
 
 
 #: Matches a rendered `href`/`src` attribute, whatever it points at.

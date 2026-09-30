@@ -10,8 +10,8 @@ The turn loop reads/writes CurrentGame.state via
 InkRuntimeState.to_dict()/from_dict(), and play_submit() enforces a
 concurrent-tab guard: a stale tab whose submitted turn_count no longer
 matches the stored row is rejected. "transcript"/"previous_state" are
-layered on top of InkRuntimeState's own serialized fields (see
-_build_current_game_state()).
+layered on top of InkRuntimeState's own serialized fields by
+`session_state.build_saved_state()`.
 
 Sibling modules hold the rest of the app's views: story_views.py
 (upload/authoring), save_views.py (named save slots), panel_views.py (a
@@ -21,6 +21,9 @@ game's side panel). The shared engine-state helpers they import stay here.
 from __future__ import annotations
 
 import copy
+import logging
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
@@ -38,13 +41,21 @@ from if_session.character_creation import answers_to_globals
 from if_session.game_saves import has_quicksave
 
 from ink_engine.engine import (
+    Container,
     InkRuntimeState,
+    StoryRuntimeError,
     load_list_defs,
     load_story_root,
     start_new_story,
 )
+from ink_engine.game_panel import (
+    choices_beside_panel,
+    fill_action_sections,
+    fill_followers_sections,
+)
+from ink_engine.plugin import ListDefs
 from interactive_fiction.engine_services import (
-    bindings_for,
+    binding_sandbox_for,
     game_panel_context,
     play_layout_for,
     plugin_denied_html,
@@ -53,13 +64,17 @@ from interactive_fiction.game_saves_database import GameSavesDatabase
 from interactive_fiction.images import DjangoMediaResolver
 from interactive_fiction.ingestion import find_game_file_by_path
 from interactive_fiction.models import (
+    LAYOUTS_WITH_PANEL,
     CurrentGame,
     SaveState,
     Story,
     user_can_access,
 )
 from quickbbs.common import require_login_if_configured
+from quickbbs.request_types import signed_in_user
 from user_preferences.models import UserPreferences
+
+logger = logging.getLogger(__name__)
 
 # Mirrors UserPreferences.if_font_size/if_text_width's own `choices=`
 # (user_preferences/models.py) — kept as plain sets rather than reflecting
@@ -68,10 +83,23 @@ from user_preferences.models import UserPreferences
 # know that), and the model's choices rarely change without touching this
 # view anyway.
 _VALID_IF_FONT_SIZES = {"small", "medium", "large"}
+
+#: Where a player's last character-creation answers are kept, per story
+#: slug, so the form can show them again after a restart.
+_NEW_GAME_ANSWERS_SESSION_KEY = "if_new_game_answers"
 _VALID_IF_TEXT_WIDTHS = {"narrow", "medium", "wide"}
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import AbstractUser, AnonymousUser
+    from django.contrib.auth.models import _AnyUser, _User
+
+
+def _compiled_story(story: Story) -> tuple[Container, ListDefs]:
+    """Load a story's root container and LIST definitions.
+
+    The root is built lazily: a request reaches a handful of the story's
+    knots, and building the rest is work thrown away when it ends.
+    """
+    return load_story_root(story.compiled_json, full_build=False), load_list_defs(story.compiled_json)
 
 
 def _new_game_state(story: Story, engine_state: dict[str, Any], initial_globals: dict[str, Any] | None = None) -> InkRuntimeState:
@@ -79,9 +107,8 @@ def _new_game_state(story: Story, engine_state: dict[str, Any], initial_globals:
 
     Args:
         story: The story to start.
-        engine_state: The session's own mutable `engine_state` dict (see
-            `_build_current_game_state()`) — passed straight through to
-            `engine_services.bindings_for()`, and mutated in place by any
+        engine_state: The session's own mutable `engine_state` dict — passed straight through to
+            `engine_services.binding_sandbox_for()`, and mutated in place by any
             stateful API's own `init_state()`/bound closures, so the
             caller's own reference already reflects the new game's
             initial per-API state once this returns.
@@ -94,19 +121,16 @@ def _new_game_state(story: Story, engine_state: dict[str, Any], initial_globals:
         story is marked Story.is_engine_trusted, and already advanced
         through its first continue_story() call so it is ready to display.
     """
-    root = load_story_root(story.compiled_json, full_build=False)
-    list_defs = load_list_defs(story.compiled_json)
+    root, list_defs = _compiled_story(story)
     return start_new_story(
         root,
         list_defs,
-        engine_bindings=bindings_for(story, engine_state),
+        engine_bindings=binding_sandbox_for(story, engine_state),
         initial_globals=initial_globals,
     )
 
 
-def _start_new_game(
-    user: AbstractUser, story: Story, initial_globals: dict[str, Any] | None = None
-) -> tuple[InkRuntimeState, list[dict[str, object]]]:
+def _start_new_game(user: _User, story: Story, initial_globals: dict[str, Any] | None = None) -> tuple[InkRuntimeState, dict[str, Any]]:
     """Build a fresh game for (user, story) and persist it as CurrentGame.
 
     The shared "start from scratch" sequence `play()`'s first-visit branch,
@@ -124,22 +148,15 @@ def _start_new_game(
         initial_globals: See `_new_game_state()`.
 
     Returns:
-        `(state, transcript)` — the new game's own `InkRuntimeState`,
-        already advanced to its first stop point and ready to display,
-        and its one-entry opening transcript.
+        `(state, saved)` — the new game's `InkRuntimeState`, advanced to
+        its first stop point, and the state written to its CurrentGame row.
     """
     engine_state: dict[str, Any] = {}
     state = _new_game_state(story, engine_state, initial_globals=initial_globals)
     transcript = _append_transcript_entry([], state.last_turn_text, chosen_label=None)
-    CurrentGame.objects.update_or_create(
-        user=user,
-        story=story,
-        defaults={
-            "state": _build_current_game_state(state, previous_raw_state=None, transcript=transcript, engine_state=engine_state),
-            "turn_count": state.turn_count,
-        },
-    )
-    return state, transcript
+    saved = session_state.build_saved_state(state, None, transcript, engine_state)
+    CurrentGame.objects.update_or_create(user=user, story=story, defaults={"state": saved, "turn_count": state.turn_count})
+    return state, saved
 
 
 def _get_accessible_story(request: WSGIRequest, slug: str, *, defer_compiled: bool = False) -> Story | HttpResponse:
@@ -187,7 +204,9 @@ def character_creation(request: WSGIRequest, slug: str) -> HttpResponse:
         slug: The story's slug.
 
     Returns:
-        The character-creation form page.
+        The character-creation form page, pre-filled with this player's
+        last answers for the story when this session has them (after a
+        restart). Nothing is submitted on the player's behalf.
 
     Raises:
         Http404: If no accessible Story matches slug.
@@ -195,7 +214,9 @@ def character_creation(request: WSGIRequest, slug: str) -> HttpResponse:
     story = _get_accessible_story(request, slug)
     if isinstance(story, HttpResponse):
         return story
-    return render(request, "interactive_fiction/character_creation.jinja", {"story": story, "user": request.user}, using="Jinja2")
+    previous_answers = request.session.get(_NEW_GAME_ANSWERS_SESSION_KEY, {}).get(story.slug)
+    context = {"story": story, "user": request.user, "previous_answers": previous_answers}
+    return render(request, "interactive_fiction/character_creation.jinja", context, using="Jinja2")
 
 
 @login_required
@@ -226,7 +247,8 @@ def character_creation_submit(request: WSGIRequest, slug: str) -> HttpResponse:
     # nobody else afterward, but that guard is on the route in: without
     # this one, a stale form, a double submit, or a bookmarked URL wipes a
     # playthrough with no warning and no undo.
-    if CurrentGame.objects.filter(user=request.user, story=story).exists():
+    user = signed_in_user(request)
+    if CurrentGame.objects.filter(user=user, story=story).exists():
         return redirect("if_play", slug=story.slug)
 
     # A bare, binding-less state to read the story's own real starting
@@ -234,20 +256,23 @@ def character_creation_submit(request: WSGIRequest, slug: str) -> HttpResponse:
     # constructing InkRuntimeState only runs its global-decl container),
     # so an "add_to" checkbox field can add to the ACTUAL declared
     # default rather than guessing 0.
-    base_globals = InkRuntimeState(load_story_root(story.compiled_json, full_build=False), load_list_defs(story.compiled_json)).globals
+    base_globals = InkRuntimeState(*_compiled_story(story)).globals
     initial_globals = answers_to_globals(story.game_new_game_fields, request.POST, story_defaults=base_globals)
-    _start_new_game(request.user, story, initial_globals=initial_globals)
+    try:
+        _start_new_game(user, story, initial_globals=initial_globals)
+    except StoryRuntimeError as error:
+        return _story_error_response(request, story, error)
+    # A checkbox left clear submits nothing, so it is stored as absent.
+    answers = {field["var"]: request.POST[field["var"]] for field in story.game_new_game_fields if field["var"] in request.POST}
+    request.session[_NEW_GAME_ANSWERS_SESSION_KEY] = {**request.session.get(_NEW_GAME_ANSWERS_SESSION_KEY, {}), story.slug: answers}
     return redirect("if_play", slug=story.slug)
 
 
 def _stale_turn_response(request: WSGIRequest, story: Story) -> HttpResponse:
     """Render the concurrent-tab guard's 409 partial.
 
-    Shared by every view that enforces the "turn_count" guard
-    (`play_submit`, `panel_views.play_panel_command`) — the message a
-    submitting tab sees when the row it targeted has already moved on
-    under it, so a stale submission is refused rather than silently
-    applied on top of state the tab never actually saw.
+    What a tab sees when `_play_turn()` refuses its submission because
+    the row has moved on under it.
 
     Args:
         request: The incoming request.
@@ -287,50 +312,115 @@ def _unreadable_save_response(request: WSGIRequest, story: Story, error: session
     )
 
 
-def _current_game_for_turn(
-    request: WSGIRequest, story: Story, submitted_turn_count: int
-) -> tuple[CurrentGame, dict[str, Any], InkRuntimeState] | HttpResponse:
-    """Row-lock a story's CurrentGame, enforce the concurrent-tab guard, and rebuild its InkRuntimeState.
+def _story_error_response(request: WSGIRequest, story: Story, error: StoryRuntimeError) -> HttpResponse:
+    """Render the partial for a turn the story stopped with an Ink runtime error.
 
-    The read-check-load half of the "turn_count" guard both `play_submit`
-    and `panel_views.play_panel_command` need before they can each do
-    their own different write. MUST be called from inside a
-    `transaction.atomic()` block — `select_for_update()` requires one, and
-    the caller's own write happens inside the same block this locked the
-    row for.
+    Status 200 for an htmx request, which swaps only a 2xx response into
+    the page; 500 for a full page load.
 
     Args:
         request: The incoming request.
-        story: The story being played.
-        submitted_turn_count: The turn_count the submitting tab last
-            rendered (the guard token).
+        story: The story that stopped.
+        error: The engine's error, whose message names where and why.
 
     Returns:
-        `(current_game, engine_state, state)` on success — `engine_state`
-        is a deep copy the caller may mutate freely (bindings_for()'s
-        stateful closures write into it in place; `current_game.state`
-        itself must stay untouched until the caller commits, so
-        `play_undo()` can restore it verbatim), and `state` is already
-        rebuilt with real bindings over that same `engine_state`. On a
-        stale turn_count, `_stale_turn_response(request, story)` instead —
-        the caller must check `isinstance(result, HttpResponse)` and
-        return it as-is rather than unpacking.
+        The rendered play_story_error.jinja partial.
     """
-    current_game = get_object_or_404(CurrentGame.objects.select_for_update(), user=request.user, story=story)
-    if current_game.turn_count != submitted_turn_count:
-        return _stale_turn_response(request, story)
+    logger.error("interactive_fiction.views: story %r stopped with a runtime error: %s", story, error)
+    return HttpResponse(
+        render_to_string(
+            "interactive_fiction/play_story_error.jinja",
+            {"story": story, "user": request.user, "reason": str(error)},
+            request=request,
+            using="Jinja2",
+        ),
+        status=200 if request.headers.get("HX-Request") == "true" else 500,
+    )
 
-    previous_raw_state = current_game.state
-    # Deep-copied, not the same dict object previous_raw_state holds:
-    # bindings_for()'s stateful bindings mutate this dict in place as the
-    # turn plays out, and previous_raw_state must stay exactly as it was
-    # before this turn so play_undo() can restore it verbatim.
-    engine_state = copy.deepcopy(previous_raw_state.get("engine_state", {}))
+
+@dataclass(slots=True)
+class _Turn:
+    """One turn in progress on a locked CurrentGame row.
+
+    Attributes:
+        current_game: The row, locked for the rest of the transaction.
+        engine_state: A deep copy of the row's engine state, which the
+            rebuilt bindings mutate in place.
+        state: The story rebuilt over `engine_state`.
+        previous_raw_state: The row's state before this turn, stored
+            verbatim as the undo target.
+        transcript: The transcript to save; a step that narrates appends to it.
+    """
+
+    current_game: CurrentGame
+    engine_state: dict[str, Any]
+    state: InkRuntimeState
+    previous_raw_state: dict[str, Any]
+    transcript: list[dict[str, object]]
+
+
+def _play_turn[T](request: WSGIRequest, story: Story, step: Callable[[_Turn], T | HttpResponse]) -> tuple[_Turn, T] | HttpResponse:
+    """Run one guarded turn: lock the row, check the tab is current, rebuild, `step`, save.
+
+    Shared by every view that changes the story from a tab (`play_submit`,
+    `panel_views.play_panel_command`). The POST's "turn_count" is the
+    concurrent-tab guard: a tab whose count no longer matches the row is
+    refused rather than applied on top of state it never saw. The whole
+    sequence is one transaction holding the row lock.
+
+    Args:
+        request: The incoming POST, carrying "turn_count".
+        story: The story being played.
+        step: Changes `turn.state` (and `turn.transcript`, if it narrates),
+            returning a value for the caller, or an `HttpResponse` to
+            refuse the turn without saving.
+
+    Returns:
+        `(turn, step's value)` once saved, or the response to send instead:
+        400 for a missing or malformed "turn_count", the 409 stale-tab or
+        unreadable-save partial, the story-error partial when the turn
+        raises `StoryRuntimeError` (nothing is saved), or `step`'s own
+        refusal.
+
+    Raises:
+        Http404: The player has no game of this story.
+    """
     try:
-        state = _load_game_state(story, previous_raw_state, engine_state)
-    except session_state.SaveFormatError as error:
-        return _unreadable_save_response(request, story, error)
-    return current_game, engine_state, state
+        submitted_turn_count = int(request.POST["turn_count"])
+    except (KeyError, ValueError):
+        return HttpResponse(status=400)
+
+    with transaction.atomic():
+        current_game = get_object_or_404(CurrentGame.objects.select_for_update(), user=signed_in_user(request), story=story)
+        if current_game.turn_count != submitted_turn_count:
+            return _stale_turn_response(request, story)
+        previous_raw_state = current_game.state
+        # A copy: the bindings mutate it as the turn plays, and the row's
+        # own state must stay as it was so undo can restore it verbatim.
+        engine_state = copy.deepcopy(previous_raw_state.get("engine_state", {}))
+        try:
+            state = _load_game_state(story, previous_raw_state, engine_state)
+        except session_state.SaveFormatError as error:
+            return _unreadable_save_response(request, story, error)
+
+        turn = _Turn(current_game, engine_state, state, previous_raw_state, previous_raw_state.get("transcript", []))
+        try:
+            result = step(turn)
+        except StoryRuntimeError as error:
+            # Nothing is saved, so the row keeps the turn before the error.
+            return _story_error_response(request, story, error)
+        if isinstance(result, HttpResponse):
+            return result
+        saved = session_state.build_saved_state(turn.state, previous_raw_state, turn.transcript, engine_state)
+        _save_current_game(current_game, saved, turn.state.turn_count)
+    return turn, result
+
+
+def _save_current_game(current_game: CurrentGame, saved_state: dict[str, Any], turn_count: int) -> None:
+    """Write a new state and its turn count onto a CurrentGame row."""
+    current_game.state = saved_state
+    current_game.turn_count = turn_count
+    current_game.save(update_fields=["state", "turn_count", "updated_at"])
 
 
 def _load_game_state(story: Story, saved: CurrentGame | SaveState | dict[str, Any], engine_state: dict[str, Any]) -> InkRuntimeState:
@@ -345,8 +435,8 @@ def _load_game_state(story: Story, saved: CurrentGame | SaveState | dict[str, An
             passes CurrentGame.state["previous_state"] this way).
         engine_state: The session's own mutable `engine_state` dict,
             typically read straight out of the same `saved` dict/row this
-            call is rebuilding from (see `_build_current_game_state()`) —
-            passed straight through to `engine_services.bindings_for()`.
+            call is rebuilding from — passed straight through to
+            `engine_services.binding_sandbox_for()`.
 
     Returns:
         The rebuilt InkRuntimeState, given the same bindings a fresh game
@@ -362,17 +452,12 @@ def _load_game_state(story: Story, saved: CurrentGame | SaveState | dict[str, An
             default, so an unrecognised envelope would otherwise load as
             defaulted data rather than an error.
     """
-    # A request reaches a handful of the story's knots; building the rest
-    # is work thrown away when the request ends.
-    root = load_story_root(story.compiled_json, full_build=False)
-    list_defs = load_list_defs(story.compiled_json)
+    root, list_defs = _compiled_story(story)
     raw_state = session_state.read_saved_state(saved if isinstance(saved, dict) else saved.state)
-    return InkRuntimeState.from_dict(root, raw_state, list_defs, engine_bindings=bindings_for(story, engine_state))
+    return InkRuntimeState.from_dict(root, raw_state, list_defs, engine_bindings=binding_sandbox_for(story, engine_state))
 
 
-def _play_content_context(
-    request: WSGIRequest, story: Story, state: InkRuntimeState, *, transcript: list[dict[str, object]] | None = None, can_undo: bool = False
-) -> dict[str, object]:
+def _play_content_context(request: WSGIRequest, story: Story, state: InkRuntimeState, saved: dict[str, Any]) -> dict[str, object]:
     """Build the template context shared by the play page and its partial.
 
     **`state.done` alone is NOT "the story ended".** The engine sets it at
@@ -384,84 +469,89 @@ def _play_content_context(
         request: The incoming request.
         story: The story being played.
         state: The current InkRuntimeState.
-        transcript: The rolling turn history (oldest first), or None
-            if the caller has none to show (e.g. a fresh CurrentGame row
-            that hasn't been through _build_current_game_state() yet).
-        can_undo: Whether a "previous_state" exists to undo back to —
-            False for a story's very first turn.
+        saved: The game's saved state, as `CurrentGame.state` holds it: its
+            "transcript" is shown, and Undo is offered when it has a
+            "previous_state".
 
     Returns:
         `session_state.turn_context()`'s own seven keys plus this
-        application's "story", "user" and "has_quicksave". "image_urls" resolves every image:/video: tag
-        active on this turn to a servable URL, GROUPED by kind; a tag with
-        tag the game does not resolve is silently dropped, not surfaced
-        as an error, so a work-in-progress story with placeholder tags
-        still plays. Each entry in "choices" is a dict, not a pair — a choice
-        can carry its own pictures.
+        application's "story", "user", "has_quicksave" and
+        "has_game_panel", and the game's own panel keys when its layout
+        draws a panel. While that panel draws a compass, "choices" leaves
+        out the story's movement choice. "image_urls"
+        resolves every image:/video: tag active on this turn to a servable
+        URL, grouped by kind; a tag the game does not resolve is dropped,
+        so a work-in-progress story with placeholder tags still plays.
+        Each entry in "choices" is a dict, since a choice can carry its
+        own pictures.
     """
     context = session_state.turn_context(
         state,
         resolver=DjangoMediaResolver(story),
-        transcript=transcript,
-        can_undo=can_undo,
+        transcript=saved.get("transcript", []),
+        can_undo=bool(saved.get("previous_state")),
     )
     # This application's own additions, on top of the shared seven: the
     # template needs the story row, the viewer, and whether the sidebar
     # should offer Quickload.
     context["story"] = story
     context["user"] = request.user
-    context["has_quicksave"] = has_quicksave(story.slug, saves_in=GameSavesDatabase(user=request.user, story=story))
+    context["has_quicksave"] = has_quicksave(story.slug, saves_in=GameSavesDatabase(user=signed_in_user(request), story=story))
+    panel = _game_panel_context(story, saved, state)
+    context["has_game_panel"] = panel is not None
+    if panel:
+        context.update(panel)
+    context["choices"] = choices_beside_panel(context["choices"], panel)
     return context
 
 
+def _game_panel_context(story: Story, saved: dict[str, Any], state: InkRuntimeState) -> dict[str, Any] | None:
+    """Return the game's side-panel data, `{}` if it supplies none, or None when the story's layout draws no panel.
+
+    Action and followers sections come back listed for `state`, with
+    their images resolved.
+    """
+    if play_layout_for(story) not in LAYOUTS_WITH_PANEL:
+        return None
+    panel = game_panel_context(story, saved.get("engine_state", {}), state.globals)
+    resolver = DjangoMediaResolver(story)
+    panel = fill_action_sections(panel, state, resolver=resolver)
+    panel = fill_followers_sections(panel, state, resolver=resolver)
+    return panel or {}
+
+
 def _render_play_content(
-    request: WSGIRequest,
-    story: Story,
-    state: InkRuntimeState,
-    *,
-    transcript: list[dict[str, object]] | None = None,
-    can_undo: bool = False,
-    oob: bool = False,
+    request: WSGIRequest, story: Story, state: InkRuntimeState, saved: dict[str, Any], *, command_result: str | None = None
 ) -> str:
-    """Render the play-content partial for a given state.
+    """Render the play-content partial for a given state, plus the game's panel.
+
+    Every turn's response goes through here, so a layout that draws a panel
+    gets it refreshed out of band on every turn (`play_panel.jinja` marks
+    its own wrapper `hx-swap-oob`).
 
     Args:
         request: The incoming request.
         story: The story being played.
         state: The current InkRuntimeState.
-        transcript: See _play_content_context().
-        can_undo: See _play_content_context().
-        oob: Mark the partial's own wrapper for an htmx out-of-band swap,
-            for a response whose primary target is some other fragment.
+        saved: See `_play_content_context()`.
+        command_result: A panel command's answer. When given, the story
+            partial is marked for an out-of-band swap (the response's target
+            is the command's own form) and the text goes in the panel's
+            detail area; otherwise the panel keeps whatever detail the
+            game's panel data supplies.
 
     Returns:
-        The rendered partial HTML.
+        The rendered partial HTML, followed by the panel fragment when the
+        story's layout draws one.
     """
-    context = _play_content_context(request, story, state, transcript=transcript, can_undo=can_undo)
-    context["oob"] = oob
-    return render_to_string("interactive_fiction/play_content.jinja", context, request=request, using="Jinja2")
-
-
-def _build_current_game_state(
-    state: InkRuntimeState, previous_raw_state: dict[str, Any] | None, transcript: list[dict[str, object]], engine_state: dict[str, Any]
-) -> dict[str, Any]:
-    """Build the dict written into CurrentGame.state.
-
-    Args:
-        state: The current InkRuntimeState, already advanced to this turn.
-        previous_raw_state: The raw dict CurrentGame.state held BEFORE
-            this turn was applied, stored verbatim so Undo restores it
-            exactly. None for a fresh game.
-        transcript: The rolling list of past turns (see
-            _append_transcript_entry()), already capped.
-        engine_state: The per-API state dict this turn's own
-            `bindings_for(story, engine_state)` call mutated. Stored
-            verbatim and read back to rebuild the next turn's bindings.
-
-    Returns:
-        The dict to store in CurrentGame.state.
-    """
-    return session_state.build_saved_state(state, previous_raw_state, transcript, engine_state)
+    context = _play_content_context(request, story, state, saved)
+    context["oob"] = command_result is not None
+    html = render_to_string("interactive_fiction/play_content.jinja", context, request=request, using="Jinja2")
+    if context["has_game_panel"]:
+        if command_result is not None:
+            context["panel_detail"] = command_result
+        html += render_to_string("interactive_fiction/play_panel.jinja", context, request=request, using="Jinja2")
+    return html
 
 
 def _append_transcript_entry(transcript: list[dict[str, object]], text: str, chosen_label: str | None) -> list[dict[str, object]]:
@@ -480,7 +570,7 @@ def _append_transcript_entry(transcript: list[dict[str, object]], text: str, cho
     return session_state.append_transcript_entry(transcript, text, chosen_label, cap=settings.MAX_TRANSCRIPT_TURNS)
 
 
-def _story_play_statuses(user: AbstractUser | AnonymousUser, stories: list[Story]) -> dict[int, str]:
+def _story_play_statuses(user: _AnyUser, stories: list[Story]) -> dict[int, str]:
     """Classify each story's play state for the given user.
 
     Reads straight from CurrentGame.state's JSON rather than reconstructing
@@ -630,37 +720,33 @@ def play(request: WSGIRequest, slug: str) -> HttpResponse:
             status=409,
         )
 
-    current_game = CurrentGame.objects.filter(user=request.user, story=story).first()
+    user = signed_in_user(request)
+    current_game = CurrentGame.objects.filter(user=user, story=story).first()
     if current_game is None and story.game_new_game_fields:
         return redirect("if_character_creation", slug=story.slug)
     if current_game is None:
-        state, transcript = _start_new_game(request.user, story)
+        try:
+            state, saved = _start_new_game(user, story)
+        except StoryRuntimeError as error:
+            return _story_error_response(request, story, error)
     else:
         try:
             state = _load_game_state(story, current_game, current_game.state.get("engine_state", {}))
         except session_state.SaveFormatError as error:
             return _unreadable_save_response(request, story, error)
-        transcript = current_game.state.get("transcript", [])
+        saved = current_game.state
 
-    user_prefs, _created = UserPreferences.objects.get_or_create(user=request.user)
-    context = _play_content_context(
-        request, story, state, transcript=transcript, can_undo=bool(current_game and current_game.state.get("previous_state"))
-    )
+    user_prefs, _created = UserPreferences.objects.get_or_create(user=user)
+    context = _play_content_context(request, story, state, saved)
     context["if_font_size"] = user_prefs.if_font_size
     context["if_text_width"] = user_prefs.if_text_width
     context["gallery_item_sha256"] = _source_gallery_item_sha256(story)
     # A game picks one of the engine's own play layouts in its manifest
     # (PLAY_LAYOUT); a story that names none gets the classic single-column
     # page, exactly as before layouts existed.
-    layout = play_layout_for(story)
-    # A layout with a side panel needs the game to fill it. A game that
-    # supplies none simply renders empty sections rather than erroring, so
-    # the two choices stay independent of each other.
-    panel = game_panel_context(story, current_game.state.get("engine_state", {}) if current_game else {}, state.globals)
-    if panel is not None:
-        context.update(panel)
-
-    return render(request, layout, context, using="Jinja2")
+    # The game's panel data, if its layout draws one, is already in context
+    # (`_play_content_context()`); a game that supplies none gets empty sections.
+    return render(request, play_layout_for(story), context, using="Jinja2")
 
 
 @login_required
@@ -668,15 +754,7 @@ def play(request: WSGIRequest, slug: str) -> HttpResponse:
 def play_submit(request: WSGIRequest, slug: str) -> HttpResponse:
     """Submit a choice and advance the story by one turn (HTMX partial).
 
-    Enforces the concurrent-tab guard described in the plan: the POST
-    must include the turn_count the submitting tab last rendered
-    ("turn_count" form field). If it no longer matches the stored row's
-    turn_count — another tab already moved the story on — the choice is
-    rejected with a "story has moved on" partial instead of being
-    silently applied on top of state the tab never actually saw. The
-    whole read-check-write sequence runs inside one transaction with a
-    row lock (select_for_update) so two concurrent submissions can't both
-    pass the guard check against the same stale row.
+    Played through `_play_turn()`, which enforces the concurrent-tab guard.
 
     Args:
         request: The incoming request. POST body: "choice" (int index
@@ -696,32 +774,25 @@ def play_submit(request: WSGIRequest, slug: str) -> HttpResponse:
     story = _get_accessible_story(request, slug)
     if isinstance(story, HttpResponse):
         return story
-
     try:
         choice_index = int(request.POST["choice"])
-        submitted_turn_count = int(request.POST["turn_count"])
     except (KeyError, ValueError):
         return HttpResponse(status=400)
 
-    with transaction.atomic():
-        turn = _current_game_for_turn(request, story, submitted_turn_count)
-        if isinstance(turn, HttpResponse):
-            return turn
-        current_game, engine_state, state = turn
-        previous_raw_state = current_game.state
-
-        if choice_index < 0 or choice_index >= len(state.current_choices):
+    def choose(turn: _Turn) -> HttpResponse | None:
+        if not 0 <= choice_index < len(turn.state.current_choices):
             return HttpResponse(status=400)
-        chosen_label = state.current_choices[choice_index].text
-        state.choose(choice_index)
-        state.continue_story()
+        chosen_label = turn.state.current_choices[choice_index].text
+        turn.state.choose(choice_index)
+        turn.state.continue_story()
+        turn.transcript = _append_transcript_entry(turn.transcript, turn.state.last_turn_text, chosen_label)
+        return None
 
-        transcript = _append_transcript_entry(previous_raw_state.get("transcript", []), state.last_turn_text, chosen_label)
-        current_game.state = _build_current_game_state(state, previous_raw_state=previous_raw_state, transcript=transcript, engine_state=engine_state)
-        current_game.turn_count = state.turn_count
-        current_game.save(update_fields=["state", "turn_count", "updated_at"])
-
-    return HttpResponse(_render_play_content(request, story, state, transcript=transcript, can_undo=True))
+    played = _play_turn(request, story, choose)
+    if isinstance(played, HttpResponse):
+        return played
+    turn, _ = played
+    return HttpResponse(_render_play_content(request, story, turn.state, turn.current_game.state))
 
 
 @login_required
@@ -753,28 +824,20 @@ def play_undo(request: WSGIRequest, slug: str) -> HttpResponse:
         return story
 
     with transaction.atomic():
-        current_game = get_object_or_404(CurrentGame.objects.select_for_update(), user=request.user, story=story)
+        current_game = get_object_or_404(CurrentGame.objects.select_for_update(), user=signed_in_user(request), story=story)
         previous_raw_state = current_game.state.get("previous_state")
         if not previous_raw_state:
             return HttpResponse(status=400)
 
-        # Deep-copied for the same reason as play_submit() above: this
-        # dict is about to become the new current_game.state verbatim, so
-        # nothing built from it (bindings_for()'s stateful closures) may
-        # mutate the very dict being restored.
+        # Deep-copied for the same reason as in `_play_turn()`: this dict
+        # becomes the row's state verbatim, so the bindings must not mutate it.
         try:
             state = _load_game_state(story, previous_raw_state, copy.deepcopy(previous_raw_state.get("engine_state", {})))
         except session_state.SaveFormatError as error:
             return _unreadable_save_response(request, story, error)
-        current_game.state = previous_raw_state
-        current_game.turn_count = state.turn_count
-        current_game.save(update_fields=["state", "turn_count", "updated_at"])
+        _save_current_game(current_game, previous_raw_state, state.turn_count)
 
-    return HttpResponse(
-        _render_play_content(
-            request, story, state, transcript=previous_raw_state.get("transcript", []), can_undo=bool(previous_raw_state.get("previous_state"))
-        )
-    )
+    return HttpResponse(_render_play_content(request, story, state, previous_raw_state))
 
 
 @login_required
@@ -782,11 +845,9 @@ def play_undo(request: WSGIRequest, slug: str) -> HttpResponse:
 def play_restart(request: WSGIRequest, slug: str) -> HttpResponse:
     """Reset CurrentGame to the story's start, discarding in-flight progress.
 
-    Named SaveState slots are untouched — restart only ever affects the
-    single per-(user, story) CurrentGame row, matching the plan's "named
-    slots are untouched" requirement. Requires an explicit POST (not a
-    plain GET link) so a restart can't happen from an accidental page
-    fetch/prefetch.
+    Named SaveState slots are untouched: restart affects only the one
+    per-(user, story) CurrentGame row. POST-only, so an accidental page
+    fetch or prefetch cannot restart a game.
 
     Args:
         request: The incoming request.
@@ -806,14 +867,18 @@ def play_restart(request: WSGIRequest, slug: str) -> HttpResponse:
     if isinstance(story, HttpResponse):
         return story
 
+    user = signed_in_user(request)
     if story.game_new_game_fields:
-        CurrentGame.objects.filter(user=request.user, story=story).delete()
+        CurrentGame.objects.filter(user=user, story=story).delete()
         response = HttpResponse(status=204)
         response["HX-Redirect"] = reverse("if_character_creation", args=[story.slug])
         return response
 
-    state, transcript = _start_new_game(request.user, story)
-    return HttpResponse(_render_play_content(request, story, state, transcript=transcript, can_undo=False))
+    try:
+        state, saved = _start_new_game(user, story)
+    except StoryRuntimeError as error:
+        return _story_error_response(request, story, error)
+    return HttpResponse(_render_play_content(request, story, state, saved))
 
 
 @login_required
@@ -837,7 +902,7 @@ def preferences(request: WSGIRequest) -> HttpResponse:
         The preferences form (GET, or POST with an invalid choice); a
         redirect back to the same page on success.
     """
-    user_prefs, _created = UserPreferences.objects.get_or_create(user=request.user)
+    user_prefs, _created = UserPreferences.objects.get_or_create(user=signed_in_user(request))
 
     if request.method == "POST":
         font_size = request.POST.get("if_font_size", "")

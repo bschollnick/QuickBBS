@@ -34,7 +34,7 @@ def _get_duplicate_sha_data() -> dict:
         .order_by("-dupe_count")
     )
 
-    sha_counts = [(d["file_sha256"], d["dupe_count"]) for d in duplicate_shas]
+    sha_counts = [(sha, d["dupe_count"]) for d in duplicate_shas if (sha := d["file_sha256"]) is not None]
 
     if not sha_counts:
         return {"groups": [], "total_shas": 0, "total_files": 0}
@@ -55,7 +55,9 @@ def _get_duplicate_sha_data() -> dict:
     # Group files by SHA
     files_by_sha: dict[str, list[dict[str, str]]] = defaultdict(list)
     for f in all_files:
-        files_by_sha[f["file_sha256"]].append(
+        if (file_sha := f["file_sha256"]) is None:
+            continue
+        files_by_sha[file_sha].append(
             {
                 "name": f["name"],
                 "directory": f["home_directory__fqpndirectory"] or "(unknown)",

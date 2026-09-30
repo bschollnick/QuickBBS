@@ -8,30 +8,33 @@ which decides whether a bundle is ingested at all.
 from __future__ import annotations
 
 import shutil
-import tempfile
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase, override_settings
 
+from ink_engine.plugin import Plugin
 from interactive_fiction.ingestion import (
     _ingest_one_bundle,
     canonical_game_path,
     game_bundles,
+    manifest_plugin_mismatch,
+    verify_stories,
 )
 from interactive_fiction.models import Story
 from interactive_fiction.tests.bundle_fixtures import write_bundle
+from quickbbs.tests.albums_root import AlbumsRootTestCase
 
 
-class BundleIngestionTestCase(TestCase):
+class BundleIngestionTestCase(AlbumsRootTestCase):
     """Each test ingests a synthetic bundle into a temp games root."""
 
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        self.games_root = self.tmp / "albums" / "interactive_fiction"
-        self.games_root.mkdir(parents=True)
+        super().setUp()
+        self.tmp = Path(self.temp_dir)
+        self.games_root = Path(self.albums_dir) / "interactive_fiction"
+        self.games_root.mkdir()
         self.owner = get_user_model().objects.create_user(username="scanowner", password="pw")
 
     def _place_bundle(self, name: str = "testgame.zip") -> Path:
@@ -48,7 +51,10 @@ class BundleIngestionTestCase(TestCase):
 
 
 class IngestOneBundleTests(BundleIngestionTestCase):
+    """A bundle placed under the games root becomes one playable Story."""
+
     def test_a_real_bundle_is_ingested(self):
+        """A valid bundle ingests to an available row with no error."""
         bundle = self._place_bundle()
         self.assertTrue(_ingest_one_bundle(self.owner, bundle))
 
@@ -58,6 +64,7 @@ class IngestOneBundleTests(BundleIngestionTestCase):
         self.assertEqual(story.game_ingestion_error, "")
 
     def test_the_manifest_fields_reach_the_row(self):
+        """The manifest's plugin and new-game lists are copied onto the row."""
         bundle = self._place_bundle()
         _ingest_one_bundle(self.owner, bundle)
 
@@ -68,6 +75,7 @@ class IngestOneBundleTests(BundleIngestionTestCase):
         self.assertEqual([field["var"] for field in story.game_new_game_fields], ["player_side"])
 
     def test_the_compiled_story_is_read_from_inside_the_bundle(self):
+        """The compiled story comes from the bundle, with its Ink version."""
         bundle = self._place_bundle()
         _ingest_one_bundle(self.owner, bundle)
 
@@ -76,6 +84,7 @@ class IngestOneBundleTests(BundleIngestionTestCase):
         self.assertTrue(story.ink_version)
 
     def test_the_three_hashes_and_version_are_recorded(self):
+        """The three integrity hashes and the game version are stored."""
         bundle = self._place_bundle()
         _ingest_one_bundle(self.owner, bundle)
 
@@ -97,6 +106,61 @@ class IngestOneBundleTests(BundleIngestionTestCase):
         self.assertEqual(Story.objects.filter(source_fqfn=str(canonical_game_path(bundle))).count(), 1)
 
 
+#: A compiled story that calls one EXTERNAL, `whereabouts_of`.
+STORY_CALLING_AN_EXTERNAL = {
+    "inkVersion": 21,
+    "root": [
+        ["ev", "str", "^hero", "/str", {"x()": "whereabouts_of", "exArgs": 1}, "/ev", {"temp=": "here"}, "\n", "end", ["done", {"#n": "g-0"}], None],
+        "done",
+        {"whereabouts_of": [{"temp=": "who"}, "ev", "str", "^", "/str", "/ev", "~ret", None], "global decl": ["ev", "/ev", "end", None]},
+    ],
+    "listDefs": {},
+}
+
+#: The only discovered plugin that provides `whereabouts_of`.
+WHEREABOUTS = Plugin(name="whereabouts", display_name="Whereabouts", bindings={"whereabouts_of": lambda who: ""})
+
+
+class ManifestPluginCheckTests(BundleIngestionTestCase):
+    """A trusted story's manifest must name every plugin its EXTERNALs need."""
+
+    def _story(self, *, trusted: bool, required: list[str]) -> Story:
+        return Story.objects.create(
+            owner=self.owner,
+            title="Checked",
+            slug="checked",
+            compiled_json=STORY_CALLING_AN_EXTERNAL,
+            is_engine_trusted=trusted,
+            game_required_plugins=required,
+        )
+
+    @mock.patch("interactive_fiction.ingestion.discover_api_descriptors", return_value={"whereabouts": WHEREABOUTS})
+    def test_an_external_only_an_undeclared_plugin_provides_is_reported(self, _discover):
+        """An EXTERNAL whose only provider is undeclared names that plugin."""
+        mismatch = manifest_plugin_mismatch(self._story(trusted=True, required=[]))
+        self.assertIn("'whereabouts' is the only provider", mismatch)
+
+    @mock.patch("interactive_fiction.ingestion.discover_api_descriptors", return_value={"whereabouts": WHEREABOUTS})
+    def test_a_declared_provider_passes(self, _discover):
+        """A story whose EXTERNAL provider is declared has no mismatch."""
+        self.assertEqual(manifest_plugin_mismatch(self._story(trusted=True, required=["whereabouts"])), "")
+
+    @mock.patch("interactive_fiction.ingestion.discover_api_descriptors")
+    def test_an_untrusted_story_is_not_checked(self, discover):
+        """An untrusted story is not checked, so no game code is loaded."""
+        self.assertEqual(manifest_plugin_mismatch(self._story(trusted=False, required=[])), "")
+        discover.assert_not_called()
+
+    def test_a_mismatch_leaves_the_bundle_unavailable_with_the_reason(self):
+        """Ingestion leaves a mismatched story unavailable, with the reason."""
+        bundle = self._place_bundle()
+        with mock.patch("interactive_fiction.ingestion.manifest_plugin_mismatch", return_value="'x' is the only provider"):
+            self.assertFalse(_ingest_one_bundle(self.owner, bundle))
+        story = Story.objects.get(source_fqfn=str(canonical_game_path(bundle)))
+        self.assertFalse(story.is_available)
+        self.assertIn("'x' is the only provider", story.game_ingestion_error)
+
+
 class TamperedBundleIngestionTests(BundleIngestionTestCase):
     """A bundle that changed without saying so is disabled, not ingested."""
 
@@ -115,6 +179,7 @@ class TamperedBundleIngestionTests(BundleIngestionTestCase):
         rebuilt.rename(bundle)
 
     def test_a_tampered_bundle_is_refused_and_disabled(self):
+        """Changed contents under the same version are refused and disabled."""
         bundle = self._place_bundle()
         _ingest_one_bundle(self.owner, bundle)
 
@@ -137,6 +202,7 @@ class TamperedBundleIngestionTests(BundleIngestionTestCase):
         self.assertEqual(Story.objects.get(source_fqfn=str(canonical_game_path(bundle))).pk, original)
 
     def test_a_corrupt_file_is_refused_without_crashing_the_scan(self):
+        """A file that is not a zip is refused and recorded, not raised."""
         broken = self.games_root / "broken.zip"
         broken.write_bytes(b"not a zip at all")
         self.assertFalse(_ingest_one_bundle(self.owner, broken))
@@ -144,14 +210,12 @@ class TamperedBundleIngestionTests(BundleIngestionTestCase):
 
 
 class GameBundleDiscoveryTests(BundleIngestionTestCase):
-    def test_bundles_are_found_under_the_games_root(self):
-        self._place_bundle()
-        with override_settings(ALBUMS_PATH=str(self.tmp / "albums")):
-            from quickbbs.directoryindex import DirectoryIndex
+    """`game_bundles()` finds the bundles ingestion should consider."""
 
-            if Path(DirectoryIndex.get_albums_root()) != self.tmp / "albums":
-                self.skipTest("albums root is not overridable this way")
-            self.assertEqual([p.name for p in game_bundles()], ["testgame.zip"])
+    def test_bundles_are_found_under_the_games_root(self):
+        """A bundle directly in the games root is found."""
+        self._place_bundle()
+        self.assertEqual([p.name for p in game_bundles()], ["testgame.zip"])
 
 
 class BundleDiscoveryLayoutTests(BundleIngestionTestCase):
@@ -165,24 +229,12 @@ class BundleDiscoveryLayoutTests(BundleIngestionTestCase):
     """
 
     def test_a_bundle_inside_its_game_folder_is_found(self):
-        from interactive_fiction.ingestion import (
-            game_bundles,  # pylint: disable=import-outside-toplevel
-        )
-
+        """A bundle one level down, in its own game folder, is found."""
         nested = self.games_root / "nestedgame"
         nested.mkdir()
         built = write_bundle(self.tmp / "src_nested", name="nestedgame")
         shutil.move(str(built), nested / "nestedgame.zip")
-        # game_bundles() reads ALBUMS_PATH from settings; without the
-        # override it scans the real gallery rather than this fixture.
-        with override_settings(ALBUMS_PATH=str(self.tmp / "albums")):
-            from quickbbs.directoryindex import (
-                DirectoryIndex,  # pylint: disable=import-outside-toplevel
-            )
-
-            if Path(DirectoryIndex.get_albums_root()) != self.tmp / "albums":
-                self.skipTest("albums root is not overridable this way")
-            self.assertIn("nestedgame.zip", [bundle.name for bundle in game_bundles()])
+        self.assertIn("nestedgame.zip", [bundle.name for bundle in game_bundles()])
 
     def test_the_stored_path_is_the_form_the_scan_produces(self):
         """A mixed-case path must not be stored verbatim: the scan walks
@@ -192,6 +244,7 @@ class BundleDiscoveryLayoutTests(BundleIngestionTestCase):
         self.assertTrue(Story.objects.filter(source_fqfn=str(bundle).lower()).exists())
 
     def test_ingesting_the_same_bundle_in_either_case_makes_one_row(self):
+        """The same bundle reached in either letter case makes one row."""
         bundle = self._place_bundle()
         _ingest_one_bundle(self.owner, bundle)
         _ingest_one_bundle(self.owner, Path(str(bundle).upper()))
@@ -208,10 +261,7 @@ class VerifyBundleStoriesTests(BundleIngestionTestCase):
     """
 
     def test_an_ingested_bundle_survives_a_verify_pass(self):
-        from interactive_fiction.ingestion import (
-            verify_stories,  # pylint: disable=import-outside-toplevel
-        )
-
+        """A verify pass leaves a live bundled game available."""
         bundle = self._place_bundle()
         _ingest_one_bundle(self.owner, bundle)
         story = Story.objects.get(source_fqfn=str(canonical_game_path(bundle)))
@@ -226,10 +276,6 @@ class VerifyBundleStoriesTests(BundleIngestionTestCase):
     def test_a_bundle_that_really_vanished_is_tombstoned(self):
         """The check still has to work: a deleted bundle is a real
         tombstone, not something to skip past."""
-        from interactive_fiction.ingestion import (
-            verify_stories,  # pylint: disable=import-outside-toplevel
-        )
-
         bundle = self._place_bundle()
         _ingest_one_bundle(self.owner, bundle)
         bundle.unlink()

@@ -1,0 +1,55 @@
+{#
+  One panel section, drawn by its layout: "compass" (play_panel_compass.jinja),
+  "actions" (play_panel_actions.jinja), "followers" (play_panel_followers.jinja),
+  or none, a list of rows. Included by play_panel.jinja for each of the
+  active tab's sections and each slot, with the section in `section`.
+#}
+{% if section.layout == 'compass' %}
+{% include 'interactive_fiction/play_panel_compass.jinja' %}
+{% elif section.layout == 'actions' %}
+{% include 'interactive_fiction/play_panel_actions.jinja' %}
+{% elif section.layout == 'followers' %}
+{% include 'interactive_fiction/play_panel_followers.jinja' %}
+{% else %}
+<div class="if-panel-section">
+  {% if section.heading %}<h3 class="if-panel-heading">{{ section.heading }}</h3>{% endif %}
+  {% if section.rows %}
+  <ul class="if-panel-list">
+    {% for row in section.rows %}
+    <li class="if-panel-row{% if row.emphasis %} if-panel-row-emphasis{% endif %}">
+      <span class="if-panel-row-label">{{ row.label }}{% if row.badge %} <span class="if-panel-badge">{{ row.badge }}</span>{% endif %}</span>
+      {% if row.actions %}
+      <span class="if-panel-actions">
+        {% for action in row.actions %}
+        {% if action.kind == 'command' %}
+        {# A command genuinely changes the world (Use, Cast), so it POSTs
+           with the same turn_count guard token a story choice form
+           carries, and re-swaps this whole panel (hx-swap-oob="true" in
+           the response) alongside the detail message — see
+           views.play_panel_command. #}
+        <form style="display:inline"
+              hx-post="/if/{{ story.slug }}/panel-command/{{ action.id }}/{{ action.item }}/"
+              hx-target="this"
+              hx-swap="none"
+              hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+          <input type="hidden" name="turn_count" value="{{ turn_count }}">
+          <button type="submit" class="if-panel-action-button" title="{{ action.title|default(action.id) }}">{{ icon(action.icon|default('circle')) }}</button>
+        </form>
+        {% else %}
+        <a href="#"
+           title="{{ action.title|default(action.id) }}"
+           hx-get="/if/{{ story.slug }}/panel-action/{{ action.id }}/{{ action.item }}/"
+           hx-target="#if-panel-detail"
+           hx-swap="innerHTML">{{ icon(action.icon|default('circle')) }}</a>
+        {% endif %}
+        {% endfor %}
+      </span>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% elif section.empty_text %}
+  <p class="if-panel-empty">{{ section.empty_text }}</p>
+  {% endif %}
+</div>
+{% endif %}

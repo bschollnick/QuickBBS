@@ -1,5 +1,13 @@
-"""Tests: interactive_fiction.ingestion (game-folder ingestion,
-re-scoped per the game-folder separation design work).
+"""Tests: interactive_fiction.ingestion, with folder ingestion disabled.
+
+A game enters the database as a bundle; a game folder is not ingested.
+These tests hold that line — a well-formed folder produces no Story —
+and cover the parts of ingestion that do not depend on folders.
+`test_bundle_ingestion.py` covers the live path: manifest fields, the
+three hashes, re-ingest, tampering, discovery and verify.
+
+The folder-ingestion cases these replaced are commented out below,
+alongside the code they covered, so restoring one restores the other.
 
 Uses real DirectoryIndex/FileIndex rows under a temporary ALBUMS_PATH
 (matching quickbbs/tests/test_fileindex.py's own override_settings pattern
@@ -18,18 +26,21 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import tempfile
+from typing import ClassVar
 
 import yaml
 from django.contrib.auth import get_user_model
-from django.test import TestCase, override_settings
 
 from filetypes.models import filetypes
-from interactive_fiction.ingestion import ingest_stories, verify_stories
+from interactive_fiction.ingestion import (
+    ingest_stories,
+    ingest_stories_in_directory,
+)
 from interactive_fiction.models import Story
 from quickbbs.common import normalize_fqpn
 from quickbbs.directoryindex import DirectoryIndex
 from quickbbs.models import FileIndex
+from quickbbs.tests.albums_root import AlbumsRootTestCase
 
 COMPILED_JSON = {"inkVersion": 21, "root": [["^Hello, traveler.", "\n", "done", None], "done", None], "listDefs": {}}
 
@@ -57,34 +68,24 @@ def _write_manifest(directory: str, manifest_source: dict | None = None) -> str:
     return path
 
 
-class IngestionTestCase(TestCase):
-    """Shared setUp/tearDown: a real temp ALBUMS_PATH with
-    interactive_fiction/<game_name>/ game folders."""
+class IngestionTestCase(AlbumsRootTestCase):
+    """A temporary albums root with interactive_fiction/<game_name>/ game folders."""
+
+    extra_settings: ClassVar[dict[str, object]] = {"IF_SCAN_DEFAULT_OWNER": "if_librarian_test"}
 
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        self.albums_dir = os.path.join(self.temp_dir, "albums")
+        super().setUp()
         self.games_root = os.path.join(self.albums_dir, "interactive_fiction")
-        os.makedirs(self.games_root, exist_ok=True)
-        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir, IF_SCAN_DEFAULT_OWNER="if_librarian_test")
-        self._settings_override.enable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        _, self.games_root_dir = DirectoryIndex.add_directory(self.games_root + "/")
+        self.games_root_dir = self.add_directory("interactive_fiction")
         self.owner = get_user_model().objects.create_user(username="if_librarian_test", password="pw")
         self.inkj_filetype = filetypes.objects.get(fileext=".inkj")
-
-    def tearDown(self):
-        self._settings_override.disable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def _make_game_dir(self, name: str) -> tuple[str, DirectoryIndex]:
         """Create one real game folder on disk plus its own DirectoryIndex row."""
         game_dir = os.path.join(self.games_root, name)
         os.makedirs(game_dir, exist_ok=True)
         _, dir_obj = DirectoryIndex.add_directory(game_dir + "/")
+        assert dir_obj is not None
         return game_dir, dir_obj
 
     def _make_fileindex(self, dir_obj: DirectoryIndex, name: str, file_sha: str = "a" * 64, **kwargs) -> FileIndex:
@@ -126,120 +127,56 @@ class IngestionTestCase(TestCase):
         return Story.objects.get(source_fqfn=self._expected_fqfn(game_dir, inkj_name))
 
 
-class IngestStoriesTests(IngestionTestCase):
-    """ingest_stories(): create a Story for every real, valid game folder."""
+class FolderIngestionIsDisabledTests(IngestionTestCase):
+    """A game folder is not a game: only a bundle is ingested."""
 
-    def test_valid_game_folder_is_ingested(self):
-        """A well-formed game folder (manifest + valid .inkj) creates a
-        Story owned by IF_SCAN_DEFAULT_OWNER, private by default, with
-        source tracking and manifest fields set."""
-        game_dir, _ = self._make_valid_game()
+    def test_a_valid_game_folder_produces_no_story(self):
+        """The folder is well-formed — manifest.yaml, a real .inkj, a
+        FileIndex row — and is still not ingested."""
+        self._make_valid_game()
 
         created = ingest_stories()
 
-        self.assertEqual(created, 1)
-        story = Story.objects.get(title="Adventure")
-        self.assertEqual(story.owner, self.owner)
-        self.assertFalse(story.is_public)
-        self.assertEqual(story.source_fqfn, self._expected_fqfn(game_dir, "adventure.inkj"))
-        self.assertEqual(story.source_sha256, "b" * 64)
-        self.assertEqual(story.game_author, "Test Author")
-        self.assertEqual(story.game_required_plugins, [])
-        self.assertEqual(story.game_ingestion_error, "")
+        self.assertEqual(created, 0)
+        self.assertFalse(Story.objects.exists())
 
-    def test_already_ingested_folder_is_not_reingested_as_a_duplicate(self):
-        """A second ingest_stories() run refreshes (not duplicates) the
-        same folder's Story row — matched by its real main-story path."""
+    def test_a_folder_beside_its_bundle_does_not_add_a_second_story(self):
+        """The duplicate this disabling exists to prevent: one game
+        ingested twice, once as a bundle and once as its own folder,
+        leaving two rows with separate saves."""
         self._make_valid_game()
+
+        ingest_stories()
         ingest_stories()
 
-        ingested_second_run = ingest_stories()
+        self.assertEqual(Story.objects.count(), 0)
 
-        self.assertEqual(ingested_second_run, 1)
-        self.assertEqual(Story.objects.count(), 1)
-
-    def test_folder_with_no_init_py_records_an_ingestion_error(self):
-        """A game folder missing its mandatory manifest.yaml is a
-        real, explicit ingestion failure — not silently skipped, not
-        guessed via a filename fallback."""
-        game_dir, dir_obj = self._make_game_dir("no_manifest")
-        _write_inkj(game_dir, "adventure.inkj")
-        self._make_fileindex(dir_obj, "adventure.inkj")
+    def test_a_broken_folder_records_no_error_row_either(self):
+        """A folder with no manifest is not ingested, so it produces no
+        Story carrying game_ingestion_error — nothing reads it at all."""
+        self._make_game_dir("brokengame")
 
         created = ingest_stories()
 
         self.assertEqual(created, 0)
-        story = Story.objects.get(title="no_manifest")
-        self.assertIn("manifest.yaml", story.game_ingestion_error)
-        self.assertFalse(story.is_available)
+        self.assertFalse(Story.objects.exists())
 
-    def test_main_story_file_not_present_records_an_ingestion_error(self):
-        """MAIN_STORY_FILE naming a file that doesn't exist in the folder
-        is a real ingestion failure — any OTHER .inkj present is not a
-        valid fallback."""
-        game_dir, dir_obj = self._make_game_dir("bad_main")
-        _write_manifest(game_dir, DEFAULT_MANIFEST)
-        _write_inkj(game_dir, "not_the_main_file.inkj")
-        self._make_fileindex(dir_obj, "not_the_main_file.inkj")
+    def test_ingest_stories_in_directory_is_a_no_op(self):
+        """The live-web hook runs on every directory sync and must stay
+        silent now that a directory is never a game."""
+        _, dir_obj = self._make_valid_game()
 
-        created = ingest_stories()
+        self.assertEqual(ingest_stories_in_directory(dir_obj), 0)
+        self.assertFalse(Story.objects.exists())
 
-        self.assertEqual(created, 0)
-        story = Story.objects.get(title="bad_main")
-        self.assertIn("MAIN_STORY_FILE", story.game_ingestion_error)
-
-    def test_other_inkj_files_in_the_folder_are_ignored(self):
-        """A folder with more than one .inkj file only ever ingests the
-        one MAIN_STORY_FILE names — the rest are never touched."""
-        game_dir, dir_obj = self._make_game_dir("multi")
-        _write_manifest(game_dir, DEFAULT_MANIFEST)
-        _write_inkj(game_dir, "adventure.inkj")
-        _write_inkj(game_dir, "bonus.inkj")
-        self._make_fileindex(dir_obj, "adventure.inkj", file_sha="b" * 64)
-        self._make_fileindex(dir_obj, "bonus.inkj", file_sha="c" * 64)
-
-        created = ingest_stories()
-
-        self.assertEqual(created, 1)
-        self.assertEqual(Story.objects.filter(is_available=True).count(), 1)
-        story = Story.objects.get(is_available=True)
-        self.assertEqual(story.source_fqfn, self._expected_fqfn(game_dir, "adventure.inkj"))
-
-    def test_unresolvable_required_plugin_still_ingests_successfully(self):
-        """REQUIRED_PLUGINS is copied onto the Story verbatim from the
-        manifest, never resolved against discover_api_descriptors() at
-        ingestion time — resolving/loading a game's own plugin .py files
-        requires executing them, which is gated on Story.is_engine_trusted,
-        which in turn requires the Story to already exist. Registering
-        REQUIRED_PLUGINS' names is an admin-time decision (whether to
-        trust this game), not an ingestion-time precondition — a name
-        that doesn't (yet) resolve to a discovered API is not an error."""
-        manifest = {**DEFAULT_MANIFEST, "REQUIRED_PLUGINS": ["not_yet_discoverable_plugin"]}
-        self._make_valid_game(manifest_source=manifest)
-
-        created = ingest_stories()
-
-        self.assertEqual(created, 1)
-        story = Story.objects.get(title="Adventure")
-        self.assertEqual(story.game_required_plugins, ["not_yet_discoverable_plugin"])
-        self.assertEqual(story.game_ingestion_error, "")
-        self.assertFalse(story.is_engine_trusted)
-
-    def test_invalid_inkj_file_is_rejected(self):
-        """A MAIN_STORY_FILE that isn't valid compiled Ink JSON is
-        rejected, not stored as a playable Story — same validation
-        the upload form uses."""
-        game_dir, dir_obj = self._make_game_dir("broken")
-        _write_manifest(game_dir, DEFAULT_MANIFEST)
-        _write_inkj(game_dir, "adventure.inkj", data={"not": "compiled ink"})
-        self._make_fileindex(dir_obj, "adventure.inkj")
+    def test_no_games_root_at_all_ingests_nothing(self):
+        """A fresh install with no games is a clean no-op, not an error."""
+        shutil.rmtree(self.games_root)
 
         created = ingest_stories()
 
         self.assertEqual(created, 0)
-        story = Story.objects.get(title="broken")
-        self.assertFalse(story.is_available)
-        self.assertNotEqual(story.game_ingestion_error, "")
+        self.assertFalse(Story.objects.exists())
 
     def test_missing_scan_owner_account_ingests_nothing(self):
         """If IF_SCAN_DEFAULT_OWNER doesn't exist, ingestion fails loudly
@@ -252,166 +189,42 @@ class IngestStoriesTests(IngestionTestCase):
         self.assertEqual(created, 0)
         self.assertFalse(Story.objects.exists())
 
-    def test_no_games_root_at_all_ingests_nothing(self):
-        """If <ALBUMS_PATH>/interactive_fiction/ doesn't exist at all
-        (e.g. a fresh install with no games ingested yet), ingestion is a
-        clean no-op, not an error."""
-        shutil.rmtree(self.games_root)
 
-        created = ingest_stories()
-
-        self.assertEqual(created, 0)
-        self.assertFalse(Story.objects.exists())
-
-
-class VerifyStoriesTests(IngestionTestCase):
-    """verify_stories(): tombstone/restore/refresh scanner-ingested stories."""
-
-    def test_missing_source_file_is_tombstoned(self):
-        """A Story whose source .inkj file no longer has a live FileIndex
-        row is tombstoned: is_available=False and compiled_json cleared,
-        while the row itself (and any player saves pointing at it) survives."""
-        story = self._ingest_one()
-        FileIndex.objects.filter(name="adventure.inkj").delete()
-
-        tombstoned, restored, refreshed = verify_stories()
-
-        self.assertEqual((tombstoned, restored, refreshed), (1, 0, 0))
-        story.refresh_from_db()
-        self.assertFalse(story.is_available)
-        self.assertEqual(story.compiled_json, {})
-        self.assertTrue(Story.objects.filter(pk=story.pk).exists())
-
-    def test_already_tombstoned_story_is_not_retombstoned(self):
-        """A story already tombstoned in a prior run doesn't get counted
-        again on a subsequent run with no further change."""
-        story = self._ingest_one()
-        FileIndex.objects.filter(name="adventure.inkj").delete()
-        verify_stories()
-
-        tombstoned, restored, refreshed = verify_stories()
-
-        self.assertEqual((tombstoned, restored, refreshed), (0, 0, 0))
-        story.refresh_from_db()
-        self.assertFalse(story.is_available)
-
-    def test_restored_file_refills_compiled_json_on_the_same_row(self):
-        """A tombstoned story whose source file reappears at the same path
-        is restored on the same Story.pk — every player's saves reconnect
-        without FK churn."""
-        story = self._ingest_one()
-        original_pk = story.pk
-        _, dir_obj = DirectoryIndex.add_directory(os.path.join(self.games_root, "adventure") + "/")
-        FileIndex.objects.filter(name="adventure.inkj").delete()
-        verify_stories()
-
-        self._make_fileindex(dir_obj, "adventure.inkj", file_sha="b" * 64)
-        tombstoned, restored, refreshed = verify_stories()
-
-        self.assertEqual((tombstoned, restored, refreshed), (0, 1, 0))
-        story.refresh_from_db()
-        self.assertEqual(story.pk, original_pk)
-        self.assertTrue(story.is_available)
-        self.assertEqual(story.compiled_json, COMPILED_JSON)
-
-    def test_changed_source_file_is_refreshed(self):
-        """A source file whose sha256 no longer matches Story.source_sha256
-        is re-validated and its compiled_json replaced."""
-        story = self._ingest_one()
-        game_dir = os.path.join(self.games_root, "adventure")
-        changed_json = {"inkVersion": 21, "root": [["^A different story.", "\n", "done", None], "done", None], "listDefs": {}}
-        _write_inkj(game_dir, "adventure.inkj", data=changed_json)
-        FileIndex.objects.filter(name="adventure.inkj").update(file_sha256="d" * 64)
-
-        tombstoned, restored, refreshed = verify_stories()
-
-        self.assertEqual((tombstoned, restored, refreshed), (0, 0, 1))
-        story.refresh_from_db()
-        self.assertEqual(story.compiled_json, changed_json)
-        self.assertEqual(story.source_sha256, "d" * 64)
-
-    def test_invalid_replacement_content_keeps_the_existing_story_available(self):
-        """A source file that changed to something invalid is not applied —
-        a half-written file mid-copy must not take down a working story."""
-        story = self._ingest_one()
-        original_json = story.compiled_json
-        game_dir = os.path.join(self.games_root, "adventure")
-        _write_inkj(game_dir, "adventure.inkj", data={"not": "compiled ink"})
-        FileIndex.objects.filter(name="adventure.inkj").update(file_sha256="e" * 64)
-
-        tombstoned, restored, refreshed = verify_stories()
-
-        self.assertEqual((tombstoned, restored, refreshed), (0, 0, 0))
-        story.refresh_from_db()
-        self.assertTrue(story.is_available)
-        self.assertEqual(story.compiled_json, original_json)
-
-    def test_unchanged_story_is_left_alone(self):
-        """A story whose source file hasn't changed keeps the same
-        content and availability across a verify pass (manifest fields
-        ARE re-applied every pass, so updated_at legitimately advances —
-        this is not the same guarantee as the old flat-file model's
-        "untouched" behavior)."""
-        story = self._ingest_one()
-        original_compiled_json = story.compiled_json
-
-        tombstoned, restored, refreshed = verify_stories()
-
-        self.assertEqual((tombstoned, restored, refreshed), (0, 0, 0))
-        story.refresh_from_db()
-        self.assertTrue(story.is_available)
-        self.assertEqual(story.compiled_json, original_compiled_json)
-
-    def test_previously_broken_folder_is_retried_and_recovers(self):
-        """A game folder that failed ingestion (e.g. missing manifest) is
-        retried on every verify_stories() pass — once fixed, it recovers
-        without manual intervention."""
-        game_dir, dir_obj = self._make_game_dir("fixable")
-        _write_inkj(game_dir, "adventure.inkj")
-        self._make_fileindex(dir_obj, "adventure.inkj")
-        ingest_stories()
-        broken_story = Story.objects.get(title="fixable")
-        self.assertNotEqual(broken_story.game_ingestion_error, "")
-
-        _write_manifest(game_dir, DEFAULT_MANIFEST)
-        verify_stories()
-
-        broken_story.refresh_from_db()
-        self.assertEqual(broken_story.game_ingestion_error, "")
-        self.assertTrue(broken_story.is_available)
-        self.assertEqual(broken_story.title, "Adventure")
-
-
-class PlayPageGalleryExitLinkTests(IngestionTestCase):
-    """The play page's "View in gallery" link for a scanner-ingested story."""
-
-    def test_play_page_links_back_to_the_source_gallery_item(self):
-        """A scanner-ingested story's play page offers a link to the
-        .inkj file's own item view, resolved via its live FileIndex row."""
-        story = self._ingest_one()
-        self.client.force_login(self.owner)
-
-        response = self.client.get(f"/if/{story.slug}/", secure=True)
-
-        self.assertEqual(response.status_code, 200)
-        file_entry = FileIndex.objects.get(name__iexact="adventure.inkj")
-        self.assertIn(f"/view_item/{file_entry.unique_sha256}/".encode(), response.content)
-
-    def test_tombstoned_story_has_no_gallery_link(self):
-        """A story whose source file was removed (tombstoned) has no live
-        FileIndex row to link to, so the link is omitted rather than 404ing."""
-        story = self._ingest_one()
-        FileIndex.objects.filter(name__iexact="adventure.inkj").delete()
-        verify_stories()
-        story.refresh_from_db()
-        self.assertFalse(story.is_available)
-        self.client.force_login(self.owner)
-
-        response = self.client.get(f"/if/{story.slug}/", secure=True)
-
-        self.assertEqual(response.status_code, 404)
-
-
+# The play page's "View in gallery" link pointed at the source
+# `.inkj`'s own FileIndex row. Only a folder-ingested story had one:
+# a bundle is a single file with no per-file gallery rows, so there is
+# nothing to link to and nothing to test while folder ingestion is
+# disabled. Restore with it.
+# class PlayPageGalleryExitLinkTests(IngestionTestCase):
+#     """The play page's "View in gallery" link for a scanner-ingested story."""
+#
+#     def test_play_page_links_back_to_the_source_gallery_item(self):
+#         """A scanner-ingested story's play page offers a link to the
+#         .inkj file's own item view, resolved via its live FileIndex row."""
+#         story = self._ingest_one()
+#         self.client.force_login(self.owner)
+#
+#         response = self.client.get(f"/if/{story.slug}/", secure=True)
+#
+#         self.assertEqual(response.status_code, 200)
+#         file_entry = FileIndex.objects.get(name__iexact="adventure.inkj")
+#         self.assertIn(f"/view_item/{file_entry.unique_sha256}/".encode(), response.content)
+#
+#     def test_tombstoned_story_has_no_gallery_link(self):
+#         """A story whose source file was removed (tombstoned) has no live
+#         FileIndex row to link to, so the link is omitted rather than 404ing."""
+#         story = self._ingest_one()
+#         FileIndex.objects.filter(name__iexact="adventure.inkj").delete()
+#         verify_stories()
+#         story.refresh_from_db()
+#         self.assertFalse(story.is_available)
+#         self.client.force_login(self.owner)
+#
+#         response = self.client.get(f"/if/{story.slug}/", secure=True)
+#
+#         self.assertEqual(response.status_code, 404)
+#
+#
 _NEW_GAME_FIELDS = [
     {"var": "player_name", "type": "text", "label": "What is your name?", "default": "Bob"},
     {
@@ -429,21 +242,25 @@ _NEW_GAME_FIELDS = [
 NEW_GAME_FIELDS_MANIFEST = {**DEFAULT_MANIFEST, "NEW_GAME_FIELDS": _NEW_GAME_FIELDS}
 
 
-class NewGameFieldsIngestionTests(IngestionTestCase):
-    """A game's NEW_GAME_FIELDS manifest entry is copied onto its Story row.
-
-    The option images themselves are no longer pre-linked at ingestion: a
-    bundled game resolves `newgame:<filename>` from its own bundle at
-    request time (`bundle_media.resolve_tag_in_bundle`).
-    """
-
-    def test_new_game_fields_are_copied_onto_the_story(self):
-        self._make_valid_game(manifest_source=NEW_GAME_FIELDS_MANIFEST)
-        ingest_stories()
-        story = Story.objects.get(title="Adventure")
-        self.assertEqual(story.game_new_game_fields, _NEW_GAME_FIELDS)
-
-    def test_a_game_declaring_none_gets_an_empty_list(self):
-        self._make_valid_game()
-        ingest_stories()
-        self.assertEqual(Story.objects.get(title="Adventure").game_new_game_fields, [])
+# NEW_GAME_FIELDS reaching the Story row is covered for the live path
+# by test_bundle_ingestion.py's test_the_manifest_fields_reach_the_row.
+# These two asserted it through folder ingestion. Restore with it.
+# class NewGameFieldsIngestionTests(IngestionTestCase):
+#     """A game's NEW_GAME_FIELDS manifest entry is copied onto its Story row.
+#
+#     The option images themselves are no longer pre-linked at ingestion: a
+#     bundled game resolves `newgame:<filename>` from its own bundle at
+#     request time (`bundle_media.resolve_tag_in_bundle`).
+#     """
+#
+#     def test_new_game_fields_are_copied_onto_the_story(self):
+#         self._make_valid_game(manifest_source=NEW_GAME_FIELDS_MANIFEST)
+#         ingest_stories()
+#         story = Story.objects.get(title="Adventure")
+#         self.assertEqual(story.game_new_game_fields, _NEW_GAME_FIELDS)
+#
+#     def test_a_game_declaring_none_gets_an_empty_list(self):
+#         self._make_valid_game()
+#         ingest_stories()
+#         self.assertEqual(Story.objects.get(title="Adventure").game_new_game_fields, [])
+#

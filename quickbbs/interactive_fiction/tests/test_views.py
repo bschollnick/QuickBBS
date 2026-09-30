@@ -10,9 +10,7 @@ rows through the actual view/model layer, not just engine.py in isolation.
 from __future__ import annotations
 
 import json
-import shutil
 import sys
-import tempfile
 from pathlib import Path as FilePath
 from unittest.mock import patch
 
@@ -41,7 +39,7 @@ from interactive_fiction.models import (
 from interactive_fiction.tests.image_test_utils import (
     make_image_bytes,
 )
-from quickbbs.models import DirectoryIndex
+from quickbbs.tests.albums_root import AlbumsRootTestCase
 from thumbnails.models import ThumbnailFiles
 from user_preferences.models import UserPreferences
 
@@ -56,30 +54,6 @@ def _opt_in(story, plugin_name: str) -> None:
     """
     story.game_required_plugins = [*story.game_required_plugins, plugin_name]
     story.save(update_fields=["game_required_plugins"])
-
-
-class _AlbumsRootMixin:
-    """Points ALBUMS_PATH at a temp dir for the duration of the test, per
-    quickbbs/tests/test_fileindex.py's own pattern — DirectoryIndex.add_directory()
-    rejects any path outside the configured albums root. Call
-    _enable_albums_root() from setUp() and it self-registers cleanup."""
-
-    def _enable_albums_root(self):
-        self.temp_dir = tempfile.mkdtemp()
-        self.albums_dir = FilePath(self.temp_dir) / "albums"
-        self.albums_dir.mkdir(exist_ok=True)
-        settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
-        settings_override.enable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-
-        def _cleanup():
-            settings_override.disable()
-            DirectoryIndex._albums_prefix = None
-            DirectoryIndex._albums_root = None
-            shutil.rmtree(self.temp_dir, ignore_errors=True)
-
-        self.addCleanup(_cleanup)
 
 
 def _load_compiled_json() -> dict:
@@ -815,7 +789,7 @@ class EditViewTests(TestCase):
         self.assertEqual(self.story.compiled_json, original_json)
 
 
-class StoryCoverViewTests(_AlbumsRootMixin, TestCase):
+class StoryCoverViewTests(AlbumsRootTestCase):
     """GET /if/<slug>/cover/ — served from the thumbnail cached on the row.
 
     A cover comes from the game's own bundle, thumbnailed once at
@@ -823,7 +797,7 @@ class StoryCoverViewTests(_AlbumsRootMixin, TestCase):
     """
 
     def setUp(self):
-        self._enable_albums_root()
+        super().setUp()
         self.client = Client()
         self.owner = get_user_model().objects.create_user(username="coverowner", password="pw", is_staff=True)
         self.story = Story.objects.create(owner=self.owner, title="Cover Story", slug="cover-story", compiled_json=_load_compiled_json())
@@ -865,11 +839,11 @@ class StoryCoverViewTests(_AlbumsRootMixin, TestCase):
         self.assertIn(f"/if/{self.story.slug}/cover/".encode(), response.content)
 
 
-class PlayViewImageTagTests(_AlbumsRootMixin, TestCase):
+class PlayViewImageTagTests(AlbumsRootTestCase):
     """GET /if/<slug>/ — a non-bundle story resolves no media at all."""
 
     def setUp(self):
-        self._enable_albums_root()
+        super().setUp()
         self.client = Client()
         self.owner = get_user_model().objects.create_user(username="playimgowner", password="pw", is_staff=True)
         self.story = Story.objects.create(
@@ -1099,7 +1073,7 @@ class PreferencesViewTests(TestCase):
         self.assertIn(b"if-width-wide", response.content)
 
 
-class GamePanelTests(_AlbumsRootMixin, TestCase):
+class GamePanelTests(AlbumsRootTestCase):
     """A game folder's own optional side panel (engine_services.
     game_panel_context / game_panel_item_text).
 
@@ -1127,18 +1101,18 @@ def panel_action(engine_state, bindings, globals_, action_id, target_id):
     return ""
 """
 
-    MANIFEST = """GAME_TITLE = "Panel Game"
-MAIN_STORY_FILE = "story.inkj"
-PLAY_LAYOUT = "three_column"
+    MANIFEST = """GAME_TITLE: Panel Game
+MAIN_STORY_FILE: story.inkj
+PLAY_LAYOUT: three_column
 """
 
     def setUp(self):
-        self._enable_albums_root()
+        super().setUp()
         # `panelgame`/`panelgame.sidebar` are now REAL importable modules
         # (the ink_engine standalone-library extraction), cached
         # in sys.modules under their real dotted names like any other
         # import. Every test in this class writes a fresh temp `panelgame`
-        # game folder under its own NEW _enable_albums_root() temp dir, but
+        # game folder under its own NEW temporary albums root, but
         # reuses the same module NAME -- so without evicting here, a test
         # after the first would silently reuse the FIRST test's already-
         # imported (and by then deleted) module instead of importing the
@@ -1148,9 +1122,11 @@ PLAY_LAYOUT = "three_column"
         self.addCleanup(lambda: [sys.modules.pop(name, None) for name in ("panelgame", "panelgame.sidebar")])
         self.client = Client()
         self.user = get_user_model().objects.create_user(username="panelplayer", password="pw")
-        self.game_dir = self.albums_dir / "interactive_fiction" / "panelgame"
+        self.game_dir = FilePath(self.albums_dir) / "interactive_fiction" / "panelgame"
         self.game_dir.mkdir(parents=True)
-        (self.game_dir / "__init__.py").write_text(self.MANIFEST, encoding="utf-8")
+        (self.game_dir / "manifest.yaml").write_text(self.MANIFEST, encoding="utf-8")
+        # An empty package marker: a trusted game folder is imported as a package.
+        (self.game_dir / "__init__.py").write_text("", encoding="utf-8")
         (self.game_dir / "sidebar.py").write_text(self.PANEL_MODULE, encoding="utf-8")
         self.story = Story.objects.create(
             owner=self.user,
@@ -1245,8 +1221,8 @@ PLAY_LAYOUT = "three_column"
         self.assertNotIn(b"if-three-column", response.content)
 
 
-class GamePanelCommandTests(_AlbumsRootMixin, TestCase):
-    """A game panel's turn-advancing commands (engine_services.
+class GamePanelCommandTests(AlbumsRootTestCase):
+    """A game panel's state-changing commands (engine_services.
     game_panel_command / panel_views.play_panel_command).
 
     The write-capable counterpart to GamePanelTests above: a panel row
@@ -1273,18 +1249,20 @@ def panel_command(engine_state, globals_, bindings, command_id, target_id):
     return ""
 """
 
-    MANIFEST = """GAME_TITLE = "Panel Command Game"
-MAIN_STORY_FILE = "story.inkj"
-PLAY_LAYOUT = "three_column"
+    MANIFEST = """GAME_TITLE: Panel Command Game
+MAIN_STORY_FILE: story.inkj
+PLAY_LAYOUT: three_column
 """
 
     def setUp(self):
-        self._enable_albums_root()
+        super().setUp()
         self.client = Client()
         self.user = get_user_model().objects.create_user(username="panelcommander", password="pw")
-        self.game_dir = self.albums_dir / "interactive_fiction" / "panelcommandgame"
+        self.game_dir = FilePath(self.albums_dir) / "interactive_fiction" / "panelcommandgame"
         self.game_dir.mkdir(parents=True)
-        (self.game_dir / "__init__.py").write_text(self.MANIFEST, encoding="utf-8")
+        (self.game_dir / "manifest.yaml").write_text(self.MANIFEST, encoding="utf-8")
+        # An empty package marker: a trusted game folder is imported as a package.
+        (self.game_dir / "__init__.py").write_text("", encoding="utf-8")
         (self.game_dir / "sidebar.py").write_text(self.PANEL_MODULE, encoding="utf-8")
         EngineAPI.objects.update_or_create(name="scheduling", defaults={"display_name": "Scheduling", "is_enabled": True})
         self.story = Story.objects.create(
@@ -1358,6 +1336,27 @@ PLAY_LAYOUT = "three_column"
         # guard's job is refusing the WRITE, not keeping the key absent.
         self.assertEqual(current_game.state["engine_state"]["scheduling"]["clock"], 0)
 
+    def test_a_new_games_first_panel_sees_the_games_real_engine_state(self):
+        """On a player's first visit the game is created inside `play()`;
+        the panel is built from that new game's engine state, not an empty one."""
+        self.client.force_login(self.user)
+        with patch("interactive_fiction.views.game_panel_context", return_value=None) as panel_context:
+            self.client.get(f"/if/{self.story.slug}/", secure=True)
+        engine_state = panel_context.call_args.args[1]
+        self.assertIn("scheduling", engine_state)
+
+    def test_the_response_offers_undo_for_the_command_it_just_took(self):
+        """A command saves an undo snapshot, so even on the opening turn the
+        refreshed page offers Undo."""
+        self.client.force_login(self.user)
+        self.client.get(f"/if/{self.story.slug}/", secure=True)
+        current_game = CurrentGame.objects.get(user=self.user, story=self.story)
+        self.assertIsNone(current_game.state.get("previous_state"))
+        response = self.client.post(
+            f"/if/{self.story.slug}/panel-command/advance/clock/", {"turn_count": current_game.turn_count}, secure=True, HTTP_HX_REQUEST="true"
+        )
+        self.assertIn(f'hx-post="/if/{self.story.slug}/undo/"'.encode(), response.content)
+
     def test_a_command_can_be_undone(self):
         """The undo snapshot play_panel_command takes means play_undo can
         restore engine_state to what it held before the command ran."""
@@ -1372,7 +1371,7 @@ PLAY_LAYOUT = "three_column"
         self.assertEqual(current_game.state["engine_state"]["scheduling"]["clock"], 0)
 
 
-class PlayLayoutTests(_AlbumsRootMixin, TestCase):
+class PlayLayoutTests(AlbumsRootTestCase):
     """A game choosing which of the engine's play-page layouts renders it.
 
     The engine ships the layouts (models.PLAY_LAYOUTS); a game names one in
@@ -1382,7 +1381,7 @@ class PlayLayoutTests(_AlbumsRootMixin, TestCase):
     """
 
     def setUp(self):
-        self._enable_albums_root()
+        super().setUp()
         self.client = Client()
         self.user = get_user_model().objects.create_user(username="layoutplayer", password="pw")
 
@@ -1396,7 +1395,7 @@ class PlayLayoutTests(_AlbumsRootMixin, TestCase):
         Returns:
             The Story row pointing into that folder.
         """
-        game_dir = self.albums_dir / "interactive_fiction" / name
+        game_dir = FilePath(self.albums_dir) / "interactive_fiction" / name
         game_dir.mkdir(parents=True)
         (game_dir / "manifest.yaml").write_text(manifest, encoding="utf-8")
         return Story.objects.create(

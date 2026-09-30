@@ -15,11 +15,9 @@ from __future__ import annotations
 
 import copy
 import json
-from typing import TYPE_CHECKING, cast
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import PermissionDenied
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -44,29 +42,15 @@ from interactive_fiction.views import (
     _get_accessible_story,
     _load_game_state,
     _render_play_content,
+    _save_current_game,
     _unreadable_save_response,
 )
-
-if TYPE_CHECKING:
-    from django.contrib.auth.models import AbstractUser
-
-
-def _request_user(request: WSGIRequest) -> AbstractUser:
-    """Return the signed-in user behind a `@login_required` view.
-
-    `request.user` is typed `User | AnonymousUser` because Django cannot
-    see the decorator. Every view in this module carries it, so the
-    anonymous case is unreachable; asserting it states that invariant
-    once instead of repeating a cast at each use.
-    """
-    if not request.user.is_authenticated:
-        raise PermissionDenied("This view requires a signed-in user.")
-    return cast("AbstractUser", request.user)
+from quickbbs.request_types import HtmxHttpRequest, signed_in_user
 
 
 def _game_saves_database(request: WSGIRequest, story: Story) -> GameSavesDatabase:
     """Return the database rows this request's saves are kept in."""
-    return GameSavesDatabase(user=_request_user(request), story=story)
+    return GameSavesDatabase(user=signed_in_user(request), story=story)
 
 
 @login_required
@@ -146,7 +130,7 @@ def saves_save(request: WSGIRequest, slug: str, slot: int) -> HttpResponse:
 
 @login_required
 @require_POST
-def saves_load(request: WSGIRequest, slug: str, slot: int) -> HttpResponse:
+def saves_load(request: HtmxHttpRequest, slug: str, slot: int) -> HttpResponse:
     """Load a named slot's state into the player's in-flight game.
 
     Copies SaveState.state into CurrentGame.state — the slot itself is
@@ -304,7 +288,7 @@ def saves_import(request: WSGIRequest, slug: str) -> HttpResponse:
     return render(request, "interactive_fiction/play_saved.jinja", {"story": story, "slot": slot, "user": request.user}, using="Jinja2")
 
 
-def _resume_from_saved_state(request: WSGIRequest, story: Story, saved_state: dict) -> HttpResponse:
+def _resume_from_saved_state(request: HtmxHttpRequest, story: Story, saved_state: dict) -> HttpResponse:
     """Put `saved_state` back into play and render the resumed turn.
 
     Shared by `saves_load()` and `saves_quickload()`: both replace the
@@ -328,29 +312,19 @@ def _resume_from_saved_state(request: WSGIRequest, story: Story, saved_state: di
     except session_state.SaveFormatError as error:
         return _unreadable_save_response(request, story, error)
     current_game, _ = CurrentGame.objects.get_or_create(
-        user=_request_user(request), story=story, defaults={"state": saved_state, "turn_count": state.turn_count}
+        user=signed_in_user(request), story=story, defaults={"state": saved_state, "turn_count": state.turn_count}
     )
     # Written verbatim, not state.to_dict(): the transcript/previous_state
     # keys live alongside the engine's own fields and InkRuntimeState does
     # not know them, so rebuilding would silently drop them.
-    current_game.state = saved_state
-    current_game.turn_count = state.turn_count
-    current_game.save(update_fields=["state", "turn_count", "updated_at"])
+    _save_current_game(current_game, saved_state, state.turn_count)
     if not request.htmx:
         # A plain form POST navigates the whole window, so a bare content
         # fragment would render as the entire document -- the transcript
         # with no page around it. The state is already saved above, so a
         # redirect lands on the game exactly where this load put it.
         return redirect("if_play", slug=story.slug)
-    return HttpResponse(
-        _render_play_content(
-            request,
-            story,
-            state,
-            transcript=saved_state.get("transcript", []),
-            can_undo=bool(saved_state.get("previous_state")),
-        )
-    )
+    return HttpResponse(_render_play_content(request, story, state, saved_state))
 
 
 @login_required
@@ -420,20 +394,12 @@ def saves_quicksave(request: WSGIRequest, slug: str) -> HttpResponse:
     # confirmation page: a quicksave must not interrupt play. The
     # re-render is what makes the sidebar's Quickload button appear.
     state = _load_game_state(story, current_game, copy.deepcopy(current_game.state.get("engine_state", {})))
-    return HttpResponse(
-        _render_play_content(
-            request,
-            story,
-            state,
-            transcript=current_game.state.get("transcript", []),
-            can_undo=bool(current_game.state.get("previous_state")),
-        )
-    )
+    return HttpResponse(_render_play_content(request, story, state, current_game.state))
 
 
 @login_required
 @require_POST
-def saves_quickload(request: WSGIRequest, slug: str) -> HttpResponse:
+def saves_quickload(request: HtmxHttpRequest, slug: str) -> HttpResponse:
     """Restore the in-flight game from the one quicksave.
 
     Args:

@@ -1,0 +1,43 @@
+{#
+  A followers section: a panel section whose layout is "followers". The
+  contract is documented once, in ink_engine/game_panel.py; the desktop
+  player's renderFollowersSection (if_player shell/app.js) draws the same
+  thing.
+
+  One row per follower, each with its own head shot and, only where the
+  game's menu knot offers one, a "Speak to" button -- reusing the same
+  take-action/ route an actions section's button does, since both read
+  from `find_action()`. Rows are separated by a rule, so several
+  followers at once read as one after another rather than one merged list.
+#}
+<div class="if-panel-section if-panel-followers">
+  {% if section.heading %}<h3 class="if-panel-heading">{{ section.heading }}</h3>{% endif %}
+  {% if section.rows %}
+  <ul class="if-panel-list">
+    {% for row in section.rows %}
+    {% if not loop.first %}<li class="if-panel-follower-rule" role="separator"><hr></li>{% endif %}
+    <li class="if-panel-row if-panel-follower">
+      {% for url in row.image_urls[:1] %}<img class="if-panel-row-image" src="{{ url }}" alt="">{% endfor %}
+      <span class="if-panel-row-label">{{ row.label }}</span>
+      {% if row.actions %}
+      <span class="if-panel-story-action-list">
+        {% for action in row.actions %}
+        <form hx-post="/if/{{ story.slug }}/take-action/"
+              hx-target="#if-play-content"
+              hx-swap="outerHTML"
+              hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+          <input type="hidden" name="turn_count" value="{{ turn_count }}">
+          <input type="hidden" name="group" value="{{ action.group }}">
+          <input type="hidden" name="label" value="{{ action.label }}">
+          <button type="submit" class="button is-small if-panel-story-action"{% if done %} disabled{% endif %}>{{ action.label }}</button>
+        </form>
+        {% endfor %}
+      </span>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% elif section.empty_text %}
+  <p class="if-panel-empty">{{ section.empty_text }}</p>
+  {% endif %}
+</div>

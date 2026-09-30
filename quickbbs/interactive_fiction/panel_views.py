@@ -2,33 +2,49 @@
 
 play_panel_tab()/play_panel_action() are the read-only panel routes (a tab
 switch, an Examine); play_panel_command() is the write-capable one (Use,
-Cast).
+Cast), play_take_exit() moves the story through an exit on the panel's
+compass, and play_take_action() runs a story action from an action or a
+followers section as an interlude -- both fill the same way, and
+`find_action()` reads either.
 """
 
 from __future__ import annotations
 
-from typing import Any
-
 from django.contrib.auth.decorators import login_required
 from django.core.handlers.wsgi import WSGIRequest
-from django.db import transaction
 from django.http import HttpResponse
 from django.shortcuts import render
 from django.template.loader import render_to_string
 from django.views.decorators.http import require_GET, require_POST
+from if_session import session_state
 
+from ink_engine.engine import InterludeError
+from ink_engine.game_panel import (
+    action_sections,
+    fill_action_sections,
+    fill_followers_sections,
+    find_action,
+    find_exit,
+    followers_sections,
+    play_reaction,
+)
+from ink_engine.travel import take_exit
 from interactive_fiction.engine_services import (
     game_panel_action,
-    game_panel_command,
+    game_panel_command_result,
     game_panel_context,
 )
+from interactive_fiction.images import DjangoMediaResolver
 from interactive_fiction.models import CurrentGame
 from interactive_fiction.views import (
-    _build_current_game_state,
-    _current_game_for_turn,
+    _append_transcript_entry,
     _get_accessible_story,
+    _load_game_state,
+    _play_turn,
     _render_play_content,
+    _Turn,
 )
+from quickbbs.request_types import signed_in_user
 
 
 @login_required
@@ -63,12 +79,22 @@ def play_panel_tab(request: WSGIRequest, slug: str, tab_id: str) -> HttpResponse
     if isinstance(story, HttpResponse):
         return story
 
-    current_game = CurrentGame.objects.filter(user=request.user, story=story).first()
+    current_game = CurrentGame.objects.filter(user=signed_in_user(request), story=story).first()
     engine_state = current_game.state.get("engine_state", {}) if current_game else {}
     globals_ = current_game.state.get("globals", {}) if current_game else {}
     panel = game_panel_context(story, engine_state, globals_)
     if panel is None:
         return HttpResponse("")
+    if current_game is not None and (action_sections(panel) or followers_sections(panel)):
+        # Listing an action or followers section evaluates story content, so it needs the story itself.
+        try:
+            state = _load_game_state(story, current_game, engine_state)
+        except session_state.SaveFormatError:
+            state = None
+        if state is not None:
+            resolver = DjangoMediaResolver(story)
+            panel = fill_action_sections(panel, state, resolver=resolver) or panel
+            panel = fill_followers_sections(panel, state, resolver=resolver) or panel
 
     # The game decides which tabs exist; honour the request only when it
     # names one of them, so a hand-typed id cannot select a face the game
@@ -125,7 +151,7 @@ def play_panel_action(request: WSGIRequest, slug: str, action_id: str, target_id
     if isinstance(story, HttpResponse):
         return story
 
-    current_game = CurrentGame.objects.filter(user=request.user, story=story).first()
+    current_game = CurrentGame.objects.filter(user=signed_in_user(request), story=story).first()
     if current_game is None:
         return HttpResponse("")
 
@@ -138,18 +164,18 @@ def play_panel_action(request: WSGIRequest, slug: str, action_id: str, target_id
 @login_required
 @require_POST
 def play_panel_command(request: WSGIRequest, slug: str, command_id: str, target_id: str) -> HttpResponse:
-    """Run one of a game panel's turn-advancing commands (Use/Cast/Give/Drop).
+    """Run one of a game panel's state-changing commands (Use/Cast/Give/Drop).
 
     Unlike `play_panel_action`, this genuinely changes the world: it calls
-    `engine_services.game_panel_command`, which hands the game's
+    `engine_services.game_panel_command_result`, which hands the game's
     `sidebar.panel_command()` the exact same real bindings
     (`bindings_for(story, engine_state)`) an in-story choice gets, so
     `give_item_now`, `spend_item_use_now`, or any other stateful API's
-    binding runs for real. It does NOT call `InkRuntimeState.continue_story()`
-    or advance Ink's own `turn_count` — a panel command is not a story
-    choice, and faking one would desync `TURNS_SINCE()`/visit-count
-    semantics from the player's real position in the story. What it DOES
-    give the same guarantees as a story turn: the concurrent-tab guard
+    binding runs for real. A command answering a message only does not
+    advance the story. A command answering a knot has it played as the
+    command's reaction (`ink_engine.game_panel.play_reaction()`): a real
+    story turn, recorded in the transcript under the answer's label. Either
+    way the view gives the same guarantees as a story turn: the concurrent-tab guard
     (rejecting a submission from a tab that is not looking at the current
     state), one atomic read-check-write transaction, and an undo snapshot
     so a bad Use can be undone via the existing `play_undo` — the "turn
@@ -173,51 +199,121 @@ def play_panel_command(request: WSGIRequest, slug: str, command_id: str, target_
 
     Raises:
         Http404: If no accessible Story matches slug.
+        InkPathError: The command's answer names a knot the story does
+            not have -- a fault in the game, not the request. The
+            transaction rolls back.
     """
     story = _get_accessible_story(request, slug)
     if isinstance(story, HttpResponse):
         return story
 
-    try:
-        submitted_turn_count = int(request.POST["turn_count"])
-    except (KeyError, ValueError):
-        return HttpResponse(status=400)
+    def run_command(turn: _Turn) -> str:
+        result = game_panel_command_result(story, turn.engine_state, turn.state.globals, command_id, target_id)
+        if play_reaction(turn.state, result) is not None:
+            turn.transcript = _append_transcript_entry(turn.transcript, turn.state.last_turn_text, result.label)
+        return result.message
 
-    with transaction.atomic():
-        turn = _current_game_for_turn(request, story, submitted_turn_count)
-        if isinstance(turn, HttpResponse):
-            return turn
-        current_game, engine_state, state = turn
-        previous_raw_state = current_game.state
+    played = _play_turn(request, story, run_command)
+    if isinstance(played, HttpResponse):
+        return played
+    turn, text = played
+    # Both fragments are out of band: the story (a reaction's turn, or the
+    # same turn) and the panel, whose detail area carries this command's message.
+    return HttpResponse(_render_play_content(request, story, turn.state, turn.current_game.state, command_result=text))
 
-        text = game_panel_command(story, engine_state, state.globals, command_id, target_id)
-        # A command can unlock a story choice -- giving an item, learning a
-        # spell -- and this turn's choices were evaluated before it ran.
-        # Source redisplays the whole place for exactly this (`items.js:1261`,
-        # `dispPlace()` on a command answering "refresh").
-        state.refresh_choices()
 
-        transcript = previous_raw_state.get("transcript", [])
-        current_game.state = _build_current_game_state(state, previous_raw_state=previous_raw_state, transcript=transcript, engine_state=engine_state)
-        current_game.save(update_fields=["state", "updated_at"])
+@login_required
+@require_POST
+def play_take_exit(request: WSGIRequest, slug: str) -> HttpResponse:
+    """Take one exit from the game panel's compass, as a story turn.
 
-    # The full panel re-render (its own OOB wrapper, see play_panel.jinja)
-    # carries the detail text too — #if-panel-detail is part of that same
-    # markup — so one OOB fragment updates the whole panel, item rows and
-    # result message together, with no separate detail swap needed.
-    panel = game_panel_context(story, engine_state, state.globals)
-    panel_context_dict: dict[str, Any] = {"story": story, "turn_count": current_game.turn_count, "panel_detail": text}
-    if panel is not None:
-        panel_context_dict.update(panel)
-        # Re-assert: this command's own result text must win even if the
-        # game's own panel dict happens to carry its own "panel_detail" key.
-        panel_context_dict["panel_detail"] = text
+    The exit is looked up in the panel the game gives for this turn, so only
+    an exit it offers as passable now can be taken, and the client never
+    names a knot. Played through `_play_turn()`, like a story choice: the
+    concurrent-tab guard, one transaction, and an undo snapshot.
 
-    # The refreshed choices live in the story column, not the panel, so the
-    # response carries both fragments, each OOB-swapped by its own wrapper.
-    # Without the second, a command that unlocks a choice updates the panel
-    # and leaves the choice list showing what was true before it ran.
-    return HttpResponse(
-        render_to_string("interactive_fiction/play_panel.jinja", panel_context_dict, request=request, using="Jinja2")
-        + _render_play_content(request, story, state, transcript=transcript, can_undo=bool(previous_raw_state.get("previous_state")), oob=True)
-    )
+    Args:
+        request: The incoming request. POST body: "exit_id" (the exit's `id`
+            in its compass section) and "turn_count" (the concurrent-tab token).
+        slug: The story's slug.
+
+    Returns:
+        The play-content partial for the new turn with the refreshed panel,
+        400 when "exit_id" is missing or names no passable exit, or the 409
+        stale-tab partial.
+
+    Raises:
+        Http404: If no accessible Story or CurrentGame exists.
+        TravelError: The exit's arrival knot does not exist, or the turn
+            offers no movement choice -- a fault in the game, not the request.
+    """
+    story = _get_accessible_story(request, slug)
+    if isinstance(story, HttpResponse):
+        return story
+    exit_id = request.POST.get("exit_id", "")
+
+    def take(turn: _Turn) -> HttpResponse | None:
+        exit_ = find_exit(game_panel_context(story, turn.engine_state, turn.state.globals), exit_id)
+        if exit_ is None:
+            return HttpResponse("That way is not open.", status=400)
+        take_exit(turn.state, exit_["arrival_knot"], exit_["travel_text"])
+        turn.transcript = _append_transcript_entry(turn.transcript, turn.state.last_turn_text, exit_["label"])
+        return None
+
+    played = _play_turn(request, story, take)
+    if isinstance(played, HttpResponse):
+        return played
+    turn, _ = played
+    return HttpResponse(_render_play_content(request, story, turn.state, turn.current_game.state))
+
+
+@login_required
+@require_POST
+def play_take_action(request: WSGIRequest, slug: str) -> HttpResponse:
+    """Run one story action from a panel action or followers section, as an interlude turn.
+
+    The action is looked up in the panel the game gives for this turn,
+    freshly listed, so only an action the story offers now can be run and
+    the client never names a knot. Played through `_play_turn()`, like a
+    story choice: the concurrent-tab guard, one transaction, and an undo
+    snapshot.
+
+    Args:
+        request: The incoming request. POST body: "group" and "label" (the
+            action's group id and label in its section) and "turn_count"
+            (the concurrent-tab token).
+        slug: The story's slug.
+
+    Returns:
+        The play-content partial for the new turn with the refreshed panel,
+        400 when the story offers no such action now or has no choices to
+        return to, or the 409 stale-tab partial.
+
+    Raises:
+        Http404: If no accessible Story or CurrentGame exists.
+    """
+    story = _get_accessible_story(request, slug)
+    if isinstance(story, HttpResponse):
+        return story
+    group = request.POST.get("group", "")
+    label = request.POST.get("label", "")
+
+    def take(turn: _Turn) -> HttpResponse | None:
+        panel = game_panel_context(story, turn.engine_state, turn.state.globals)
+        panel = fill_action_sections(panel, turn.state)
+        panel = fill_followers_sections(panel, turn.state)
+        action = find_action(panel, group, label)
+        if action is None:
+            return HttpResponse("That is not possible now.", status=400)
+        try:
+            turn.state.start_interlude(action["target"])
+        except InterludeError:
+            return HttpResponse("That is not possible now.", status=400)
+        turn.transcript = _append_transcript_entry(turn.transcript, turn.state.last_turn_text, label)
+        return None
+
+    played = _play_turn(request, story, take)
+    if isinstance(played, HttpResponse):
+        return played
+    turn, _ = played
+    return HttpResponse(_render_play_content(request, story, turn.state, turn.current_game.state))

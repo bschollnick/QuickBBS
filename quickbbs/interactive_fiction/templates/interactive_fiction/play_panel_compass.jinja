@@ -1,0 +1,64 @@
+{#
+  An exits section: a panel section whose layout is "compass". The contract
+  is documented once, in ink_engine/game_panel.py; the desktop player's
+  renderCompassSection (if_player shell/app.js) draws the same thing.
+
+  Three zones are drawn independently: the eight-point rose, up/down, and
+  in/out. A zone with no exits is left out. Inside a drawn zone, a position
+  with no passable exit is a disabled button. Exits with no position are
+  listed underneath. Picking an exit POSTs its id to take-exit/ with the
+  turn_count guard, exactly like a story choice; the view looks the exit up
+  in the game's current panel, so the page never names a knot.
+#}
+{% set compass_zones = [
+  ('rose', ['nw', 'n', 'ne', 'w', none, 'e', 'sw', 's', 'se']),
+  ('vertical', ['up', 'down']),
+  ('inout', ['in', 'out']),
+] %}
+{% set compass_glyphs = {
+  'n': '↑', 'ne': '↗', 'e': '→', 'se': '↘',
+  's': '↓', 'sw': '↙', 'w': '←', 'nw': '↖',
+  'up': 'Up', 'down': 'Down', 'in': 'In', 'out': 'Out',
+} %}
+{% set positioned = section.exits|selectattr('position')|map(attribute='position')|list %}
+
+{% macro exit_button(exit, position) %}
+<form class="if-compass-cell"
+      hx-post="/if/{{ story.slug }}/take-exit/"
+      hx-target="#if-play-content"
+      hx-swap="outerHTML"
+      hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+  <input type="hidden" name="turn_count" value="{{ turn_count }}">
+  <input type="hidden" name="exit_id" value="{{ exit.id if exit else '' }}">
+  <button type="submit"
+          class="if-compass-exit{% if position %} if-compass-{{ position }}{% endif %}"
+          {% if exit %}title="{{ exit.label }}"{% endif %}
+          {% if not (exit and exit.passable) or done %}disabled{% endif %}>
+    {% if position %}<span class="if-compass-glyph">{{ compass_glyphs[position] }}</span>{% endif %}
+    {% if exit %}<span class="if-compass-label">{{ exit.label }}</span>{% endif %}
+  </button>
+</form>
+{% endmacro %}
+
+<div class="if-panel-section if-panel-compass">
+  {% if section.heading %}<h3 class="if-panel-heading">{{ section.heading }}</h3>{% endif %}
+  {% for zone_name, positions in compass_zones %}
+  {% if positions|select('in', positioned)|list %}
+  <div class="if-compass-zone if-compass-{{ zone_name }}">
+    {% for position in positions %}
+    {% if position is none %}
+    <span class="if-compass-centre"></span>
+    {% else %}
+    {{ exit_button(section.exits|selectattr('position', 'equalto', position)|first, position) }}
+    {% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% endfor %}
+  {% set unpositioned = section.exits|rejectattr('position')|list %}
+  {% if unpositioned %}
+  <div class="if-compass-list">
+    {% for exit in unpositioned %}{{ exit_button(exit, none) }}{% endfor %}
+  </div>
+  {% endif %}
+</div>

@@ -35,9 +35,6 @@ __all__ = [
 webpaths_cache = create_cache(settings.WEBPATHS_CACHE_SIZE, "webpaths", monitored=settings.CACHE_MONITORING)
 breadcrumbs_cache = create_cache(settings.BREADCRUMBS_CACHE_SIZE, "breadcrumbs", monitored=settings.CACHE_MONITORING)
 
-# Pre-computed constant for webpath conversion (settings don't change at runtime)
-_ALBUMS_PATH_LOWER = settings.ALBUMS_PATH.lower()
-
 
 def get_sort_param(request: "WSGIRequest | None") -> int:
     """
@@ -108,7 +105,8 @@ def convert_to_webpath(full_path: str, directory: str | None = None) -> str:
     if directory == "":
         raise ValueError("directory must be non-empty or None")
 
-    prefix = (_ALBUMS_PATH_LOWER + directory.lower()) if directory else _ALBUMS_PATH_LOWER
+    albums_path_lower = settings.ALBUMS_PATH.lower()
+    prefix = (albums_path_lower + directory.lower()) if directory else albums_path_lower
     result = full_path.removeprefix(prefix)
 
     if result == full_path:

@@ -1,15 +1,9 @@
-""" """
+"""Filesystem watchdog that invalidates gallery directory caches when directories change on disk."""
 
-import logging
 import signal
 
 from cache_watcher.watchdogmon import watchdog
 
-logger = logging.getLogger()
-
-#
-#   Bootstrap by loading the configuration path data
-#
 __version__ = "4.1"
 
 __author__ = "Benjamin Schollnick"

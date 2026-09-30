@@ -34,6 +34,11 @@ BUNDLE_VERSION = "1.0"
 
 
 class BundleIntegrityTestCase(TestCase):
+    tmp: Path
+    bundle: Path
+    hashes: dict[str, str]
+    version: str
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()

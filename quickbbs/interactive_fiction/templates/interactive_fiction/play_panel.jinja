@@ -21,7 +21,14 @@
                                                 PANEL_TARGET_SIDEBAR.
     panel_tabs      [{id, label, icon}]        the panel's faces, if >1
     panel_active_tab id                        which face is showing
-    panel_sections  [{heading, empty_text, rows}]
+    panel_sections  [{heading, empty_text, rows}] or, for a section whose
+                    layout is "compass", [{heading, layout, exits}] (the
+                    exits panel; see play_panel_compass.jinja), or, for
+                    "actions", [{heading, layout, empty_text, groups}]
+                    (see play_panel_actions.jinja), or, for "followers",
+                    [{heading, layout, empty_text, rows}] (see
+                    play_panel_followers.jinja)
+    panel_slots     sections drawn below the active tab's, in order
     ...where each row is {label, detail, emphasis, badge, actions}
     ...and each action is {id, icon, title, item, kind}
 
@@ -32,9 +39,10 @@
   game_panel_command / views.play_panel_command for what a "command" action
   actually runs against.
 
-  Re-rendered on every turn via hx-swap-oob, the same mechanism the left
-  sidebar's actions already use, so the panel stays in step with the story
-  without a full page load.
+  Re-rendered on every turn via hx-swap-oob (views._render_play_content
+  appends it to every turn's response), the same mechanism the left
+  sidebar's actions use, so the panel stays in step with the story without
+  a full page load.
 #}
 {% set panel_target = panel_target|default('if-game-panel') %}
 <div id="{{ panel_target }}" class="if-game-panel" hx-swap-oob="true">
@@ -55,51 +63,16 @@
   {% endif %}
 
   {% for section in panel_sections %}
-  <div class="if-panel-section">
-    {% if section.heading %}<h3 class="if-panel-heading">{{ section.heading }}</h3>{% endif %}
-    {% if section.rows %}
-    <ul class="if-panel-list">
-      {% for row in section.rows %}
-      <li class="if-panel-row{% if row.emphasis %} if-panel-row-emphasis{% endif %}">
-        <span class="if-panel-row-label">{{ row.label }}{% if row.badge %} <span class="if-panel-badge">{{ row.badge }}</span>{% endif %}</span>
-        {% if row.actions %}
-        <span class="if-panel-actions">
-          {% for action in row.actions %}
-          {% if action.kind == 'command' %}
-          {# A command genuinely changes the world (Use, Cast), so it POSTs
-             with the same turn_count guard token a story choice form
-             carries, and re-swaps this whole panel (hx-swap-oob="true" in
-             the response) alongside the detail message — see
-             views.play_panel_command. #}
-          <form style="display:inline"
-                hx-post="/if/{{ story.slug }}/panel-command/{{ action.id }}/{{ action.item }}/"
-                hx-target="this"
-                hx-swap="none"
-                hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
-            <input type="hidden" name="turn_count" value="{{ turn_count }}">
-            <button type="submit" class="if-panel-action-button" title="{{ action.title|default(action.id) }}">{{ icon(action.icon|default('circle')) }}</button>
-          </form>
-          {% else %}
-          <a href="#"
-             title="{{ action.title|default(action.id) }}"
-             hx-get="/if/{{ story.slug }}/panel-action/{{ action.id }}/{{ action.item }}/"
-             hx-target="#if-panel-detail"
-             hx-swap="innerHTML">{{ icon(action.icon|default('circle')) }}</a>
-          {% endif %}
-          {% endfor %}
-        </span>
-        {% endif %}
-      </li>
-      {% endfor %}
-    </ul>
-    {% elif section.empty_text %}
-    <p class="if-panel-empty">{{ section.empty_text }}</p>
-    {% endif %}
-  </div>
+  {% include 'interactive_fiction/play_panel_section.jinja' %}
   {% endfor %}
 
   {# Where a row action writes its answer. Deliberately NOT the story: a
      panel action (examining a carried item, reading a note) must not
      advance the turn or disturb the current scene. #}
   <div class="if-panel-section" id="if-panel-detail">{{ panel_detail|default('')|safe }}</div>
+
+  {# Sections the game places below the tab, whichever tab is showing. #}
+  {% for section in panel_slots|default([]) %}
+  {% include 'interactive_fiction/play_panel_section.jinja' %}
+  {% endfor %}
 </div>

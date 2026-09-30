@@ -21,15 +21,13 @@ import asyncio
 import inspect
 import os
 import shutil
-import tempfile
 from typing import cast
-from unittest import mock
 
 import pytest
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.http import HttpResponse
-from django.test import Client, TestCase, override_settings
+from django.test import Client, TestCase
 from PIL import Image
 
 from frontend.utilities import breadcrumbs_cache, webpaths_cache
@@ -37,6 +35,7 @@ from quickbbs.cache_registry import layout_manager_cache
 from quickbbs.directoryindex import update_database_from_disk
 from quickbbs.fileindex import FileIndex
 from quickbbs.models import DirectoryIndex
+from quickbbs.tests.albums_root import AlbumsRootMixin
 
 pytestmark = pytest.mark.web
 
@@ -109,13 +108,15 @@ class SecureClientMixin:
         return response
 
 
-class ViewSmokeTestBase(SecureClientMixin, TestCase):
-    """Shared fixture: a temp albums tree with one real JPEG, synced into the DB.
+def _clear_view_caches() -> None:
+    """Clear the layout, webpath and breadcrumb caches, which are keyed on paths under ALBUMS_PATH."""
+    layout_manager_cache.clear()
+    webpaths_cache.clear()
+    breadcrumbs_cache.clear()
 
-    update_database_from_disk() ends with close_old_connections(); with
-    CONN_MAX_AGE=0 that closes the connection outright, which cannot be
-    reopened inside TestCase's atomic wrapper — so it is patched to a no-op
-    for the duration of each test.
+
+class ViewSmokeTestBase(AlbumsRootMixin, SecureClientMixin, TestCase):
+    """Shared fixture: a temp albums tree with one real JPEG, synced into the DB.
 
     The client is logged in as self.user, so these tests exercise the views
     themselves whether or not QUICKBBS_REQUIRE_LOGIN is enabled. The gate is
@@ -123,55 +124,23 @@ class ViewSmokeTestBase(SecureClientMixin, TestCase):
     """
 
     def setUp(self) -> None:
-        self._coc_patcher = mock.patch("quickbbs.directoryindex.close_old_connections")
-        self._coc_patcher.start()
+        super().setUp()
+        self.keep_connection_open("quickbbs.directoryindex")
         self.user = get_user_model().objects.create_user(username="smoketester", password="pw")
         self.client.force_login(self.user)
-        layout_manager_cache.clear()
-        self.temp_dir = tempfile.mkdtemp()
-        self.albums_dir = os.path.join(self.temp_dir, "albums")
-        os.makedirs(self.albums_dir, exist_ok=True)
+        _clear_view_caches()
+        self.addCleanup(_clear_view_caches)
 
         image = Image.new("RGB", (32, 32), (120, 30, 200))
         self.image_path = os.path.join(self.albums_dir, "photo.jpg")
         image.save(self.image_path, format="JPEG")
         image.close()
 
-        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
-        self._settings_override.enable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-
-        # frontend.utilities captures ALBUMS_PATH at import time as
-        # _ALBUMS_PATH_LOWER, so override_settings alone cannot redirect
-        # convert_to_webpath(). realpath: mkdtemp returns /var/... which
-        # normalize_fqpn resolves to /private/var/... on macOS.
-        self._prefix_patcher = mock.patch(
-            "frontend.utilities._ALBUMS_PATH_LOWER",
-            os.path.realpath(self.temp_dir).lower(),
-        )
-        self._prefix_patcher.start()
-        webpaths_cache.clear()
-        breadcrumbs_cache.clear()
-
-        _, dir_obj = DirectoryIndex.add_directory(self.albums_dir + "/")
-        assert dir_obj is not None, "add_directory rejected the albums fixture path"
-        self.dir_obj: DirectoryIndex = dir_obj
+        self.dir_obj = self.add_directory()
         update_database_from_disk(self.dir_obj)
         file_obj = FileIndex.objects.filter(name__iexact="photo.jpg").first()
         assert file_obj is not None, "sync did not create the FileIndex record"
         self.file_obj: FileIndex = file_obj
-
-    def tearDown(self) -> None:
-        self._prefix_patcher.stop()
-        webpaths_cache.clear()
-        breadcrumbs_cache.clear()
-        self._coc_patcher.stop()
-        self._settings_override.disable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        layout_manager_cache.clear()
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
 
 
 class TestRootRedirect(SecureClientMixin, TestCase):
@@ -228,52 +197,23 @@ class TestGalleryView(ViewSmokeTestBase):
         assert response["Cache-Control"] == "private, no-cache, must-revalidate"
 
 
-class TestGalleryDirectoryRaceCondition(SecureClientMixin, TestCase):
+class TestGalleryDirectoryRaceCondition(AlbumsRootMixin, SecureClientMixin, TestCase):
     """view_gallery's _find_directory race-condition branch: DB record exists
     but the directory has been removed from disk since it was added."""
 
     def setUp(self) -> None:
-        self._coc_patcher = mock.patch("quickbbs.directoryindex.close_old_connections")
-        self._coc_patcher.start()
+        super().setUp()
+        self.keep_connection_open("quickbbs.directoryindex")
         # Logged in so the assertion targets the race-condition branch rather
         # than the login gate (see TestAnonymousAccessIsGated).
         self.user = get_user_model().objects.create_user(username="raceuser", password="pw")
         self.client.force_login(self.user)
-        layout_manager_cache.clear()
-        self.temp_dir = tempfile.mkdtemp()
-        self.albums_dir = os.path.join(self.temp_dir, "albums")
-        self.stale_dir = os.path.join(self.albums_dir, "stale")
-        os.makedirs(self.stale_dir, exist_ok=True)
+        _clear_view_caches()
+        self.addCleanup(_clear_view_caches)
 
-        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
-        self._settings_override.enable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-
-        self._prefix_patcher = mock.patch(
-            "frontend.utilities._ALBUMS_PATH_LOWER",
-            os.path.realpath(self.temp_dir).lower(),
-        )
-        self._prefix_patcher.start()
-        webpaths_cache.clear()
-        breadcrumbs_cache.clear()
-
-        _, self.dir_obj = DirectoryIndex.add_directory(self.stale_dir + "/")
-        assert self.dir_obj is not None
-
+        self.dir_obj = self.add_directory("stale")
         # Simulate the directory disappearing from disk after being recorded.
-        shutil.rmtree(self.stale_dir)
-
-    def tearDown(self) -> None:
-        self._prefix_patcher.stop()
-        webpaths_cache.clear()
-        breadcrumbs_cache.clear()
-        self._coc_patcher.stop()
-        self._settings_override.disable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        layout_manager_cache.clear()
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        shutil.rmtree(os.path.join(self.albums_dir, "stale"))
 
     def test_directory_removed_from_disk_returns_404(self):
         """A directory present in the DB but missing on disk returns 404, not a server error."""

@@ -21,7 +21,7 @@ from interactive_fiction.engine_api import (
 )
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import AbstractUser, AnonymousUser
+    from django.contrib.auth.models import _AnyUser
 
 
 #: The play-page layouts this engine ships, mapped to the template that
@@ -39,6 +39,10 @@ PLAY_LAYOUTS: dict[str, str] = {
     "classic": "interactive_fiction/play_classic.jinja",
     "three_column": "interactive_fiction/play_three_column.jinja",
 }
+
+#: The layout templates that include the game's side panel (`play_panel.jinja`),
+#: which every turn's response then refreshes.
+LAYOUTS_WITH_PANEL: frozenset[str] = frozenset({PLAY_LAYOUTS["three_column"]})
 
 #: The layout used by a story that names none, names one this engine
 #: version does not have, or has no game manifest at all (every uploaded
@@ -289,11 +293,10 @@ class CurrentGame(models.Model):
     turn — never a named save slot (see SaveState below for those).
 
     `turn_count` is a denormalized copy of `state["turn_count"]`, kept in
-    sync whenever `state` is written — it exists purely so the play
-    view's concurrent-tab guard (comparing the submitted turn count
-    against the stored one before applying a choice) can check it with a
-    lightweight `.only("turn_count")` query instead of deserializing the
-    whole `state` JSONB blob, which Postgres TOASTs out-of-line.
+    sync whenever `state` is written. It is the concurrent-tab guard's
+    token: `views._play_turn()` locks the row and compares it with the
+    turn count the submitting tab last rendered before rebuilding
+    anything.
     """
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.DB_CASCADE, related_name="if_current_games")
@@ -364,7 +367,7 @@ class SaveState(models.Model):
         return f"{base} ({self.label})" if self.label else base
 
 
-def user_can_access(story: Story, user: AbstractUser | AnonymousUser) -> bool:
+def user_can_access(story: Story, user: _AnyUser) -> bool:
     """Return whether the given user may view/play the given story.
 
     Args:

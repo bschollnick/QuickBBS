@@ -1,49 +1,54 @@
-"""Scanner ingestion for game folders under Albums/interactive_fiction/
-Game-folder ingestion.
+"""Scanner ingestion for game bundles under Albums/interactive_fiction/.
 
 Two entry points the scan command calls as an additive post-pass after its
 own normal work — the only touch to existing scan code is two call sites in
 quickbbs/management/commands/scan.py, not a change to update_database_from_disk
 itself:
 
-- ingest_stories(): after --add_files, create a Story for every real game
-  folder under Albums/interactive_fiction/ with no matching
-  Story.source_fqfn yet.
+- ingest_stories(): after --add_files, create or refresh a Story for every
+  game bundle under Albums/interactive_fiction/.
 - verify_stories(): after --verify_files, tombstone Story rows whose source
   file is gone, and re-validate/refresh rows whose source file changed
   (sha256 drift) or reappeared after being tombstoned.
 
-**Game-folder model**: a game is a
-directory directly under `Albums/interactive_fiction/` containing exactly
-one mandatory `__init__.py` manifest (GAME_TITLE, GAME_AUTHOR,
-REQUIRED_PLUGINS, MAIN_STORY_FILE). One folder maps onto exactly one
-Story row, built from the `.inkj` file MAIN_STORY_FILE names — a .inkj is
-already a complete, self-contained game, never a chapter of something
-larger, so any OTHER .inkj present in the same folder is simply ignored
-by ingestion. A folder missing `__init__.py`, or whose MAIN_STORY_FILE
-doesn't match a real file present, is a real, explicit ingestion failure
-for that one folder (Story.game_ingestion_error set, surfaced in Django
-admin per the plan's own decided hard-failure + admin-visible-flag
-behavior) — never a silent skip or a guessed fallback.
-REQUIRED_PLUGINS is copied onto the Story row verbatim from the manifest
-(plain strings, read from `manifest.yaml` via `ink_engine.game_folder.read_manifest()`
-like every other manifest field) — ingestion never resolves these names against
-`discover_api_descriptors()`, since that would require the game's own
-`.py` files to already be loaded (real code execution), which is exactly
-what `Story.is_engine_trusted` gates on. Resolving/loading those plugins
-for real is a separate, later, explicit admin action (marking the Story
-trusted), not a precondition for the Story existing at all.
+**A game enters the database as a bundle**: one `.zip` under
+`Albums/interactive_fiction/`, carrying its own `manifest.yaml`
+(GAME_TITLE, GAME_AUTHOR, REQUIRED_PLUGINS, MAIN_STORY_FILE) and
+everything the manifest declares. One bundle maps onto exactly one Story
+row, built from the compiled story MAIN_STORY_FILE names. A bundle that
+fails its integrity check, or whose MAIN_STORY_FILE names a file it does
+not contain, is a real, explicit ingestion failure for that one bundle
+(Story.game_ingestion_error set, surfaced in Django admin) — never a
+silent skip or a guessed fallback.
 
-Every real .inkj candidate still goes through the same full validation
+**Folder ingestion is disabled.** A game folder sitting beside its own
+bundle was ingested a second time, producing two Story rows for one game,
+each with its own saves. `_ingest_one_game_folder()` and `game_folders()`
+remain here, called from nothing; the call sites are commented in
+`ingest_stories()`, `ingest_stories_in_directory()` and
+`verify_stories()`, and restoring the behaviour means restoring those
+three.
+
+REQUIRED_PLUGINS is copied onto the Story row verbatim from the manifest
+(plain strings, read via `ink_engine.game_folder.read_manifest()` like
+every other manifest field). Only for a story already marked
+`Story.is_engine_trusted` does ingestion resolve them against
+`discover_api_descriptors()` (which loads the game's own `.py` files), and
+a story calling an EXTERNAL that only an undeclared plugin provides is
+then left unavailable with the reason in `game_ingestion_error`. An
+untrusted story is never checked, since checking would execute its code.
+
+Every real story candidate still goes through the same full validation
 (validate_story_upload, imported from interactive_fiction.story_views) —
-a mislabeled .inkj that isn't compiled Ink is rejected and logged, never
+a mislabeled file that isn't compiled Ink is rejected and logged, never
 stored as a story.
 """
 
 from __future__ import annotations
 
 import logging
-import os
+
+# import os  # Unused while folder ingestion is disabled; restore with it.
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -51,11 +56,13 @@ from typing import Any
 from django.conf import settings
 from django.contrib.auth import get_user_model
 
+from ink_engine.binding import ManifestMismatchError, check_required_plugins
 from ink_engine.bundle_integrity import (
     recorded_hashes,
     unrecognized_bundle_version,
     verify_bundle,
 )
+from ink_engine.engine import load_story_root
 from ink_engine.game_folder import (
     GameFolderError,
     check_manifest_supported,
@@ -63,6 +70,7 @@ from ink_engine.game_folder import (
 )
 from ink_engine.game_source import GameSourceError, open_game_source
 from interactive_fiction.bundle_media import build_cover_thumbnail
+from interactive_fiction.engine_api import discover_api_descriptors
 from interactive_fiction.images import find_file_by_path
 from interactive_fiction.models import Story
 from interactive_fiction.story_views import (
@@ -70,7 +78,8 @@ from interactive_fiction.story_views import (
     unique_story_slug,
     validate_story_upload,
 )
-from quickbbs.common import normalize_fqpn
+
+# from quickbbs.common import normalize_fqpn  # Unused while folder ingestion is disabled; restore with it.
 from quickbbs.models import DirectoryIndex, FileIndex
 
 logger = logging.getLogger(__name__)
@@ -521,6 +530,11 @@ def check_bundle_integrity(story: Story, bundle_path: Path) -> tuple[str, str]:
     if problems:
         return INTEGRITY_INVALID, "; ".join(problems)
 
+    return _compare_recorded_hashes(story, hashes, version)
+
+
+def _compare_recorded_hashes(story: Story, hashes: dict[str, str], version: str) -> tuple[str, str]:
+    """Compare a verified bundle's hashes and version with what `story` recorded, as `check_bundle_integrity()`."""
     stored = (story.bundle_manifest_sha256, story.bundle_directory_sha256, story.bundle_story_sha256)
     if not any(stored):
         return INTEGRITY_NEW_VERSION, ""
@@ -673,31 +687,74 @@ def _ingest_one_bundle(owner, bundle_path: Path) -> bool:
     story.cover_thumbnail = build_cover_thumbnail(bundle_path)
     story.save(update_fields=["main_story_member", "cover_thumbnail", "updated_at"])
     record_bundle_hashes(story, bundle_path)
-    return True
+    return _passes_manifest_plugin_check(story, bundle_path)
+
+
+def _passes_manifest_plugin_check(story: Story, bundle_path: Path) -> bool:
+    """Return whether `story` passes `manifest_plugin_mismatch()`, recording the failure if not."""
+    mismatch = manifest_plugin_mismatch(story)
+    if not mismatch:
+        return True
+    error = f"Game bundle '{bundle_path.name}': {mismatch}"
+    logger.error("Game bundle ingestion failed: %s", error)
+    _set_game_ingestion_error(story, error)
+    return False
+
+
+def manifest_plugin_mismatch(story: Story) -> str:
+    """Return why a trusted story's manifest omits a plugin it would use.
+
+    Checks the story's EXTERNAL calls against every discovered plugin: one
+    only an undeclared plugin provides means the manifest is incomplete.
+    An untrusted story binds nothing, so it is not checked.
+
+    Args:
+        story: An ingested story, with its manifest fields applied.
+
+    Returns:
+        The mismatch, or "" when there is none or the story is untrusted.
+    """
+    if not story.is_engine_trusted:
+        return ""
+    names = story.opted_in_plugin_names()
+    try:
+        check_required_plugins(discover_api_descriptors(), names, names, root=load_story_root(story.compiled_json))
+    except ManifestMismatchError as mismatch:
+        return str(mismatch)
+    return ""
 
 
 def ingest_stories() -> int:
-    """Create or refresh a Story for every real game folder under
+    """Create or refresh a Story for every game bundle under
     Albums/interactive_fiction/.
+
+    A bundle is the only thing ingested. A game folder beside its bundle
+    would otherwise be ingested a second time, producing two Story rows
+    for one game -- one playing the bundle, one playing the folder's
+    loose files, each with its own saves.
 
     Args:
         None.
 
     Returns:
-        The number of game folders successfully ingested (created or
-        refreshed) this pass. A folder that failed (see
-        _ingest_one_game_folder) is not counted here, but is still
-        recorded — via a Story row with game_ingestion_error set — so it
-        remains visible in admin.
+        The number of bundles successfully ingested (created or
+        refreshed) this pass. A bundle that failed (see
+        _ingest_one_bundle) is not counted here, but is still recorded —
+        via a Story row with game_ingestion_error set — so it remains
+        visible in admin.
     """
     owner = _get_scan_owner()
     if owner is None:
         return 0
 
     ingested = 0
-    for game_dir in game_folders():
-        if _ingest_one_game_folder(owner, game_dir):
-            ingested += 1
+    # Folder ingestion is disabled: a game enters the database as a
+    # bundle. Restoring it means restoring this loop, the live-web hook
+    # in ingest_stories_in_directory(), and the retry pass in
+    # verify_stories().
+    # for game_dir in game_folders():
+    #     if _ingest_one_game_folder(owner, game_dir):
+    #         ingested += 1
     # Every bundle is re-examined on every pass, not only new ones: a
     # bundle that changed underneath an ingested row is exactly what the
     # integrity check exists to catch.
@@ -708,43 +765,52 @@ def ingest_stories() -> int:
     return ingested
 
 
+# `directory` is unused while folder ingestion is disabled, but stays in
+# the signature because update_database_from_disk() passes it on every
+# directory sync. Removable once folder ingestion is either restored
+# (which uses it) or removed outright with its call site.
+# pylint: disable-next=unused-argument
 def ingest_stories_in_directory(directory: DirectoryIndex) -> int:
-    """Ingest one game folder, if `directory` is itself a real, direct
-    game folder under Albums/interactive_fiction/.
+    """Return 0: a directory is never ingested as a game.
 
-    The live-web counterpart to ingest_stories(): called from
-    update_database_from_disk() right after sync_files() so a game
-    folder's content becomes playable the moment its directory is next
-    viewed, matching how any other file type is picked up live — instead
-    of requiring a separate `manage.py scan --add_files` batch run.
-    Directories that are NOT themselves a direct child of
-    Albums/interactive_fiction/ (an ordinary gallery directory, or a
-    sub-directory nested inside a game folder) are correctly a no-op here
-    — a live single-directory sync has no way to know a nested change
-    should re-trigger its ENCLOSING game folder's own manifest read, and
-    guessing at that relationship risks re-ingesting the wrong folder;
-    `manage.py scan --verify_files`'s own batch verify_stories() pass
-    remains the correct, complete way to pick up such a change.
+    Folder ingestion is disabled -- a game enters the database as a
+    bundle, and a bundle is one file, so viewing a directory has nothing
+    to ingest. The function stays because
+    `update_database_from_disk()` calls it on every directory sync;
+    restoring folder ingestion means restoring the body below.
 
     Args:
         directory: The DirectoryIndex just synced by update_database_from_disk().
 
     Returns:
-        1 if this directory is a real game folder and was successfully
-        ingested; 0 otherwise (not a game folder, ingestion failed, or no
-        scan owner configured).
+        0, always.
     """
-    games_root = normalize_fqpn(str(Path(DirectoryIndex.get_albums_root()) / "interactive_fiction"))
-    directory_path = normalize_fqpn(directory.fqpndirectory)
-    parent_path = normalize_fqpn(os.path.dirname(directory_path.rstrip(os.sep)))
-    if parent_path != games_root:
-        return 0
-
-    owner = _get_scan_owner()
-    if owner is None:
-        return 0
-
-    return 1 if _ingest_one_game_folder(owner, Path(directory_path)) else 0
+    return 0
+    # The live-web counterpart to ingest_stories(): called from
+    # update_database_from_disk() right after sync_files() so a game
+    # folder's content becomes playable the moment its directory is next
+    # viewed, matching how any other file type is picked up live —
+    # instead of requiring a separate `manage.py scan --add_files` batch
+    # run. Directories that are NOT themselves a direct child of
+    # Albums/interactive_fiction/ (an ordinary gallery directory, or a
+    # sub-directory nested inside a game folder) are correctly a no-op
+    # here — a live single-directory sync has no way to know a nested
+    # change should re-trigger its ENCLOSING game folder's own manifest
+    # read, and guessing at that relationship risks re-ingesting the
+    # wrong folder; `manage.py scan --verify_files`'s own batch
+    # verify_stories() pass remains the correct, complete way to pick up
+    # such a change.
+    # games_root = normalize_fqpn(str(Path(DirectoryIndex.get_albums_root()) / "interactive_fiction"))
+    # directory_path = normalize_fqpn(directory.fqpndirectory)
+    # parent_path = normalize_fqpn(os.path.dirname(directory_path.rstrip(os.sep)))
+    # if parent_path != games_root:
+    #     return 0
+    #
+    # owner = _get_scan_owner()
+    # if owner is None:
+    #     return 0
+    #
+    # return 1 if _ingest_one_game_folder(owner, Path(directory_path)) else 0
 
 
 def _tombstone(story: Story) -> None:
@@ -839,14 +905,16 @@ def verify_stories() -> tuple[int, int, int]:
             else:
                 refreshed += 1
 
-    # Re-run manifest-driven ingestion for every real game folder — this
-    # retries a previously-broken folder (whose placeholder Story row has
-    # a non-real source_fqfn the loop above can never match) and refreshes
+    # Folder ingestion is disabled; a game enters the database as a
+    # bundle, which ingest_stories() re-examines on every pass. Restoring
+    # folder ingestion means restoring this retry pass, which re-read a
+    # previously-broken folder (whose placeholder Story row has a
+    # non-real source_fqfn the loop above can never match) and refreshed
     # game_required_plugins/game_new_game_fields from the manifest if
     # either changed, even when the main .inkj's own content didn't.
-    owner = _get_scan_owner()
-    if owner is not None:
-        for game_dir in game_folders():
-            _ingest_one_game_folder(owner, game_dir)
+    # owner = _get_scan_owner()
+    # if owner is not None:
+    #     for game_dir in game_folders():
+    #         _ingest_one_game_folder(owner, game_dir)
 
     return tombstoned, restored, refreshed

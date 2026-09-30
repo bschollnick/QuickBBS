@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from unittest import mock
-
 import pytest
-from django.db.utils import DatabaseError
 from django.test import RequestFactory, SimpleTestCase, TestCase
 
 from frontend.views import (
@@ -84,16 +81,16 @@ class TestGetSearchResults(TestCase):
     def test_raises_without_prefetch_dirs(self):
         """prefetch_dirs=None raises ValueError."""
         with pytest.raises(ValueError):
-            get_search_results("x", "x", 0, None, [])  # type: ignore[arg-type]
+            get_search_results("x", 0, None, [])  # type: ignore[arg-type]
 
     def test_raises_without_prefetch_files(self):
         """prefetch_files=None raises ValueError."""
         with pytest.raises(ValueError):
-            get_search_results("x", "x", 0, [], None)  # type: ignore[arg-type]
+            get_search_results("x", 0, [], None)  # type: ignore[arg-type]
 
     def test_empty_pattern_returns_empty_querysets(self):
         """An empty regex pattern short-circuits to empty querysets for both models."""
-        dirs, files = get_search_results("", "", 0, [], [])
+        dirs, files = get_search_results("", 0, [], [])
         assert not list(dirs)
         assert not list(files)
         assert dirs.model is DirectoryIndex
@@ -101,28 +98,6 @@ class TestGetSearchResults(TestCase):
 
     def test_nonempty_pattern_returns_querysets(self):
         """A valid pattern returns querysets (possibly empty of matches, but valid model querysets)."""
-        dirs, files = get_search_results("nomatch", "nomatch", 0, [], [])
+        dirs, files = get_search_results("nomatch", 0, [], [])
         assert dirs.model is DirectoryIndex
         assert files.model is FileIndex
-
-
-class TestSafeRegexSearchFallback(TestCase):
-    """Tests for the DatabaseError fallback path inside _safe_regex_search, exercised via get_search_results."""
-
-    def test_regex_failure_falls_back_to_icontains(self):
-        """When the regex filter raises DatabaseError, results still come back via icontains fallback."""
-        from frontend.views import _safe_regex_search
-
-        with mock.patch.object(
-            DirectoryIndex.objects,
-            "filter",
-            side_effect=[DatabaseError("bad regex"), DirectoryIndex.objects.none()],
-        ):
-            qs = _safe_regex_search(
-                DirectoryIndex,
-                "fqpndirectory",
-                "(bad(regex",
-                "fallback text",
-                ("fqpndirectory",),
-            )
-            assert not list(qs)

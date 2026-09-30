@@ -11,16 +11,12 @@ import datetime
 import logging
 import math
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from cachetools import cached
 from cachetools.keys import hashkey
 from django.conf import settings
 from django.http import HttpResponseBadRequest
-
-if TYPE_CHECKING:
-    from django.contrib.auth.base_user import AbstractBaseUser
-    from django.contrib.auth.models import AnonymousUser
 
 from frontend.utilities import (
     convert_to_webpath,
@@ -34,12 +30,15 @@ from quickbbs.fileindex import FILEINDEX_SR_FILETYPE_HOME_VIRTUAL
 from quickbbs.models import FileIndex
 from thumbnails.models import ThumbnailFiles
 
+if TYPE_CHECKING:
+    from django.contrib.auth.models import _AnyUser
+
 
 def build_context_info(
     unique_file_sha256: str,
     sort_order_value: int = 0,
     show_duplicates: bool = False,
-    user: AbstractBaseUser | AnonymousUser | None = None,
+    user: _AnyUser | None = None,
 ) -> dict | HttpResponseBadRequest:
     """
     Build context information for item view using optimized single-pass dictionary creation.
@@ -248,7 +247,7 @@ def layout_manager(  # pylint: disable=too-many-locals
     directory=None,
     sort_ordering: int = 0,
     show_duplicates: bool = False,
-    user: AbstractBaseUser | AnonymousUser | None = None,
+    user: _AnyUser | None = None,
 ) -> dict:
     """
     Manage gallery layout with optimized database-level pagination.
@@ -304,7 +303,7 @@ def layout_manager(  # pylint: disable=too-many-locals
     bounds = calculate_page_bounds(page_number, items_per_page, dirs_count)
 
     # Fetch ONLY current page data using database slicing
-    page_data = {}
+    page_data: dict[str, Any] = {}
 
     if bounds["dirs_slice"]:
         start, end = bounds["dirs_slice"]

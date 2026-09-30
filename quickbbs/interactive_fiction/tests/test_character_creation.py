@@ -259,6 +259,24 @@ class PlayRestartWithCharacterCreationTests(TestCase):
         self.assertEqual(response["HX-Redirect"], f"/if/{self.story.slug}/new-game/")
         self.assertFalse(CurrentGame.objects.filter(user=self.user, story=self.story).exists())
 
+    def test_the_form_after_a_restart_shows_the_previous_answers(self):
+        self.client.post(f"/if/{self.story.slug}/restart/", secure=True)
+        html = self.client.get(f"/if/{self.story.slug}/new-game/", secure=True).content.decode()
+        self.assertIn('name="player_name" value="Alicia"', html)
+        self.assertRegex(html, r'name="player_gender" value="1"\s+checked')
+        self.assertNotRegex(html, r'name="player_gender" value="0"\s+checked')
+
+    def test_showing_the_prefilled_form_starts_no_game(self):
+        self.client.post(f"/if/{self.story.slug}/restart/", secure=True)
+        self.client.get(f"/if/{self.story.slug}/new-game/", secure=True)
+        self.assertFalse(CurrentGame.objects.filter(user=self.user, story=self.story).exists())
+
+    def test_a_first_visit_shows_the_declared_defaults(self):
+        other = Client()
+        other.force_login(get_user_model().objects.create_user(username="firstvisit", password="pw"))
+        html = other.get(f"/if/{self.story.slug}/new-game/", secure=True).content.decode()
+        self.assertIn('name="player_name" value="Bob"', html)
+
 
 CHECKBOX_FIELDS = [
     {
@@ -330,6 +348,15 @@ class CheckboxFieldTests(TestCase):
             game_new_game_fields=CHECKBOX_FIELDS,
         )
         self.client.force_login(self.user)
+
+    def test_the_form_after_a_restart_keeps_a_cleared_checkbox_cleared(self):
+        """`is_explicit_mode` defaults to ticked; the player cleared it, so
+        the form shown after a restart leaves it clear."""
+        self.client.post(f"/if/{self.story.slug}/new-game/submit/", {"is_british": "on"}, secure=True)
+        self.client.post(f"/if/{self.story.slug}/restart/", secure=True)
+        html = self.client.get(f"/if/{self.story.slug}/new-game/", secure=True).content.decode()
+        self.assertRegex(html, r'name="is_british"\s+checked')
+        self.assertNotRegex(html, r'name="is_explicit_mode"\s+checked')
 
     def test_unchecked_checkboxes_fall_back_to_their_declared_defaults(self):
         """An empty POST (no checkbox keys submitted at all, matching a

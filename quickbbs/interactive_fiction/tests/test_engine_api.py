@@ -8,7 +8,6 @@ from __future__ import annotations
 import logging
 import shutil
 import sys
-import tempfile
 import textwrap
 from pathlib import Path
 
@@ -16,14 +15,15 @@ from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase
 
 import ink_engine.engine_plugins
+from ink_engine.engine import InkRuntimeState, load_story_root
 from interactive_fiction.engine_api import (
     clear_api_descriptor_cache,
     discover_api_descriptors,
 )
-from interactive_fiction.engine_services import bindings_for
+from interactive_fiction.engine_services import binding_sandbox_for, bindings_for
 from interactive_fiction.models import EngineAPI, Story
-from interactive_fiction.tests.engine_test_utils import AlbumsPathOverrideMixin
 from quickbbs.directoryindex import DirectoryIndex
+from quickbbs.tests.albums_root import AlbumsRootMixin
 
 _COMPILED_JSON = {"inkVersion": 21, "root": [["^Hello.", "\n", "done", None], "done", None], "listDefs": {}}
 
@@ -38,7 +38,7 @@ def _opt_in(story, plugin_name: str) -> None:
     story.save(update_fields=["game_required_plugins"])
 
 
-class DiscoverApiDescriptorsTests(AlbumsPathOverrideMixin, SimpleTestCase):
+class DiscoverApiDescriptorsTests(AlbumsRootMixin, SimpleTestCase):
     """The real scan mechanism: every `.py` file under engine_plugins/
     defining a module-level `API` attribute is discovered; files without
     one are silently skipped.
@@ -53,13 +53,11 @@ class DiscoverApiDescriptorsTests(AlbumsPathOverrideMixin, SimpleTestCase):
     discover_api_descriptors() also always scans DirectoryIndex.
     get_albums_root()/interactive_fiction/ for real game folders, which
     requires a Story.objects DB lookup per folder found -- forbidden in a
-    SimpleTestCase -- so ALBUMS_PATH is overridden (via AlbumsPathOverrideMixin)
+    SimpleTestCase -- so ALBUMS_PATH is overridden (via AlbumsRootMixin)
     to an empty temp dir with no interactive_fiction/ subdirectory."""
 
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
         super().setUp()
-        self.addCleanup(shutil.rmtree, self.temp_dir, True)
         # discover_api_descriptors() is cached (cleared only on a real
         # Story save or scan_if_stories run) -- force a fresh scan for
         # every test in this class, which exercises the scan mechanism
@@ -124,7 +122,7 @@ class DiscoverApiDescriptorsTests(AlbumsPathOverrideMixin, SimpleTestCase):
             sys.modules.pop("ink_engine.engine_plugins.test_dup_api_b", None)
 
 
-class DiscoverApiDescriptorsGameFolderTests(AlbumsPathOverrideMixin, TestCase):
+class DiscoverApiDescriptorsGameFolderTests(AlbumsRootMixin, TestCase):
     """`discover_api_descriptors()` must discover a GAME's own API files
     under settings.ALBUMS_PATH/interactive_fiction/<game_name>/ — with
     zero game-specific code anywhere in the discovery mechanism itself.
@@ -150,16 +148,9 @@ class DiscoverApiDescriptorsGameFolderTests(AlbumsPathOverrideMixin, TestCase):
     row whose source_fqfn falls under that folder."""
 
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
         super().setUp()
-        self.addCleanup(shutil.rmtree, self.temp_dir, True)
-        # DirectoryIndex.get_albums_root() resolves to
-        # <ALBUMS_PATH>/albums/ (a fixed "albums" subfolder appended to
-        # the configured setting, not the setting's own value directly)
-        # — matching that same real convention here, since
-        # discover_api_descriptors() derives its own games directory from
-        # DirectoryIndex.get_albums_root(), not settings.ALBUMS_PATH raw.
-        self.games_dir = Path(self.temp_dir) / "albums" / "interactive_fiction"
+        # discover_api_descriptors() looks under DirectoryIndex.get_albums_root(), which is albums_dir.
+        self.games_dir = Path(self.albums_dir) / "interactive_fiction"
         self.games_dir.mkdir(parents=True)
         self.owner = get_user_model().objects.create_user(username="game_folder_discovery_owner", password="pw")
         # discover_api_descriptors() is cached (cleared only on a real
@@ -420,6 +411,31 @@ class BindingsForPerStoryIsolationTests(TestCase):
         self.assertTrue(any("no_such_system" in message for message in captured.output))
 
 
+class EngineGetsTheDivertToKnotBuiltinWithNoHookTests(TestCase):
+    """`ink_engine`'s `divert_to_knot` EXTERNAL reaches every story's
+    `InkRuntimeState` on its own -- `binding_sandbox_for()` no longer
+    merges in any game-supplied dynamic-divert hook, and needs none to."""
+
+    def setUp(self):
+        """Create an owner for this class's stories."""
+        self.owner = get_user_model().objects.create_user(username="divert_builtin_owner", password="pw")
+
+    def test_a_trusted_story_with_no_plugins_still_gets_the_builtin(self):
+        """`bindings_for()` returns nothing for this story, but the engine's
+        own binding is still on `state.engine_bindings` -- QuickBBS wires
+        no dynamic-divert hook of its own."""
+        story = Story.objects.create(
+            owner=self.owner,
+            title="divert-builtin",
+            slug="divert-builtin",
+            compiled_json=_COMPILED_JSON,
+            is_engine_trusted=True,
+        )
+        sandbox = binding_sandbox_for(story, {})
+        state = InkRuntimeState(load_story_root(_COMPILED_JSON), engine_bindings=sandbox)
+        self.assertIn("divert_to_knot", state.engine_bindings)
+
+
 class EngineAPIAdminToggleTests(TestCase):
     """The real Enabled/Disabled admin toggle requirement — new APIs
     start disabled by default, matching Story.is_engine_trusted's own
@@ -432,7 +448,7 @@ class EngineAPIAdminToggleTests(TestCase):
         self.assertFalse(api.is_enabled)
 
 
-class BundleTrustQueryTests(AlbumsPathOverrideMixin, TestCase):
+class BundleTrustQueryTests(AlbumsRootMixin, TestCase):
     """Which games the trust query can see at all.
 
     A bundle satisfies neither test the folder path uses -- it is not a

@@ -53,11 +53,14 @@
                   class="if-choices">
                 <input type="hidden" name="turn_count" value="{{ turn_count }}">
                 <div class="buttons">
-                    {# A choice carries its own pictures when the story
+                    {# Shortcut keys number the choices as shown; "value" keeps
+                       each choice's own story index, since a compass in the
+                       panel leaves the movement choice out of this list.
+                       A choice carries its own pictures when the story
                        tagged it (standard Ink choice tags), which is how a
                        game asks the player to pick by appearance. #}
                     {% for choice in choices %}
-                    <button type="submit" name="choice" value="{{ choice.index }}" class="button is-link if-choice-button{% if choice.image_urls %} has-image{% endif %}" data-choice-key="{{ choice.index + 1 }}">{% for url in choice.image_urls %}<img class="if-choice-image" src="{{ url }}" alt="">{% endfor %}{{ choice.text|story_html }} <span class="if-choice-key tag is-light">{{ choice.index + 1 }}</span></button>
+                    <button type="submit" name="choice" value="{{ choice.index }}" class="button is-link if-choice-button{% if choice.image_urls %} has-image{% endif %}" data-choice-key="{{ loop.index }}">{% for url in choice.image_urls %}<img class="if-choice-image" src="{{ url }}" alt="">{% endfor %}{{ choice.text|story_html }} <span class="if-choice-key tag is-light">{{ loop.index }}</span></button>
                     {% endfor %}
                 </div>
             </form>

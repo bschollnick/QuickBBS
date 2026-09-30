@@ -19,7 +19,7 @@ from if_session.game_saves import QUICKSAVE_SLOT
 from interactive_fiction.models import SaveState
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import AbstractUser
+    from django.contrib.auth.models import _User
 
     from interactive_fiction.models import Story
 
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 class GameSavesDatabase:
     """Game saves as `SaveState` rows, for one user playing one story."""
 
-    def __init__(self, *, user: AbstractUser, story: Story) -> None:
+    def __init__(self, *, user: _User, story: Story) -> None:
         """Keep saves for `user`'s own play of `story`.
 
         Args:

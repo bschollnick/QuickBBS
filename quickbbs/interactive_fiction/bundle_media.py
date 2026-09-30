@@ -24,8 +24,8 @@ from django.conf import settings
 from django.http import HttpResponse, StreamingHttpResponse
 
 from ink_engine.discovery import mount_game
-from ink_engine.game_folder import read_cover_image
 from ink_engine.game_source import GameSource, GameSourceError, open_game_source
+from ink_engine.media_resolver import cover_image_path
 from quickbbs.MonitoredCache import ThreadSafeLRUCache
 from thumbnails.engine.engine import create_thumbnails_from_bytes
 from thumbnails.models import ThumbnailFiles
@@ -236,12 +236,6 @@ def open_member(bundle_path: Path, member: str, *, start: int = 0) -> tuple[IO[b
     return handle, size
 
 
-#: Where a cover sits when the manifest declares none. Mirrors the
-#: engine's own `find_cover_image()` convention.
-_COVER_SEARCH_DIRS = (".", "images", "Images")
-_COVER_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp")
-
-
 def cover_member(bundle_path: Path) -> str | None:
     """Return the bundle's own cover image path, or None.
 
@@ -258,17 +252,7 @@ def cover_member(bundle_path: Path) -> str | None:
         -- a cosmetic gap, not an error.
     """
     source = bundle_source(bundle_path)
-    if source is None:
-        return None
-    declared = read_cover_image(source)
-    if declared:
-        return declared if source.exists(declared) else None
-    for directory in _COVER_SEARCH_DIRS:
-        for extension in _COVER_EXTENSIONS:
-            candidate = f"cover{extension}" if directory == "." else f"{directory}/cover{extension}"
-            if source.exists(candidate):
-                return candidate
-    return None
+    return cover_image_path(source) if source is not None else None
 
 
 def serve_member(request, bundle_path: Path, member: str, *, ranged: bool = False):
@@ -291,6 +275,7 @@ def serve_member(request, bundle_path: Path, member: str, *, ranged: bool = Fals
     handle, size = opened
     content_type = content_type_for(member)
 
+    response: HttpResponse | StreamingHttpResponse
     range_header = request.META.get("HTTP_RANGE", "") if ranged else ""
     match = re.match(r"bytes=(\d+)-(\d*)", range_header)
     if match:
@@ -359,8 +344,8 @@ def build_cover_thumbnail(bundle_path: Path):
         logger.warning("interactive_fiction.bundle_media: cannot thumbnail cover '%s': %s", member, error)
         return None
 
-    row.small_thumb = blobs.get("small") or None
-    row.medium_thumb = blobs.get("medium") or None
-    row.large_thumb = blobs.get("large") or None
+    row.small_thumb = blobs.images.get("small") or None
+    row.medium_thumb = blobs.images.get("medium") or None
+    row.large_thumb = blobs.images.get("large") or None
     row.save(update_fields=["small_thumb", "medium_thumb", "large_thumb"])
     return row

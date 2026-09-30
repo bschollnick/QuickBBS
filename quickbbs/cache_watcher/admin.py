@@ -34,11 +34,11 @@ class CacheStatisticsTrackingAdmin(admin.ModelAdmin):
     change_list_template = "admin/cache_watcher/cachestatisticstracking/change_list.html"
 
     def has_add_permission(self, request) -> bool:
-        """Disallow manual creation — rows are managed by the snapshot task."""
+        """Disallow manual creation — rows are written by snapshot_cache_statistics()."""
         return False
 
     def has_delete_permission(self, request, obj=None) -> bool:
-        """Disallow deletion — rows are managed by the snapshot task."""
+        """Disallow deletion — rows are written by snapshot_cache_statistics()."""
         return False
 
     @admin.display(description="Hit Rate")
