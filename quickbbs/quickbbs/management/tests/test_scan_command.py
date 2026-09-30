@@ -5,12 +5,10 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
-from unittest import mock
 
 import pytest
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import TestCase, override_settings
 
 from filetypes.models import filetypes
 from quickbbs.common import normalize_fqpn
@@ -21,6 +19,7 @@ from quickbbs.management.commands.scan import (
     verify_directories,
 )
 from quickbbs.models import DirectoryIndex, FileIndex
+from quickbbs.tests.albums_root import AlbumsRootTestCase
 
 pytestmark = pytest.mark.api
 
@@ -30,26 +29,12 @@ def _get_ft(fileext: str) -> filetypes:
     return filetypes.objects.get(fileext=fileext)
 
 
-class ScanCommandTestBase(TestCase):
+class ScanCommandTestBase(AlbumsRootTestCase):
     """Common tempdir/ALBUMS_PATH setup for scan.py tests."""
 
     def setUp(self) -> None:
-        self.temp_dir = tempfile.mkdtemp()
-        self.albums_root = os.path.join(self.temp_dir, "albums")
-        os.makedirs(self.albums_root, exist_ok=True)
-        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
-        self._settings_override.enable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        self._coc_patcher = mock.patch("quickbbs.management.commands.scan.close_old_connections")
-        self._coc_patcher.start()
-
-    def tearDown(self) -> None:
-        self._coc_patcher.stop()
-        self._settings_override.disable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        super().setUp()
+        self.keep_connection_open("quickbbs.management.commands.scan")
 
 
 class TestHandleStartValidation(ScanCommandTestBase):
@@ -66,7 +51,7 @@ class TestHandleStartValidation(ScanCommandTestBase):
 
     def test_start_nonexistent_path_raises(self):
         """A --start path that does not exist raises CommandError."""
-        missing = os.path.join(self.albums_root, "does_not_exist")
+        missing = os.path.join(self.albums_dir, "does_not_exist")
         with pytest.raises(CommandError, match="does not exist"):
             call_command("scan", "--verify_directories", f"--start={missing}")
 
@@ -77,7 +62,7 @@ class TestHandleStartValidation(ScanCommandTestBase):
         is checked as "path/" which os.path.exists() reports as missing —
         this reaches the "does not exist" branch, not "is not a directory".
         """
-        file_path = os.path.join(self.albums_root, "afile.txt")
+        file_path = os.path.join(self.albums_dir, "afile.txt")
         with open(file_path, "w", encoding="utf-8") as f:
             f.write("x")
         with pytest.raises(CommandError, match="does not exist"):
@@ -85,7 +70,7 @@ class TestHandleStartValidation(ScanCommandTestBase):
 
     def test_start_valid_directory_does_not_raise(self):
         """A valid --start directory under the albums root passes validation."""
-        sub = os.path.join(self.albums_root, "sub")
+        sub = os.path.join(self.albums_dir, "sub")
         os.makedirs(sub, exist_ok=True)
         # Should run without raising CommandError.
         call_command("scan", "--verify_directories", f"--start={sub}")
@@ -94,7 +79,7 @@ class TestHandleStartValidation(ScanCommandTestBase):
         """A --start path in a sibling directory that shares a string prefix
         with the albums root (e.g. 'albums-backup' vs 'albums') must be
         rejected, not wrongly treated as inside the tree."""
-        sibling_root = self.albums_root + "-backup"
+        sibling_root = self.albums_dir + "-backup"
         sibling_sub = os.path.join(sibling_root, "sub")
         os.makedirs(sibling_sub, exist_ok=True)
         try:
@@ -106,15 +91,15 @@ class TestHandleStartValidation(ScanCommandTestBase):
     def test_start_mixed_case_argument_processes_correct_directory(self):
         """A mixed-case --start pointing at a real, in-tree directory is
         accepted and the normalized form reaches the underlying operation."""
-        sub = os.path.join(self.albums_root, "MixedCase")
+        sub = os.path.join(self.albums_dir, "MixedCase")
         os.makedirs(sub, exist_ok=True)
-        mixed_case_start = os.path.join(self.albums_root, "MixedCase")
+        mixed_case_start = os.path.join(self.albums_dir, "MixedCase")
         # Should run without raising CommandError.
         call_command("scan", "--verify_directories", f"--start={mixed_case_start}")
 
     def test_deletes_pending_records_before_scan(self):
         """handle() deletes delete_pending FileIndex records before running any operation."""
-        _, directory = DirectoryIndex.add_directory(self.albums_root + os.sep)
+        _, directory = DirectoryIndex.add_directory(self.albums_dir + os.sep)
         assert directory is not None
         ft = _get_ft(".txt")
         FileIndex.objects.create(
@@ -137,31 +122,31 @@ class TestVerifyDirectories(ScanCommandTestBase):
 
     def test_directory_missing_from_disk_is_deleted(self):
         """A DirectoryIndex row whose path no longer exists on disk is removed."""
-        stale_path = os.path.join(self.albums_root, "stale")
+        stale_path = os.path.join(self.albums_dir, "stale")
         os.makedirs(stale_path, exist_ok=True)
         _, directory = DirectoryIndex.add_directory(stale_path + os.sep)
         assert directory is not None
         shutil.rmtree(stale_path)
 
-        verify_directories(start_path=self.albums_root)
+        verify_directories(start_path=self.albums_dir)
 
         assert not DirectoryIndex.objects.filter(pk=directory.pk).exists()
 
     def test_directory_present_on_disk_survives(self):
         """A DirectoryIndex row whose path still exists on disk is not deleted."""
-        present_path = os.path.join(self.albums_root, "present")
+        present_path = os.path.join(self.albums_dir, "present")
         os.makedirs(present_path, exist_ok=True)
         _, directory = DirectoryIndex.add_directory(present_path + os.sep)
         assert directory is not None
 
-        verify_directories(start_path=self.albums_root)
+        verify_directories(start_path=self.albums_dir)
 
         assert DirectoryIndex.objects.filter(pk=directory.pk).exists()
 
     def test_process_chunk_only_deletes_missing(self):
         """_process_directory_verification_chunk deletes only directories missing on disk."""
-        present_path = os.path.join(self.albums_root, "present2")
-        stale_path = os.path.join(self.albums_root, "stale2")
+        present_path = os.path.join(self.albums_dir, "present2")
+        stale_path = os.path.join(self.albums_dir, "stale2")
         os.makedirs(present_path, exist_ok=True)
         os.makedirs(stale_path, exist_ok=True)
         _, present_dir = DirectoryIndex.add_directory(present_path + os.sep)
@@ -189,7 +174,7 @@ class TestAddDirectoriesIndependentValidation(ScanCommandTestBase):
             shutil.rmtree(outside, ignore_errors=True)
 
     def test_rejects_sibling_prefix_start_path(self):
-        sibling_root = self.albums_root + "-backup"
+        sibling_root = self.albums_dir + "-backup"
         os.makedirs(sibling_root, exist_ok=True)
         try:
             add_directories(max_count=0, start_path=sibling_root)
@@ -231,7 +216,7 @@ class TestAddFilesIndependentValidation(ScanCommandTestBase):
             invalidate_directories_with_null_sha256,
         )
 
-        present_path = os.path.join(self.albums_root, "present")
+        present_path = os.path.join(self.albums_dir, "present")
         os.makedirs(present_path, exist_ok=True)
         _, directory = DirectoryIndex.add_directory(present_path + os.sep)
         assert directory is not None

@@ -1,7 +1,8 @@
 """Django settings for the quickbbs project.
 
 Site-specific constants (paths, feature toggles, per-deployment values) live in
-quickbbs_settings.py and are re-exported here via wildcard import; secrets
+quickbbs_settings.py and are re-exported here by an explicit import list; a
+constant missing from that list is not a Django setting; secrets
 (credentials, keys, allowed hosts) live in secrets.py and are imported explicitly.
 """
 
@@ -21,10 +22,12 @@ from quickbbs import __version__ as QUICKBBS_VERSION
 
 # Every name here is a Django setting this module must expose. The import
 # is the re-export: Django reads them off this module, not the other one.
-from quickbbs.quickbbs_settings import (
+# pylint reads each as unused because nothing here uses it by name.
+from quickbbs.quickbbs_settings import (  # pylint: disable=unused-import
     _DIRECTORY_COVER_QUERIES,
     ALBUMS_PATH,
     ALIAS_CACHE_SIZE,
+    ALIAS_MAPPING,
     ALL_FILES_SHAS_CACHE_SIZE,
     ALL_SUPPORTED_FILETYPES,
     ARCHIVE_FILE_TYPES,
@@ -206,7 +209,7 @@ def configure_pil() -> None:
 
 SECURE_SSL_REDIRECT = True
 
-# ALBUMS_PATH is imported from quickbbs_settings.py via the wildcard import above.
+# ALBUMS_PATH is imported from quickbbs_settings.py by the import list above.
 AUTORELOAD_IGNORE_PATHS = [
     os.path.join(ALBUMS_PATH, "Albums"),
 ]
@@ -277,7 +280,7 @@ MEDIA_ROOT = BASE_DIR.resolve().parent
 # Application definition
 INSTALLED_APPS = [
     "grappelli",
-    "django.contrib.admin",
+    "quickbbs.apps.QuickbbsAdminConfig",  # django.contrib.admin with QuickbbsAdminSite
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.staticfiles",

@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import os
 import shutil
 import tempfile
 
 import pytest
-from django.test import TestCase, override_settings
 
 from filetypes.models import filetypes
 from quickbbs.management.commands.management_helper import (
@@ -16,6 +14,7 @@ from quickbbs.management.commands.management_helper import (
     invalidate_empty_directories,
 )
 from quickbbs.models import DirectoryIndex, FileIndex
+from quickbbs.tests.albums_root import AlbumsRootTestCase
 
 pytestmark = pytest.mark.api
 
@@ -45,29 +44,15 @@ def _make_fileindex(directory: DirectoryIndex, name: str, ft: filetypes, **kwarg
     return FileIndex.objects.create(**defaults)
 
 
-class ManagementHelperTestBase(TestCase):
+class ManagementHelperTestBase(AlbumsRootTestCase):
     """Common tempdir/ALBUMS_PATH setup for management_helper tests."""
 
     def setUp(self) -> None:
-        self.temp_dir = tempfile.mkdtemp()
-        os.makedirs(os.path.join(self.temp_dir, "albums"), exist_ok=True)
-        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
-        self._settings_override.enable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        _, self.dir_with_files = DirectoryIndex.add_directory(os.path.join(self.temp_dir, "albums") + "/")
-        assert self.dir_with_files is not None
-        os.makedirs(os.path.join(self.temp_dir, "albums", "empty"), exist_ok=True)
-        _, self.empty_dir = DirectoryIndex.add_directory(os.path.join(self.temp_dir, "albums", "empty") + "/")
-        assert self.empty_dir is not None
+        super().setUp()
+        self.dir_with_files = self.add_directory()
+        self.empty_dir = self.add_directory("empty")
         self.ft_txt = _get_ft(".txt")
         self.ft_link = _get_ft(".link")
-
-    def tearDown(self) -> None:
-        self._settings_override.disable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
 
 
 class TestInvalidateEmptyDirectories(ManagementHelperTestBase):

@@ -16,16 +16,18 @@ import os
 import time
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast, overload
 from urllib.parse import quote, unquote
 
-from cachetools import cached
+from cachetools import cached, cachedmethod
 from cachetools.keys import hashkey
 from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
+from django.core.signals import setting_changed
 from django.db import DatabaseError, close_old_connections, models, transaction
 from django.db.models import Case, Count, Q, Value, When
 from django.db.models.query import QuerySet
+from django.dispatch import receiver
 from django.urls import reverse
 
 from filetypes.models import filetypes, get_ftype_dict
@@ -67,8 +69,7 @@ from quickbbs.cache_registry import (  # noqa: E402  # pylint: disable=wrong-imp
 )
 
 if TYPE_CHECKING:
-    from django.contrib.auth.base_user import AbstractBaseUser
-    from django.contrib.auth.models import AnonymousUser
+    from django.contrib.auth.models import _AnyUser
     from django.db.models.fields.related_descriptors import RelatedManager
 
     from .fileindex import FileIndex
@@ -150,6 +151,12 @@ class DirectoryIndex(models.Model):
 
     _albums_prefix = None
     _albums_root = None
+
+    @classmethod
+    def forget_albums_paths(cls) -> None:
+        """Drop the cached albums prefix and root so the next call rereads ALBUMS_PATH."""
+        cls._albums_prefix = None
+        cls._albums_root = None
 
     @classmethod
     def get_albums_prefix(cls) -> str:
@@ -256,7 +263,7 @@ class DirectoryIndex(models.Model):
             models.Index(fields=["parent_directory", "delete_pending"]),
             models.Index(fields=["dir_fqpn_sha256", "delete_pending"]),
             # Trigram index: serves search's fqpndirectory__iregex / __icontains
-            # (frontend/views.py _safe_regex_search) — previously a ~108 ms seq
+            # (frontend/views.py _regex_search) — previously a ~108 ms seq
             # scan over 52k rows per search query.
             GinIndex(fields=["fqpndirectory"], name="directoryindex_fqpn_trgm_idx", opclasses=["gin_trgm_ops"]),
         ]
@@ -741,7 +748,7 @@ class DirectoryIndex(models.Model):
         additional_filters = additional_filters or {}
         return self.FileIndex_entries.filter(delete_pending=False, **additional_filters).exists()
 
-    @cached(file_counts_cache, key=lambda self: hashkey(self.pk))
+    @cachedmethod(lambda _self: file_counts_cache, key=lambda self: hashkey(self.pk))
     def get_file_counts(self) -> int:
         """
         Return the number of files that are in the database for the current directory
@@ -756,7 +763,7 @@ class DirectoryIndex(models.Model):
         """
         return self.FileIndex_entries.filter(delete_pending=False).count()
 
-    @cached(dir_counts_cache, key=lambda self: hashkey(self.pk))
+    @cachedmethod(lambda _self: dir_counts_cache, key=lambda self: hashkey(self.pk))
     def get_dir_counts(self) -> int:
         """
         Return the number of directories that are in the database for the current directory
@@ -966,9 +973,9 @@ class DirectoryIndex(models.Model):
     def return_by_sha256_list(
         sha256_list: list[str],
         sort: int,
-        select_related: list[str],
-        prefetch_related: list[str],
-        user: AbstractBaseUser | AnonymousUser | None = None,
+        select_related: Sequence[str],
+        prefetch_related: Sequence[str],
+        user: _AnyUser | None = None,
     ) -> QuerySet[DirectoryIndex]:
         """
         Return directories matching the provided SHA256 list
@@ -976,8 +983,8 @@ class DirectoryIndex(models.Model):
         Args:
             sha256_list: List of directory SHA256 hashes to filter by
             sort: The sort order of the dirs (0-2)
-            select_related: List of related fields to select (required)
-            prefetch_related: List of related fields to prefetch (required)
+            select_related: Related fields to select (required)
+            prefetch_related: Related fields to prefetch (required)
             user: Requesting user for favorite-first ordering (SORT_MATRIX's
                 leading -is_favorited key). None (default) — byte-identical
                 to the query before this parameter existed.
@@ -1005,7 +1012,7 @@ class DirectoryIndex(models.Model):
         self,
         sort: int,
         additional_filters: dict[str, Any] | None = None,
-        user: AbstractBaseUser | AnonymousUser | None = None,
+        user: _AnyUser | None = None,
     ) -> QuerySet:
         """
         Return a values("pk") queryset of this directory's files, deduplicated by file_sha256.
@@ -1045,6 +1052,40 @@ class DirectoryIndex(models.Model):
         queryset = Favorite.annotate_is_favorited(queryset, user, target_field="file")
         return queryset.order_by("file_sha256", *SORT_MATRIX[sort]).distinct("file_sha256").values("pk")
 
+    @overload
+    def files_in_dir(
+        self,
+        sort: int = ...,
+        distinct: Literal[False] = ...,
+        additional_filters: dict[str, Any] | None = ...,
+        fields_only: list[str] | tuple[str, ...] | None = ...,
+        select_related: list[str] | tuple[str, ...] | None = ...,
+        user: _AnyUser | None = ...,
+    ) -> QuerySet[FileIndex]: ...
+
+    @overload
+    def files_in_dir(
+        self,
+        sort: int = ...,
+        *,
+        distinct: Literal[True],
+        additional_filters: dict[str, Any] | None = ...,
+        fields_only: list[str] | tuple[str, ...] | None = ...,
+        select_related: list[str] | tuple[str, ...] | None = ...,
+        user: _AnyUser | None = ...,
+    ) -> list[FileIndex]: ...
+
+    @overload
+    def files_in_dir(
+        self,
+        sort: int = ...,
+        distinct: bool = ...,
+        additional_filters: dict[str, Any] | None = ...,
+        fields_only: list[str] | tuple[str, ...] | None = ...,
+        select_related: list[str] | tuple[str, ...] | None = ...,
+        user: _AnyUser | None = ...,
+    ) -> QuerySet[FileIndex] | list[FileIndex]: ...
+
     def files_in_dir(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         sort: int = 0,
@@ -1052,7 +1093,7 @@ class DirectoryIndex(models.Model):
         additional_filters: dict[str, Any] | None = None,
         fields_only: list[str] | tuple[str, ...] | None = None,
         select_related: list[str] | tuple[str, ...] | None = None,
-        user: AbstractBaseUser | AnonymousUser | None = None,
+        user: _AnyUser | None = None,
     ) -> QuerySet[FileIndex] | list[FileIndex]:
         """
         Return the files in the current directory
@@ -1146,10 +1187,11 @@ class DirectoryIndex(models.Model):
     # pops the positional hashkey(stub, sort, user_pk)) could never find.
     # user_pk (not the user object) keys the cache: user objects aren't stably
     # hashable/comparable across requests the way a pk int is.
-    @cached(
-        distinct_files_cache, key=lambda self, sort=0, user=None: hashkey(self, sort, user.pk if user is not None and user.is_authenticated else None)
+    @cachedmethod(
+        lambda _self: distinct_files_cache,
+        key=lambda self, sort=0, user=None: hashkey(self, sort, user.pk if user is not None and user.is_authenticated else None),
     )
-    def get_distinct_file_shas(self, sort: int = 0, user: AbstractBaseUser | AnonymousUser | None = None) -> list[str]:
+    def get_distinct_file_shas(self, sort: int = 0, user: _AnyUser | None = None) -> list[str]:
         """
         Get distinct file SHA256s for this directory with caching.
 
@@ -1211,10 +1253,11 @@ class DirectoryIndex(models.Model):
         )
 
     # Same key normalization as get_distinct_file_shas — see the note there.
-    @cached(
-        all_files_shas_cache, key=lambda self, sort=0, user=None: hashkey(self, sort, user.pk if user is not None and user.is_authenticated else None)
+    @cachedmethod(
+        lambda _self: all_files_shas_cache,
+        key=lambda self, sort=0, user=None: hashkey(self, sort, user.pk if user is not None and user.is_authenticated else None),
     )
-    def get_all_file_shas(self, sort: int = 0, user: AbstractBaseUser | AnonymousUser | None = None) -> list[str]:
+    def get_all_file_shas(self, sort: int = 0, user: _AnyUser | None = None) -> list[str]:
         """
         Get all file SHA256s for this directory (duplicates included) with caching.
 
@@ -1299,7 +1342,7 @@ class DirectoryIndex(models.Model):
         fields_only: list[str] | tuple[str, ...] | None = None,
         select_related: list[str] | tuple[str, ...] | None = None,
         prefetch_related: list[str] | tuple[str, ...] | None = None,
-        user: AbstractBaseUser | AnonymousUser | None = None,
+        user: _AnyUser | None = None,
     ) -> QuerySet[DirectoryIndex]:
         """
         Return the directories in the current directory
@@ -1355,7 +1398,7 @@ class DirectoryIndex(models.Model):
 
         return queryset.order_by(*DIR_SORT_MATRIX[sort])
 
-    @cached(get_view_url_cache)
+    @cachedmethod(lambda _self: get_view_url_cache, key=lambda self: hashkey(self))
     def get_view_url(self) -> str:
         """
         Generate the URL for the viewing of the current database item
@@ -1860,6 +1903,13 @@ class DirectoryIndex(models.Model):
 # to positional hashing so hashkey(pk, sort) always matches the keys popped by
 # clear_layout_cache_for_directories().
 @cached(sibling_dirs_cache, key=lambda parent_pk, sort: hashkey(parent_pk, sort))  # pylint: disable=unnecessary-lambda
+@receiver(setting_changed)
+def _forget_albums_paths_on_change(*, setting: str, **_kwargs: Any) -> None:
+    """Drop DirectoryIndex's cached albums paths when ALBUMS_PATH changes (override_settings)."""
+    if setting == "ALBUMS_PATH":
+        DirectoryIndex.forget_albums_paths()
+
+
 def get_ordered_sibling_dirs(parent_pk: int, sort: int) -> list[tuple[str, str]]:
     """
     Return the ordered list of subdirectories of a parent directory.

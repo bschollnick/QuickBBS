@@ -18,10 +18,12 @@ Typical use::
         output="JPEG",
         quality=85,
     )
+    small_jpeg = thumbs.images["small"]
 """
 
 from __future__ import annotations
 
+from .base import ThumbnailResult
 from .config import EngineConfig, config
 from .engine import (
     BackendType,
@@ -50,6 +52,7 @@ __all__ = [
     "MediaProcessingError",
     "PDFProcessingError",
     "ThumbnailGenerationError",
+    "ThumbnailResult",
     "UnsupportedFormatError",
     "VideoProcessingError",
     "clear_backend_caches",

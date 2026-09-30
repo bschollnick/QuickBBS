@@ -8,9 +8,9 @@ from typing import Any
 import ffmpeg
 from PIL import Image
 
-from .base import AbstractBackend
-from .exceptions import UnsupportedFormatError, VideoProcessingError
-from .pil_thumbnails import ImageBackend, convert_image_for_format
+from .base import AbstractBackend, ThumbnailResult
+from .exceptions import VideoProcessingError
+from .pil_thumbnails import ImageBackend
 
 
 class VideoBackend(AbstractBackend):
@@ -28,8 +28,8 @@ class VideoBackend(AbstractBackend):
         ...     output_format="JPEG",
         ...     quality=85,
         ... )
-        >>> sorted(thumbs)
-        ['duration', 'format', 'large', 'small']
+        >>> sorted(thumbs.images), thumbs.format
+        (['large', 'small'], 'JPEG')
     """
 
     __slots__ = ("_image_backend",)
@@ -44,7 +44,7 @@ class VideoBackend(AbstractBackend):
         sizes: dict[str, tuple[int, int]],
         output_format: str,
         quality: int,
-    ) -> dict[str, bytes]:
+    ) -> ThumbnailResult:
         """
         Process a video file and generate thumbnails from a frame at its midpoint.
 
@@ -58,46 +58,41 @@ class VideoBackend(AbstractBackend):
             quality: Image quality (1-100).
 
         Returns:
-            Dictionary with 'duration' (float seconds), 'format' (the output
-            format string), and one entry per size name mapping to the
-            thumbnail bytes.
+            The thumbnails, keyed by size name, in `output_format`, with the
+            video's duration in seconds.
 
         Raises:
             FileNotFoundError: If the video file does not exist.
             VideoProcessingError: If FFmpeg cannot probe the file or extract a frame.
         """
-        output = {}
-        video_data = _get_video_info(file_path)
-        output["duration"] = video_data["duration"]
+        video_data = read_video_info(file_path)
         height, width = video_data["height"], video_data["width"]
         capture_time = int(video_data["duration"] / 2)  # Capture at half the duration
         thumbnail = _generate_thumbnail_to_pil(file_path, time_offset=capture_time, width=width, height=height)
-        pillow_output = self._image_backend._process_pil_image(thumbnail, sizes, output_format, quality)
-        output["format"] = output_format
-        output.update(pillow_output)
-        return output
+        images = self._image_backend.render_sizes(thumbnail, sizes, output_format, quality)
+        return ThumbnailResult(images, output_format, duration=video_data["duration"])
 
     def process_from_memory(
         self,
-        image_bytes: bytes,
+        source_bytes: bytes,
         sizes: dict[str, tuple[int, int]],
         output_format: str,
         quality: int,
-    ) -> dict[str, bytes]:
+    ) -> ThumbnailResult:
         """
         Process an image from memory and generate thumbnails.
 
         Args:
-            image_bytes: Image data as bytes.
+            source_bytes: Image data as bytes.
             sizes: Dictionary mapping size names to (width, height) tuples.
             output_format: Output format (JPEG, PNG, WEBP).
             quality: Image quality (1-100).
 
         Returns:
-            Dictionary mapping size names to thumbnail bytes.
+            The thumbnails, keyed by size name, in `output_format`.
         """
-        with Image.open(io.BytesIO(image_bytes)) as img:
-            return self._image_backend._process_pil_image(img, sizes, output_format, quality)
+        with Image.open(io.BytesIO(source_bytes)) as img:
+            return ThumbnailResult(self._image_backend.render_sizes(img, sizes, output_format, quality), output_format)
 
     def process_data(
         self,
@@ -105,7 +100,7 @@ class VideoBackend(AbstractBackend):
         sizes: dict[str, tuple[int, int]],
         output_format: str,
         quality: int,
-    ) -> dict[str, bytes]:
+    ) -> ThumbnailResult:
         """
         Process a PIL Image object and generate thumbnails.
 
@@ -116,14 +111,14 @@ class VideoBackend(AbstractBackend):
             quality: Image quality (1-100).
 
         Returns:
-            Dictionary mapping size names to thumbnail bytes.
+            The thumbnails, keyed by size name, in `output_format`.
         """
         img_copy = pil_image.copy()
-        return self._image_backend._process_pil_image(img_copy, sizes, output_format, quality)
+        return ThumbnailResult(self._image_backend.render_sizes(img_copy, sizes, output_format, quality), output_format)
 
 
 def _generate_thumbnail_to_pil(
-    video_path: str,
+    video_path: str | Path,
     time_offset: str | int = "00:00:10",
     width: int = 320,
     height: int = 240,
@@ -239,7 +234,7 @@ def _generate_thumbnail_to_pil(
 #     return thumbnails
 
 
-def _get_video_info(video_path: str) -> dict[str, Any]:
+def read_video_info(video_path: str) -> dict[str, Any]:
     """
     Get basic information about a video file using ffprobe.
 
@@ -256,7 +251,7 @@ def _get_video_info(video_path: str) -> dict[str, Any]:
             no video stream.
 
     Example:
-        >>> info = _get_video_info("/albums/clips/sample.mp4")
+        >>> info = read_video_info("/albums/clips/sample.mp4")
         >>> info["duration"], info["codec"]
         (66.7, 'h264')
     """
@@ -285,74 +280,3 @@ def _get_video_info(video_path: str) -> dict[str, Any]:
 
     except ffmpeg.Error as e:
         raise VideoProcessingError(f"Error getting video info: {e}", file_path=str(video_path)) from e
-
-
-def _pil_to_binary(image: Image.Image, img_format: str = "JPEG", quality: int = 85) -> bytes:
-    """
-    Convert a PIL Image to binary data.
-
-    Args:
-        image: PIL Image object to convert.
-        img_format: Output format (JPEG, PNG, or WEBP).
-        quality: Quality for JPEG/WEBP (1-100). Ignored for PNG.
-
-    Returns:
-        Binary image data as bytes.
-
-    Raises:
-        UnsupportedFormatError: If a format other than JPEG, PNG, or WEBP
-            is specified.
-    """
-    output_buffer = io.BytesIO()
-
-    # Convert image to appropriate color mode for target format
-    image = convert_image_for_format(image, img_format)
-
-    if img_format.upper() == "JPEG":
-        image.save(output_buffer, format="JPEG", quality=quality, optimize=True)
-    elif img_format.upper() == "PNG":
-        image.save(output_buffer, format="PNG", optimize=True)
-    elif img_format.upper() == "WEBP":
-        image.save(output_buffer, format="WEBP", quality=quality, optimize=True)
-    else:
-        raise UnsupportedFormatError(img_format)
-
-    binary_data = output_buffer.getvalue()
-    output_buffer.close()
-
-    return binary_data
-
-
-# Example usage
-if __name__ == "__main__":
-    # Single thumbnail
-    # try:
-    #     video_file = "sample_video.mp4"  # Replace with your video file
-    #     thumbnail_path = _generate_thumbnail(video_file, time_offset="00:01:30")
-    #     print(f"Thumbnail generated: {thumbnail_path}")
-
-    #     # Multiple thumbnails
-    #     thumbnails = _generate_multiple_thumbnails(video_file, count=3)
-    #     print(f"Generated {len(thumbnails)} thumbnails")
-
-    #     # Video info
-    #     info = _get_video_info(video_file)
-    #     print(f"Video info: {info}")
-
-    # except Exception as e:
-    #     print(f"Error: {e}")
-    video_file = "test.mp4"
-    processor = VideoBackend()
-    result = processor.process_from_file(
-        video_file,
-        sizes={"small": (320, 240), "medium": (640, 480), "large": (1280, 720)},
-        output_format="PNG",
-        quality=85,
-    )
-    print(result.keys())
-    print(f"Duration: {result['duration']} seconds")
-    print(f"Format: {result['format']}")
-    print(f"size of small thumbnail: {len(result['small'])} bytes")
-    print(f"size of medium thumbnail: {len(result['medium'])} bytes")
-    print(f"size of large thumbnail: {len(result['large'])} bytes")
-    # print(output)

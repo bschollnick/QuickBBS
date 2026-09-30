@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote
@@ -53,8 +54,7 @@ fileindex_cache = create_cache(settings.FILEINDEX_CACHE_SIZE, "fileindex", monit
 fileindex_download_cache = create_cache(settings.FILEINDEX_DOWNLOAD_CACHE_SIZE, "fileindex_download", monitored=settings.CACHE_MONITORING)
 
 if TYPE_CHECKING:
-    from django.contrib.auth.base_user import AbstractBaseUser
-    from django.contrib.auth.models import AnonymousUser
+    from django.contrib.auth.models import _AnyUser
     from django.db.models.fields.related_descriptors import RelatedManager
 
     from .directoryindex import DirectoryIndex
@@ -281,8 +281,8 @@ class FileIndex(models.Model):
     def return_by_sha256_list(
         sha256_list: list[str],
         sort: int,
-        select_related: list[str],
-        user: AbstractBaseUser | AnonymousUser | None = None,
+        select_related: Sequence[str],
+        user: _AnyUser | None = None,
     ) -> QuerySet[FileIndex]:
         """
         Return files matching the provided SHA256 list
@@ -290,7 +290,7 @@ class FileIndex(models.Model):
         Args:
             sha256_list: List of file SHA256 hashes to filter by
             sort: The sort order of the files (0-2)
-            select_related: List of related fields to select (required)
+            select_related: Related fields to select (required)
             user: Requesting user for favorite-first ordering (SORT_MATRIX's
                 leading -is_favorited key). None (default) — byte-identical
                 to the query before this parameter existed.
@@ -1377,7 +1377,7 @@ class FileIndex(models.Model):
                 condition=models.Q(delete_pending=True),
             ),
             # Trigram index: serves search's name__iregex / name__icontains
-            # (frontend/views.py _safe_regex_search) — previously a 1.3 s
+            # (frontend/views.py _regex_search) — previously a 1.3 s
             # parallel seq scan over 1.8M rows per search query.
             GinIndex(fields=["name"], name="fileindex_name_trgm_idx", opclasses=["gin_trgm_ops"]),
         ]

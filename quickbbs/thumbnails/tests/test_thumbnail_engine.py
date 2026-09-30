@@ -15,15 +15,17 @@ DATABASE SAFETY NOTES
 from __future__ import annotations
 
 import io
-import os
-import shutil
-import tempfile
 from unittest import mock
 
 import pytest
 from django.test import TestCase, override_settings
 from PIL import Image
 
+from filetypes.models import filetypes
+from quickbbs.management.commands import scan
+from quickbbs.models import FileIndex
+from quickbbs.tests.albums_root import AlbumsRootTestCase
+from thumbnails.engine import ThumbnailResult
 from thumbnails.models import (
     THUMBNAILFILES_PR_FILEINDEX_FILETYPE,
     ThumbnailFiles,
@@ -85,8 +87,6 @@ class TestAllWhiteDetector(TestCase):
 
     def test_scan_command_uses_shared_detector(self):
         """Guards against the detection logic being re-inlined in scan.py."""
-        from quickbbs.management.commands import scan
-
         assert scan.is_all_white_thumbnail is is_all_white_thumbnail
 
 
@@ -95,23 +95,12 @@ class TestAllWhiteDetector(TestCase):
 # ===========================================================================
 
 
-class TestWhitecheckGate(TestCase):
+class TestWhitecheckGate(AlbumsRootTestCase):
     """get_or_create_thumbnail_record honors MAC_OPTIMIZATION_WHITECHECK."""
 
     def setUp(self):
-        from filetypes.models import filetypes
-        from quickbbs.models import DirectoryIndex, FileIndex
-
-        # ALBUMS_PATH must cover the temp directory or add_directory rejects it
-        # (albums-root enforcement) and the FileIndex ends up orphaned.
-        self.temp_dir = tempfile.mkdtemp()
-        self.albums_dir = os.path.join(self.temp_dir, "albums")
-        os.makedirs(self.albums_dir, exist_ok=True)
-        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
-        self._settings_override.enable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        _, self.dir_obj = DirectoryIndex.add_directory(self.albums_dir + "/")
+        super().setUp()
+        self.dir_obj = self.add_directory()
         self.sha = "f" * 64
         self.file_obj = FileIndex.objects.create(
             home_directory=self.dir_obj,
@@ -127,14 +116,6 @@ class TestWhitecheckGate(TestCase):
         self.white = _jpeg_bytes((255, 255, 255))
         self.normal = _gradient_jpeg_bytes()
 
-    def tearDown(self):
-        from quickbbs.models import DirectoryIndex
-
-        self._settings_override.disable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
-
     def _generate(self) -> ThumbnailFiles:
         return ThumbnailFiles.get_or_create_thumbnail_record(
             self.sha,
@@ -146,7 +127,7 @@ class TestWhitecheckGate(TestCase):
     @override_settings(MAC_OPTIMIZATION_WHITECHECK=False)
     def test_whitecheck_disabled_stores_white_result(self):
         """With the gate off (default), an all-white result is kept as-is."""
-        white_result = {"small": self.white, "medium": self.white, "large": self.white}
+        white_result = ThumbnailResult({"small": self.white, "medium": self.white, "large": self.white}, "JPEG")
         with mock.patch("thumbnails.models.create_thumbnails_from_path", return_value=white_result) as generator:
             thumbnail = self._generate()
         assert generator.call_count == 1
@@ -156,8 +137,8 @@ class TestWhitecheckGate(TestCase):
     def test_whitecheck_regenerates_once_and_logs(self):
         """With the gate on, a white result triggers one logged retry via the
         cross-platform backend, and the retry's output is stored."""
-        white_result = {"small": self.white, "medium": self.white, "large": self.white}
-        normal_result = {"small": self.normal, "medium": self.normal, "large": self.normal}
+        white_result = ThumbnailResult({"small": self.white, "medium": self.white, "large": self.white}, "JPEG")
+        normal_result = ThumbnailResult({"small": self.normal, "medium": self.normal, "large": self.normal}, "JPEG")
         with (
             mock.patch(
                 "thumbnails.models.create_thumbnails_from_path",
@@ -175,10 +156,10 @@ class TestWhitecheckGate(TestCase):
     @override_settings(MAC_OPTIMIZATION_WHITECHECK=True)
     def test_whitecheck_accepts_retry_result_even_if_still_white(self):
         """The retry result is used unconditionally — no second check, no loop."""
-        white_result = {"small": self.white, "medium": self.white, "large": self.white}
+        white_result = ThumbnailResult({"small": self.white, "medium": self.white, "large": self.white}, "JPEG")
         with mock.patch(
             "thumbnails.models.create_thumbnails_from_path",
-            side_effect=[white_result, dict(white_result)],
+            side_effect=[white_result, ThumbnailResult(dict(white_result.images), "JPEG")],
         ) as generator:
             thumbnail = self._generate()
         assert generator.call_count == 2
@@ -187,7 +168,7 @@ class TestWhitecheckGate(TestCase):
     @override_settings(MAC_OPTIMIZATION_WHITECHECK=True)
     def test_whitecheck_skips_normal_results(self):
         """A non-white result passes through without any retry."""
-        normal_result = {"small": self.normal, "medium": self.normal, "large": self.normal}
+        normal_result = ThumbnailResult({"small": self.normal, "medium": self.normal, "large": self.normal}, "JPEG")
         with mock.patch("thumbnails.models.create_thumbnails_from_path", return_value=normal_result) as generator:
             thumbnail = self._generate()
         assert generator.call_count == 1

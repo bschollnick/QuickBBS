@@ -14,10 +14,8 @@ from __future__ import annotations
 class ThumbnailGenerationError(Exception):
     """Raised when thumbnail generation fails for a known, recoverable reason.
 
-    This covers cases where the pipeline ran but produced an invalid result:
-    empty output, GPU-corrupted (all-white) images, or unsupported input.
-    Callers should catch this to skip the current file, mark it as a generic
-    icon, or schedule a retry — rather than treating it as an unexpected crash.
+    Raised when generation returned no small thumbnail, or when a stored
+    thumbnail blob is empty at serve time.
 
     Attributes:
         filename: Name of the file being processed, if available.
@@ -47,24 +45,23 @@ class MediaProcessingError(Exception):
 
 
 class PDFProcessingError(MediaProcessingError):
-    """Raised when PDFKit fails to load or render a PDF.
+    """Raised when a PDF backend (PDFKit or PyMuPDF) fails to load or render a PDF.
 
     Covers failures such as: document could not be loaded, document has no
-    pages, page rendering returned None, or intermediate image conversion
-    (TIFF/CIImage) failed.
+    pages, page rendering failed, or intermediate image conversion failed.
     """
 
 
 class VideoProcessingError(MediaProcessingError):
-    """Raised when AVFoundation fails to load or extract a frame from a video.
+    """Raised when a video backend (AVFoundation or ffmpeg) fails to read a video or extract a frame.
 
     Covers failures such as: asset could not be loaded, no video tracks found,
-    frame extraction returned None, or a general framework error during extraction.
+    frame extraction returned nothing, or ffmpeg/ffprobe failed.
     """
 
 
 class UnsupportedFormatError(ValueError):
-    """Raised when an unsupported output format is requested.
+    """Raised when an unsupported output format or backend selector is requested.
 
     Inherits from ValueError because this is a programming-time contract
     violation (caller passed an invalid argument), but uses a named type so

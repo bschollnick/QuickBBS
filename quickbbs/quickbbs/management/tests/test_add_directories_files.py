@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import os
 import shutil
-import tempfile
 from unittest import mock
 
 import pytest
-from django.test import TestCase, override_settings
 
 from filetypes.models import filetypes
 from quickbbs.management.commands.add_directories import add_directories
@@ -19,6 +17,7 @@ from quickbbs.management.commands.add_thumbnails import (
     add_thumbnails,
 )
 from quickbbs.models import DirectoryIndex, FileIndex
+from quickbbs.tests.albums_root import AlbumsRootTestCase
 from thumbnails.models import ThumbnailFiles
 
 pytestmark = pytest.mark.api
@@ -34,34 +33,17 @@ def _sha(prefix: str) -> str:
     return (prefix + "0" * 64)[:64]
 
 
-class AddCommandsTestBase(TestCase):
-    """Common tempdir/ALBUMS_PATH setup, with close_old_connections patched
-    out (TestCase's atomic wrapper cannot survive a real connection close)."""
+class AddCommandsTestBase(AlbumsRootTestCase):
+    """Temporary albums root with close_old_connections disabled in the add_* commands."""
 
     def setUp(self) -> None:
-        self.temp_dir = tempfile.mkdtemp()
-        self.albums_root = os.path.join(self.temp_dir, "albums")
-        os.makedirs(self.albums_root, exist_ok=True)
-        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
-        self._settings_override.enable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        self._coc_patchers = [
-            mock.patch("quickbbs.management.commands.add_directories.close_old_connections"),
-            mock.patch("quickbbs.management.commands.add_files.close_old_connections"),
-            mock.patch("quickbbs.management.commands.add_thumbnails.close_old_connections"),
-            mock.patch("quickbbs.directoryindex.close_old_connections"),
-        ]
-        for patcher in self._coc_patchers:
-            patcher.start()
-
-    def tearDown(self) -> None:
-        for patcher in self._coc_patchers:
-            patcher.stop()
-        self._settings_override.disable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        super().setUp()
+        self.keep_connection_open(
+            "quickbbs.management.commands.add_directories",
+            "quickbbs.management.commands.add_files",
+            "quickbbs.management.commands.add_thumbnails",
+            "quickbbs.directoryindex",
+        )
 
 
 class TestAddDirectoriesCommand(AddCommandsTestBase):
@@ -69,8 +51,8 @@ class TestAddDirectoriesCommand(AddCommandsTestBase):
 
     def test_walks_and_adds_nested_directories(self):
         """A small nested tree is fully registered in DirectoryIndex."""
-        os.makedirs(os.path.join(self.albums_root, "a", "b"), exist_ok=True)
-        os.makedirs(os.path.join(self.albums_root, "c"), exist_ok=True)
+        os.makedirs(os.path.join(self.albums_dir, "a", "b"), exist_ok=True)
+        os.makedirs(os.path.join(self.albums_dir, "c"), exist_ok=True)
 
         add_directories()
 
@@ -80,7 +62,7 @@ class TestAddDirectoriesCommand(AddCommandsTestBase):
 
     def test_added_directories_marked_cache_invalidated(self):
         """Newly added directories are marked cache_invalidated for rescan."""
-        os.makedirs(os.path.join(self.albums_root, "newdir"), exist_ok=True)
+        os.makedirs(os.path.join(self.albums_dir, "newdir"), exist_ok=True)
 
         add_directories()
 
@@ -90,7 +72,7 @@ class TestAddDirectoriesCommand(AddCommandsTestBase):
 
     def test_existing_directory_not_duplicated(self):
         """Running add_directories twice does not create duplicate rows."""
-        sub = os.path.join(self.albums_root, "onlyone")
+        sub = os.path.join(self.albums_dir, "onlyone")
         os.makedirs(sub, exist_ok=True)
 
         add_directories()
@@ -100,7 +82,7 @@ class TestAddDirectoriesCommand(AddCommandsTestBase):
 
     def test_missing_albums_root_is_noop(self):
         """A nonexistent albums root logs an error and returns without raising."""
-        shutil.rmtree(self.albums_root)
+        shutil.rmtree(self.albums_dir)
         add_directories()  # should not raise
         assert not DirectoryIndex.objects.exists()
 
@@ -110,9 +92,9 @@ class TestAddFilesCommand(AddCommandsTestBase):
 
     def test_syncs_real_file_into_fileindex(self):
         """A real file under a registered directory is picked up via update_database_from_disk."""
-        _, directory = DirectoryIndex.add_directory(self.albums_root + os.sep)
+        _, directory = DirectoryIndex.add_directory(self.albums_dir + os.sep)
         assert directory is not None
-        with open(os.path.join(self.albums_root, "hello.txt"), "w", encoding="utf-8") as f:
+        with open(os.path.join(self.albums_dir, "hello.txt"), "w", encoding="utf-8") as f:
             f.write("hello world")
 
         add_files()
@@ -153,7 +135,7 @@ class TestBulkLinkFileindexToThumbnails(AddCommandsTestBase):
 
     def setUp(self) -> None:
         super().setUp()
-        _, self.directory = DirectoryIndex.add_directory(self.albums_root + os.sep)
+        _, self.directory = DirectoryIndex.add_directory(self.albums_dir + os.sep)
         assert self.directory is not None
         self.ft = _get_ft(".txt")
 
@@ -204,7 +186,7 @@ class TestAddThumbnailsCommand(AddCommandsTestBase):
 
     def setUp(self) -> None:
         super().setUp()
-        _, self.directory = DirectoryIndex.add_directory(self.albums_root + os.sep)
+        _, self.directory = DirectoryIndex.add_directory(self.albums_dir + os.sep)
         assert self.directory is not None
         self.ft_image = _get_ft(".jpg")
 

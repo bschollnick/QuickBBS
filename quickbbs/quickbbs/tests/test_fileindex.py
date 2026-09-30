@@ -30,22 +30,23 @@ Real files used (read-only):
 from __future__ import annotations
 
 import os
-import shutil
 import tempfile
 from pathlib import Path
 
 import pytest
 from django.conf import settings
-from django.test import TestCase, override_settings
+from django.test import TestCase
 
 from filetypes.models import filetypes
 from quickbbs.common import normalize_fqpn
 from quickbbs.fileindex import (
     FILEINDEX_SR_FILETYPE,
     FileIndex,
+    fileindex_cache,
     sanitize_filename_for_http,
 )
 from quickbbs.models import DirectoryIndex
+from quickbbs.tests.albums_root import AlbumsRootTestCase
 
 pytestmark = pytest.mark.api
 
@@ -155,7 +156,7 @@ class TestSanitizeFilenameForHttp(TestCase):
 
 
 @pytest.mark.django_db
-class TestFromFilesystem(TestCase):
+class TestFromFilesystem(AlbumsRootTestCase):
     """
     Tests for FileIndex.from_filesystem() using real verification_suite files.
 
@@ -165,12 +166,9 @@ class TestFromFilesystem(TestCase):
 
     def setUp(self):
         """Create a DirectoryIndex for the verification suite."""
-        self.temp_dir = tempfile.mkdtemp()
-        _, self.dir_obj = DirectoryIndex.add_directory(self.temp_dir + "/")
+        super().setUp()
+        self.dir_obj = self.add_directory()
         self.ft_none = _get_ft(".none")
-
-    def tearDown(self):
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def _vs_path(self, filename: str) -> Path:
         return Path(VERIFICATION_SUITE) / filename
@@ -334,17 +332,14 @@ class TestFromFilesystem(TestCase):
 
 
 @pytest.mark.django_db
-class TestReturnIdenticalFilesCount(TestCase):
+class TestReturnIdenticalFilesCount(AlbumsRootTestCase):
     """Tests for FileIndex.return_identical_files_count."""
 
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        _, self.dir_obj = DirectoryIndex.add_directory(self.temp_dir + "/")
+        super().setUp()
+        self.dir_obj = self.add_directory()
         self.ft = _get_ft(".txt")
         self.sha = "a" * 64
-
-    def tearDown(self):
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_returns_zero_for_unknown_sha(self):
         """Returns 0 when no files have the given SHA."""
@@ -374,17 +369,14 @@ class TestReturnIdenticalFilesCount(TestCase):
 
 
 @pytest.mark.django_db
-class TestReturnListAllIdenticalFilesBySha(TestCase):
+class TestReturnListAllIdenticalFilesBySha(AlbumsRootTestCase):
     """Tests for FileIndex.return_list_all_identical_files_by_sha."""
 
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        _, self.dir_obj = DirectoryIndex.add_directory(self.temp_dir + "/")
+        super().setUp()
+        self.dir_obj = self.add_directory()
         self.ft = _get_ft(".txt")
         self.sha = "d" * 64
-
-    def tearDown(self):
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_empty_for_no_duplicates(self):
         """Returns empty queryset when fewer than 2 files share SHA."""
@@ -416,17 +408,14 @@ class TestReturnListAllIdenticalFilesBySha(TestCase):
 
 
 @pytest.mark.django_db
-class TestGetIdenticalFileEntriesBySha(TestCase):
+class TestGetIdenticalFileEntriesBySha(AlbumsRootTestCase):
     """Tests for FileIndex.get_identical_file_entries_by_sha."""
 
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        _, self.dir_obj = DirectoryIndex.add_directory(self.temp_dir + "/")
+        super().setUp()
+        self.dir_obj = self.add_directory()
         self.ft = _get_ft(".txt")
         self.sha = "e" * 64
-
-    def tearDown(self):
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_returns_name_and_directory(self):
         """Each row contains name and home_directory__fqpndirectory."""
@@ -455,16 +444,13 @@ class TestGetIdenticalFileEntriesBySha(TestCase):
 
 
 @pytest.mark.django_db
-class TestFindFilesWithoutSha(TestCase):
+class TestFindFilesWithoutSha(AlbumsRootTestCase):
     """Tests for FileIndex.find_files_without_sha."""
 
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        _, self.dir_obj = DirectoryIndex.add_directory(self.temp_dir + "/")
+        super().setUp()
+        self.dir_obj = self.add_directory()
         self.ft = _get_ft(".txt")
-
-    def tearDown(self):
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_finds_file_with_null_sha(self):
         """Files with null file_sha256 are returned."""
@@ -510,13 +496,12 @@ class TestFindFilesWithoutSha(TestCase):
         assert "pending.txt" not in names
 
     def test_start_path_filter(self):
-        """start_path filters to files in a specific directory subtree."""
-        other_temp = tempfile.mkdtemp()
-        try:
-            _, other_dir = DirectoryIndex.add_directory(other_temp + "/")
+        """start_path limits the results to files under that directory."""
+        other_dir = self.add_directory("other")
+        for directory, name in ((self.dir_obj, "root.txt"), (other_dir, "other.txt")):
             FileIndex.objects.create(
-                home_directory=other_dir,
-                name="other.txt",
+                home_directory=directory,
+                name=name,
                 file_sha256=None,
                 unique_sha256=None,
                 lastscan=0.0,
@@ -525,13 +510,8 @@ class TestFindFilesWithoutSha(TestCase):
                 delete_pending=False,
                 is_generic_icon=False,
             )
-            # Filter to self.temp_dir — should not include other_dir's file
-            result = FileIndex.find_files_without_sha(start_path=self.temp_dir)
-            dirs = list(result.values_list("home_directory__fqpndirectory", flat=True))
-            for d in dirs:
-                assert d.startswith(self.temp_dir)
-        finally:
-            shutil.rmtree(other_temp, ignore_errors=True)
+        result = FileIndex.find_files_without_sha(start_path=other_dir.fqpndirectory)
+        assert list(result.values_list("name", flat=True)) == ["other.txt"]
 
 
 # ===========================================================================
@@ -540,17 +520,14 @@ class TestFindFilesWithoutSha(TestCase):
 
 
 @pytest.mark.django_db
-class TestSetGenericIconForSha(TestCase):
+class TestSetGenericIconForSha(AlbumsRootTestCase):
     """Tests for FileIndex.set_generic_icon_for_sha."""
 
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        _, self.dir_obj = DirectoryIndex.add_directory(self.temp_dir + "/")
+        super().setUp()
+        self.dir_obj = self.add_directory()
         self.ft = _get_ft(".txt")
         self.sha = "c" * 64
-
-    def tearDown(self):
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_sets_is_generic_icon_true(self):
         """Sets is_generic_icon=True for all files with matching SHA."""
@@ -596,18 +573,12 @@ class TestSetGenericIconForSha(TestCase):
 
 
 @pytest.mark.django_db
-class TestLinkToThumbnail(TestCase):
+class TestLinkToThumbnail(AlbumsRootTestCase):
     """Tests for FileIndex.link_to_thumbnail."""
 
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        self.albums_dir = os.path.join(self.temp_dir, "albums")
-        os.makedirs(self.albums_dir, exist_ok=True)
-        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
-        self._settings_override.enable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        _, self.dir_obj = DirectoryIndex.add_directory(self.albums_dir + "/")
+        super().setUp()
+        self.dir_obj = self.add_directory()
         self.ft = _get_ft(".jpg")
         self.sha = "t" * 64
         # Create a minimal ThumbnailFiles record
@@ -616,12 +587,6 @@ class TestLinkToThumbnail(TestCase):
         self.thumbnail = ThumbnailFiles.objects.create(
             sha256_hash=self.sha,
         )
-
-    def tearDown(self):
-        self._settings_override.disable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_links_unlinked_record(self):
         """Links a FileIndex record that has no thumbnail."""
@@ -658,26 +623,19 @@ class TestLinkToThumbnail(TestCase):
 
 
 @pytest.mark.django_db
-class TestGetBySha256(TestCase):
+class TestGetBySha256(AlbumsRootTestCase):
     """Tests for FileIndex.get_by_sha256."""
 
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        _, self.dir_obj = DirectoryIndex.add_directory(self.temp_dir + "/")
+        super().setUp()
+        self.dir_obj = self.add_directory()
         self.ft = _get_ft(".txt")
         self.file_sha = "f" * 64
         self.unique_sha = "g" * 64
         self.rec = _make_fileindex(self.dir_obj, "test.txt", self.file_sha, self.unique_sha, self.ft)
-        # Clear fileindex cache between tests
-        from quickbbs.fileindex import fileindex_cache
-
+        # Clear fileindex cache before and after each test
         fileindex_cache.clear()
-
-    def tearDown(self):
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
-        from quickbbs.fileindex import fileindex_cache
-
-        fileindex_cache.clear()
+        self.addCleanup(fileindex_cache.clear)
 
     def test_get_by_unique_sha(self):
         """Retrieves record by unique_sha256."""
@@ -748,25 +706,13 @@ class TestIsAnimatedGif(TestCase):
 
 
 @pytest.mark.django_db
-class TestFileIndexProperties(TestCase):
+class TestFileIndexProperties(AlbumsRootTestCase):
     """Tests for FileIndex.fqpndirectory and full_filepathname properties."""
 
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        self.albums_dir = os.path.join(self.temp_dir, "albums")
-        os.makedirs(self.albums_dir, exist_ok=True)
-        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
-        self._settings_override.enable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        _, self.dir_obj = DirectoryIndex.add_directory(self.albums_dir + "/")
+        super().setUp()
+        self.dir_obj = self.add_directory()
         self.ft = _get_ft(".txt")
-
-    def tearDown(self):
-        self._settings_override.disable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_fqpndirectory_matches_directory(self):
         """fqpndirectory returns the parent directory's fqpndirectory."""

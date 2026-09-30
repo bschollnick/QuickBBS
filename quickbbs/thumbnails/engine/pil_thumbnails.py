@@ -2,10 +2,11 @@
 
 import contextlib
 import io
+from typing import Any
 
 from PIL import Image, ImageOps
 
-from .base import AbstractBackend
+from .base import AbstractBackend, ThumbnailResult
 
 
 def convert_image_for_format(img: Image.Image, output_format: str) -> Image.Image:
@@ -43,6 +44,37 @@ def convert_image_for_format(img: Image.Image, output_format: str) -> Image.Imag
     return img
 
 
+def _oriented_for_format(img: Image.Image, output_format: str) -> Image.Image:
+    """Return `img` converted for `output_format` and turned upright per its EXIF orientation.
+
+    Either step may return a new image; an intermediate one is closed here.
+    The result is `img` itself only when neither step changed it.
+    """
+    converted = convert_image_for_format(img, output_format)
+    oriented = ImageOps.exif_transpose(converted)
+    if oriented is not converted and converted is not img:
+        converted.close()
+    return oriented
+
+
+def _save_options(output_format: str, quality: int) -> dict[str, Any]:
+    """Return the `Image.save()` options for one output format."""
+    normalized = output_format.upper()
+    if normalized in ("JPEG", "JPG", "WEBP"):
+        # progressive=True is left off JPEG: 20-30% faster encoding.
+        return {"quality": quality, "optimize": True}
+    if normalized == "PNG":
+        return {"optimize": True}
+    return {}
+
+
+def _encode(image: Image.Image, output_format: str, quality: int) -> bytes:
+    """Encode one image in `output_format`."""
+    with io.BytesIO() as buffer:
+        image.save(buffer, format=output_format, **_save_options(output_format, quality))
+        return buffer.getvalue()
+
+
 class ImageBackend(AbstractBackend):
     """PIL/Pillow backend for cross-platform image processing.
 
@@ -57,7 +89,7 @@ class ImageBackend(AbstractBackend):
         ...     output_format="JPEG",
         ...     quality=85,
         ... )
-        >>> sorted(thumbs)
+        >>> sorted(thumbs.images)
         ['medium', 'small']
     """
 
@@ -69,7 +101,7 @@ class ImageBackend(AbstractBackend):
         sizes: dict[str, tuple[int, int]],
         output_format: str,
         quality: int,
-    ) -> dict[str, bytes]:
+    ) -> ThumbnailResult:
         """
         Process an image file and generate thumbnails.
 
@@ -80,39 +112,39 @@ class ImageBackend(AbstractBackend):
             quality: Image quality (1-100).
 
         Returns:
-            Dictionary mapping size names to thumbnail bytes.
+            The thumbnails, keyed by size name, in `output_format`.
 
         Raises:
             FileNotFoundError: If the image file does not exist.
             PIL.UnidentifiedImageError: If the file cannot be decoded as an image.
         """
         with Image.open(file_path) as img:
-            return self._process_pil_image(img, sizes, output_format, quality)
+            return ThumbnailResult(self.render_sizes(img, sizes, output_format, quality), output_format)
 
     def process_from_memory(
         self,
-        image_bytes: bytes,
+        source_bytes: bytes,
         sizes: dict[str, tuple[int, int]],
         output_format: str,
         quality: int,
-    ) -> dict[str, bytes]:
+    ) -> ThumbnailResult:
         """
         Process an image from memory and generate thumbnails.
 
         Args:
-            image_bytes: Image data as bytes.
+            source_bytes: Image data as bytes.
             sizes: Dictionary mapping size names to (width, height) tuples.
             output_format: Output format (JPEG, PNG, WEBP).
             quality: Image quality (1-100).
 
         Returns:
-            Dictionary mapping size names to thumbnail bytes.
+            The thumbnails, keyed by size name, in `output_format`.
 
         Raises:
             PIL.UnidentifiedImageError: If the bytes cannot be decoded as an image.
         """
-        with Image.open(io.BytesIO(image_bytes)) as img:
-            return self._process_pil_image(img, sizes, output_format, quality)
+        with Image.open(io.BytesIO(source_bytes)) as img:
+            return ThumbnailResult(self.render_sizes(img, sizes, output_format, quality), output_format)
 
     def process_data(
         self,
@@ -120,7 +152,7 @@ class ImageBackend(AbstractBackend):
         sizes: dict[str, tuple[int, int]],
         output_format: str,
         quality: int,
-    ) -> dict[str, bytes]:
+    ) -> ThumbnailResult:
         """
         Process a PIL Image object and generate thumbnails.
 
@@ -135,21 +167,21 @@ class ImageBackend(AbstractBackend):
             quality: Image quality (1-100).
 
         Returns:
-            Dictionary mapping size names to thumbnail bytes.
+            The thumbnails, keyed by size name, in `output_format`.
         """
         img_copy = pil_image.copy()
         try:
-            return self._process_pil_image(img_copy, sizes, output_format, quality)
+            return ThumbnailResult(self.render_sizes(img_copy, sizes, output_format, quality), output_format)
         finally:
             # MEMORY: Close the working copy after processing
             # Python guarantees finally runs even with return statement above
             # Note: img_copy reference itself is never changed (reassignments happen
-            # inside _process_pil_image to a different variable), so this closes
+            # inside render_sizes to a different variable), so this closes
             # the original copy we created
             with contextlib.suppress(OSError, AttributeError):
                 img_copy.close()
 
-    def _process_pil_image(
+    def render_sizes(
         self,
         img: Image.Image,
         sizes: dict[str, tuple[int, int]],
@@ -177,81 +209,26 @@ class ImageBackend(AbstractBackend):
         Returns:
             Dictionary mapping size names to thumbnail bytes.
         """
-        results = {}
-        original_img = img  # Keep reference to caller's image (never close this)
-        working_img = img  # Track the current working image
-
+        working = _oriented_for_format(img, output_format)
+        previous: Image.Image | None = None
         try:
-            # Convert to RGB if necessary for target format
-            # MEMORY: convert_image_for_format may return a new image
-            converted_img = convert_image_for_format(working_img, output_format)
-            if converted_img is not working_img:
-                # We created a new image; working_img stays as original (owned by caller)
-                working_img = converted_img
-
-            # Auto-orient based on EXIF
-            # MEMORY: exif_transpose returns a new image if rotation is needed
-            transposed_img = ImageOps.exif_transpose(working_img)
-            if transposed_img is not working_img:
-                # We created a new image
-                if working_img is not original_img:
-                    # Close the intermediate image (converted_img)
-                    working_img.close()
-                working_img = transposed_img
-
-            # Sort sizes by area (largest first)
-            sorted_sizes = sorted(sizes.items(), key=lambda x: x[1][0] * x[1][1], reverse=True)
-
-            # Progressive downsampling: Generate largest from original, then each smaller
-            # from the previous thumbnail. This is much faster than copying the full original
-            # image for each size (40-60% faster for 3+ sizes).
-            previous_img = None
-            for size_name, target_size in sorted_sizes:
-                # Optimized: First thumbnail from original, subsequent from previous
-                if previous_img is None:
-                    # First (largest) thumbnail: resize from working image
-                    thumbnail = working_img.copy()
-                else:
-                    # Subsequent thumbnails: resize from previous (smaller source = faster)
-                    thumbnail = previous_img.copy()
-                    # MEMORY: Close the previous thumbnail before overwriting reference
-                    previous_img.close()
-
-                # Use BICUBIC instead of LANCZOS (30-40% faster, minimal quality loss for thumbnails)
+            results: dict[str, bytes] = {}
+            # Progressive downsampling: the largest size comes from the working
+            # image, each smaller one from the previous thumbnail (40-60% faster
+            # for 3+ sizes than copying the full original each time).
+            for size_name, target_size in sorted(sizes.items(), key=lambda item: item[1][0] * item[1][1], reverse=True):
+                thumbnail = (working if previous is None else previous).copy()
+                if previous is not None:
+                    previous.close()
+                # BICUBIC, not LANCZOS: 30-40% faster, with minimal quality loss at thumbnail sizes.
                 thumbnail.thumbnail(target_size, Image.Resampling.BICUBIC)
-                previous_img = thumbnail
-
-                buffer = io.BytesIO()
-                save_kwargs = {"format": output_format}
-
-                if output_format.upper() in ["JPEG", "JPG"]:
-                    # Removed progressive=True for faster encoding (20-30% faster)
-                    save_kwargs.update({"quality": quality, "optimize": True})
-                elif output_format.upper() == "PNG":
-                    save_kwargs.update({"optimize": True})
-                elif output_format.upper() == "WEBP":
-                    save_kwargs.update({"quality": quality, "optimize": True})
-
-                thumbnail.save(buffer, **save_kwargs)
-                results[size_name] = buffer.getvalue()
-                buffer.close()  # MEMORY: Explicitly close BytesIO buffer
-
-            # MEMORY: Close the last thumbnail (the smallest one)
-            if previous_img is not None:
-                previous_img.close()
-
-            # MEMORY: Close the final working image (if it's not the original)
-            if working_img is not original_img:
-                working_img.close()
-
+                previous = thumbnail
+                results[size_name] = _encode(thumbnail, output_format, quality)
             return results
-
-        except Exception:
-            # TODO: narrow to PIL-specific exception types
-            # (UnidentifiedImageError, DecompressionBombError, OSError)
-            # once the PIL error hierarchy is audited.
-            # MEMORY: Clean up working image on error (if not the original)
-            if working_img is not original_img:
-                with contextlib.suppress(OSError, AttributeError):
-                    working_img.close()
-            raise
+        finally:
+            # MEMORY: close every image this method created; never the caller's.
+            with contextlib.suppress(OSError, AttributeError):
+                if previous is not None:
+                    previous.close()
+                if working is not img:
+                    working.close()

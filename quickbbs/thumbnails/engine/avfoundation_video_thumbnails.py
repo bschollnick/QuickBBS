@@ -2,7 +2,6 @@
 
 # pylint: disable=no-name-in-module  # pyobjc uses dynamic imports
 
-import traceback
 from pathlib import Path
 from typing import Any
 
@@ -23,8 +22,8 @@ try:
 except ImportError:
     AVFOUNDATION_AVAILABLE = False
 
-from .base import AbstractBackend
-from .core_image_thumbnails import CoreImageBackend, autorelease_pool
+from .base import AbstractBackend, ThumbnailResult
+from .core_image_thumbnails import CoreImageBackend, autorelease_pool, hide_dock_icon
 from .exceptions import VideoProcessingError
 
 
@@ -46,8 +45,8 @@ class AVFoundationVideoBackend(AbstractBackend):
         ...     output_format="JPEG",
         ...     quality=85,
         ... )
-        >>> sorted(thumbs)
-        ['duration', 'format', 'small']
+        >>> sorted(thumbs.images), thumbs.format
+        (['small'], 'JPEG')
     """
 
     def __init__(self):
@@ -63,28 +62,18 @@ class AVFoundationVideoBackend(AbstractBackend):
         if not AVFOUNDATION_AVAILABLE:
             raise ImportError("AVFoundation not available. This backend requires macOS with pyobjc-framework-avfoundation.")
 
-        # Prevent dock icon from appearing (AVFoundation can trigger AppKit in some cases)
-        try:
-            from AppKit import (
-                NSApplication,
-                NSApplicationActivationPolicyProhibited,
-            )
-
-            app = NSApplication.sharedApplication()
-            app.setActivationPolicy_(NSApplicationActivationPolicyProhibited)
-        except ImportError:
-            pass  # AppKit not available
+        hide_dock_icon()
 
         # Cache CoreImageBackend instance for reuse
         self._image_backend = CoreImageBackend()
 
     def process_from_file(
         self,
-        file_path: str,
+        file_path: str | Path,
         sizes: dict[str, tuple[int, int]],
         output_format: str,
         quality: int,
-    ) -> dict[str, bytes]:
+    ) -> ThumbnailResult:
         """Process a video file and generate thumbnails using AVFoundation.
 
         Extracts a frame at half the video's duration and resizes it to each
@@ -97,9 +86,8 @@ class AVFoundationVideoBackend(AbstractBackend):
             quality: Image quality (1-100).
 
         Returns:
-            Dictionary with 'duration' (float seconds), 'format' (the output
-            format string), and one entry per size name mapping to the
-            thumbnail bytes.
+            The thumbnails, keyed by size name, in `output_format`, with the
+            video's duration in seconds.
 
         Raises:
             FileNotFoundError: If the video file does not exist.
@@ -113,11 +101,8 @@ class AVFoundationVideoBackend(AbstractBackend):
             if not file_path.exists():
                 raise FileNotFoundError(f"Video file not found: {file_path}")
 
-            output = {}
-
             # Get video metadata
-            video_data = _get_video_info(str(file_path))
-            output["duration"] = video_data["duration"]
+            video_data = read_video_info(str(file_path))
 
             # Calculate capture time (middle of video)
             capture_time = video_data["duration"] / 2.0
@@ -126,36 +111,31 @@ class AVFoundationVideoBackend(AbstractBackend):
             ci_image = _extract_frame_as_ciimage(str(file_path), capture_time)
 
             # Process using Core Image backend for GPU-accelerated thumbnails
-            # pylint: disable=protected-access
-            image_output = self._image_backend._process_ci_image(ci_image, sizes, output_format, quality)
-
-            output["format"] = output_format
-            output.update(image_output)
-
-            return output
+            images = self._image_backend.render_sizes(ci_image, sizes, output_format, quality)
+            return ThumbnailResult(images, output_format, duration=video_data["duration"])
 
     def process_from_memory(
         self,
-        image_bytes: bytes,
+        source_bytes: bytes,
         sizes: dict[str, tuple[int, int]],
         output_format: str,
         quality: int,
-    ) -> dict[str, bytes]:
+    ) -> ThumbnailResult:
         """Process an image from memory and generate thumbnails.
 
         Note: This delegates to the Core Image backend as AVFoundation
         works with video files, not image data.
 
         Args:
-            image_bytes: Image data as bytes.
+            source_bytes: Image data as bytes.
             sizes: Dictionary mapping size names to (width, height) tuples.
             output_format: Output format (JPEG, PNG, WEBP).
             quality: Image quality (1-100).
 
         Returns:
-            Dictionary mapping size names to thumbnail bytes.
+            The thumbnails, keyed by size name, in `output_format`.
         """
-        return self._image_backend.process_from_memory(image_bytes, sizes, output_format, quality)
+        return self._image_backend.process_from_memory(source_bytes, sizes, output_format, quality)
 
     def process_data(
         self,
@@ -163,7 +143,7 @@ class AVFoundationVideoBackend(AbstractBackend):
         sizes: dict[str, tuple[int, int]],
         output_format: str,
         quality: int,
-    ) -> dict[str, bytes]:
+    ) -> ThumbnailResult:
         """Process a PIL Image object and generate thumbnails.
 
         Note: This delegates to the Core Image backend.
@@ -175,7 +155,7 @@ class AVFoundationVideoBackend(AbstractBackend):
             quality: Image quality (1-100).
 
         Returns:
-            Dictionary mapping size names to thumbnail bytes.
+            The thumbnails, keyed by size name, in `output_format`.
         """
         return self._image_backend.process_data(pil_image, sizes, output_format, quality)
 
@@ -253,7 +233,7 @@ def _extract_frame_as_ciimage(video_path: str, time_offset: float) -> "CIImage":
         asset = None
 
 
-def _get_video_info(video_path: str) -> dict[str, Any]:
+def read_video_info(video_path: str) -> dict[str, Any]:
     """Get basic information about a video file using AVFoundation.
 
     Args:
@@ -326,61 +306,3 @@ def _get_video_info(video_path: str) -> dict[str, Any]:
         finally:
             # Clean up
             asset = None
-
-
-# Example usage and testing
-if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) < 2:
-        print("Usage: python avfoundation_video_thumbnails.py <video_file>")
-        sys.exit(1)
-
-    video_file = sys.argv[1]
-
-    if not Path(video_file).exists():
-        print(f"Error: Video file not found: {video_file}")
-        sys.exit(1)
-
-    try:
-        # Test video info extraction
-        print("=" * 60)
-        print("Video Information")
-        print("=" * 60)
-        video_info = _get_video_info(video_file)
-        print(f"Duration: {video_info['duration']:.2f} seconds")
-        print(f"Dimensions: {video_info['width']}x{video_info['height']}")
-        print(f"Frame Rate: {video_info['fps']:.2f} fps")
-        print(f"Codec: {video_info['codec']}")
-        print()
-
-        # Test thumbnail generation
-        print("=" * 60)
-        print("Generating Thumbnails")
-        print("=" * 60)
-        backend = AVFoundationVideoBackend()
-        result = backend.process_from_file(
-            video_file,
-            sizes={"small": (200, 200), "medium": (740, 740), "large": (1024, 1024)},
-            output_format="JPEG",
-            quality=85,
-        )
-
-        print(f"Duration: {result['duration']:.2f} seconds")
-        print(f"Format: {result['format']}")
-        print(f"Small thumbnail: {len(result['small']):,} bytes")
-        print(f"Medium thumbnail: {len(result['medium']):,} bytes")
-        print(f"Large thumbnail: {len(result['large']):,} bytes")
-
-        # Optional: Save thumbnails for visual inspection
-        for size_name, data in result.items():
-            if size_name in ("small", "medium", "large"):
-                output_path = f"test_thumb_{size_name}.jpg"
-                with open(output_path, "wb") as f:
-                    f.write(data)
-                print(f"Saved {size_name} thumbnail to {output_path}")
-
-    except (OSError, RuntimeError, ValueError) as e:  # TODO: add AVFoundation-specific exceptions once macOS framework exception hierarchy is known
-        print(f"Error: {e}")
-        traceback.print_exc()
-        sys.exit(1)

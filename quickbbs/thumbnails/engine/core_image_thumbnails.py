@@ -1,6 +1,7 @@
 # Core Image imports (macOS only)
 """Core Image backend for thumbnail generation using macOS GPU acceleration."""
 
+import importlib
 import io
 import os
 from contextlib import contextmanager
@@ -69,7 +70,7 @@ except ImportError:
     CORE_IMAGE_AVAILABLE = False
     _create_metal_device = None  # type: ignore[assignment]
 
-from .base import AbstractBackend
+from .base import AbstractBackend, ThumbnailResult
 from .exceptions import MediaProcessingError, UnsupportedFormatError
 from .pil_thumbnails import convert_image_for_format
 
@@ -103,6 +104,18 @@ def autorelease_pool():
         del pool
 
 
+def hide_dock_icon() -> None:
+    """Set the AppKit activation policy to prohibited, so framework use shows no dock icon.
+
+    Does nothing where AppKit is not installed.
+    """
+    try:
+        appkit = importlib.import_module("AppKit")
+    except ImportError:
+        return
+    appkit.NSApplication.sharedApplication().setActivationPolicy_(appkit.NSApplicationActivationPolicyProhibited)
+
+
 class CoreImageBackend(AbstractBackend):
     """Core Image backend for Apple Silicon GPU acceleration with memory management.
 
@@ -114,7 +127,7 @@ class CoreImageBackend(AbstractBackend):
         ...     output_format="JPEG",
         ...     quality=85,
         ... )
-        >>> list(thumbs)
+        >>> list(thumbs.images)
         ['small']
     """
 
@@ -176,7 +189,7 @@ class CoreImageBackend(AbstractBackend):
         sizes: dict[str, tuple[int, int]],
         output_format: str,
         quality: int,
-    ) -> dict[str, bytes]:
+    ) -> ThumbnailResult:
         """
         Process an image file and generate thumbnails using Core Image.
 
@@ -187,12 +200,16 @@ class CoreImageBackend(AbstractBackend):
             quality: Image quality (1-100).
 
         Returns:
-            Dictionary mapping size names to thumbnail bytes.
+            The thumbnails, keyed by size name, in `output_format`.
 
         Raises:
+            FileNotFoundError: If the image file does not exist.
             MediaProcessingError: If the file cannot be loaded as a CIImage
                 or has an unusable extent.
         """
+        # CIImage returns None for a missing file, which would read as an undecodable one.
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Image file not found: {file_path}")
         # Wrap entire operation in autorelease pool to drain Objective-C objects
         with autorelease_pool():
             # Load image using Core Image
@@ -202,26 +219,26 @@ class CoreImageBackend(AbstractBackend):
             if ci_image is None:
                 raise MediaProcessingError(f"Could not load image from {file_path}", file_path=file_path)
 
-            return self._process_ci_image(ci_image, sizes, output_format, quality)
+            return ThumbnailResult(self.render_sizes(ci_image, sizes, output_format, quality), output_format)
 
     def process_from_memory(
         self,
-        image_bytes: bytes,
+        source_bytes: bytes,
         sizes: dict[str, tuple[int, int]],
         output_format: str,
         quality: int,
-    ) -> dict[str, bytes]:
+    ) -> ThumbnailResult:
         """
         Process an image from memory and generate thumbnails using Core Image.
 
         Args:
-            image_bytes: Image data as bytes.
+            source_bytes: Image data as bytes.
             sizes: Dictionary mapping size names to (width, height) tuples.
             output_format: Output format (JPEG, PNG, WEBP).
             quality: Image quality (1-100).
 
         Returns:
-            Dictionary mapping size names to thumbnail bytes.
+            The thumbnails, keyed by size name, in `output_format`.
 
         Raises:
             MediaProcessingError: If the bytes cannot be decoded as a CIImage
@@ -230,13 +247,13 @@ class CoreImageBackend(AbstractBackend):
         # Wrap entire operation in autorelease pool to drain Objective-C objects
         with autorelease_pool():
             # Convert bytes to NSData
-            ns_data = NSData.dataWithBytes_length_(image_bytes, len(image_bytes))
+            ns_data = NSData.dataWithBytes_length_(source_bytes, len(source_bytes))
             ci_image = CIImage.imageWithData_(ns_data)
 
             if ci_image is None:
                 raise MediaProcessingError("Could not create CIImage from bytes")
 
-            return self._process_ci_image(ci_image, sizes, output_format, quality)
+            return ThumbnailResult(self.render_sizes(ci_image, sizes, output_format, quality), output_format)
 
     def process_data(
         self,
@@ -244,7 +261,7 @@ class CoreImageBackend(AbstractBackend):
         sizes: dict[str, tuple[int, int]],
         output_format: str,
         quality: int,
-    ) -> dict[str, bytes]:
+    ) -> ThumbnailResult:
         """
         Process a PIL Image object and generate thumbnails using Core Image.
 
@@ -258,7 +275,7 @@ class CoreImageBackend(AbstractBackend):
             quality: Image quality (1-100).
 
         Returns:
-            Dictionary mapping size names to thumbnail bytes.
+            The thumbnails, keyed by size name, in `output_format`.
         """
         # Wrap entire operation in autorelease pool to drain Objective-C objects
         with autorelease_pool():
@@ -278,7 +295,7 @@ class CoreImageBackend(AbstractBackend):
 
             return self.process_from_memory(image_bytes, sizes, output_format, quality)
 
-    def _process_ci_image(
+    def render_sizes(
         self,
         ci_image: "CIImage",
         sizes: dict[str, tuple[int, int]],

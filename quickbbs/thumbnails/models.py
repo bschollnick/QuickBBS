@@ -194,9 +194,10 @@ class ThumbnailFiles(models.Model):
             OrphanedFileIndex: When a FileIndex record exists but its home_directory
                 is None (parent directory deleted).  The caller should delete
                 ``exc.thumbnail`` so it can be regenerated if the file returns.
-            ThumbnailGenerationError: When the thumbnail pipeline ran but produced an
-                invalid result (empty output, all-white GPU corruption, empty blob).
             ValueError: When required parameters are missing or empty.
+
+        A failed generation, including an invalid result, does not raise: every file
+        with this SHA256 is marked as a generic icon, and the record is returned.
         """
         if not file_sha256:
             raise ValueError(f"file_sha256 parameter is required and cannot be None or empty, got: {file_sha256!r}")
@@ -430,7 +431,7 @@ class ThumbnailFiles(models.Model):
                 )
 
                 # Validate thumbnail is not empty
-                if not thumbnails or not thumbnails.get("small"):
+                if not thumbnails or not thumbnails.images.get("small"):
                     raise ThumbnailGenerationError(
                         f"Image thumbnail creation returned empty result for {index_data_item.name}",
                         filename=index_data_item.name,
@@ -447,7 +448,7 @@ class ThumbnailFiles(models.Model):
                     backend="corevideo",
                 )
                 # Validate result
-                if not thumbnails or not thumbnails.get("small"):
+                if not thumbnails or not thumbnails.images.get("small"):
                     raise ThumbnailGenerationError(
                         f"Video thumbnail creation returned empty result for {index_data_item.name}",
                         filename=index_data_item.name,
@@ -464,7 +465,7 @@ class ThumbnailFiles(models.Model):
                     backend="pdf",
                 )
                 # Validate result
-                if not thumbnails or not thumbnails.get("small"):
+                if not thumbnails or not thumbnails.images.get("small"):
                     raise ThumbnailGenerationError(
                         f"PDF thumbnail creation returned empty result for {index_data_item.name}",
                         filename=index_data_item.name,
@@ -486,7 +487,7 @@ class ThumbnailFiles(models.Model):
             # explicit cross-platform backend; the retry result is used
             # unconditionally — genuinely all-white content (e.g. blank PDF
             # pages) is legitimate and must not loop.
-            if settings.MAC_OPTIMIZATION_WHITECHECK and _is_suspect_all_white(thumbnails["small"]):
+            if settings.MAC_OPTIMIZATION_WHITECHECK and _is_suspect_all_white(thumbnails.images["small"]):
                 fallback_backend: BackendType
                 if filetype.is_image:
                     fallback_backend = "image"
@@ -508,9 +509,9 @@ class ThumbnailFiles(models.Model):
                     backend=fallback_backend,
                 )
 
-            thumbnail.small_thumb = thumbnails["small"]
-            thumbnail.medium_thumb = thumbnails["medium"]
-            thumbnail.large_thumb = thumbnails["large"]
+            thumbnail.small_thumb = thumbnails.images["small"]
+            thumbnail.medium_thumb = thumbnails.images["medium"]
+            thumbnail.large_thumb = thumbnails.images["large"]
 
             if not suppress_save:
                 thumbnail.save(update_fields=["small_thumb", "medium_thumb", "large_thumb"])

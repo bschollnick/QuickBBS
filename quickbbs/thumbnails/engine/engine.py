@@ -1,29 +1,31 @@
 """Multi-backend thumbnail generation engine with automatic backend selection.
 
 Backend imports are deferred to first use to avoid loading heavy libraries
-(PyMuPDF/fitz, ffmpeg, macOS frameworks) at import time — only the backend
+(PyMuPDF, ffmpeg, macOS frameworks) at import time — only the backend
 actually selected is ever loaded.
 
 This module is framework-independent: it reads its settings from
 :mod:`thumbnails.engine.config` rather than from any application framework.
 """
 
+import functools
+import gc
+import importlib
 import io
 import logging
 import os
 import platform
 import threading
-from typing import TYPE_CHECKING, Any, ClassVar, Literal
+from collections.abc import Callable
+from typing import Any, Literal
 
+from PIL import Image
+
+from .base import AbstractBackend, ThumbnailResult
 from .config import config
 from .exceptions import MediaProcessingError, UnsupportedFormatError
 
 logger = logging.getLogger(__name__)
-
-# Availability is checked lazily on first use
-_core_image_available: bool | None = None
-_avfoundation_available: bool | None = None
-_pdfkit_available: bool | None = None
 
 
 def macintosh_optimizations_enabled() -> bool:
@@ -52,85 +54,62 @@ def is_apple_silicon() -> bool:
         return False
 
 
+@functools.cache
 def _check_core_image_available() -> bool:
-    """Check if Core Image backend is available (cached after first call)."""
-    global _core_image_available
-    if _core_image_available is None:
-        try:
-            from .core_image_thumbnails import (  # noqa: F401  # pylint: disable=unused-import  # imported to verify availability via try/except; not used directly
-                CoreImageBackend,
-            )
-
-            _core_image_available = True
-        except ImportError:
-            _core_image_available = False
-    return _core_image_available
+    """Check if the Core Image backend can be imported (checked once)."""
+    try:
+        importlib.import_module(".core_image_thumbnails", __package__)
+    except ImportError:
+        return False
+    return True
 
 
+@functools.cache
 def _check_avfoundation_available() -> bool:
-    """Check if AVFoundation backend is available (cached after first call)."""
-    global _avfoundation_available
-    if _avfoundation_available is None:
-        try:
-            from . import avfoundation_video_thumbnails as _av_mod
-
-            _avfoundation_available = _av_mod.AVFOUNDATION_AVAILABLE
-        except ImportError:
-            _avfoundation_available = False
-    return _avfoundation_available
+    """Check if the AVFoundation backend is available (checked once)."""
+    try:
+        module = importlib.import_module(".avfoundation_video_thumbnails", __package__)
+    except ImportError:
+        return False
+    return bool(module.AVFOUNDATION_AVAILABLE)
 
 
+@functools.cache
 def _check_pdfkit_available() -> bool:
-    """Check if PDFKit backend is available (cached after first call)."""
-    global _pdfkit_available
-    if _pdfkit_available is None:
-        try:
-            from . import pdfkit_thumbnails as _pdf_mod
+    """Check if the PDFKit backend is available (checked once)."""
+    try:
+        module = importlib.import_module(".pdfkit_thumbnails", __package__)
+    except ImportError:
+        return False
+    return bool(module.PDFKIT_AVAILABLE)
 
-            _pdfkit_available = _pdf_mod.PDFKIT_AVAILABLE
-        except ImportError:
-            _pdfkit_available = False
-    return _pdfkit_available
-
-
-if TYPE_CHECKING:
-    from PIL import Image
 
 BackendType = Literal["image", "coreimage", "auto", "video", "corevideo", "pdf", "pymupdf", "pdfkit"]
 
-# Resolved video-metadata probe, cached after the first call. Not a constant:
-# it is a mutable slot holding whichever backend function won resolution.
-_get_video_info_impl = None  # pylint: disable=invalid-name
+
+def _ffmpeg_video_info() -> Callable[[str], dict[str, Any]]:
+    """Return the ffmpeg metadata probe, which reads every container ffmpeg supports."""
+    return importlib.import_module(".video_thumbnails", __package__).read_video_info
 
 
-def _resolve_video_info_impl():
-    """Resolve and cache the video-metadata probe for this platform.
+@functools.cache
+def _resolve_video_info_impl() -> Callable[[str], dict[str, Any]]:
+    """Resolve the video-metadata probe for this platform (checked once).
 
     Prefers AVFoundation on macOS (no subprocess spawn, roughly 10x faster than
     the ffmpeg probe) and falls back to the ffmpeg probe elsewhere, or when
-    pyobjc is not installed.
+    pyobjc is not installed. Imported on first call: pyobjc/AVFoundation is
+    macOS-only and expensive to import.
 
     Returns:
         The resolved metadata function taking a path and returning a dict.
     """
-    global _get_video_info_impl  # pylint: disable=global-statement
-    if _get_video_info_impl is None:
-        if platform.system() == "Darwin":
-            try:
-                # Deferred: pyobjc/AVFoundation is macOS-only and expensive to
-                # import — loaded on first call, never at module import time.
-                from .avfoundation_video_thumbnails import (
-                    _get_video_info as _avf_get_video_info,
-                )
-
-                _get_video_info_impl = _avf_get_video_info
-            except ImportError:
-                pass
-        if _get_video_info_impl is None:
-            from .video_thumbnails import _get_video_info as _ffmpeg_get_video_info
-
-            _get_video_info_impl = _ffmpeg_get_video_info
-    return _get_video_info_impl
+    if platform.system() == "Darwin":
+        try:
+            return importlib.import_module(".avfoundation_video_thumbnails", __package__).read_video_info
+        except ImportError:
+            pass
+    return _ffmpeg_video_info()
 
 
 def get_video_info(path: str) -> dict[str, Any]:
@@ -157,11 +136,10 @@ def get_video_info(path: str) -> dict[str, Any]:
         # FLV, MPEG-1) and reports "No video tracks found" for them. Retry
         # with the ffmpeg probe, which supports those formats. If the resolved
         # probe already IS the ffmpeg one, there is nothing to fall back to.
-        from .video_thumbnails import _get_video_info as _ffmpeg_get_video_info
-
-        if impl is _ffmpeg_get_video_info:
+        ffmpeg_probe = _ffmpeg_video_info()
+        if impl is ffmpeg_probe:
             raise
-        return _ffmpeg_get_video_info(path)
+        return ffmpeg_probe(path)
 
 
 def is_all_white_thumbnail(small_thumb: bytes | memoryview | None) -> bool:
@@ -184,9 +162,7 @@ def is_all_white_thumbnail(small_thumb: bytes | memoryview | None) -> bool:
     """
     if not small_thumb:
         return False
-    from PIL import Image as PILImage
-
-    with PILImage.open(io.BytesIO(small_thumb)) as img:
+    with Image.open(io.BytesIO(small_thumb)) as img:
         extrema = img.getextrema()
         if img.mode == "RGB":
             return extrema == ((255, 255), (255, 255), (255, 255))
@@ -195,15 +171,61 @@ def is_all_white_thumbnail(small_thumb: bytes | memoryview | None) -> bool:
     return False
 
 
+#: Where each concrete backend class lives, relative to this package.
+#: Imported on first use: each pulls in heavy optional libraries (PIL,
+#: PyMuPDF, ffmpeg, the macOS frameworks).
+_BACKEND_CLASSES: dict[str, tuple[str, str]] = {
+    "image": (".pil_thumbnails", "ImageBackend"),
+    "coreimage": (".core_image_thumbnails", "CoreImageBackend"),
+    "video": (".video_thumbnails", "VideoBackend"),
+    "corevideo": (".avfoundation_video_thumbnails", "AVFoundationVideoBackend"),
+    "pymupdf": (".pdf_thumbnails", "PDFBackend"),
+    "pdfkit": (".pdfkit_thumbnails", "PDFKitBackend"),
+}
+
+
+def _backend_class(name: str) -> type[AbstractBackend]:
+    """Import and return the concrete backend class named in `_BACKEND_CLASSES`."""
+    module_name, class_name = _BACKEND_CLASSES[name]
+    return getattr(importlib.import_module(module_name, __package__), class_name)
+
+
+def _require_core_image() -> str:
+    """Choose Core Image for an explicit request, which never falls back."""
+    if not _check_core_image_available():
+        raise ImportError("Core Image backend not available on this system")
+    return "coreimage"
+
+
+def _macos_accelerated(available: Callable[[], bool], *, needs_apple_silicon: bool) -> bool:
+    """Return whether a macOS backend may be auto-selected on this machine."""
+    return macintosh_optimizations_enabled() and available() and (not needs_apple_silicon or is_apple_silicon())
+
+
+#: How each backend selector chooses a concrete backend. Only the chosen
+#: backend's availability is checked, so an unused one is never imported.
+_BACKEND_RULES: dict[str, Callable[[], str]] = {
+    "image": lambda: "image",
+    "coreimage": _require_core_image,
+    # Core Image on Apple Silicon for GPU-accelerated Lanczos, else PIL.
+    "auto": lambda: "coreimage" if _macos_accelerated(_check_core_image_available, needs_apple_silicon=True) else "image",
+    "video": lambda: "video",
+    "corevideo": lambda: "corevideo" if _macos_accelerated(_check_avfoundation_available, needs_apple_silicon=False) else "video",
+    # PDFKit on Apple Silicon, else PyMuPDF.
+    "pdf": lambda: "pdfkit" if _macos_accelerated(_check_pdfkit_available, needs_apple_silicon=True) else "pymupdf",
+    "pymupdf": lambda: "pymupdf",
+    "pdfkit": lambda: "pdfkit" if _check_pdfkit_available() else "pymupdf",
+}
+
+#: Selectors whose chosen backend may fail to construct (no Metal device,
+#: say) and then fall back instead of raising.
+_FALLBACK_ON_CONSTRUCTION_ERROR: dict[str, str] = {"auto": "image"}
+
+
 class FastImageProcessor:
     """Multi-backend image processor with automatic backend selection and caching."""
 
     __slots__ = ("_backend", "backend_type", "image_sizes")
-
-    # Class-level backend cache to reuse backend instances.
-    # Protected by _backend_lock for thread safety in multi-threaded workers.
-    _backend_cache: ClassVar[dict[str, Any]] = {}
-    _backend_lock = threading.Lock()
 
     def __init__(self, image_sizes: dict[str, tuple[int, int]], backend: BackendType = "auto"):
         """
@@ -233,8 +255,8 @@ class FastImageProcessor:
         worker logs show whether the macOS-accelerated paths are actually in
         use (backends are cached, so this does not spam per-file).
         """
-        with self._backend_lock:
-            if self.backend_type not in self._backend_cache:
+        with _backend_lock:
+            if self.backend_type not in _backend_cache:
                 backend = self._create_backend()
                 logger.info(
                     "Thumbnail backend resolved: %r -> %s (macintosh optimizations %s)",
@@ -242,10 +264,10 @@ class FastImageProcessor:
                     type(backend).__name__,
                     "enabled" if macintosh_optimizations_enabled() else "disabled",
                 )
-                self._backend_cache[self.backend_type] = backend
-            return self._backend_cache[self.backend_type]
+                _backend_cache[self.backend_type] = backend
+            return _backend_cache[self.backend_type]
 
-    def _create_backend(self):
+    def _create_backend(self) -> AbstractBackend:
         """Create appropriate backend based on system and preference.
 
         Returns:
@@ -253,88 +275,34 @@ class FastImageProcessor:
 
         Raises:
             UnsupportedFormatError: If the configured backend type is not recognised.
+            ImportError: If "coreimage" is requested and Core Image is unavailable.
         """
-        # Lazy imports — each backend pulls in heavy dependencies (PIL, fitz, ffmpeg, macOS frameworks)
-        # Only the backend actually used gets imported.
-        match self.backend_type:
-            case "image":
-                from .pil_thumbnails import ImageBackend
-
-                return ImageBackend()
-            case "coreimage":
-                if not _check_core_image_available():
-                    raise ImportError("Core Image backend not available on this system")
-                from .core_image_thumbnails import CoreImageBackend
-
-                return CoreImageBackend()
-            case "video":
-                from .video_thumbnails import VideoBackend
-
-                return VideoBackend()
-            case "corevideo":
-                if macintosh_optimizations_enabled() and _check_avfoundation_available():
-                    from .avfoundation_video_thumbnails import AVFoundationVideoBackend
-
-                    return AVFoundationVideoBackend()
-                from .video_thumbnails import VideoBackend
-
-                return VideoBackend()
-            case "pdf":
-                # Prefer PDFKit on Apple Silicon, fall back to PyMuPDF elsewhere
-                if macintosh_optimizations_enabled() and _check_pdfkit_available() and self._is_apple_silicon():
-                    from .pdfkit_thumbnails import PDFKitBackend
-
-                    return PDFKitBackend()
-                from .pdf_thumbnails import PDFBackend
-
-                return PDFBackend()
-            case "pymupdf":
-                from .pdf_thumbnails import PDFBackend
-
-                return PDFBackend()
-            case "pdfkit":
-                if _check_pdfkit_available():
-                    from .pdfkit_thumbnails import PDFKitBackend
-
-                    return PDFKitBackend()
-                from .pdf_thumbnails import PDFBackend
-
-                return PDFBackend()
-            case "auto":
-                # Prefer Core Image on Apple Silicon for GPU-accelerated Lanczos
-                if macintosh_optimizations_enabled() and _check_core_image_available() and self._is_apple_silicon():
-                    try:
-                        from .core_image_thumbnails import CoreImageBackend
-
-                        return CoreImageBackend()
-                    except (ImportError, RuntimeError, OSError):
-                        pass
-                from .pil_thumbnails import ImageBackend
-
-                return ImageBackend()
-            case _:
-                raise UnsupportedFormatError(self.backend_type)
-
-    def _is_apple_silicon(self) -> bool:
-        """Check if running on Apple Silicon."""
-        return is_apple_silicon()
+        choose = _BACKEND_RULES.get(self.backend_type)
+        if choose is None:
+            raise UnsupportedFormatError(self.backend_type)
+        name = choose()
+        fallback = _FALLBACK_ON_CONSTRUCTION_ERROR.get(self.backend_type)
+        if fallback is None or name == fallback:
+            return _backend_class(name)()
+        try:
+            return _backend_class(name)()
+        except (ImportError, RuntimeError, OSError):
+            return _backend_class(fallback)()
 
     @property
     def current_backend(self) -> str:
         """Get name of currently active backend."""
         return type(self._backend).__name__
 
-    def process_image_file(self, file_path: str, output_format: str = "JPEG", quality: int = 85) -> dict[str, bytes]:
+    def process_image_file(self, file_path: str, output_format: str = "JPEG", quality: int = 85) -> ThumbnailResult:
         """Process image file and generate multiple thumbnails."""
         return self._backend.process_from_file(file_path, self.image_sizes, output_format, quality)
 
-    def process_image_bytes(self, image_bytes: bytes, output_format: str = "JPEG", quality: int = 85) -> dict[str, bytes]:
+    def process_image_bytes(self, image_bytes: bytes, output_format: str = "JPEG", quality: int = 85) -> ThumbnailResult:
         """Process image from bytes and generate multiple thumbnails."""
         return self._backend.process_from_memory(image_bytes, self.image_sizes, output_format, quality)
 
-    def process_pil_image(
-        self, pil_image: "Image.Image", output_format: str = "JPEG", quality: int = 85
-    ) -> dict[str, bytes]:  # pylint: disable=used-before-assignment
+    def process_pil_image(self, pil_image: Image.Image, output_format: str = "JPEG", quality: int = 85) -> ThumbnailResult:
         """Process PIL Image object and generate multiple thumbnails."""
         return self._backend.process_data(pil_image, self.image_sizes, output_format, quality)
 
@@ -344,6 +312,11 @@ class FastImageProcessor:
 _processor_cache: dict = {}
 _processor_lock = threading.Lock()
 
+# Backend instances reused across processors, keyed by backend selector.
+# Protected by _backend_lock for thread safety in multi-threaded workers.
+_backend_cache: dict[str, Any] = {}
+_backend_lock = threading.Lock()
+
 
 def _fork_acquire_locks() -> None:
     """Serialize fork against cache mutation so no lock is held mid-fork.
@@ -351,13 +324,14 @@ def _fork_acquire_locks() -> None:
     Acquired in fixed order (processor, then backend) to avoid lock-order
     inversion with _fork_release_locks_parent.
     """
-    _processor_lock.acquire()
-    FastImageProcessor._backend_lock.acquire()
+    # _fork_release_locks_parent and _fork_reset_child release these after the fork.
+    _processor_lock.acquire()  # pylint: disable=consider-using-with
+    _backend_lock.acquire()  # pylint: disable=consider-using-with
 
 
 def _fork_release_locks_parent() -> None:
     """Release the fork-serialization locks in the parent (reverse order)."""
-    FastImageProcessor._backend_lock.release()
+    _backend_lock.release()
     _processor_lock.release()
 
 
@@ -374,11 +348,12 @@ def _fork_reset_child() -> None:
     ObjC/Metal runtime is initialized remains discouraged by Apple. The child
     recovers via the per-PID Metal device recreation in core_image_thumbnails.
     """
-    global _processor_lock
+    # The inherited locks are owned by threads that do not exist in the child.
+    global _processor_lock, _backend_lock  # pylint: disable=global-statement
     _processor_lock = threading.Lock()
-    FastImageProcessor._backend_lock = threading.Lock()
+    _backend_lock = threading.Lock()
     _processor_cache.clear()
-    FastImageProcessor._backend_cache.clear()
+    _backend_cache.clear()
 
 
 os.register_at_fork(
@@ -413,6 +388,15 @@ def resolve_backend_name(backend: BackendType, sizes: dict[str, tuple[int, int]]
     return _get_cached_processor(sizes, backend).current_backend
 
 
+def _peak_rss_kb() -> int | None:
+    """Return the process's peak resident set size in KB, or None where `resource` does not exist (Windows)."""
+    try:
+        resource = importlib.import_module("resource")
+    except ImportError:
+        return None
+    return int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+
+
 def clear_backend_caches(force_gc: bool = True) -> dict[str, int | float]:
     """
     Clear cached processor and backend instances to release resources.
@@ -441,36 +425,22 @@ def clear_backend_caches(force_gc: bool = True) -> dict[str, int | float]:
         >>> stats = clear_backend_caches()
         >>> print(f"Cleared {stats['processors_cleared']} processors")
     """
-    global _processor_cache
-
     # Clear caches under their respective locks
     with _processor_lock:
         processors_cleared = len(_processor_cache)
         _processor_cache.clear()
 
-    with FastImageProcessor._backend_lock:
-        backends_cleared = len(FastImageProcessor._backend_cache)
-        FastImageProcessor._backend_cache.clear()
+    with _backend_lock:
+        backends_cleared = len(_backend_cache)
+        _backend_cache.clear()
 
     # Optional garbage collection to force cleanup
     if force_gc:
-        import gc
-        import resource
-
-        # Measure memory before GC
-        usage_before = resource.getrusage(resource.RUSAGE_SELF)
-        rss_before_kb = usage_before.ru_maxrss
-
+        rss_before_kb = _peak_rss_kb()
         # Force collection of all generations
         collected = gc.collect(generation=2)
-
-        # Measure memory after GC
-        usage_after = resource.getrusage(resource.RUSAGE_SELF)
-        rss_after_kb = usage_after.ru_maxrss
-
-        # Calculate freed memory (may be negative due to OS caching)
-        memory_freed_kb = rss_before_kb - rss_after_kb
-        memory_freed_mb = memory_freed_kb / 1024  # Convert to MB
+        rss_after_kb = _peak_rss_kb()
+        memory_freed_mb = (rss_before_kb - rss_after_kb) / 1024 if rss_before_kb is not None and rss_after_kb is not None else 0
     else:
         collected = 0
         memory_freed_mb = 0
@@ -503,8 +473,8 @@ def get_cache_stats() -> dict[str, int]:
     """
     return {
         "processor_cache_size": len(_processor_cache),
-        "backend_cache_size": len(FastImageProcessor._backend_cache),
-        "total_cached_instances": len(_processor_cache) + len(FastImageProcessor._backend_cache),
+        "backend_cache_size": len(_backend_cache),
+        "total_cached_instances": len(_processor_cache) + len(_backend_cache),
     }
 
 
@@ -515,7 +485,7 @@ def create_thumbnails_from_path(
     output: str = "JPEG",
     quality: int = 85,
     backend: BackendType = "auto",
-) -> dict[str, bytes]:
+) -> ThumbnailResult:
     """Create thumbnails from a file path with processor caching.
 
     Main entry point for thumbnail generation. The processor (and its
@@ -530,8 +500,8 @@ def create_thumbnails_from_path(
         backend: Backend selector; see FastImageProcessor for valid values.
 
     Returns:
-        Dictionary mapping size names to thumbnail bytes. Video and PDF
-        backends also include 'format' (and videos 'duration') keys.
+        The thumbnails, keyed by size name, in `output`. A video's result
+        also carries its duration.
 
     Example:
         >>> thumbs = create_thumbnails_from_path(
@@ -541,7 +511,7 @@ def create_thumbnails_from_path(
         ...     quality=85,
         ...     backend="auto",
         ... )
-        >>> len(thumbs["small"]) > 0
+        >>> len(thumbs.images["small"]) > 0
         True
     """
     proc = _get_cached_processor(sizes, backend)
@@ -549,12 +519,12 @@ def create_thumbnails_from_path(
 
 
 def create_thumbnails_from_pil(
-    pil_image: "Image.Image",  # pylint: disable=used-before-assignment
+    pil_image: Image.Image,
     sizes: dict[str, tuple[int, int]],
     output: str = "JPEG",
     quality: int = 85,
     backend: BackendType = "auto",
-) -> dict[str, bytes]:
+) -> ThumbnailResult:
     """Create thumbnails from a PIL Image with processor caching.
 
     Args:
@@ -565,7 +535,7 @@ def create_thumbnails_from_pil(
         backend: Backend selector; see FastImageProcessor for valid values.
 
     Returns:
-        Dictionary mapping size names to thumbnail bytes.
+        The thumbnails, keyed by size name, in `output`.
     """
     proc = _get_cached_processor(sizes, backend)
     return proc.process_pil_image(pil_image, output, quality)
@@ -577,7 +547,7 @@ def create_thumbnails_from_bytes(
     output: str = "JPEG",
     quality: int = 85,
     backend: BackendType = "auto",
-) -> dict[str, bytes]:
+) -> ThumbnailResult:
     """Create thumbnails from in-memory image bytes with processor caching.
 
     Args:
@@ -588,107 +558,37 @@ def create_thumbnails_from_bytes(
         backend: Backend selector; see FastImageProcessor for valid values.
 
     Returns:
-        Dictionary mapping size names to thumbnail bytes.
+        The thumbnails, keyed by size name, in `output`.
     """
     proc = _get_cached_processor(sizes, backend)
     return proc.process_image_bytes(image_bytes, output, quality)
 
 
+def _demo() -> None:
+    """Manual smoke test: run from a directory holding test.png, test.mp4 and test.pdf."""
+    demo_sizes = {"large": (1024, 1024), "medium": (740, 740), "small": (200, 200)}
+    demo_runs: list[tuple[str, BackendType, bool]] = [
+        ("test.png", "image", True),
+        ("test.png", "coreimage", _check_core_image_available()),
+        ("test.png", "auto", True),
+        ("test.mp4", "video", True),
+        ("test.mp4", "corevideo", _check_avfoundation_available()),
+        ("test.pdf", "pdf", True),
+    ]
+
+    print(f"Core Image: {_check_core_image_available()}, AVFoundation: {_check_avfoundation_available()}, PDFKit: {_check_pdfkit_available()}")
+    for source, selector, available in demo_runs:
+        if not available:
+            print(f"{selector}: not available, skipped")
+            continue
+        processor = FastImageProcessor(demo_sizes, backend=selector)
+        result = processor.process_image_file(source, output_format="JPEG", quality=85)
+        byte_counts = " / ".join(f"{len(result.images[name]):,}" for name in demo_sizes)
+        print(f"{selector} (using {processor.current_backend}) on {source}: {byte_counts} bytes, duration={result.duration}")
+        for name, data in result.images.items():
+            with open(f"test_thumb_{selector}_{name}.jpg", "wb") as output_file:
+                output_file.write(data)
+
+
 if __name__ == "__main__":
-
-    def output_disk(filename, data):
-        """Helper function to write bytes to a file."""
-        with open(filename, "wb") as f:
-            f.write(data)
-        print(f"Saved {filename} with {len(data):,} bytes.")
-
-    print("=" * 60)
-    print("Backend Availability")
-    print("=" * 60)
-    print(f"Core Image Available: {_check_core_image_available()}")
-    print(f"AVFoundation Available: {_check_avfoundation_available()}")
-    print(f"PDFKit Available: {_check_pdfkit_available()}")
-    print()
-
-    # Test image processing
-    image_filename = "test.png"
-    IMAGE_SIZES = {"large": (1024, 1024), "medium": (740, 740), "small": (200, 200)}
-
-    print("=" * 60)
-    print("Testing Image Backends")
-    print("=" * 60)
-
-    # Test PIL backend
-    thumbnails_pil = create_thumbnails_from_path(image_filename, IMAGE_SIZES, output="JPEG", backend="image")
-    print(f"PIL Backend: {len(thumbnails_pil['small']):,} / {len(thumbnails_pil['medium']):,} / {len(thumbnails_pil['large']):,} bytes")
-    output_disk("test_thumb_pil_small.jpg", thumbnails_pil["small"])
-    output_disk("test_thumb_pil_medium.jpg", thumbnails_pil["medium"])
-    output_disk("test_thumb_pil_large.jpg", thumbnails_pil["large"])
-
-    # Test Core Image backend if available
-    if _check_core_image_available():
-        thumbnails_ci = create_thumbnails_from_path(image_filename, IMAGE_SIZES, output="JPEG", backend="coreimage")
-        print(f"Core Image Backend: {len(thumbnails_ci['small']):,} / {len(thumbnails_ci['medium']):,} / {len(thumbnails_ci['large']):,} bytes")
-        output_disk("test_thumb_ci_small.jpg", thumbnails_ci["small"])
-        output_disk("test_thumb_ci_medium.jpg", thumbnails_ci["medium"])
-        output_disk("test_thumb_ci_large.jpg", thumbnails_ci["large"])
-
-    # Test auto backend
-    thumbnails_auto = create_thumbnails_from_path(image_filename, IMAGE_SIZES, output="JPEG", backend="auto")
-    processor = _get_cached_processor(IMAGE_SIZES, "auto")
-    print(
-        f"Auto Backend (using {processor.current_backend}): "
-        f"{len(thumbnails_auto['small']):,} / {len(thumbnails_auto['medium']):,} / {len(thumbnails_auto['large']):,} bytes"
-    )
-
-    print()
-    print("=" * 60)
-    print("Testing Video Backends")
-    print("=" * 60)
-
-    # Test video processing
-    video_filename = "test.mp4"
-    VIDEO_SIZES = {"large": (1024, 1024), "medium": (740, 740), "small": (200, 200)}
-
-    # Test FFmpeg backend
-    processor_ffmpeg = FastImageProcessor(VIDEO_SIZES, backend="video")
-    thumbnails_ffmpeg = processor_ffmpeg.process_image_file(video_filename, output_format="JPEG", quality=85)
-    print(
-        f"FFmpeg Backend: Duration={thumbnails_ffmpeg.get('duration', 'N/A')}s, Sizes: "
-        f"{len(thumbnails_ffmpeg['small']):,} / {len(thumbnails_ffmpeg['medium']):,} / {len(thumbnails_ffmpeg['large']):,} bytes"
-    )
-    output_disk("test_thumb_ffmpeg_small.jpg", thumbnails_ffmpeg["small"])
-    output_disk("test_thumb_ffmpeg_medium.jpg", thumbnails_ffmpeg["medium"])
-    output_disk("test_thumb_ffmpeg_large.jpg", thumbnails_ffmpeg["large"])
-
-    # Test AVFoundation backend if available
-    if _check_avfoundation_available():
-        processor_av = FastImageProcessor(VIDEO_SIZES, backend="corevideo")
-        thumbnails_av = processor_av.process_image_file(video_filename, output_format="JPEG", quality=85)
-        print(
-            f"AVFoundation Backend: Duration={thumbnails_av.get('duration', 'N/A')}s, Sizes: "
-            f"{len(thumbnails_av['small']):,} / {len(thumbnails_av['medium']):,} / {len(thumbnails_av['large']):,} bytes"
-        )
-        output_disk("test_thumb_av_small.jpg", thumbnails_av["small"])
-        output_disk("test_thumb_av_medium.jpg", thumbnails_av["medium"])
-        output_disk("test_thumb_av_large.jpg", thumbnails_av["large"])
-
-    print()
-    print("=" * 60)
-    print("Testing PDF Backends")
-    print("=" * 60)
-
-    # Test PDF processing
-    pdf_filename = "test.pdf"
-    PDF_SIZES = {"large": (1024, 1024), "medium": (740, 740), "small": (200, 200)}
-
-    # Test PDF backend (auto-selects PDFKit on Apple Silicon, PyMuPDF otherwise)
-    processor_pdf = FastImageProcessor(PDF_SIZES, backend="pdf")
-    thumbnails_pdf = processor_pdf.process_image_file(pdf_filename, output_format="JPEG", quality=85)
-    print(
-        f"PDF Backend (using {processor_pdf.current_backend}): Sizes: "
-        f"{len(thumbnails_pdf['small']):,} / {len(thumbnails_pdf['medium']):,} / {len(thumbnails_pdf['large']):,} bytes"
-    )
-    output_disk("test_thumb_pdf_small.jpg", thumbnails_pdf["small"])
-    output_disk("test_thumb_pdf_medium.jpg", thumbnails_pdf["medium"])
-    output_disk("test_thumb_pdf_large.jpg", thumbnails_pdf["large"])
+    _demo()

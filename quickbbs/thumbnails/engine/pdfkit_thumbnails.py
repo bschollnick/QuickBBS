@@ -2,7 +2,6 @@
 
 # pylint: disable=no-name-in-module  # pyobjc uses dynamic imports
 
-import traceback
 from pathlib import Path
 
 from cachetools import cached
@@ -19,8 +18,8 @@ except ImportError:
 
 from quickbbs.MonitoredCache import create_cache
 
-from .base import AbstractBackend
-from .core_image_thumbnails import CoreImageBackend, autorelease_pool
+from .base import AbstractBackend, ThumbnailResult
+from .core_image_thumbnails import CoreImageBackend, autorelease_pool, hide_dock_icon
 from .exceptions import PDFProcessingError
 
 _scale_cache = create_cache(settings.PDFKIT_SCALE_CACHE_SIZE, "pdfkit_scale", monitored=settings.CACHE_MONITORING)
@@ -41,8 +40,8 @@ class PDFKitBackend(AbstractBackend):
         ...     output_format="JPEG",
         ...     quality=85,
         ... )
-        >>> sorted(thumbs)
-        ['format', 'small']
+        >>> sorted(thumbs.images), thumbs.format
+        (['small'], 'JPEG')
     """
 
     def __init__(self):
@@ -57,17 +56,7 @@ class PDFKitBackend(AbstractBackend):
         if not PDFKIT_AVAILABLE:
             raise ImportError("PDFKit not available. This backend requires macOS with pyobjc-framework-quartz.")
 
-        # Prevent dock icon from appearing (PDFKit uses NSImage which triggers AppKit)
-        try:
-            from AppKit import (
-                NSApplication,
-                NSApplicationActivationPolicyProhibited,
-            )
-
-            app = NSApplication.sharedApplication()
-            app.setActivationPolicy_(NSApplicationActivationPolicyProhibited)
-        except ImportError:
-            pass  # AppKit not available
+        hide_dock_icon()
 
         # Cache CoreImageBackend instance for reuse
         self._image_backend = CoreImageBackend()
@@ -156,11 +145,11 @@ class PDFKitBackend(AbstractBackend):
 
     def process_from_file(
         self,
-        file_path: str,
+        file_path: str | Path,
         sizes: dict[str, tuple[int, int]],
         output_format: str,
         quality: int,
-    ) -> dict[str, bytes]:
+    ) -> ThumbnailResult:
         """Process a PDF file and generate thumbnails of its first page.
 
         Args:
@@ -170,8 +159,7 @@ class PDFKitBackend(AbstractBackend):
             quality: Image quality (1-100).
 
         Returns:
-            Dictionary with a 'format' key (the output format string) and one
-            entry per size name mapping to the thumbnail bytes.
+            The thumbnails, keyed by size name, in `output_format`.
 
         Raises:
             FileNotFoundError: If the PDF file does not exist.
@@ -208,13 +196,8 @@ class PDFKitBackend(AbstractBackend):
                 ci_image = self._render_pdf_page_to_ciimage(pdf_doc, page_num, largest_size)
 
                 # Process using Core Image backend for GPU-accelerated thumbnails
-                # pylint: disable=protected-access
-                image_output = self._image_backend._process_ci_image(ci_image, sizes, output_format, quality)
-
-                output = {"format": output_format}
-                output.update(image_output)
-
-                return output
+                images = self._image_backend.render_sizes(ci_image, sizes, output_format, quality)
+                return ThumbnailResult(images, output_format)
 
             finally:
                 # Clean up
@@ -222,16 +205,16 @@ class PDFKitBackend(AbstractBackend):
 
     def process_from_memory(
         self,
-        pdf_bytes: bytes,
+        source_bytes: bytes,
         sizes: dict[str, tuple[int, int]],
         output_format: str,
         quality: int,
         page_num: int = 0,
-    ) -> dict[str, bytes]:
+    ) -> ThumbnailResult:
         """Process PDF bytes and generate thumbnails.
 
         Args:
-            pdf_bytes: PDF file as bytes.
+            source_bytes: PDF file as bytes.
             sizes: Dictionary of size names to (width, height) tuples.
             output_format: Output format (JPEG, PNG, WEBP).
             quality: Image quality (1-100).
@@ -239,8 +222,7 @@ class PDFKitBackend(AbstractBackend):
                 default 0). Falls back to page 0 if out of range.
 
         Returns:
-            Dictionary with a 'format' key (the output format string) and one
-            entry per size name mapping to the thumbnail bytes.
+            The thumbnails, keyed by size name, in `output_format`.
 
         Raises:
             PDFProcessingError: If the document cannot be loaded, has no
@@ -249,7 +231,7 @@ class PDFKitBackend(AbstractBackend):
         # Wrap entire operation in autorelease pool to drain PDFKit objects
         with autorelease_pool():
             # Convert bytes to NSData
-            ns_data = NSData.dataWithBytes_length_(pdf_bytes, len(pdf_bytes))
+            ns_data = NSData.dataWithBytes_length_(source_bytes, len(source_bytes))
 
             # Load PDF document from data
             pdf_doc = PDFDocument.alloc().initWithData_(ns_data)
@@ -271,13 +253,8 @@ class PDFKitBackend(AbstractBackend):
                 ci_image = self._render_pdf_page_to_ciimage(pdf_doc, page_num, largest_size)
 
                 # Process using Core Image backend for GPU-accelerated thumbnails
-                # pylint: disable=protected-access
-                image_output = self._image_backend._process_ci_image(ci_image, sizes, output_format, quality)
-
-                output = {"format": output_format}
-                output.update(image_output)
-
-                return output
+                images = self._image_backend.render_sizes(ci_image, sizes, output_format, quality)
+                return ThumbnailResult(images, output_format)
 
             finally:
                 # Clean up
@@ -297,53 +274,3 @@ class PDFKitBackend(AbstractBackend):
                 not supported.
         """
         raise NotImplementedError("PDF processing from PIL Image is not implemented.")
-
-
-# Example usage
-if __name__ == "__main__":
-    import sys
-
-    def output_disk(filename, data):
-        """Helper function to write bytes to a file."""
-        with open(filename, "wb") as f:
-            f.write(data)
-        print(f"Saved {filename} with {len(data):,} bytes.")
-
-    if len(sys.argv) < 2:
-        print("Usage: python pdfkit_thumbnails.py <pdf_file>")
-        sys.exit(1)
-
-    pdf_file = sys.argv[1]
-
-    if not Path(pdf_file).exists():
-        print(f"Error: PDF file not found: {pdf_file}")
-        sys.exit(1)
-
-    try:
-        backend = PDFKitBackend()
-
-        # Define thumbnail sizes
-        test_sizes = {"small": (200, 200), "medium": (740, 740), "large": (1024, 1024)}
-
-        # Generate thumbnails from PDF file
-        print("=" * 60)
-        print("Generating PDF Thumbnails with PDFKit")
-        print("=" * 60)
-
-        thumbnails = backend.process_from_file(file_path=pdf_file, sizes=test_sizes, output_format="JPEG", quality=85)
-
-        print(f"Format: {thumbnails['format']}")
-        print(f"Small thumbnail: {len(thumbnails['small']):,} bytes")
-        print(f"Medium thumbnail: {len(thumbnails['medium']):,} bytes")
-        print(f"Large thumbnail: {len(thumbnails['large']):,} bytes")
-
-        output_disk("pdf_small_thumb.jpg", thumbnails["small"])
-        output_disk("pdf_medium_thumb.jpg", thumbnails["medium"])
-        output_disk("pdf_large_thumb.jpg", thumbnails["large"])
-
-        print("\nPDF thumbnails created successfully!")
-
-    except (OSError, RuntimeError, ValueError) as e:  # TODO: add PDFKit/PyMuPDF-specific exceptions once exception hierarchy is documented
-        print(f"Error: {e}")
-        traceback.print_exc()
-        sys.exit(1)

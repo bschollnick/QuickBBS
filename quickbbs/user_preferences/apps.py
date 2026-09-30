@@ -18,4 +18,6 @@ class UserPreferencesConfig(AppConfig):
         Returns:
             None
         """
-        import user_preferences.signals  # noqa: F401  # imported for signal registration side-effects only
+        # Imported only to register the post_save receivers; importing at module
+        # level would load models before the app registry is ready.
+        import user_preferences.signals  # noqa: F401  # pylint: disable=import-outside-toplevel,unused-import

@@ -13,7 +13,7 @@ No database access — SimpleTestCase throughout.
 from __future__ import annotations
 
 import sys
-import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from django.test import SimpleTestCase
@@ -171,20 +171,10 @@ class TestThreadSafety(SimpleTestCase):
         sys.setswitchinterval(self._old_switch_interval)
 
     def _run_workers(self, worker) -> list[BaseException]:
-        errors: list[BaseException] = []
-
-        def wrapped(seed: int) -> None:
-            try:
-                worker(seed)
-            except BaseException as exc:  # pylint: disable=broad-exception-caught
-                errors.append(exc)
-
-        threads = [threading.Thread(target=wrapped, args=(i,)) for i in range(THREAD_COUNT)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
-        return errors
+        """Run `worker(seed)` on THREAD_COUNT threads at once; return the exceptions they raised."""
+        with ThreadPoolExecutor(max_workers=THREAD_COUNT) as pool:
+            futures = [pool.submit(worker, seed) for seed in range(THREAD_COUNT)]
+        return [error for future in futures if (error := future.exception()) is not None]
 
     def test_concurrent_pop_with_default_never_raises(self):
         """Concurrent pop(key, None) never leaks a KeyError."""

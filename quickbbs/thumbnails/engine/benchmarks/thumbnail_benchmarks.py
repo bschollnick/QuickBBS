@@ -208,7 +208,7 @@ def benchmark_backend(backend_name: str, backend_type: BackendType, test_file: s
 
             # Optionally save first and last iteration for verification
             if SAVE_OUTPUT and (i == 0 or i == iterations - 1):
-                save_thumbnails(thumbnails, backend_type.lower(), i)
+                save_thumbnails(thumbnails.images, backend_type.lower(), i)
 
         except Exception as e:  # pylint: disable=broad-exception-caught
             tee_print(f"  ERROR on iteration {i}: {e}")

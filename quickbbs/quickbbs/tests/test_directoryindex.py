@@ -21,11 +21,9 @@ Tests cover:
 from __future__ import annotations
 
 import os
-import shutil
-import tempfile
 
 import pytest
-from django.test import TestCase, override_settings
+from django.test import TestCase
 
 from filetypes.models import filetypes
 from quickbbs.cache_registry import (
@@ -38,6 +36,7 @@ from quickbbs.directoryindex import (
     DirectoryIndex,
 )
 from quickbbs.fileindex import FileIndex
+from quickbbs.tests.albums_root import AlbumsRootTestCase
 
 pytestmark = pytest.mark.api
 
@@ -57,36 +56,13 @@ def _make_dirs(base: str, *relative_paths: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-class DirectoryIndexTestBase(TestCase):
-    """Common setUp/tearDown for tests that need real filesystem directories.
-
-    Sets ALBUMS_PATH to self.temp_dir so that add_directory will create proper
-    parent_directory links for subdirectories under temp_dir/albums/.
-    """
+class DirectoryIndexTestBase(AlbumsRootTestCase):
+    """Albums root with photos/, photos/2024/ and videos/ on disk, none registered yet."""
 
     def setUp(self) -> None:
-        self.temp_dir = tempfile.mkdtemp()
-        self.albums_path = os.path.join(self.temp_dir, "albums")
-        _make_dirs(
-            self.temp_dir,
-            "albums",
-            "albums/photos",
-            "albums/photos/2024",
-            "albums/videos",
-        )
+        super().setUp()
+        _make_dirs(self.albums_dir, "photos", "photos/2024", "videos")
         self.dirs: dict[str, DirectoryIndex] = {}
-        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
-        self._settings_override.enable()
-        # Reset cached class-level path lookups so they pick up the new ALBUMS_PATH
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-
-    def tearDown(self) -> None:
-        self._settings_override.disable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        if hasattr(self, "temp_dir") and os.path.exists(self.temp_dir):
-            shutil.rmtree(self.temp_dir)
 
     def _add(self, rel_path: str, trailing_sep: bool = True) -> tuple[bool, DirectoryIndex]:
         """Convenience: call add_directory for a path relative to temp_dir."""
@@ -358,13 +334,8 @@ class TestAlbumsPrefixRoot(TestCase):
     """Tests for the cached albums prefix/root class methods."""
 
     def setUp(self) -> None:
-        # Reset class-level caches to avoid cross-test pollution
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-
-    def tearDown(self) -> None:
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
+        DirectoryIndex.forget_albums_paths()
+        self.addCleanup(DirectoryIndex.forget_albums_paths)
 
     def test_get_albums_prefix_returns_string(self) -> None:
         """get_albums_prefix returns a non-empty string."""
@@ -512,14 +483,12 @@ class TestFileDirCounts(VerificationSuiteTestBase):
 
     def test_get_dir_counts_with_children(self) -> None:
         """get_dir_counts returns the number of child DirectoryIndex entries."""
-        # cachetools.cached erases the descriptor typing, so mypy sees the
-        # unbound function and expects an explicit `self` argument.
-        count = self.parent.get_dir_counts()  # type: ignore[call-arg]
+        count = self.parent.get_dir_counts()
         assert count == 3
 
     def test_get_dir_counts_empty(self) -> None:
         """get_dir_counts returns 0 for a leaf directory (benchtests has no subdirs)."""
-        assert self.child.get_dir_counts() == 0  # type: ignore[call-arg]
+        assert self.child.get_dir_counts() == 0
 
     def test_do_files_exist_empty_directory(self) -> None:
         """do_files_exist returns False for a directory with no FileIndex entries."""
@@ -569,7 +538,7 @@ class TestFileDirCounts(VerificationSuiteTestBase):
             is_generic_icon=False,
         )
         # cachetools.cached erases the descriptor typing, see get_dir_counts above.
-        count = self.parent.get_file_counts()  # type: ignore[call-arg]
+        count = self.parent.get_file_counts()
         assert count == 3
 
     def test_get_file_counts_cache_invalidated_on_new_file(self) -> None:
@@ -581,7 +550,7 @@ class TestFileDirCounts(VerificationSuiteTestBase):
         chokepoint.
         """
         ft = filetypes.objects.get(fileext=".txt")
-        assert self.parent.get_file_counts() == 0  # type: ignore[call-arg]  # warms the cache at 0
+        assert self.parent.get_file_counts() == 0  # warms the cache at 0
 
         FileIndex.objects.create(
             home_directory=self.parent,
@@ -598,7 +567,7 @@ class TestFileDirCounts(VerificationSuiteTestBase):
         assert file_counts_cache.get((self.parent.pk,)) == 0
 
         clear_layout_cache_for_directories({self.parent.pk})
-        assert self.parent.get_file_counts() == 1  # type: ignore[call-arg]
+        assert self.parent.get_file_counts() == 1
 
 
 # ===========================================================================
@@ -748,9 +717,7 @@ class TestUrls(DirectoryIndexTestBase):
 
     def test_get_view_url_returns_string(self) -> None:
         """get_view_url returns a non-empty string."""
-        # cachetools.cached erases the descriptor typing, so mypy sees the
-        # unbound function and expects an explicit `self` argument.
-        url = self.dir_obj.get_view_url()  # type: ignore[call-arg]
+        url = self.dir_obj.get_view_url()
         assert isinstance(url, str)
         assert len(url) > 0
 
@@ -809,7 +776,7 @@ class TestGetPrevNextSiblings(VerificationSuiteTestBase):
 
 
 @pytest.mark.django_db
-class TestMakeSiblingLinkMixedCaseAlbumsPath(TestCase):
+class TestMakeSiblingLinkMixedCaseAlbumsPath(AlbumsRootTestCase):
     """Regression test for prev/next navigation crashing in production.
 
     _make_sibling_link() used to strip the raw settings.ALBUMS_PATH from a
@@ -824,40 +791,13 @@ class TestMakeSiblingLinkMixedCaseAlbumsPath(TestCase):
     always lowercase on macOS, so it never exercised this path.
     """
 
-    def setUp(self) -> None:
-        # Resolve through any symlinks up front (e.g. macOS /var -> /private/var)
-        # so ALBUMS_PATH matches what normalize_fqpn()'s Path.resolve() will
-        # produce for fqpndirectory — otherwise get_albums_prefix() (built
-        # from the raw, unresolved ALBUMS_PATH) would never match, for a
-        # reason unrelated to the case-sensitivity bug under test here.
-        from pathlib import Path as _Path
-
-        self.temp_dir = str(_Path(tempfile.mkdtemp()).resolve())
-        # A mixed-case ALBUMS_PATH, mirroring production's
-        # '/Volumes/Support-8TB/gallery/quickbbs'.
-        self.mixed_case_root = os.path.join(self.temp_dir, "MixedCaseRoot")
-        os.makedirs(os.path.join(self.mixed_case_root, "albums", "alpha"), exist_ok=True)
-        os.makedirs(os.path.join(self.mixed_case_root, "albums", "beta"), exist_ok=True)
-        os.makedirs(os.path.join(self.mixed_case_root, "albums", "gamma"), exist_ok=True)
-        self._settings_override = override_settings(ALBUMS_PATH=self.mixed_case_root)
-        self._settings_override.enable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-
-    def tearDown(self) -> None:
-        self._settings_override.disable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
+    # A mixed-case ALBUMS_PATH, mirroring production's '/Volumes/Support-8TB/gallery/quickbbs'.
+    albums_path_subdirectory = "MixedCaseRoot"
 
     def _add_siblings(self) -> DirectoryIndex:
         """Register alpha/beta/gamma as siblings and return the beta record."""
-        for name in ("alpha", "beta", "gamma"):
-            _found, record = DirectoryIndex.add_directory(os.path.join(self.mixed_case_root, "albums", name) + os.sep)
-            assert record is not None, f"add_directory failed for {name}"
-            if name == "beta":
-                beta = record
-        return beta
+        records = {name: self.add_directory(name) for name in ("alpha", "beta", "gamma")}
+        return records["beta"]
 
     def test_url_is_albums_relative_not_absolute_filesystem_path(self) -> None:
         """The generated url must start with the '/albums/' route prefix,
@@ -867,7 +807,7 @@ class TestMakeSiblingLinkMixedCaseAlbumsPath(TestCase):
         for sibling in (prev, nxt):
             assert sibling is not None
             assert sibling["url"].startswith("/albums/"), f"url leaked filesystem path: {sibling['url']!r}"
-            assert self.mixed_case_root.lower() not in sibling["url"]
+            assert self.albums_path_setting.lower() not in sibling["url"]
 
     def test_sibling_names_and_order(self) -> None:
         """prev/next resolve to the correct sibling names by sort order."""

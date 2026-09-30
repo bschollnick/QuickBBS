@@ -25,7 +25,7 @@ import time
 from cachetools.keys import hashkey
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from django.db import close_old_connections, transaction
+from django.db import DatabaseError, close_old_connections, transaction
 
 from interactive_fiction.ingestion import ingest_stories, verify_stories
 from quickbbs.common import normalize_fqpn
@@ -100,7 +100,7 @@ def verify_directories(start_path: str | None = None, max_count: int = 0):
     print("Checking for invalid directories in Database (eg. Deleted, Moved, etc).")
     print("=" * 60)
     start_time = time.time()
-    albums_root = normalize_fqpn(os.path.join(settings.ALBUMS_PATH, "albums"))
+    albums_root = DirectoryIndex.get_albums_root()
 
     # Invalidate directories with link files missing virtual_directory
     print("-" * 30)
@@ -451,7 +451,8 @@ def verify_thumbnails(max_count: int = 0):
 
                     print("      Invalidated thumbnail")
 
-            except Exception as e:
+            # OSError covers PIL failing to decode a stored thumbnail.
+            except (DatabaseError, OSError) as e:
                 print(f"  Error checking thumbnail {thumbnail.sha256_hash}: {e}")
                 sys.stdout.flush()
                 continue

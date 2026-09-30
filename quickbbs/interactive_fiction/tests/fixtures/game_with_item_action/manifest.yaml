@@ -1,0 +1,4 @@
+MAIN_STORY_FILE: story.inkj
+PLAY_LAYOUT: three_column
+REQUIRED_PLUGINS:
+  - fixture_pack

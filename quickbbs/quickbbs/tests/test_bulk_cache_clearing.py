@@ -1,64 +1,36 @@
 """Tests for Option 3 optimization: bulk layout cache clearing."""
 
-import os
-import shutil
-import tempfile
-
 import pytest
-from django.test import TestCase, override_settings
 
 from frontend.managers import layout_manager
 from quickbbs.cache_registry import (
     clear_layout_cache_for_directories,
     layout_manager_cache,
 )
-from quickbbs.models import DirectoryIndex
+from quickbbs.tests.albums_root import AlbumsRootTestCase
 
 pytestmark = pytest.mark.api
 
 
 @pytest.mark.django_db
-class TestBulkLayoutCacheClearing(TestCase):
+class TestBulkLayoutCacheClearing(AlbumsRootTestCase):
     """Test bulk layout cache clearing via clear_layout_cache_for_directories."""
 
     def setUp(self):
         """Create test directory hierarchy for each test."""
+        super().setUp()
         # Clear layout cache to ensure test isolation
         layout_manager_cache.clear()
-
-        # Create temporary directory structure for testing.
-        # ALBUMS_PATH is overridden so add_directory (which rejects paths
-        # outside the albums root) accepts the temp hierarchy.
-        self.temp_dir = tempfile.mkdtemp()
-        self.albums_path = os.path.join(self.temp_dir, "albums")
-        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
-        self._settings_override.enable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-
-        # Create actual filesystem directories
-        os.makedirs(os.path.join(self.albums_path, "photos", "2024"), exist_ok=True)
-        os.makedirs(os.path.join(self.albums_path, "videos", "2024"), exist_ok=True)
-
-        self.dirs = {}
-
-        _, self.dirs["root"] = DirectoryIndex.add_directory(self.albums_path + "/")
-        _, self.dirs["photos"] = DirectoryIndex.add_directory(os.path.join(self.albums_path, "photos") + "/")
-        _, self.dirs["photos_2024"] = DirectoryIndex.add_directory(os.path.join(self.albums_path, "photos", "2024") + "/")
-        _, self.dirs["videos"] = DirectoryIndex.add_directory(os.path.join(self.albums_path, "videos") + "/")
-        _, self.dirs["videos_2024"] = DirectoryIndex.add_directory(os.path.join(self.albums_path, "videos", "2024") + "/")
-
+        self.dirs = {
+            "root": self.add_directory(),
+            "photos": self.add_directory("photos"),
+            "photos_2024": self.add_directory("photos", "2024"),
+            "videos": self.add_directory("videos"),
+            "videos_2024": self.add_directory("videos", "2024"),
+        }
         # Mark all directories scanned (cache valid)
         for dir_obj in self.dirs.values():
             dir_obj.mark_scanned()
-
-    def tearDown(self):
-        """Clean up temporary directories after each test."""
-        self._settings_override.disable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        if hasattr(self, "temp_dir") and os.path.exists(self.temp_dir):
-            shutil.rmtree(self.temp_dir)
 
     def test_bulk_cache_clearing_removes_all_entries(self):
         """Test that bulk clearing removes cache entries for all directories."""

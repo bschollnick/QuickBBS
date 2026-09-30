@@ -1,6 +1,5 @@
-#
-#   Boot strap by loading the configuration path data
-#
+"""Per-user display preferences: the UserPreferences model, its views and signals."""
+
 __version__ = "4.1"
 
 __author__ = "Benjamin Schollnick"

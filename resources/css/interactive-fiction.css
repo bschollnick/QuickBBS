@@ -345,6 +345,88 @@
   opacity: 0.7;
 }
 
+/* An action section (play_panel_actions.jinja): one row per group, its
+   picture on the left and its story actions as buttons beside it. */
+.if-panel-action-group {
+  justify-content: flex-start;
+  align-items: flex-start;
+}
+
+.if-panel-row-image {
+  width: 3rem;
+  height: 3rem;
+  object-fit: cover;
+  border-radius: 4px;
+  flex: none;
+}
+
+.if-panel-story-action-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.if-panel-story-action {
+  white-space: normal;
+  height: auto;
+  text-align: left;
+}
+
+/* An exits section drawn as a compass (play_panel_compass.jinja): the
+   eight-point rose, then up/down, then in/out, each its own grid, with exits
+   that have no position listed beneath. */
+.if-compass-zone {
+  display: grid;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+}
+
+.if-compass-rose { grid-template-columns: repeat(3, 1fr); }
+.if-compass-vertical,
+.if-compass-inout { grid-template-columns: repeat(2, 1fr); }
+
+.if-compass-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.if-compass-cell { display: contents; }
+
+.if-compass-exit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 3.2em;
+  padding: 0.25em;
+  font-size: 0.8rem;
+  border: 1px solid hsl(0, 0%, 80%);
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+}
+
+.if-compass-exit:hover:not(:disabled) { background: hsl(0, 0%, 94%); }
+
+.if-compass-list .if-compass-exit { min-height: 0; align-items: flex-start; }
+
+.if-compass-exit:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.if-compass-glyph { font-size: 1.3em; line-height: 1; }
+.if-compass-vertical .if-compass-glyph,
+.if-compass-inout .if-compass-glyph { font-size: 1em; font-weight: 600; }
+
+.if-compass-label {
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.if-compass-centre { min-height: 3.2em; }
+
 /* The panel is a narrow column on a phone, where a fixed side column would
    leave the story unreadable; it drops below the story instead. */
 @media screen and (max-width: 768px) {

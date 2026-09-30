@@ -5,7 +5,6 @@ import hashlib
 import logging
 import os
 import pathlib
-import sys
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -20,7 +19,7 @@ from django.db import models
 from quickbbs.MonitoredCache import create_cache
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import AbstractUser, AnonymousUser
+    from django.contrib.auth.models import _AnyUser
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +46,7 @@ def require_login_if_configured(view_func: Callable) -> Callable:
     return view_func
 
 
-def can_upload_story(user: "AbstractUser | AnonymousUser") -> bool:
+def can_upload_story(user: _AnyUser) -> bool:
     """Return whether the given user may upload/edit interactive_fiction stories.
 
     One predicate rather than inlined `is_staff` checks, so loosening the
@@ -240,63 +239,35 @@ def get_file_sha(fqfn: str) -> tuple[str | None, str | None]:
 #   - get_file_sha() does not touch Django ORM, so thread-safety is not a concern
 #   - ThreadPoolExecutor works from daemon threads (ASGI sync_to_async context)
 #   - ProcessPoolExecutor cannot spawn child processes from daemon threads
-# Thread-safe initialization and proper cleanup on exit.
-_sha_executor: ThreadPoolExecutor | None = None
-_sha_executor_lock = threading.Lock()
+class _ShaExecutor:
+    """The thread pool for SHA256 hashing: created on first use, shut down at interpreter exit."""
 
+    def __init__(self) -> None:
+        self._executor: ThreadPoolExecutor | None = None
+        self._lock = threading.Lock()
 
-def _get_sha_executor() -> ThreadPoolExecutor:
-    """
-    Get or create the singleton ThreadPoolExecutor for SHA256 computation.
-
-    Thread-safe lazy initialization; see the module comment above for why
-    this is a ThreadPoolExecutor.
-
-    Returns:
-        ThreadPoolExecutor configured for SHA256 hashing operations
-    """
-    global _sha_executor  # pylint: disable=global-statement
-
-    if _sha_executor is None:
-        with _sha_executor_lock:
-            # Double-check locking pattern
-            if _sha_executor is None:
-                cpu_count = os.cpu_count() or 4
-                max_workers = min(cpu_count, settings.SHA256_MAX_WORKERS)
-                _sha_executor = ThreadPoolExecutor(max_workers=max_workers)
+    def get(self) -> ThreadPoolExecutor:
+        """Return the pool, creating it (and registering its shutdown) on first call."""
+        with self._lock:
+            if self._executor is None:
+                max_workers = min(os.cpu_count() or 4, settings.SHA256_MAX_WORKERS)
+                self._executor = ThreadPoolExecutor(max_workers=max_workers)
                 logger.info("Initialized SHA256 ThreadPoolExecutor with %d workers", max_workers)
+                atexit.register(self.shutdown)
+            return self._executor
 
-                # Register cleanup handler to ensure threads are terminated
-                atexit.register(_cleanup_sha_executor)
+    def shutdown(self) -> None:
+        """Finish running hashes, cancel queued ones, and drop the pool.
 
-    return _sha_executor
+        Logs nothing: at interpreter exit the logging streams may already be closed.
+        """
+        with self._lock:
+            executor, self._executor = self._executor, None
+        if executor is not None:
+            executor.shutdown(wait=True, cancel_futures=True)
 
 
-def _cleanup_sha_executor() -> None:
-    """
-    Clean up the SHA256 ThreadPoolExecutor on program exit.
-
-    Ensures all worker threads are properly terminated and cleaned up.
-    Called automatically via atexit registration.
-    """
-    global _sha_executor  # pylint: disable=global-statement
-
-    if _sha_executor is not None:
-        if not sys.is_finalizing() and not getattr(sys.stdout, "closed", False) and not getattr(sys.stderr, "closed", False):
-            handlers = list(logger.handlers) + list(logging.getLogger().handlers)
-            if not any(getattr(getattr(h, "stream", None), "closed", False) for h in handlers):
-                logger.info("Shutting down SHA256 ThreadPoolExecutor")
-        try:
-            # Wait for pending tasks but don't accept new ones
-            # cancel_futures=True is Python 3.9+
-            _sha_executor.shutdown(wait=True, cancel_futures=True)
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            if not sys.is_finalizing() and not getattr(sys.stdout, "closed", False) and not getattr(sys.stderr, "closed", False):
-                handlers = list(logger.handlers) + list(logging.getLogger().handlers)
-                if not any(getattr(getattr(h, "stream", None), "closed", False) for h in handlers):
-                    logger.error("Error shutting down SHA256 ThreadPoolExecutor: %s", e)
-        finally:
-            _sha_executor = None
+_SHA_EXECUTOR = _ShaExecutor()
 
 
 def _batch_compute_file_shas(file_paths: list[str], max_workers: int | None = None) -> dict[str, tuple[str | None, str | None]]:
@@ -338,7 +309,7 @@ def _batch_compute_file_shas(file_paths: list[str], max_workers: int | None = No
     # Use singleton ThreadPoolExecutor for parallel SHA256 computation
     # This is safe because get_file_sha() doesn't touch the database
     try:
-        executor = _get_sha_executor()
+        executor = _SHA_EXECUTOR.get()
 
         # Submit all tasks to the persistent pool
         future_to_path = {executor.submit(get_file_sha, path): path for path in file_paths}

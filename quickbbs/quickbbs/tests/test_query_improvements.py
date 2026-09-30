@@ -21,32 +21,22 @@ DATABASE SAFETY NOTES
 
 from __future__ import annotations
 
-import os
-import shutil
-import tempfile
-
 import pytest
 from django.db import connection
 from django.db.models.query import QuerySet
-from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
 from filetypes.models import filetypes
 from quickbbs.directoryindex import DIRECTORYINDEX_SR_PARENT
 from quickbbs.fileindex import FILEINDEX_SR_FILETYPE
 from quickbbs.models import DirectoryIndex, FileIndex
+from quickbbs.tests.albums_root import AlbumsRootTestCase
 
 pytestmark = pytest.mark.api
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _make_fs_dirs(*paths: str) -> None:
-    """Create filesystem directories so add_directory() succeeds."""
-    for path in paths:
-        os.makedirs(path, exist_ok=True)
 
 
 def _wire_parent(child: DirectoryIndex, parent: DirectoryIndex) -> None:
@@ -88,7 +78,7 @@ def _create_fileindex(directory: DirectoryIndex, name: str, file_sha: str, uniqu
 
 
 @pytest.mark.django_db
-class TestGetAllParentShasCurrentImpl(TestCase):
+class TestGetAllParentShasCurrentImpl(AlbumsRootTestCase):
     """
     Behaviour tests for get_all_parent_shas using the *current* implementation.
 
@@ -110,32 +100,13 @@ class TestGetAllParentShasCurrentImpl(TestCase):
     """
 
     def setUp(self):
-        # ALBUMS_PATH is overridden so add_directory (which rejects paths
-        # outside the albums root) accepts the temp hierarchy.
-        self.temp_dir = tempfile.mkdtemp()
-        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
-        self._settings_override.enable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        ap = os.path.join(self.temp_dir, "albums")  # albums_path shorthand
-
-        # Create filesystem dirs first (add_directory checks they exist)
-        _make_fs_dirs(
-            ap,
-            os.path.join(ap, "photos"),
-            os.path.join(ap, "photos", "2024"),
-            os.path.join(ap, "photos", "2024", "january"),
-            os.path.join(ap, "videos"),
-            os.path.join(ap, "videos", "2024"),
-        )
-
-        # Create DB records
-        _, self.root = DirectoryIndex.add_directory(ap + "/")
-        _, self.photos = DirectoryIndex.add_directory(os.path.join(ap, "photos") + "/")
-        _, self.photos_2024 = DirectoryIndex.add_directory(os.path.join(ap, "photos", "2024") + "/")
-        _, self.photos_jan = DirectoryIndex.add_directory(os.path.join(ap, "photos", "2024", "january") + "/")
-        _, self.videos = DirectoryIndex.add_directory(os.path.join(ap, "videos") + "/")
-        _, self.videos_2024 = DirectoryIndex.add_directory(os.path.join(ap, "videos", "2024") + "/")
+        super().setUp()
+        self.root = self.add_directory()
+        self.photos = self.add_directory("photos")
+        self.photos_2024 = self.add_directory("photos", "2024")
+        self.photos_jan = self.add_directory("photos", "2024", "january")
+        self.videos = self.add_directory("videos")
+        self.videos_2024 = self.add_directory("videos", "2024")
 
         # Wire parent FK chain explicitly
         _wire_parent(self.photos, self.root)
@@ -143,15 +114,6 @@ class TestGetAllParentShasCurrentImpl(TestCase):
         _wire_parent(self.photos_jan, self.photos_2024)
         _wire_parent(self.videos, self.root)
         _wire_parent(self.videos_2024, self.videos)
-
-    def tearDown(self):
-        self._settings_override.disable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        if hasattr(self, "temp_dir") and os.path.exists(self.temp_dir):
-            shutil.rmtree(self.temp_dir)
-
-    # --- correctness tests ---
 
     def test_empty_input_returns_empty_set(self):
         result = DirectoryIndex.get_all_parent_shas([], DIRECTORYINDEX_SR_PARENT)
@@ -258,7 +220,7 @@ class TestGetAllParentShasCurrentImpl(TestCase):
 
 
 @pytest.mark.django_db
-class TestFilesInDir(TestCase):
+class TestFilesInDir(AlbumsRootTestCase):
     """
     Behaviour tests for DirectoryIndex.files_in_dir().
 
@@ -275,17 +237,8 @@ class TestFilesInDir(TestCase):
     """
 
     def setUp(self):
-        # ALBUMS_PATH is overridden so add_directory (which rejects paths
-        # outside the albums root) accepts the temp hierarchy.
-        self.temp_dir = tempfile.mkdtemp()
-        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
-        self._settings_override.enable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        albums_dir = os.path.join(self.temp_dir, "albums")
-        _make_fs_dirs(albums_dir)
-
-        _, self.directory = DirectoryIndex.add_directory(albums_dir + "/")
+        super().setUp()
+        self.directory = self.add_directory()
 
         # Cache the filetype lookup — avoids 7 identical DB hits in setUp.
         self._ft_none = filetypes.objects.get(fileext=".none")
@@ -322,15 +275,6 @@ class TestFilesInDir(TestCase):
         # Separator-collation test files
         self.sep_under = _create_fileindex(self.directory, "photo_holiday.jpg", "e" * 64, "ue" * 32, ft)
         self.sep_dash = _create_fileindex(self.directory, "photo-holiday.jpg", "f" * 64, "uf" * 32, ft)
-
-    def tearDown(self):
-        self._settings_override.disable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        if hasattr(self, "temp_dir") and os.path.exists(self.temp_dir):
-            shutil.rmtree(self.temp_dir)
-
-    # --- distinct=False tests ---
 
     def test_non_distinct_returns_all_files(self):
         """Without distinct, all 7 records are returned."""

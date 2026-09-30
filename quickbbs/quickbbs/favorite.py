@@ -19,8 +19,7 @@ from django.db.models import BooleanField, Exists, OuterRef, Q, Value
 from quickbbs.common import normalize_sha_input
 
 if TYPE_CHECKING:
-    from django.contrib.auth.base_user import AbstractBaseUser
-    from django.contrib.auth.models import AnonymousUser
+    from django.contrib.auth.models import _AnyUser
     from django.db.models.query import QuerySet
 
     from .directoryindex import DirectoryIndex
@@ -103,7 +102,7 @@ class Favorite(models.Model):
     @classmethod
     def toggle(
         cls,
-        user: AbstractBaseUser | AnonymousUser,
+        user: _AnyUser,
         *,
         file_sha256: str | None = None,
         dir_sha256: str | None = None,
@@ -175,7 +174,7 @@ class Favorite(models.Model):
     @classmethod
     def is_favorited(
         cls,
-        user: AbstractBaseUser | AnonymousUser | None,
+        user: _AnyUser | None,
         *,
         file_sha256: str | None = None,
         dir_sha256: str | None = None,
@@ -206,7 +205,7 @@ class Favorite(models.Model):
         return cls.objects.filter(user=user, **lookup).exists()
 
     @classmethod
-    def for_user(cls, user: AbstractBaseUser | AnonymousUser | None) -> tuple[QuerySet[DirectoryIndex], QuerySet[FileIndex]]:
+    def for_user(cls, user: _AnyUser | None) -> tuple[QuerySet[DirectoryIndex], QuerySet[FileIndex]]:
         """
         Return the directories and files favorited by the given user.
 
@@ -230,16 +229,12 @@ class Favorite(models.Model):
         if user is None or not user.is_authenticated:
             return DirectoryIndex.objects.none(), FileIndex.objects.none()
 
-        # cast: is_authenticated narrows out AnonymousUser at runtime, but not
-        # for mypy; the FK lookup's expected type is the swappable
-        # AUTH_USER_MODEL, which mypy can't resolve from AbstractBaseUser.
-        real_user = cast(Any, user)
         directories = DirectoryIndex.objects.filter(
-            favorited_by__user=real_user,
+            favorited_by__user=user,
             delete_pending=False,
         ).order_by("-favorited_by__created")
         files = FileIndex.objects.filter(
-            favorited_by__user=real_user,
+            favorited_by__user=user,
             delete_pending=False,
         ).order_by("-favorited_by__created")
         return directories, files
@@ -247,7 +242,7 @@ class Favorite(models.Model):
     @staticmethod
     def annotate_is_favorited(
         queryset: QuerySet[DirectoryIndex] | QuerySet[FileIndex],
-        user: AbstractBaseUser | AnonymousUser | None,
+        user: _AnyUser | None,
         *,
         target_field: str,
     ) -> QuerySet[Any]:
@@ -282,11 +277,8 @@ class Favorite(models.Model):
             The same queryset with an `is_favorited` annotation added.
         """
         if user is not None and user.is_authenticated:
-            # cast: is_authenticated narrows out AnonymousUser at runtime,
-            # not for mypy; Favorite.user's expected type is the swappable
-            # AUTH_USER_MODEL, which mypy can't resolve from AbstractBaseUser.
             return queryset.annotate(
-                is_favorited=Exists(Favorite.objects.filter(user=cast(Any, user), **{target_field: OuterRef("pk")})),
+                is_favorited=Exists(Favorite.objects.filter(user=user, **{target_field: OuterRef("pk")})),
             )
         return queryset.annotate(is_favorited=Value(False, output_field=BooleanField()))
 

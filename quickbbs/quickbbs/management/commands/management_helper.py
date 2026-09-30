@@ -10,7 +10,6 @@ from __future__ import annotations
 import os
 import time
 
-from django.conf import settings
 from django.db.models import Count
 
 from quickbbs.common import normalize_fqpn
@@ -42,7 +41,7 @@ def resolve_albums_root(start_path: str | None) -> str | None:
             print(f"ERROR: --start path is outside the albums root: {albums_root}")
             return None
     else:
-        albums_root = normalize_fqpn(os.path.join(settings.ALBUMS_PATH, "albums"))
+        albums_root = DirectoryIndex.get_albums_root()
 
     if not os.path.exists(albums_root):
         print(f"ERROR: Albums root does not exist: {albums_root}")

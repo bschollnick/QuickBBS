@@ -24,49 +24,25 @@ from __future__ import annotations
 
 import os
 import shutil
-import tempfile
-from unittest import mock
 
 import pytest
-from django.test import TestCase, override_settings
 
 from frontend.file_listings import return_disk_listing_sync
 from quickbbs.directoryindex import update_database_from_disk
 from quickbbs.fileindex import FileIndex
 from quickbbs.models import DirectoryIndex
+from quickbbs.tests.albums_root import AlbumsRootTestCase
 
 pytestmark = pytest.mark.api
 
 
-class SyncTestBase(TestCase):
-    """Temp albums tree fixture with helpers to write files and re-sync.
-
-    update_database_from_disk() ends with close_old_connections(); with
-    CONN_MAX_AGE=0 that closes the connection outright, which cannot be
-    reopened inside TestCase's atomic wrapper — so it is patched to a no-op
-    for the duration of each test.
-    """
+class SyncTestBase(AlbumsRootTestCase):
+    """Temp albums tree fixture with helpers to write files and re-sync."""
 
     def setUp(self) -> None:
-        self._coc_patcher = mock.patch("quickbbs.directoryindex.close_old_connections")
-        self._coc_patcher.start()
-        self.temp_dir = tempfile.mkdtemp()
-        self.albums_dir = os.path.join(self.temp_dir, "albums")
-        os.makedirs(self.albums_dir, exist_ok=True)
-        self._settings_override = override_settings(ALBUMS_PATH=self.temp_dir)
-        self._settings_override.enable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        _, dir_obj = DirectoryIndex.add_directory(self.albums_dir + "/")
-        assert dir_obj is not None, "add_directory rejected the albums fixture path"
-        self.dir_obj: DirectoryIndex = dir_obj
-
-    def tearDown(self) -> None:
-        self._coc_patcher.stop()
-        self._settings_override.disable()
-        DirectoryIndex._albums_prefix = None
-        DirectoryIndex._albums_root = None
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        super().setUp()
+        self.keep_connection_open("quickbbs.directoryindex")
+        self.dir_obj = self.add_directory()
 
     def write_file(self, name: str, content: bytes = b"data", directory: str | None = None) -> str:
         """Create a file under the albums dir (or *directory*) and return its path."""

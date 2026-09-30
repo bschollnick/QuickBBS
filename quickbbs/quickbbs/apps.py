@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 import logging
-import os
-import sys
 
 from django.apps import AppConfig
+from django.contrib.admin import apps as admin_apps
+
+from quickbbs.server_role import server_role
 
 logger = logging.getLogger(__name__)
+
+
+class QuickbbsAdminConfig(admin_apps.AdminConfig):
+    """`django.contrib.admin`, with `QuickbbsAdminSite` as its default site."""
+
+    default = False  # Named in INSTALLED_APPS; `QuickbbsConfig` stays this module's default.
+    default_site = "quickbbs.admin_site.QuickbbsAdminSite"
 
 
 class QuickbbsConfig(AppConfig):
@@ -24,28 +32,14 @@ class QuickbbsConfig(AppConfig):
     def ready(self) -> None:
         """Run startup checks once per server process.
 
-        Only runs for server commands (runserver/runserver_plus dev reloader
-        child, or production ASGI/WSGI workers), not for management commands
-        like migrate/shell/scan — mirrors the gating used in
-        cache_watcher.apps.cache_startup.ready().
-
-        Returns:
-            None
+        The certificate check and statistics reconciliation are skipped
+        unless `server_role()` reports a dev server or production worker.
         """
         self._register_scheduled_task_admin()
         self._connect_favorite_delete_logging()
 
-        is_manage_py = sys.argv[0].endswith("manage.py") and len(sys.argv) > 1
-        is_dev_server_cmd = is_manage_py and sys.argv[1] in ("runserver", "runserver_plus")
-        is_other_management_cmd = is_manage_py and not is_dev_server_cmd
-
-        if is_other_management_cmd:
+        if server_role() == "not_a_server":
             return
-
-        if is_dev_server_cmd:
-            run_main = os.environ.get("WERKZEUG_RUN_MAIN") or os.environ.get("RUN_MAIN")
-            if run_main != "true":
-                return
 
         self._check_ssl_cert_expiry()
         self._reconcile_cache_statistics()
@@ -99,8 +93,8 @@ class QuickbbsConfig(AppConfig):
         finished loading all apps.
         """
         try:
-            from quickbbs.tasks import (
-                check_ssl_cert_expiry,  # pylint: disable=import-outside-toplevel
+            from quickbbs.tasks import (  # pylint: disable=import-outside-toplevel
+                check_ssl_cert_expiry,
             )
 
             check_ssl_cert_expiry.func()
@@ -141,8 +135,8 @@ class QuickbbsConfig(AppConfig):
 
         request_started.disconnect(dispatch_uid="quickbbs.reconcile_cache_statistics")
         try:
-            from quickbbs.tasks import (
-                reconcile_cache_statistics_rows,  # pylint: disable=import-outside-toplevel
+            from quickbbs.tasks import (  # pylint: disable=import-outside-toplevel
+                reconcile_cache_statistics_rows,
             )
 
             reconcile_cache_statistics_rows()

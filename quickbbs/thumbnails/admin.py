@@ -40,6 +40,7 @@ class AdminThumbnail_Files(admin.ModelAdmin):
 
     actions = ["download_thumbnails"]
 
+    @admin.action(description="Download selected thumbnails as ZIP")
     def download_thumbnails(self, request, queryset):
         """
         Admin action to download selected thumbnails as a ZIP file.
@@ -87,8 +88,6 @@ class AdminThumbnail_Files(admin.ModelAdmin):
         self.message_user(request, f"Downloaded thumbnails for {count} record(s).")
 
         return response
-
-    download_thumbnails.short_description = "Download selected thumbnails as ZIP"
 
     def sthumb(self, obj):
         """Return the first 25 bytes of the small thumbnail blob for list display."""

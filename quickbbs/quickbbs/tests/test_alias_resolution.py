@@ -16,6 +16,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from django.conf import settings
 from django.test import override_settings
 
 from quickbbs.common import get_dir_sha, normalize_fqpn
@@ -24,6 +25,15 @@ from quickbbs.fileindex import FileIndex
 from quickbbs.tests.test_directoryindex import DirectoryIndexTestBase, _make_dirs
 
 pytestmark = pytest.mark.api
+
+
+def test_alias_mapping_is_a_real_django_setting() -> None:
+    """The override table reaches `django.conf.settings` without a test override.
+
+    Every other test here overrides it, so this is the one that fails if
+    `settings.py` stops importing it from `quickbbs_settings`.
+    """
+    assert isinstance(settings.ALIAS_MAPPING, dict)
 
 
 class AliasResolutionTestBase(DirectoryIndexTestBase):

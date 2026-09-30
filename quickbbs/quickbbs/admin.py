@@ -12,7 +12,6 @@ from django.utils import timezone
 from django.utils.html import format_html
 
 from quickbbs.models import DirectoryIndex, Favorite, FileIndex, Owners
-from quickbbs.tasks import get_vacuum_candidates
 from thumbnails.models import ThumbnailFiles
 
 
@@ -230,25 +229,6 @@ class AdminFavorite(admin.ModelAdmin):
     list_filter = ["user"]
     search_fields = ["user__username", "file__name", "directory__fqpndirectory"]
     readonly_fields = ("created",)
-
-
-_original_admin_index = admin.site.index
-
-
-def _index_with_vacuum_status(request: HttpRequest, extra_context: dict | None = None):
-    """Inject PostgreSQL vacuum-candidate tables into the admin index context.
-
-    Wraps AdminSite.index() rather than subclassing AdminSite, since
-    quickbbs/urls.py registers the default admin.site directly. Reuses
-    quickbbs.tasks.get_vacuum_candidates() (also used by the weekly_vacuum_check
-    periodic task) so the admin widget and the logged warning agree.
-    """
-    extra_context = extra_context or {}
-    extra_context["vacuum_candidates"] = get_vacuum_candidates()
-    return _original_admin_index(request, extra_context)
-
-
-admin.site.index = _index_with_vacuum_status
 
 
 _STATUS_COLORS = {

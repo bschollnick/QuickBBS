@@ -1,22 +1,41 @@
-"""PyMuPDF (fitz) backend for cross-platform PDF thumbnail generation."""
+"""PyMuPDF backend for cross-platform PDF thumbnail generation."""
 
-import fitz  # PyMuPDF
+import os
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+
+import pymupdf
 from cachetools import cached
 from django.conf import settings
 from PIL import Image, ImageOps
 
 from quickbbs.MonitoredCache import create_cache
 
-from .base import AbstractBackend
+from .base import AbstractBackend, ThumbnailResult
+from .exceptions import PDFProcessingError
 from .pil_thumbnails import ImageBackend
 
 _zoom_cache = create_cache(settings.PDF_ZOOM_CACHE_SIZE, "pdf_zoom", monitored=settings.CACHE_MONITORING)
 
 
+@contextmanager
+def _open_page(open_document: Callable[[], pymupdf.Document], *, page_num: int, source: str) -> Iterator[pymupdf.Page]:
+    """Yield page `page_num` (page 0 if out of range) of the document `open_document` returns, closing it after.
+
+    Any PyMuPDF error (all subclass RuntimeError), or PIL's OSError or ValueError, raised
+    while opening or inside the `with` block is re-raised as PDFProcessingError.
+    """
+    try:
+        with open_document() as pdf_doc:
+            yield pdf_doc[page_num if page_num < len(pdf_doc) else 0]
+    except (RuntimeError, OSError, ValueError) as e:
+        raise PDFProcessingError(f"Error processing PDF: {e}", file_path=source) from e
+
+
 class PDFBackend(AbstractBackend):
     """PyMuPDF backend for PDF thumbnail generation.
 
-    Uses PyMuPDF (fitz) to render PDF pages as images, then processes
+    Uses PyMuPDF to render PDF pages as images, then processes
     them using the PIL backend for thumbnail generation.
     Includes optimization for zoom calculation caching and backend reuse.
 
@@ -28,8 +47,8 @@ class PDFBackend(AbstractBackend):
         ...     output_format="JPEG",
         ...     quality=85,
         ... )
-        >>> sorted(thumbs)
-        ['format', 'small']
+        >>> sorted(thumbs.images), thumbs.format
+        (['small'], 'JPEG')
     """
 
     __slots__ = ("_image_backend",)
@@ -69,7 +88,7 @@ class PDFBackend(AbstractBackend):
         sizes: dict[str, tuple[int, int]],
         output_format: str,
         quality: int,
-    ) -> dict[str, bytes]:
+    ) -> ThumbnailResult:
         """
         Render a PDF page to thumbnails in every requested size.
 
@@ -85,8 +104,7 @@ class PDFBackend(AbstractBackend):
             quality: Image quality (1-100).
 
         Returns:
-            Dictionary with a 'format' key (the output format string) and one
-            entry per size name mapping to the thumbnail bytes.
+            The thumbnails, keyed by size name, in `output_format`.
         """
         # Calculate optimal zoom for largest requested size using cached method
         largest_size = max(sizes.values(), key=lambda s: s[0] * s[1])
@@ -94,7 +112,7 @@ class PDFBackend(AbstractBackend):
         zoom = self._calculate_optimal_zoom(rect.width, rect.height, largest_size[0], largest_size[1])
 
         # Create matrix for rendering
-        mat = fitz.Matrix(zoom, zoom)
+        mat = pymupdf.Matrix(zoom, zoom)
 
         # Render page to pixmap
         pix = page.get_pixmap(matrix=mat)
@@ -107,10 +125,7 @@ class PDFBackend(AbstractBackend):
         img = ImageOps.exif_transpose(img)
 
         # Process the image using cached backend
-        output = {}
-        pillow_output = self._image_backend._process_pil_image(img, sizes, output_format, quality)
-        output["format"] = output_format
-        output.update(pillow_output)
+        output = ThumbnailResult(self._image_backend.render_sizes(img, sizes, output_format, quality), output_format)
 
         return output
 
@@ -120,7 +135,7 @@ class PDFBackend(AbstractBackend):
         sizes: dict[str, tuple[int, int]],
         output_format: str,
         quality: int,
-    ) -> dict[str, bytes]:
+    ) -> ThumbnailResult:
         """
         Process a PDF file and generate thumbnails of its first page.
 
@@ -131,44 +146,30 @@ class PDFBackend(AbstractBackend):
             quality: Image quality (1-100).
 
         Returns:
-            Dictionary with a 'format' key (the output format string) and one
-            entry per size name mapping to the thumbnail bytes.
+            The thumbnails, keyed by size name, in `output_format`.
 
         Raises:
-            Exception: Wrapping the underlying fitz/PIL error if the PDF
-                cannot be opened or rendered.
+            FileNotFoundError: If the PDF file does not exist.
+            PDFProcessingError: If the PDF cannot be opened or rendered.
         """
-        page_num = 0
-        try:
-            pdf_doc = fitz.open(file_path)
-
-            if page_num >= len(pdf_doc):
-                page_num = 0
-
-            page = pdf_doc[page_num]
-            output = self._render_pdf_page(page, sizes, output_format, quality)
-
-            # Clean up
-            pdf_doc.close()
-
-            return output
-
-        except Exception as e:
-            raise RuntimeError(f"Error processing PDF: {e}") from e
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"PDF file not found: {file_path}")
+        with _open_page(lambda: pymupdf.open(file_path), page_num=0, source=file_path) as page:
+            return self._render_pdf_page(page, sizes, output_format, quality)
 
     def process_from_memory(
         self,
-        pdf_bytes: bytes,
+        source_bytes: bytes,
         sizes: dict[str, tuple[int, int]],
         output_format: str,
         quality: int,
         page_num: int = 0,
-    ) -> dict[str, bytes]:
+    ) -> ThumbnailResult:
         """
         Process PDF bytes and generate thumbnails.
 
         Args:
-            pdf_bytes: PDF file as bytes.
+            source_bytes: PDF file as bytes.
             sizes: Dictionary of size names to (width, height) tuples.
             output_format: Output format (JPEG, PNG, WEBP).
             quality: Image quality (1-100).
@@ -176,29 +177,13 @@ class PDFBackend(AbstractBackend):
                 default 0). Falls back to page 0 if out of range.
 
         Returns:
-            Dictionary with a 'format' key (the output format string) and one
-            entry per size name mapping to the thumbnail bytes.
+            The thumbnails, keyed by size name, in `output_format`.
 
         Raises:
-            Exception: Wrapping the underlying fitz/PIL error if the PDF
-                cannot be opened or rendered.
+            PDFProcessingError: If the PDF cannot be opened or rendered.
         """
-        try:
-            pdf_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-
-            if page_num >= len(pdf_doc):
-                page_num = 0
-
-            page = pdf_doc[page_num]
-            output = self._render_pdf_page(page, sizes, output_format, quality)
-
-            # Clean up
-            pdf_doc.close()
-
-            return output
-
-        except Exception as e:
-            raise RuntimeError(f"Error processing PDF bytes: {e}") from e
+        with _open_page(lambda: pymupdf.open(stream=source_bytes, filetype="pdf"), page_num=page_num, source="PDF bytes") as page:
+            return self._render_pdf_page(page, sizes, output_format, quality)
 
     def process_data(
         self,
@@ -206,7 +191,7 @@ class PDFBackend(AbstractBackend):
         sizes: dict[str, tuple[int, int]],
         output_format: str,
         quality: int,
-    ) -> dict[str, bytes]:
+    ) -> ThumbnailResult:
         """
         Process a PIL Image and generate thumbnails.
 
@@ -221,95 +206,3 @@ class PDFBackend(AbstractBackend):
                 not supported.
         """
         raise NotImplementedError("PDF processing from PIL Image is not implemented.")
-
-    # def _process_pil_image(
-    #     self,
-    #     img: Image.Image,
-    #     sizes: dict[str, tuple[int, int]],
-    #     output_format: str,
-    #     quality: int,
-    # ) -> dict[str, bytes]:
-    #     """Process PIL image and generate multiple thumbnail sizes."""
-    #     results = {}
-
-    #     # Convert to RGB if necessary for JPEG output
-    #     if output_format.upper() == "JPEG" and img.mode in ("RGBA", "P", "LA"):
-    #         background = Image.new("RGB", img.size, (255, 255, 255))
-    #         if img.mode == "P":
-    #             img = img.convert("RGBA")
-    #         background.paste(
-    #             img, mask=img.split()[-1] if img.mode in ("RGBA", "LA") else None
-    #         )
-    #         img = background
-    #     elif img.mode not in ("RGB", "RGBA", "L"):
-    #         img = img.convert("RGB")
-
-    #     # Auto-orient based on EXIF (though PDFs typically don't have EXIF)
-    #     img = ImageOps.exif_transpose(img)
-
-    #     # Sort sizes by area (largest first) for better quality
-    #     sorted_sizes = sorted(
-    #         sizes.items(), key=lambda x: x[1][0] * x[1][1], reverse=True
-    #     )
-
-    #     for size_name, target_size in sorted_sizes:
-    #         working_img = img.copy()
-    #         working_img.thumbnail(target_size, Image.Resampling.LANCZOS)
-
-    #         buffer = io.BytesIO()
-    #         save_kwargs = {"format": output_format}
-
-    #         if output_format.upper() in ["JPEG", "JPG"]:
-    #             save_kwargs.update(
-    #                 {"quality": quality, "optimize": True, "progressive": True}
-    #             )
-    #         elif output_format.upper() == "PNG":
-    #             save_kwargs.update({"optimize": True})
-    #         elif output_format.upper() == "WEBP":
-    #             save_kwargs.update({"quality": quality, "optimize": True})
-
-    #         working_img.save(buffer, **save_kwargs)
-    #         results[size_name] = buffer.getvalue()
-
-    #     return results
-
-
-# Example usage
-if __name__ == "__main__":
-
-    def output_disk(filename, data):
-        """Helper function to write bytes to a file."""
-        with open(filename, "wb") as f:
-            f.write(data)
-        print(f"Saved {filename} with {len(data)} bytes.")
-
-    backend = PDFBackend()
-
-    # Define thumbnail sizes
-    test_sizes = {"small": (150, 150), "medium": (300, 300), "large": (600, 600)}
-
-    # Generate thumbnails from PDF file
-    try:
-        thumbnails = backend.process_from_file(
-            file_path="test.pdf",
-            sizes=test_sizes,
-            output_format="JPEG",
-            quality=85,
-        )
-        print(f"Format: {thumbnails['format']}")
-        small_thumb_bytes = thumbnails["small"]
-        medium_thumb_bytes = thumbnails["medium"]
-        large_thumb_bytes = thumbnails["large"]
-        print(small_thumb_bytes[:20], medium_thumb_bytes[:20], large_thumb_bytes[:20])
-        print(f"size of small thumbnail: {len(thumbnails['small'])} bytes")
-        print(f"size of medium thumbnail: {len(thumbnails['medium'])} bytes")
-        print(f"size of large thumbnail: {len(thumbnails['large'])} bytes")
-
-        output_disk("pdf_small_thumb.jpg", small_thumb_bytes)
-        output_disk("pdf_medium_thumb.jpg", medium_thumb_bytes)
-        output_disk("pdf_large_thumb.jpg", large_thumb_bytes)
-
-        print("PDF thumbnails created successfully!")
-
-    except (OSError, RuntimeError, ValueError) as e:  # TODO: add backend-specific exceptions (fitz.FitzError, PIL.UnidentifiedImageError) once known
-        print(f"Error: {e}")
