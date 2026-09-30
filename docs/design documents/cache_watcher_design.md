@@ -1,11 +1,11 @@
 # cache_watcher — Design Document
 
-**Version:** 4.4
+**Version:** 4.5  
 **Author:** Benjamin Schollnick
 
 **Date Created:** 2026-08-08  
-**Last Updated:** 2026-09-19  
-**Last Reviewed:** 2026-09-19
+**Last Updated:** 2026-09-25  
+**Last Reviewed:** 2026-09-25
 
 **See also:** [`cache_watcher_erd.md`](cache_watcher_erd.md) for the entity-relationship
 diagram; [`cache_watcher_exceptions.md`](cache_watcher_exceptions.md) for the
@@ -30,7 +30,8 @@ what changed. The watcher's only job is telling it *that* something changed and 
 as fast as it can, and then getting out of the way.
 
 - **The rule.** An event handler never performs the rescan itself. It marks the affected
-  directory (and its ancestors) invalidated and stops.
+  directory (and its ancestors) invalidated, registers a row for any new directory it has
+  not seen before (without listing that directory's contents), and stops.
 - **Consequence: the watcher never blocks on slow filesystem work.** Actually rescanning
   a directory means statting files, rebuilding listings — work whose cost scales with
   directory size. Doing that inline in the event handler would make the handler itself
@@ -42,9 +43,9 @@ as fast as it can, and then getting out of the way.
 ### 1.2 No scheduled sweep here either
 
 Carried down from [quickbbs Section 1.1](quickbbs_app_design.md#11-the-filesystem-is-the-source-of-truth-the-database-is-a-cache).
-The watcher only runs inside a running web server process — there is no standalone
-watcher process, and nothing here polls the filesystem on a timer. A directory changed
-while no server was running is invisible to this app entirely; the `scan` management
+The watcher runs inside whichever process `ready()` elects (Section 4.1) — there is no
+standalone watcher process, and nothing here polls the filesystem on a timer. A directory
+changed while no watcher was running is invisible to this app entirely; the `scan` management
 command (data layer, not this app) is the intended way to catch up externally. This app
 does not attempt to compensate for that gap itself.
 
@@ -57,19 +58,17 @@ for what is, from the data layer's point of view, one change.
 
 - **The rule.** Events for a directory are collected for a short debounce window and
   processed together as one batch, rather than triggered on every single event.
-- **Consequence: one processing pass per burst, not one per event.** The goal is
-  minimizing repeated hits to the same directory, not a resource-usage fix — no memory
-  or performance problem has actually been observed from the naive per-event approach;
-  bundling is done because it is the more sensible way to handle a burst of events
-  describing the same change.
+- **Consequence: one processing pass per burst, not one per event.** Bundling exists to
+  stop the same directory being invalidated repeatedly for one change; it was not added
+  to fix a measured memory or performance problem.
 
 ---
 
 ## 2. Purpose
 
 `cache_watcher` is a Django application that observes the gallery filesystem for changes
-and marks the affected `DirectoryIndex` records invalidated, so QuickBBS never serves a
-stale directory listing without an explicit, deliberate cache lookup to justify it.
+and marks the affected `DirectoryIndex` records invalidated, so the next visit to a
+changed directory rescans it instead of serving its stale listing.
 
 It owns:
 
@@ -77,8 +76,9 @@ It owns:
   detecting file and directory creation, deletion, modification, and moves.
 - **Event debouncing and batching** — collapsing bursts of events for the same
   directory into a single invalidation pass.
-- **Single-instance startup** — ensuring exactly one observer runs regardless of how
-  many worker processes the web server spawns.
+- **Single-instance startup** — starting an observer only in a server process, and
+  electing one among a production server's workers so several workers do not each run
+  one (Section 4.1).
 
 It does not own rescanning, listing reconstruction, or any decision about *what* a
 directory now contains — that is `quickbbs.directoryindex.DirectoryIndex`'s
@@ -89,12 +89,13 @@ responsibility, triggered the next time the directory is visited or explicitly s
 ## 3. High-Level Architecture
 
 ```
-Django app startup                                    apps.py: cache_startup.ready()
-  │                                        elects one instance (dev child / prod flock)
+Django app startup                               apps.py: CacheWatcherConfig.ready()
+  │                      quickbbs.server_role.server_role() decides; production workers
+  │                                             elect one watcher with an fcntl lock
   ▼
 WatchdogManager.start()                                        models.py
   │                                    creates CacheFileMonitorEventHandler
-  │                                        schedules 4-hour restart timer
+  │                  schedules restart timer (WATCHDOG_RESTART_INTERVAL, 4 hours)
   ▼
 WatchdogMonitor.startup()                                   watchdogmon.py
   │                                thin wrapper around watchdog.observers.Observer
@@ -105,8 +106,9 @@ CacheFileMonitorEventHandler                                        models.py
   │                              → threading.Timer(EVENT_PROCESSING_DELAY)
   ▼
 _process_buffered_events()                                          models.py
-  │                        → DirectoryIndex.invalidate_caches(known dirs)
-  │                     → DirectoryIndex.add_directory() (unknown dirs on disk)
+  │                        → _apply_directory_changes()
+  │                        → DirectoryIndex.invalidate_caches(known directories)
+  │                     → DirectoryIndex.add_directory() (new directories on disk)
   ▼
 DirectoryIndex (cache_invalidated / cache_lastscan)          quickbbs/directoryindex.py
 ```
@@ -121,8 +123,10 @@ DirectoryIndex (cache_invalidated / cache_lastscan)          quickbbs/directoryi
 is allowed to be the one watching the gallery for filesystem changes, so the whole
 system doesn't end up with several watchers all reacting to the same change at once.
 
-**What is its purpose?** Defines `cache_startup`, the Django `AppConfig` subclass whose
-`ready()` hook is the entry point for the whole subsystem.
+**What is its purpose?** Defines `CacheWatcherConfig`, the Django `AppConfig` subclass whose
+`ready()` hook is the entry point for the whole subsystem. The process classification comes
+from `quickbbs.server_role.server_role()`, which `QuickbbsConfig.ready()` also uses to run its
+start-up checks once per server.
 
 ---
 
@@ -133,25 +137,30 @@ that gets to watch the filesystem — so that running several worker processes (
 production server normally does) doesn't mean several observers all reacting to the
 same changes.
 
-**What is its purpose?** `AppConfig.ready()` hook: detects which of three execution
-contexts the current process is running in, and starts `watchdog_manager` only in the
-one process that should own it.
+**What is its purpose?** `AppConfig.ready()` hook: asks which of three roles the current
+process has, and starts `watchdog_manager` only where that role calls for it.
 
-Three execution contexts are distinguished by argv and environment, because the
-alternative — starting a watchdog in every process that happens to import Django — would
-mean multiple observers reacting to the same filesystem, each doing the same redundant
-work over again.
+`quickbbs.server_role.server_role()` classifies the process from `sys.argv` and the
+`QUICKBBS_SERVER` environment variable; `ready()` acts on its answer. Starting a watchdog in every process that
+loads Django would mean several observers reacting to the same filesystem, each
+repeating the same work.
 
-| Context | Detection | Action |
+| Role | Detection | Action |
 |---|---|---|
-| Management command (`scan`, `migrate`, `shell`, …) | `argv[1]` is not `runserver`/`runserver_plus` | Skip — no watchdog needed |
-| Dev server reloader child | `RUN_MAIN=true` or `WERKZEUG_RUN_MAIN=true` | Start watchdog directly |
-| Dev server reloader parent / MCP servers | Neither env var set | Skip |
-| Production WSGI/ASGI worker (gunicorn, uvicorn, hypercorn) | Neither dev-server env var, `argv[0]` is not `manage.py` | Elect one worker via `fcntl` file lock |
+| `dev_server`: the development server's reloader child | `manage.py runserver`/`runserver_plus` with `RUN_MAIN` or `WERKZEUG_RUN_MAIN` set to `"true"` | Start the watchdog directly, with no lock |
+| `not_a_server`: any other `manage.py` command, or the development server's reloader parent | `argv[0]` ends with `manage.py` and the row above does not match | Skip |
+| `production_server`: an ASGI server worker | `QUICKBBS_SERVER=1` in the environment; every `start_*.sh` server script exports it | Start the watchdog only in the worker that wins the `fcntl` lock |
+| `not_a_server`: everything else — pytest, scripts that call `django.setup()`, the `django-ai-boost` MCP server | none of the above | Skip |
 
-The production election writes the winning worker's PID to `/tmp/quickbbs_watchdog.lock`
-and releases it via `atexit`. On startup, a lock file whose recorded PID is no longer
-alive is treated as stale and removed before a new attempt.
+A server started by hand, without a start script, needs `QUICKBBS_SERVER=1` set, or it
+serves requests with no watchdog and skips `QuickbbsConfig.ready()`'s start-up checks.
+The development server's reloader child takes no lock, so a development server and a
+production server started at the same time each run a watchdog.
+
+The production election (`_acquire_watchdog_lock()`) writes the winning worker's PID to
+`WATCHDOG_LOCK_PATH` (`/tmp/quickbbs_watchdog.lock`) and releases it via `atexit`. Before
+the attempt, `_remove_stale_lock()` deletes a lock file whose recorded PID is no longer
+running; a PID owned by another user counts as running, and its file is kept.
 
 ---
 
@@ -162,11 +171,13 @@ watching on and off, instead of every caller needing to know how the underlying
 watchdog library actually works.
 
 **What is its purpose?** Defines `WatchdogMonitor`, a thin wrapper around the
-third-party `watchdog` library's `Observer`, exposing one small surface (`startup`,
-`stop_observer`, `shutdown`) instead of the `Observer` API directly.
+third-party `watchdog` library's `Observer`, exposing `startup`, `stop_observer` and
+`shutdown` instead of the `Observer` API directly. It also defines an `on_event()`
+method that does nothing and has no caller.
 
-A module-level singleton `watchdog = WatchdogMonitor()` is exported; `__init__.py` wires
-`signal.SIGINT` to `watchdog.shutdown`.
+A module-level singleton `watchdog = WatchdogMonitor()` is exported. `__init__.py` wires
+`signal.SIGINT` to `watchdog.shutdown` when the `cache_watcher` package is imported,
+which happens in every process that loads Django.
 
 ---
 
@@ -176,7 +187,9 @@ A module-level singleton `watchdog = WatchdogMonitor()` is exported; `__init__.p
 needing to know anything about the underlying `watchdog` library's API.
 
 **What is its purpose?** Schedules `event_handler` on `monitor_path`, recursively. If
-`force_recreate=True`, tears down and rebuilds the `Observer` instance first.
+`force_recreate=True`, tears down the existing `Observer` first and creates a new one;
+otherwise any handler already scheduled on the existing `Observer` is unscheduled and the
+`Observer` is reused.
 
 ---
 
@@ -185,8 +198,10 @@ needing to know anything about the underlying `watchdog` library's API.
 **What does this do?** Turns off filesystem watching cleanly, without killing the
 process — the operation used for restarts and ordinary shutdown alike.
 
-**What is its purpose?** Stops observer threads with a 5-second join timeout, then
-clears all references so they can be garbage collected.
+**What is its purpose?** Unschedules the current watch, stops the observer threads with
+a 5-second join timeout (logging a warning if they are still alive), then clears all
+references so they can be garbage collected. The references are cleared even when
+stopping raises.
 
 ---
 
@@ -196,7 +211,9 @@ clears all references so they can be garbage collected.
 to stop — makes sure the filesystem watcher doesn't keep running past the server it
 belongs to.
 
-**What is its purpose?** Bound to `SIGINT`. Calls `stop_observer()`, then `sys.exit(0)`.
+**What is its purpose?** Bound to `SIGINT`. Calls `stop_observer()` only when `RUN_MAIN`
+is `"true"` (the development server's reloader child), then calls `sys.exit(0)` in every
+case.
 
 ---
 
@@ -209,9 +226,9 @@ instead of reacting separately to every single file that changed.
 **What is its purpose?** Defines `LockFreeEventBuffer`, the deduplicating buffer for
 pending directory paths that implements Section 1.3's bundling.
 
-Uses `threading.RLock`, not `asyncio.Lock` — watchdog delivers events from OS threads
-that exist outside any asyncio event loop, so an `asyncio.Lock` here would simply never
-be contended correctly and would silently break the buffering.
+Despite its name, every method takes a `threading.RLock`. It is a `threading` lock, not
+an `asyncio.Lock`, because watchdog delivers events from OS threads outside any asyncio
+event loop, and an `asyncio.Lock` would not exclude those threads at all.
 
 ---
 
@@ -225,11 +242,12 @@ up a separate record for every individual file event inside a bulk operation.
 within one debounce window — collapse to a single entry at insert time rather than
 being deduplicated later.
 
-`max_size` (200) caps *unique* directories pending, not raw events; if that cap is
-exceeded the oldest 50% are evicted with a logged warning. Under ordinary gallery
-activity this limit is not reached — it exists as a safety valve against a
-pathologically wide burst of changes across many directories at once, not against
-ordinary bulk-copy volume within a few directories.
+`max_size` (200) caps *unique* directories pending, not raw events. When an insert takes
+the set past that cap, arbitrary entries are removed until 100 (half of `max_size`)
+remain, and a warning logs how many were dropped. A set has no order, so which
+directories are dropped is not predictable, and their invalidations are lost. The cap
+guards against one burst spanning more than 200 distinct directories; a bulk copy
+into a few directories does not approach it.
 
 ---
 
@@ -256,9 +274,9 @@ lifecycle, including its own periodic restart.
 
 | Attribute | Type | Purpose |
 |---|---|---|
-| `monitor_path` | `str` | `{ALBUMS_PATH}/albums` |
-| `event_handler` | `CacheFileMonitorEventHandler` | Currently active handler |
-| `restart_timer` | `threading.Timer` | Next scheduled restart |
+| `monitor_path` | `str` | `{ALBUMS_PATH}/albums`, read once when the manager is constructed (at import of `cache_watcher.models`) |
+| `event_handler` | `CacheFileMonitorEventHandler \| None` | Currently active handler |
+| `restart_timer` | `threading.Timer \| None` | Next scheduled restart |
 | `lock` | `threading.Lock` | Guards all state mutation |
 | `is_running` | `bool` | Prevents double-start |
 
@@ -271,7 +289,9 @@ scheduling its own future restart at the same time.
 
 **What is its purpose?** Creates a `CacheFileMonitorEventHandler`, hands it to
 `watchdog.startup()`, and — on success — calls `_schedule_restart()` so the periodic
-restart cycle described below is armed from the moment watching begins.
+restart cycle described below is armed from the moment watching begins. If the manager
+is already running it logs that and does nothing; if `watchdog.startup()` raises, it
+logs the error and re-raises.
 
 ---
 
@@ -288,8 +308,8 @@ again with `force_recreate=True`.
 **Restart cycle** (`WATCHDOG_RESTART_INTERVAL`, default 4 hours): `_schedule_restart()`
 arms a daemon `threading.Timer`; when it fires, this method runs.
 
-On this fixed schedule, the `Observer` and its internal state — including its event
-counters — get recreated from a clean baseline, rather than running indefinitely. If a
+On this fixed schedule, the `Observer` and its internal state are recreated from a
+clean baseline. This is a precaution; no leak in the `Observer` has been confirmed. If a
 restart itself fails, the timer is re-armed anyway, keeping the cycle running.
 
 ---
@@ -306,7 +326,7 @@ batched `DirectoryIndex` invalidations — the concrete implementation of Sectio
 
 ```
 event arrives (on_created / on_deleted / on_modified / on_moved)
-    → _buffer_event(): normalize to a directory path, add to LockFreeEventBuffer
+    → _buffer_event(): reduce to a directory path, add to LockFreeEventBuffer
     → if no debounce timer is currently running, start one (EVENT_PROCESSING_DELAY)
       (further events during that window just add to the buffer; no new timer)
 timer fires
@@ -321,9 +341,16 @@ timer fires
 anything expensive right away — the actual work waits until a short quiet period has
 passed.
 
-**What is its purpose?** Normalizes the event to a directory path, adds it to the
-shared `LockFreeEventBuffer`, and, if no debounce timer is currently running for this
-handler, starts one for `EVENT_PROCESSING_DELAY` seconds.
+**What is its purpose?** Reduces the event to a directory path, adds it to the shared
+`LockFreeEventBuffer`, and, if no debounce timer is currently running for this handler,
+starts one for `EVENT_PROCESSING_DELAY` seconds. Any exception is logged and swallowed,
+because one escaping would stop event delivery on the observer thread.
+
+**Which directory.** A directory event contributes its own path; a file event
+contributes the file's parent directory. A move uses `src_path` only, so `on_moved`
+never adds the destination directory. On macOS the destination directory receives its
+own directory-modified event, which invalidates it; other platforms have not been
+checked.
 
 **Debounce, not per-event dispatch.** A timer is created only if none is already
 running for this handler — subsequent events during the window are folded into the same
@@ -333,10 +360,10 @@ pass instead of one per file — see Section 1.3.
 
 **Generation counter.** Each new timer carries a monotonically increasing
 `timer_generation`. When a timer fires, it first checks that its generation still
-matches the handler's current one; a mismatch means this handler was superseded (a
-restart happened mid-flight) and the callback exits without doing anything.
-`cleanup()` cancels any pending timer and bumps the generation, so no in-flight timer
-can fire after its handler has been replaced.
+matches the handler's current one; a mismatch means `cleanup()` ran on this handler
+after the timer was created, and the callback exits without doing anything.
+`WatchdogManager.stop()` and `shutdown()` call `cleanup()`, which cancels a pending timer
+and bumps the generation, so no timer from a replaced handler processes events.
 
 ---
 
@@ -350,18 +377,21 @@ the actual database updates that tell the rest of QuickBBS a directory needs res
 `DirectoryIndex` row (or creates one if none exists yet), and marks the affected rows
 invalidated.
 
-1. Acquire `processing_semaphore` (non-blocking); if another thread already holds it,
-   skip this run — the next debounce window will pick up whatever is left in the buffer.
-2. `get_events_to_process()` — drain the buffer to a deduplicated set of paths.
-3. Compute each path's directory SHA256, batch-query `DirectoryIndex` for matches.
-4. **Known directories** → `DirectoryIndex.invalidate_caches(...)`.
-5. **Paths not found in `DirectoryIndex` that still exist on disk** →
-   `DirectoryIndex.add_directory()` is called only for these missing paths, creating a
-   new row (born `cache_invalidated=True`, the field's default for every row regardless
-   of how it was created); its parent directory is then invalidated so the parent's
-   subdirectory listing picks up the new entry on its next scan. A path that already has
-   a `DirectoryIndex` row skips this step entirely — it was already handled in step 4.
-6. Release the semaphore, clear the timer reference, `close_old_connections()`.
+1. Return at once if `expected_generation` no longer matches the handler's
+   `timer_generation` (see the generation counter above).
+2. Acquire `processing_semaphore` (non-blocking). If another thread already holds it,
+   clear the timer reference and return. The buffered paths stay in the buffer until
+   the next event starts a new timer, or the next restart flushes them.
+3. `get_events_to_process()` — drain the buffer to a deduplicated set of paths.
+4. `_apply_directory_changes()`, which `_process_pending_events()` also calls before a
+   restart:
+   - Compute each path's directory SHA256 and batch-query `DirectoryIndex` for matches.
+   - **Known directories** → `DirectoryIndex.invalidate_caches(...)`.
+   - **Paths with no `DirectoryIndex` row that are directories on disk** →
+     `DirectoryIndex.add_directory()` creates a row, born `cache_invalidated=True` (the
+     field's default). The new rows' parent directories are then invalidated, so each
+     parent's subdirectory listing picks up the new entry on its next scan.
+5. Release the semaphore, clear the timer reference, `close_old_connections()`.
 
 `invalidate_caches()` itself — expanding to ancestor directories, clearing the layout and
 `directoryindex_cache` entries — lives in `quickbbs.directoryindex.DirectoryIndex`, not
@@ -369,15 +399,19 @@ here; this handler only decides *which* SHAs need invalidating and hands them of
 
 ---
 
-### 4.6 `models.py`
+### 4.6 `models.py` — `CacheStatisticsTracking`
 
-**What does this do?** Keeps a history of how well the app's in-memory caches are
-performing, so an administrator can look back and see whether they're actually helping.
+**What does this do?** Records how well the app's in-memory caches are performing, so
+an administrator can see whether each one is actually helping.
 
-**What is its purpose?** Defines `CacheStatisticsTracking`, a Django model storing
-periodic snapshots of in-memory LRU cache hit/miss counters for admin display. Rows are
-written by a background snapshot task; manual create/delete is disabled in admin
-(`admin.py`).
+**What is its purpose?** Defines `CacheStatisticsTracking`, a Django model (table
+`cache_statistics_tracking`) holding one row per cache with its latest hit/miss counters,
+for display in the Django administration site. Rows are written by
+`quickbbs.tasks.snapshot_cache_statistics()`, which the gallery view calls on each
+request when `CACHE_MONITORING` is on and which writes at most once per
+`SNAPSHOT_MIN_INTERVAL` seconds. `quickbbs.tasks.reconcile_cache_statistics_rows()`
+deletes rows for caches that are no longer registered. Adding and deleting rows by hand
+is disabled in the administration site (`admin.py`).
 
 Fields: `cache_name`, `hits`, `misses`, `current_size`, `max_size`, `last_snapshot_at`,
 `last_reset_at`.
@@ -391,11 +425,11 @@ itself.
 
 #### `hit_rate` (property)
 
-**What does this do?** Turns raw hit/miss counts into the single number an admin
-actually wants to glance at.
+**What does this do?** Turns raw hit/miss counts into the single number an
+administrator wants to glance at.
 
-**What is its purpose?** Returns `hits / (hits + misses)` as a percentage, or `0.0` if
-no requests have been recorded yet.
+**What is its purpose?** Returns `hits / (hits + misses)` as a percentage from 0.0 to
+100.0, or `0.0` if no requests have been recorded yet.
 
 ---
 
@@ -406,9 +440,10 @@ cache is sized, and gives them a plain-language hint about whether a given cache
 looks too small, too large, or fine — without having to interpret the raw hit/miss
 numbers by hand.
 
-**What is its purpose?** `CacheStatisticsTrackingAdmin` — a read-only admin view of
-`CacheStatisticsTracking`. Every field is `readonly_fields`; add and delete are both
-disabled, since rows are managed exclusively by the snapshot task.
+**What is its purpose?** `CacheStatisticsTrackingAdmin` — a read-only administration
+view of `CacheStatisticsTracking`. Every field is in `readonly_fields`; add and delete are
+both disabled, since rows are written only by the snapshot and reconciliation functions
+(Section 4.6).
 
 **Sizing Advice column.** A low hit rate alone doesn't say what to do about it — it
 has two unrelated causes (see
@@ -418,16 +453,23 @@ where a key is really being reused but doesn't survive long enough in the cache 
 there for the second lookup, and cold-key traffic, where most keys are inherently
 one-shot and no `maxsize` would ever turn a miss into a hit. `get_sizing_advice()`
 distinguishes the two using `current_size` relative to `max_size` from the same
-snapshot row: a cache running near full with a low hit rate is flagged as
-eviction-pressured (worth raising its `*_CACHE_SIZE` setting); a cache running well
-under its `max_size` with a low hit rate is flagged as likely cold-key traffic
-(raising the size probably won't help, and shrinking an oversized-but-healthy cache
-is suggested instead). Below the minimum sample size (50 combined hits and misses),
-the column reports "Not enough traffic yet" rather than guessing from too little
-data. Every verdict is deliberately phrased as "consider" language, never a command —
-the heuristic is a hint from one snapshot, not a decision, and the changelist page
-carries a legend (via `change_list_template`) explaining the same two-cause reasoning
-inline for anyone reading the table.
+snapshot row. A hit rate below 60% is low; a cache at 90% or more of `max_size` is full;
+one at 50% or less is underused.
+
+| Condition | Verdict |
+|---|---|
+| Fewer than 50 combined hits and misses | "Not enough traffic yet" |
+| `max_size` is 0 or less | "—" |
+| Healthy hit rate, underused | "Healthy, oversized — could shrink `<NAME>_CACHE_SIZE`" |
+| Healthy hit rate, otherwise | "Healthy" |
+| Low hit rate, full | "Full + low hit rate — consider raising `<NAME>_CACHE_SIZE`" |
+| Low hit rate, underused | Likely one-shot traffic; raising `maxsize` probably won't help |
+| Low hit rate, between 50% and 90% full | "Low hit rate — inconclusive, watch over more traffic" |
+
+The verdicts suggest rather than instruct, because one snapshot cannot tell the two
+causes apart with certainty. The changelist page carries a legend (through
+`change_list_template`) explaining the same two-cause reasoning for anyone reading the
+table.
 
 ---
 
@@ -444,7 +486,8 @@ event-driven invalidation path.
 rescan, for the cases the filesystem watcher itself cannot cover — most notably changes
 made while no server was running.
 
-**What is its purpose?** Calls `DirectoryIndex.invalidate_all_caches()` directly. This
+**What is its purpose?** Calls `DirectoryIndex.invalidate_all_caches()` directly. It
+also accepts a `--clear_cache` flag, which changes nothing: every run invalidates. This
 is a full, unconditional invalidation of every `DirectoryIndex` row, not a
 `cache_watcher`-specific operation; the command lives in this app only because it is the
 operational entry point for "force everything to rescan."
@@ -462,8 +505,9 @@ directly from that:
 | Timer threads | `threading.Timer` callbacks for both debounce and periodic restart |
 | Django request threads / asyncio event loop | Everything else in the web server |
 
-**The rule.** Every lock in this app is a `threading` primitive (`Lock`, `RLock`,
-`Semaphore`), never `asyncio.Lock`. Watchdog's OS threads and `threading.Timer` callbacks
+**The rule.** Every in-process lock in this app is a `threading` primitive (`Lock`,
+`RLock`, `Semaphore`), never `asyncio.Lock`; the only other lock is the cross-process
+`fcntl` file lock that elects the production watcher (Section 4.1). Watchdog's OS threads and `threading.Timer` callbacks
 have no relation to any asyncio event loop; an `asyncio.Lock` would simply not
 synchronize against them, and would silently reintroduce the races the locks exist to
 prevent.
@@ -471,6 +515,9 @@ prevent.
 ---
 
 ## 6. Configuration
+
+All three are Django settings; the first two are defined in
+`quickbbs/quickbbs_settings.py`.
 
 | Setting | Purpose |
 |---|---|
@@ -491,15 +538,15 @@ idempotent, and it is OS-level behavior rather than a bug in this app.
 
 ### Event buffer overflow
 
-`LockFreeEventBuffer` caps at 200 unique pending directories; beyond that, the oldest
-50% are dropped with a logged warning (Section 4.3). Ordinary gallery usage does not approach
-this limit — it guards against an unusually wide burst spanning many distinct
-directories at once, not against high event volume within a few.
+`LockFreeEventBuffer` caps at 200 unique pending directories; beyond that, arbitrary
+entries are dropped until 100 remain, with a logged warning (Section 4.3). Ordinary
+gallery use does not approach this limit; only a burst spanning more than 200 distinct
+directories at once reaches it.
 
 ### ASGI / WSGI dual-mode
 
-Event processing is triggered from a watchdog OS thread, never from inside Django's
-async request path, so no `sync_to_async`/`async_to_sync` bridging is needed in the
+Event processing runs on a `threading.Timer` thread (or the restart timer's thread,
+for the pre-restart flush), never inside Django's async request path, so no `sync_to_async`/`async_to_sync` bridging is needed in the
 handler itself — it calls `DirectoryIndex.invalidate_caches()` directly and closes its
 own database connections afterward with `close_old_connections()`.
 
@@ -514,22 +561,22 @@ cache_watcher/
 ├── models.py                # WatchdogManager, CacheFileMonitorEventHandler,
 │                            #   LockFreeEventBuffer, CacheStatisticsTracking
 ├── watchdogmon.py           # WatchdogMonitor: thin watchdog.Observer wrapper + singleton
-├── admin.py                 # Django admin registration for CacheStatisticsTracking
+├── admin.py                 # Django administration registration for CacheStatisticsTracking
 ├── management/
 │   └── commands/
 │       └── clear_cache.py   # "python manage.py clear_cache" — full invalidation
-├── migrations/               # Schema history for CacheStatisticsTracking
+├── migrations/               # Schema history: CacheStatisticsTracking and the removed fs_Cache_Tracking model
 ├── tests/
-│   └── test_cache_watcher.py
-├── prototypes/               # Exploratory watchdog experiments — not imported by the app
-└── depreciated/              # Superseded model iterations — not imported by the app
+│   ├── test_apps.py              # Stale watchdog lock-file handling
+│   ├── test_cache_statistics.py  # CacheStatisticsTracking
+│   ├── test_event_handling.py    # Event buffer and event handler
+│   └── test_watchdog_manager.py  # WatchdogManager lifecycle (mocked)
+├── prototypes/               # Holds no source files, only a stale __pycache__/
+└── depreciated/              # Holds no source files, only a stale __pycache__/
 ```
 
 ---
 
 ## 9. Future Ideas
-
-Nothing below is committed or scheduled — recorded so the reasoning is not lost, not as
-a roadmap.
 
 No open ideas are currently tracked for this app.

@@ -20,12 +20,15 @@ Issues = "https://github.com/bschollnick/quickbbs/issues"
 
 [tool.black]
 line-length = 150
+# Django generates migrations; no linter or formatter touches them.
+extend-exclude = "/migrations/"
 
 [tool.pyright]
 exclude = ["**/gallery/**", "**/albums/**"]
 
 [tool.pylint]
 max-line-length = 150
+ignore = ["CVS", "migrations"]
 load-plugins = ["pylint_django"]
 django-settings-module = "quickbbs.settings"
 
@@ -36,7 +39,7 @@ pretty = true
 color_output = true
 ignore_missing_imports = true
 plugins = ["mypy_django_plugin.main"]
-exclude = ["^.*/albums/", "^.*/gallery/"]
+exclude = ["^.*/albums/", "^.*/gallery/", "/migrations/"]
 mypy_path = "quickbbs"
 
 [tool.django-stubs]
@@ -103,8 +106,8 @@ omit = [
     "quickbbs/check_sha.py",
     "quickbbs/conversions.py",
     "quickbbs/diagnose_sync_issue.py",
-    "quickbbs/find_empty_dirs.py",
-    "quickbbs/instagram_downloader.py",
+    "utilities/find_empty_dirs.py",
+    "utilities/instagram_downloader.py",
     "quickbbs/frontend/file_mover_colors3.py",
     "quickbbs/frontend/organize_by_person_name.py",
     "quickbbs/quickbbs/pdf_repair.py",
@@ -114,6 +117,7 @@ omit = [
 profile = "black"
 src_paths = ["quickbbs"]
 skip_gitignore = true
+extend_skip = ["migrations"]
 known_first_party = ["quickbbs", "frontend", "cache_watcher", "filetypes", "thumbnails", "ink_engine"]
 
 [tool.poetry.dependencies]
@@ -183,6 +187,7 @@ all-servers = [
 
 [tool.ruff]
 line-length = 150
+extend-exclude = ["**/migrations/**"]
 
 [tool.ruff.lint]
 # E (pycodestyle) and F (pyflakes) only: real errors -- undefined names,

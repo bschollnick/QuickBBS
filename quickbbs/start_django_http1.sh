@@ -42,6 +42,11 @@ echo ""
 echo "For HTTP/2 support, use: ./start_hypercorn_http2.sh"
 echo ""
 
+# Marks this process as the QuickBBS web server, so its start-up work (the
+# gallery filesystem watchdog, the certificate check) runs here and not in
+# tests, scripts or the MCP server. See quickbbs/server_role.py.
+export QUICKBBS_SERVER=1
+
 python manage.py runserver_plus $BIND_ADDRESS --cert-file $SSL_CERT --key-file $SSL_KEY
 #pkill -9 -f "Steady_Queue"
 echo "Closed."

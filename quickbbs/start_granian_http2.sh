@@ -60,6 +60,11 @@ echo ""
 # but does NOT kill this script — allowing post-shutdown commands to run.
 trap '' INT
 
+# Marks this process as the QuickBBS web server, so its start-up work (the
+# gallery filesystem watchdog, the certificate check) runs here and not in
+# tests, scripts or the MCP server. See quickbbs/server_role.py.
+export QUICKBBS_SERVER=1
+
 # Start Granian with HTTP/2
 # --interface asgi tells Granian to use the ASGI protocol (Django's asgi.py)
 # --http 2 enables HTTP/2 (auto also negotiates via ALPN, but we pin it here)

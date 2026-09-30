@@ -1,7 +1,7 @@
 ## Running Web Servers
 
 **Date Created:** 2025-10-12  
-**Last Updated:** 2026-09-20  
+**Last Updated:** 2026-09-25  
 **Last Reviewed:** 2026-09-20
 
 QuickBBS supports multiple web server options for both development and production deployment. Starting with version 3.5.0, the application is fully ASGI-compatible.
@@ -24,6 +24,21 @@ poetry install --extras all-servers
 ```
 
 The Django development server (`manage.py runserver`/`runserver_plus`) needs no extra install — it ships with Django/django-extensions.
+
+### The `QUICKBBS_SERVER` environment variable
+
+Only a process started with `QUICKBBS_SERVER=1` runs QuickBBS's server start-up work:
+the filesystem watchdog that invalidates gallery caches when files change, the SSL
+certificate expiry check, and the cache-statistics cleanup. Every `start_*.sh` server
+script exports it. When you run `granian`, `gunicorn`, `hypercorn` or `uvicorn` by hand,
+as in the commands below, set it first:
+
+```bash
+export QUICKBBS_SERVER=1
+```
+
+Without it the server still serves pages, but gallery changes made on disk are not
+noticed until the next `scan`. `manage.py runserver`/`runserver_plus` do not need it.
 
 ### Django Development Server (Development Only)
 

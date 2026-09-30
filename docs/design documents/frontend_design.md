@@ -4,7 +4,7 @@
 **Author:** Benjamin Schollnick  
 
 **Date Created:** 2026-08-11  
-**Last Updated:** 2026-09-19  
+**Last Updated:** 2026-09-24  
 **Last Reviewed:** 2026-09-19
 
 **See also:** [`frontend_erd.md`](frontend_erd.md) for the entity-relationship diagram;
@@ -433,8 +433,9 @@ spaces, underscores, and dashes to `[\s_-]+` for separator-agnostic matching. Re
 `""` for empty input or when the resulting pattern exceeds 500 characters (ReDoS cap);
 an empty pattern makes `get_search_results()` return empty querysets.
 
-**`_safe_regex_search()`** performs the `__iregex` query and falls back to `__icontains`
-if the database rejects the regex.
+**`_regex_search()`** performs the `__iregex` query. It has no fallback: the pattern
+comes from `create_search_regex_pattern()`, which escapes the search text, so
+PostgreSQL accepts it.
 
 ---
 
@@ -487,7 +488,7 @@ Raises `Http404` when no identifier is supplied or no matching file exists.
 | `_check_and_enqueue_missing_thumbnails(directory, sort_ordering, batch_limit)` | Gets files needing thumbnails, enqueues `generate_missing_thumbnails` at priority 50; returns the count enqueued |
 | `_get_show_duplicates_preference(request)` | Reads `UserPreferences.show_duplicates`; caches in `_user_pref_cache` keyed on `user.pk`; returns `False` for anonymous users |
 | `create_search_regex_pattern(text)` | Separator-agnostic regex builder (see above) |
-| `_safe_regex_search(...)` | Regex query with `icontains` fallback, plus optional prefetch/annotate/order |
+| `_regex_search(...)` | Case-insensitive regex query, plus optional prefetch/annotate/order |
 | `get_search_results(...)` | Builds the directory and file search querysets |
 | `_get_paginated_search_results(...)` | Page-clamped, COUNT-then-slice SHA fetch for search |
 
@@ -952,8 +953,8 @@ should is an error rather than something to be patched up, since silently emitti
 malformed URL would be harder to diagnose than failing outright.
 
 Raises `ValueError` if `directory` is an empty string, or if the expected prefix is not
-present in `full_path`. The albums prefix is pre-lowercased at module load into
-`_ALBUMS_PATH_LOWER`.
+present in `full_path`. The albums prefix is `settings.ALBUMS_PATH`, lowercased on
+each call.
 
 Cached in `webpaths_cache`, built by `create_cache(settings.WEBPATHS_CACHE_SIZE,
 "webpaths", monitored=settings.CACHE_MONITORING)`.

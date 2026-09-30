@@ -75,6 +75,11 @@ echo ""
 echo "httptools: $(python -c 'import httptools; print("INSTALLED (fast HTTP/1.1)")' 2>/dev/null || echo 'NOT INSTALLED')"
 echo ""
 
+# Marks this process as the QuickBBS web server, so its start-up work (the
+# gallery filesystem watchdog, the certificate check) runs here and not in
+# tests, scripts or the MCP server. See quickbbs/server_role.py.
+export QUICKBBS_SERVER=1
+
 # Start Gunicorn with Uvicorn workers
 # -k uvicorn.workers.UvicornWorker uses Uvicorn ASGI workers
 # -w sets number of worker processes

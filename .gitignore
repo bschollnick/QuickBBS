@@ -171,7 +171,6 @@ cython_debug/
 
 # QuickBBS Django specific
 quickbbs/static/
-quickbbs/*/migrations/
 poetry.lock
 quickbbs/site/*
 

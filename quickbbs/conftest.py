@@ -7,10 +7,12 @@ here are available to every test file in the project without importing.
 """
 
 import signal
+import warnings
 
 import pytest
 from django.conf import settings
 from django.core.management import call_command
+from django.db import connection
 
 
 def pytest_configure(config):
@@ -96,6 +98,33 @@ def django_db_setup(django_db_setup, django_db_blocker):
     """
     from filetypes.models import load_filetypes
 
+    # This session-scoped hook also runs in a session where no test uses the
+    # database, and then the connection still points at the LIVE database.
+    # Seed nothing unless it points at the test database.
+    if connection.settings_dict["NAME"] != settings.DATABASES["default"]["TEST"]["NAME"]:
+        return
     with django_db_blocker.unblock():
         call_command("refresh_filetypes")
         load_filetypes(force=True)
+        _warn_about_leftover_directories()
+
+
+def _warn_about_leftover_directories() -> None:
+    """Warn when a reused test database already holds DirectoryIndex rows.
+
+    Every test's writes roll back, so rows present at session start were
+    committed by something outside a test transaction. Their paths name the
+    test that made them; `--create-db` starts clean.
+    """
+    # Deferred like load_filetypes: models load only after pytest-django sets Django up.
+    from quickbbs.models import (
+        DirectoryIndex,  # pylint: disable=import-outside-toplevel
+    )
+
+    leftover = list(DirectoryIndex.objects.values_list("fqpndirectory", flat=True)[:20])
+    if leftover:
+        warnings.warn(
+            f"Reused test database already holds {DirectoryIndex.objects.count()} DirectoryIndex row(s), "
+            f"committed outside a test transaction; first paths: {leftover}",
+            stacklevel=1,
+        )

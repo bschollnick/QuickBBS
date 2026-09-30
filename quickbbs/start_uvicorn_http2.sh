@@ -58,6 +58,11 @@ echo ""
 echo "httptools: $(python -c 'import httptools; print("INSTALLED (fast HTTP/1.1)")' 2>/dev/null || echo 'NOT INSTALLED')"
 echo ""
 
+# Marks this process as the QuickBBS web server, so its start-up work (the
+# gallery filesystem watchdog, the certificate check) runs here and not in
+# tests, scripts or the MCP server. See quickbbs/server_role.py.
+export QUICKBBS_SERVER=1
+
 # Start Uvicorn with HTTPS (HTTP/1.1 only)
 # NOTE: Uvicorn does NOT support HTTP/2, despite what online docs may suggest
 # --ssl-keyfile and --ssl-certfile enable HTTPS

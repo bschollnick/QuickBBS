@@ -1,8 +1,8 @@
 # thumbnails — Exception Taxonomy
 
 **Date Created:** 2026-08-07  
-**Last Updated:** 2026-09-19  
-**Last Reviewed:** 2026-09-19
+**Last Updated:** 2026-09-25  
+**Last Reviewed:** 2026-09-25
 
 **Companion to:** [`thumbnails_design.md`](thumbnails_design.md)
 **Author:** Benjamin Schollnick
@@ -11,169 +11,207 @@
 
 ## What this is
 
-`thumbnails` owns the richest custom exception hierarchy in the codebase, centered on
-[`thumbnails/exceptions.py`](thumbnails_design.md#41-exceptionspy--exception-hierarchy).
-This document covers every class in that hierarchy, where each is raised across the
-backend modules, where each is caught, and the two exceptions consumed cross-app by
-[`quickbbs`](quickbbs_exceptions.md) — see
-[`high_level_exception_flow.md`](high_level_exception_flow.md) for that full picture.
-Verified directly against `thumbnails/exceptions.py`, `thumbnails/models.py`,
-`thumbnails/views.py`, `thumbnails/engine/engine.py`, and every backend module
-(`core_image_thumbnails.py`, `pdfkit_thumbnails.py`, `pdf_thumbnails.py`,
-`avfoundation_video_thumbnails.py`, `video_thumbnails.py`).
+`thumbnails` owns the richest custom exception hierarchy in the codebase. This document
+covers every class in it, where each is raised, and where each is caught. Two modules
+define the classes, as [`thumbnails_design.md`](thumbnails_design.md#41-exceptionspy)
+describes:
+
+- `thumbnails/engine/exceptions.py` defines the engine's exceptions, which carry no
+  Django references: `ThumbnailGenerationError`, `MediaProcessingError`,
+  `PDFProcessingError`, `VideoProcessingError` and `UnsupportedFormatError`.
+- `thumbnails/exceptions.py` defines the two that reference database models,
+  `OrphanedThumbnail` and `OrphanedFileIndex`, and re-exports the engine's five, so
+  callers import all seven from one place.
+
+Three of these cross into [`quickbbs`](quickbbs_exceptions.md): `MediaProcessingError`,
+`OrphanedThumbnail` and `OrphanedFileIndex`. See
+[`high_level_exception_flow.md`](high_level_exception_flow.md) for that picture.
+
+Every site below is named by function or method, not line number.
 
 ---
 
 ## Custom exception classes
 
-| Class | Subclasses | Constructor attrs | Raised when |
+| Class | Subclasses | Constructor attributes | Raised when |
 |---|---|---|---|
-| `ThumbnailGenerationError` | `Exception` | `filename` | The generation pipeline ran but produced an invalid result: empty output, or a blob that's empty at serve time |
-| `MediaProcessingError` | `Exception` | `file_path` | A media backend (PDFKit, Core Image, AVFoundation) failed to load or decode the source file — a data problem, not a code problem |
-| `PDFProcessingError` | `MediaProcessingError` | (inherits) | PDFKit-specific load/render/conversion failures |
-| `VideoProcessingError` | `MediaProcessingError` | (inherits) | AVFoundation/ffmpeg-specific load/extraction failures |
+| `ThumbnailGenerationError` | `Exception` | `filename` | Generation ran but returned no small thumbnail, or a blob is empty at serve time |
+| `MediaProcessingError` | `Exception` | `file_path` | A media backend (Core Image, PDFKit, PyMuPDF, AVFoundation, ffmpeg) could not load or decode the source file: a data problem, not a code problem |
+| `PDFProcessingError` | `MediaProcessingError` | (inherits) | PDFKit or PyMuPDF load, render or conversion failures |
+| `VideoProcessingError` | `MediaProcessingError` | (inherits) | AVFoundation or ffmpeg load, probe or frame-extraction failures |
 | `OrphanedThumbnail` | `Exception` | `thumbnail`, `sha256` | A `ThumbnailFiles` row exists for a SHA256 with zero matching `FileIndex` rows |
 | `OrphanedFileIndex` | `Exception` | `thumbnail`, `file_index_id`, `sha256` | The `FileIndex` row resolved for a SHA256 has `home_directory = None` (its parent directory was deleted) |
-| `UnsupportedFormatError` | `ValueError` | `fmt` | An unrecognized output format or backend-type selector is requested — a programming-time contract violation, deliberately typed rather than a bare `ValueError` |
+| `UnsupportedFormatError` | `ValueError` | `fmt` | An unrecognized output format or backend selector is requested. It is a named subclass of `ValueError`, so a caller can tell it apart from other `ValueError`s |
 
 ## Raise sites, by class
 
-**`ThumbnailGenerationError`** — raised in `thumbnails/models.py` only:
-`_generate_and_store_blobs` raises it three times (`:497, :514, :531`) when the image,
-video, or PDF backend respectively returns an empty result; `send_thumbnail`
-(`:760`) raises it when the thumbnail blob is empty at serve time.
+**`ThumbnailGenerationError`** — raised in `thumbnails/models.py` only.
+`ThumbnailFiles._generate_and_store_blobs` raises it three times, when the image, video
+or PDF backend returns a result with no small thumbnail; the same method's own
+`except Exception` catches it (see below). `ThumbnailFiles.send_thumbnail` raises it
+when the requested blob is empty at serve time.
 
-**`MediaProcessingError`** (base class, raised directly — not via a subclass) — only
-in `thumbnails/core_image_thumbnails.py`: can't load an image from a path (`:208`),
-can't create a `CIImage` from bytes (`:242`), the `CIImage` has an unusable/zero
-extent (`:321`), or the extent is too small to render (`:380`).
+**`MediaProcessingError`** (raised directly, not through a subclass) — only in
+`thumbnails/engine/core_image_thumbnails.py`: `CoreImageBackend.process_from_file`
+cannot load an image from the path; `process_from_memory` cannot create a `CIImage`
+from the bytes; `render_sizes` finds an unusable (zero or infinite) extent; and
+`_render_to_bytes` finds an extent too small to render.
 
-**`PDFProcessingError`** — all in `thumbnails/pdfkit_thumbnails.py`: can't get the
-requested page (`:121`), render failed (`:140`), TIFF representation failed
-(`:146`), CIImage-from-TIFF failed (`:152`), can't load a PDF from a file path
-(`:192`), the PDF has no pages (`:198`, `:261`), or can't load a PDF from bytes
-(`:257`).
+**`PDFProcessingError`** — two backends:
+- `thumbnails/engine/pdfkit_thumbnails.py`: `PDFKitBackend._render_pdf_page_to_ciimage`
+  cannot get the requested page, rendering fails, the TIFF representation fails, or the
+  `CIImage` cannot be created from the TIFF data; `process_from_file` and
+  `process_from_memory` cannot load the PDF, or it has no pages.
+- `thumbnails/engine/pdf_thumbnails.py`: the module-level context manager
+  `_open_page()`, which `PDFBackend.process_from_file` and `process_from_memory` both
+  render inside, re-raises any PyMuPDF error (all subclass `RuntimeError`), or PIL's
+  `OSError` or `ValueError`, as `PDFProcessingError`, with `from e`.
 
-**`VideoProcessingError`** — split across two backends:
-- `thumbnails/avfoundation_video_thumbnails.py`: can't load the video asset (`:215,
-  :286`), frame extraction failed (`:235, :241`), no video tracks found (`:297`), and
-  two wrap-and-reraise sites (`:254, :330`) — both preceded by `except
-  VideoProcessingError: raise` (`:251, :327`) so an already-typed error passes through
-  unchanged, while anything else gets wrapped into a fresh `VideoProcessingError` with
-  `from e`.
-- `thumbnails/video_thumbnails.py` (the ffmpeg fallback backend): probe failures
-  (`:177, :187`), a wrapped `ffmpeg.Error` (`:198`), no video stream found (`:276`),
-  and a wrapped generic error from `get_video_info` (`:292`).
+**`VideoProcessingError`** — two backends:
+- `thumbnails/engine/avfoundation_video_thumbnails.py`: `_extract_frame_as_ciimage`
+  cannot load the asset or extract a frame (two sites); `read_video_info` cannot load
+  the asset or finds no video tracks. Each function ends with `except
+  VideoProcessingError: raise`, so an already-typed error passes through unchanged,
+  followed by `except Exception`, which wraps anything else in a new
+  `VideoProcessingError` with `from e`.
+- `thumbnails/engine/video_thumbnails.py` (the ffmpeg backend):
+  `_generate_thumbnail_to_pil` raises it when ffmpeg exits non-zero, when ffmpeg exits
+  zero with no frame data, and when it wraps an `ffmpeg.Error`; `read_video_info` raises
+  it when the file has no video stream and when it wraps an `ffmpeg.Error`.
 
-**`UnsupportedFormatError`** — three independent sites, one per module: an
-unsupported output format in
-[`core_image_thumbnails.py`](thumbnails_design.md#47-core_image_thumbnailspy--coreimagebackend)
-(`:416`); an unrecognized backend-type selector in
+**`UnsupportedFormatError`** — two sites: an output format other than JPEG, PNG or WEBP
+in `CoreImageBackend._render_to_bytes`
+([`core_image_thumbnails.py`](thumbnails_design.md#47-enginecore_image_thumbnailspy));
+and an unrecognized backend selector in
 [`FastImageProcessor._create_backend`](thumbnails_design.md#43-engineenginepy)
-(`engine/engine.py:248`); an unsupported image format in the ffmpeg backend
-(`video_thumbnails.py:323`).
+(`thumbnails/engine/engine.py`), which looks the selector up in `_BACKEND_RULES`.
 
-**`OrphanedThumbnail`** — `thumbnails/models.py:393`, inside
-`ThumbnailFiles._resolve_index_item_for_sha`, when a `ThumbnailFiles` row's SHA256 has
-zero matching `FileIndex` rows.
+**`OrphanedThumbnail`** — `ThumbnailFiles._resolve_index_item_for_sha` in
+`thumbnails/models.py`, when no `FileIndex` row exists for the `ThumbnailFiles` row's
+SHA256.
 
-**`OrphanedFileIndex`** — `thumbnails/models.py:420`, same method, when the resolved
-`FileIndex.home_directory` is `None`.
+**`OrphanedFileIndex`** — the same method, when the resolved `FileIndex.home_directory`
+is `None`.
+
+**`FileNotFoundError`** is raised explicitly by every file-based backend when the path
+does not exist: `CoreImageBackend`, `PDFBackend`, `PDFKitBackend` and
+`AVFoundationVideoBackend` in `process_from_file`, and the ffmpeg backend in
+`_generate_thumbnail_to_pil`. `ImageBackend.process_from_file` lets PIL raise it.
+Core Image needs the explicit check because `CIImage.imageWithContentsOfURL_` returns
+`None` for a missing file, the same as for an undecodable one.
 
 ## Catch sites and terminal handling
 
-**The three-tier except chain in `_generate_and_store_blobs`**
-(`models.py:588–619`), the core generation path:
+**The three-tier except chain in `ThumbnailFiles._generate_and_store_blobs`**
+(`thumbnails/models.py`), the core generation path:
 
 ```python
 except FileNotFoundError as e:
     # File moved/deleted. Marks only THIS FileIndex row delete_pending=True —
     # other FileIndex rows sharing the same SHA256 may still exist at valid
-    # paths, so they are left untouched.
+    # paths, so they are left untouched. Logged at WARNING.
 except MediaProcessingError as e:
     # Catches PDFProcessingError/VideoProcessingError too (base class).
     # Unreadable/corrupt media — marks the whole SHA256 generic.
-    # Logged at WARNING, not ERROR: "a data issue, not a code issue."
-except Exception as e:  # TODO: narrow once thumbnail backend exception
-                         # types are catalogued across PIL/PyMuPDF/ffmpeg
-    # Anything else — also marks the whole SHA256 generic, logged via
-    # logger.exception (full traceback).
+    # Logged at WARNING: a data issue, not a code issue.
+except Exception as e:
+    # Anything else, including this method's own ThumbnailGenerationError —
+    # also marks the whole SHA256 generic, logged via logger.exception
+    # (ERROR with a full traceback).
 ```
 
-**`send_thumbnail`** (`models.py:662`) catches `(AttributeError, ObjectDoesNotExist)`
-around a reverse `FileIndex` relation lookup — logs at DEBUG and continues with
-`index_data_item=None` rather than failing the whole thumbnail request over a missing
-optional lookup.
+The broad `except Exception` carries a `TODO` to narrow it once the backends' exception
+types are catalogued. None of the three re-raises: the method returns the unpopulated
+`thumbnail` record.
 
-**Internal re-raise-or-wrap pattern** — `avfoundation_video_thumbnails.py` catches its
-own `VideoProcessingError` twice (`:251, :327`) purely to re-raise it unchanged before
-a broader `except Exception` wraps anything else into a fresh `VideoProcessingError`
-(with `from e` to preserve the chain).
+**`ThumbnailFiles.send_thumbnail`** catches `(AttributeError, ObjectDoesNotExist)`
+around its reverse `FileIndex` relation lookup. It logs at DEBUG and continues with
+`index_data_item=None` rather than failing the thumbnail request over an optional
+lookup.
+
+**`get_video_info`** (`thumbnails/engine/engine.py`) catches `MediaProcessingError` from
+the AVFoundation probe and retries with the ffmpeg probe, which reads formats macOS has
+no decoder for (WMV, FLV, MPEG-1). When the resolved probe already is the ffmpeg one, it
+re-raises.
 
 **View-layer terminal handling**, in
-[`thumbnails/views.py`](thumbnails_design.md#411-viewspy--http-views):
+[`thumbnails/views.py`](thumbnails_design.md#411-viewspy):
 
 - [`thumbnail_dir`](thumbnails_design.md#thumbnail_dirrequest-dir_sha256) catches
-  `(OSError, ValueError, AttributeError, ThumbnailGenerationError)` at two points
-  (`:59, :126`) around calls to `send_thumbnail()`. The first (`:59`) falls through to
-  the cover-image regeneration logic below it rather than returning immediately; the
-  second (`:126`), after a cover image has already been selected and a
-  `ThumbnailFiles` record ensured, marks the directory `is_generic_icon=True` and
-  returns the filetype's generic icon.
-- `thumbnail_dir` also catches `FileIndex.DoesNotExist` (`:63`) when the directory's
-  cached thumbnail FK points to a deleted `FileIndex` row — clears the stale reference
-  via `directory.invalidate_thumb()` and falls through to cover-image regeneration.
-- `_serve_existing_thumbnail` catches the same four-exception tuple (`:180`) around
-  its fast-path serve attempt.
-- [`thumbnail_file`](thumbnails_design.md#thumbnail_filerequest-sha256) catches the
-  same tuple (`:260`) around its own `send_thumbnail()` call, marking **every**
-  `FileIndex` row sharing that SHA256 as generic (via
-  `FileIndex.set_generic_icon_for_sha`) before returning the generic icon — a broader
-  blast radius than `thumbnail_dir`'s single-directory flag, because a file's
-  generic-icon state is tracked per content hash, not per directory placement.
-- `thumbnail_file` also catches `(AttributeError, IndexError)` (`:240`) around a
-  `.first()`-then-fallback `FileIndex` lookup, converting to
-  `HttpResponseBadRequest("Error accessing file data.")`.
+  `(OSError, ValueError, AttributeError, ThumbnailGenerationError)` around both of its
+  `send_thumbnail()` calls, printing the error to standard output rather than logging
+  it. The first catch, on the cached-cover fast path, falls through to cover-image
+  selection. The second, after a cover image has been selected and a `ThumbnailFiles`
+  record ensured, marks the directory `is_generic_icon=True` and returns the filetype's
+  generic icon.
+- `thumbnail_dir` also catches `FileIndex.DoesNotExist` when the directory's cached
+  thumbnail foreign key points to a deleted `FileIndex` row. It clears the stale
+  reference with `directory.invalidate_thumb()` and falls through to cover-image
+  selection.
+- `_serve_existing_thumbnail`, the read-only fast path of `thumbnail_file`, catches the
+  same four-exception tuple around its `send_thumbnail()` call. It marks **every**
+  `FileIndex` row sharing that SHA256 as generic (via `FileIndex.set_generic_icon_for_sha`)
+  and returns the generic icon.
+- [`thumbnail_file`](thumbnails_design.md#thumbnail_filerequest-sha256) catches the same
+  tuple around its own `send_thumbnail()` call, with the same handling as
+  `_serve_existing_thumbnail`. The generic flag is set for the whole SHA256, not one
+  row, because a file's generic-icon state is tracked per content hash, while
+  `thumbnail_dir`'s flag is per directory.
+- `thumbnail_file` also catches `(AttributeError, IndexError)` around its `.first()`
+  lookup of the associated `FileIndex` row and the `FileIndex.get_by_sha256` fallback,
+  returning `HttpResponseBadRequest("Error accessing file data.")`.
 
-**`OrphanedThumbnail` / `OrphanedFileIndex`**, caught independently in both
-`thumbnail_dir` (`:110`) and `thumbnail_file` (`:223`) around calls to
-[`get_or_create_thumbnail_record`](thumbnails_design.md#get_or_create_thumbnail_recordfile_sha256-suppress_save-prefetch_related_thumbnail-select_related_fileindex):
-both delete `exc.thumbnail`, but the fallback response differs —
-`thumbnail_dir` falls back to `directory.filetype.send_thumbnail()`;
-`thumbnail_file` returns `HttpResponseBadRequest("File no longer exists in
-gallery.")`. The same two exceptions are also caught, independently, by
-[`quickbbs`](quickbbs_exceptions.md)'s background task — see
+**`OrphanedThumbnail` / `OrphanedFileIndex`** are caught independently in both
+`thumbnail_dir` and `thumbnail_file` around their calls to
+[`get_or_create_thumbnail_record`](thumbnails_design.md#get_or_create_thumbnail_recordfile_sha256-suppress_save-prefetch_related_thumbnail-select_related_fileindex).
+Both log at WARNING and delete `exc.thumbnail`, but the response differs:
+`thumbnail_dir` falls back to `directory.filetype.send_thumbnail()`; `thumbnail_file`
+returns `HttpResponseBadRequest("File no longer exists in gallery.")`. The same two
+exceptions are also caught, independently, by [`quickbbs`](quickbbs_exceptions.md)'s
+`generate_missing_thumbnails` background task (`quickbbs/tasks.py`) — see
 [`high_level_exception_flow.md`](high_level_exception_flow.md) for the comparison.
 
+**`ValueError` from `get_or_create_thumbnail_record` is not caught by either view.** The
+method raises it when a required parameter is missing, and
+`_resolve_index_item_for_sha` raises it when `FileIndex` rows exist for the SHA256 but
+cannot be linked to the orphaned `ThumbnailFiles` row, or cannot be fetched after
+linking. In a view it propagates as a server error. The background task catches it in
+its `except Exception`, logs it with a traceback, and records that SHA256 as failed.
+
 **Backend-availability probing** — `FastImageProcessor._create_backend`
-(`engine/engine.py:310`) catches `(ImportError, RuntimeError, OSError)` around
-importing `CoreImageBackend` for the `"auto"` backend-type selector on Apple Silicon;
-on failure it silently falls through to the cross-platform PIL backend rather than
-raising. This is an availability probe, not error recovery from a real failure.
+(`thumbnails/engine/engine.py`) catches `(ImportError, RuntimeError, OSError)` around
+constructing the backend the `"auto"` selector chose (`CoreImageBackend` on an Apple
+Silicon Mac), and constructs `ImageBackend` instead. `_FALLBACK_ON_CONSTRUCTION_ERROR`
+names `"auto"` as the only selector with a fallback; every other selector lets the error
+propagate. This is an availability probe, not error recovery from a real failure.
 
-## Standard/Django exceptions used meaningfully
+**`CoreImageBackend.__init__`** raises `ImportError` when Core Image or a Metal device
+is unavailable, and wraps any exception from creating the Metal command queue (for
+example in a forked child with a stale device) in `ImportError`, so that
+`_create_backend`'s fallback above applies. The module-level `_create_metal_device`
+catches `(OSError, AttributeError)` from loading Metal through `ctypes` and returns
+`None`.
 
-- **`Http404`** — raised directly in `thumbnail_dir` (`:52`) when the directory SHA
-  doesn't resolve to a record at all (before any thumbnail logic runs).
-- **`HttpResponseBadRequest`** — returned (not raised) at the `OrphanedThumbnail`/
-  `OrphanedFileIndex` catch in `thumbnail_file` and at its `(AttributeError,
-  IndexError)` catch, as described above.
-- **`ImportError`** — used throughout the backend-detection code purely as an
-  availability probe (e.g. `engine/engine.py`'s "Core Image backend not
-  available," and the numerous `except ImportError` guards around optional
-  native-framework imports in `core_image_thumbnails.py`, `pdfkit_thumbnails.py`,
-  `avfoundation_video_thumbnails.py`, `video_thumbnails.py`, `pil_thumbnails.py`) — this
-  gates platform-specific backend selection, not error recovery from a failure that
-  already happened.
-- **`NotImplementedError`** — raised in both
-  [`pdfkit_thumbnails.py`](thumbnails_design.md#46-pdfkit_thumbnailspy--pdfkitbackend)
-  (`:298`) and [`pdf_thumbnails.py`](thumbnails_design.md#45-pdf_thumbnailspy--pdfbackend)
-  (`:223`) for the unimplemented "PDF thumbnail from a PIL Image" code path — both
-  backends define the method but always raise rather than support it.
+## Standard and Django exceptions used meaningfully
 
-## `pdf_thumbnails.py`'s untyped raises
-
-`thumbnails/pdf_thumbnails.py` raises a bare, untyped `Exception` in two places:
-`process(...)` (`:156`, `f"Error processing PDF: {e}"`) and `process_from_memory(...)`
-(`:201`, `f"Error processing PDF bytes: {e}"`), both wrapping whatever `fitz`/PIL error
-occurred while opening or rendering the PDF.
+- **`Http404`** — raised in `thumbnail_dir` when no directory SHA256 is supplied, and
+  when the SHA256 does not resolve to a `DirectoryIndex` record, before any thumbnail
+  logic runs.
+- **`HttpResponseBadRequest`** — returned (not raised) by `thumbnail_file` at its
+  `OrphanedThumbnail`/`OrphanedFileIndex` catch, at its `(AttributeError, IndexError)`
+  catch, and when no `FileIndex` row is found at all ("No associated file data found.").
+- **`ImportError`** — used as an availability probe, not error recovery:
+  `except ImportError` guards the optional native-framework imports at module level in
+  `core_image_thumbnails.py`, `pdfkit_thumbnails.py` and
+  `avfoundation_video_thumbnails.py`, and inside `hide_dock_icon`. In `engine.py`,
+  `_check_core_image_available`, `_check_avfoundation_available`,
+  `_check_pdfkit_available`, `_resolve_video_info_impl` and `_peak_rss_kb` catch it,
+  and `_require_core_image` raises it ("Core Image backend not available on this
+  system") when `"coreimage"` is requested explicitly. The backend constructors raise it
+  when their framework is missing.
+- **`OSError`** — `is_apple_silicon` catches it from `platform` and returns `False`.
+- **`NotImplementedError`** — raised by `process_data` in both
+  [`pdfkit_thumbnails.py`](thumbnails_design.md#46-enginepdfkit_thumbnailspy) and
+  [`pdf_thumbnails.py`](thumbnails_design.md#45-enginepdf_thumbnailspy) for the
+  unimplemented "PDF thumbnail from a PIL Image" path: both backends define the method
+  and always raise.

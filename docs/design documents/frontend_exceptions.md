@@ -1,7 +1,7 @@
 # frontend — Exception Taxonomy
 
 **Date Created:** 2026-08-11  
-**Last Updated:** 2026-09-19  
+**Last Updated:** 2026-09-24  
 **Last Reviewed:** 2026-09-19
 
 **Companion to:** [`frontend_design.md`](frontend_design.md)
@@ -78,33 +78,29 @@ disconnecting mid-download is expected, not a failure, so this exists to keep it
 of error logs while still letting Django's async machinery run its normal cancellation
 cleanup.
 
-**`(DatabaseError, OperationalError)`** — the log-and-fallback pattern for
-preference/DB lookups: `_get_show_duplicates_preference` catches `(DatabaseError,
-OperationalError, AttributeError)` around a `UserPreferences` lookup and falls back to
-`False` (`views.py:190`); `_safe_regex_search` catches `(DatabaseError,
-OperationalError)` around a `__iregex` filter and falls back to a plain `__icontains`
-query (`views.py:259`) — this is the mechanism behind the `_safe_regex_search()`
-fallback documented in
-[`frontend_design.md`](frontend_design.md#471-helper-functions-in-viewspy).
+**`(DatabaseError, OperationalError)`** — `_get_show_duplicates_preference` catches
+these around its `UserPreferences` lookup and falls back to `False` (`views.py:195`).
+Search has no such fallback: `create_search_regex_pattern()` escapes the search text,
+so PostgreSQL accepts every `__iregex` pattern it builds.
 
 **`ValueError` / `TypeError` as parsing guards, not propagated:**
 - `get_page_param` catches `(ValueError, TypeError)` around `int(raw_value)` and
-  defaults to page 1 (`views.py:118`).
+  defaults to page 1 (`views.py:114`).
 - `create_search_regex_pattern` catches `(TypeError, ValueError)` around
-  `re.escape()` and returns an empty pattern (`views.py:214`).
+  `re.escape()` and returns an empty pattern (`views.py:259`).
 - `view_gallery` catches `(ValueError, UnicodeDecodeError)` around URL-decoding
   `request.path` and falls back to a simpler lowercase-only normalization
-  (`views.py:738`).
-- [`get_sort_param`](frontend_design.md#get_sort_paramrequest) (in `utilities.py:41`)
+  (`views.py:885`).
+- [`get_sort_param`](frontend_design.md#get_sort_paramrequest) (in `utilities.py:42`)
   catches `(ValueError, TypeError)` around parsing the `?sort=` query parameter and
-  defaults to `settings.DEFAULT_SORT_ORDER` (`utilities.py:60`).
+  defaults to `settings.DEFAULT_SORT_ORDER` (`utilities.py:61`).
 
 **`ValueError` raised deliberately, as a contract guard — never caught by callers:**
-- `managers.py:239` (`layout_manager`) — `"Directory parameter is required"`.
-- `managers.py:308, 310` (`get_search_results`) — `"prefetch_dirs parameter is
+- `managers.py:278` (`layout_manager`) — `"Directory parameter is required"`.
+- `views.py:343, 345` (`get_search_results`) — `"prefetch_dirs parameter is
   required"` / `"prefetch_files parameter is required"`.
 - [`convert_to_webpath`](frontend_design.md#convert_to_webpathfull_path-directorynone)
-  (`utilities.py:100, 107`) — raised when `directory` is an empty string, or when
+  (`utilities.py:109, 116`) — raised when `directory` is an empty string, or when
   `full_path` doesn't start with the expected albums prefix.
 
 **`OSError` / `PermissionError` / `FileNotFoundError` / `NotADirectoryError`** — in

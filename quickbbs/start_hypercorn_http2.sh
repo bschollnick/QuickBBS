@@ -60,6 +60,11 @@ echo ""
 # but does NOT kill this script — allowing post-shutdown commands to run.
 trap '' INT
 
+# Marks this process as the QuickBBS web server, so its start-up work (the
+# gallery filesystem watchdog, the certificate check) runs here and not in
+# tests, scripts or the MCP server. See quickbbs/server_role.py.
+export QUICKBBS_SERVER=1
+
 # Start Hypercorn with HTTP/2
 # -b sets bind address
 # --certfile and --keyfile enable HTTPS with HTTP/2 via ALPN

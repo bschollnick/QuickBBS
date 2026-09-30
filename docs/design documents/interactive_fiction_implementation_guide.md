@@ -4,7 +4,7 @@
 **Author:** Benjamin Schollnick
 
 **Date Created:** 2026-09-09  
-**Last Updated:** 2026-09-20  
+**Last Updated:** 2026-09-26  
 **Last Reviewed:** 2026-09-20
 
 **Companion to:** [`interactive_fiction_and_quickbbs.md`](interactive_fiction_and_quickbbs.md)
@@ -397,21 +397,49 @@ missing image in play.
    `CurrentGame` yet is routed through character creation first
    (`/if/<slug>/new-game/`) before a game state is created.
 3. **POST `/if/<slug>/play/`** (`views.play_submit`) — submitting a choice. An HTMX
-   partial swap: only the story-text-and-choices region re-renders, not the page
-   chrome. The view:
+   partial swap: the story-text-and-choices region re-renders, not the page
+   chrome. For a layout that draws a game panel (`models.LAYOUTS_WITH_PANEL`), every
+   turn's response also carries the panel, swapped out of band, so it always shows
+   this turn's data; undo, restart and loading a save do the same. The turn runs
+   through `views._play_turn()`, which a panel command
+   (`panel_views.play_panel_command`), taking an exit from the panel's compass
+   (`panel_views.play_take_exit`, POST `/if/<slug>/take-exit/`) and running a
+   story action from a panel action section (`panel_views.play_take_action`,
+   POST `/if/<slug>/take-action/`) also use, in one transaction:
+   - Locks the player's `CurrentGame` row (`select_for_update`) and compares the
+     submitted `turn_count` with `CurrentGame.turn_count`. A stale submission (a
+     second browser tab that fell behind) is refused with a "story has moved on —
+     refresh to continue" response before anything is rebuilt (Section 6.5).
    - Rehydrates an `InkRuntimeState` from `CurrentGame.state`, resolving this
      story's real `EXTERNAL` bindings via `engine_services.bindings_for()`
      (trust-gated per main design document Section 1.7 — re-derived fresh on every load,
      never itself part of the saved state).
    - Calls the interpreter to follow the chosen option and advance to the next
      stopping point (`choose()` then `continue_story()`).
-   - Serializes the new state back into `CurrentGame.state`.
-   - Compares the submitted `turn_count` against `CurrentGame.turn_count` — a
-     denormalized column read via a lightweight `.only("turn_count")` query — and
-     rejects a stale submission (a second browser tab that fell behind) with a "story
-     has moved on — refresh to continue" response instead of applying it (Section 6.5).
-4. **POST `/if/<slug>/undo/` / `/if/<slug>/restart/`** — one-level undo, and a full
-   restart, both built on the same rehydrate/advance/serialize sequence.
+   - Serializes the new state back into `CurrentGame.state`, keeping the state it
+     replaced as the undo target.
+   A panel draws the active tab's sections, then the sections a game returns in
+   `panel_slots`, whichever tab is showing (`play_panel.jinja`, each section drawn
+   by `play_panel_section.jinja`). An action section (`layout: "actions"`) names a
+   menu knot; `views._game_panel_context()` lists its choices with
+   `ink_engine.game_panel.fill_action_sections()`, one row per `# group:` tag with
+   the group's `# image:` picture (`play_panel_actions.jinja`). Picking an action
+   posts its group and label; the view looks it up again in a freshly listed panel
+   and runs it with `InkRuntimeState.start_interlude()`, so the scene's choices
+   return when the action's knot ends with `->->`.
+   A panel command (`play_panel_command`) asks the game with
+   `engine_services.game_panel_command_result()`. A message-only answer leaves
+   the story where it is and shows in the panel's detail area. An answer naming a
+   knot is played as the command's reaction with
+   `ink_engine.game_panel.play_reaction()`: a real turn, recorded in the
+   transcript under the answer's label. Choices are not refreshed after a
+   command; a reaction that should leave the player in place ends by showing the
+   location again.
+4. **POST `/if/<slug>/undo/`** restores that undo target, one turn at a time.
+   **POST `/if/<slug>/restart/`** starts the story over. For a story with
+   `NEW_GAME_FIELDS` it deletes the `CurrentGame` row and shows the
+   character-creation form again, pre-filled with the answers this browser session
+   last submitted for the story; the player submits it themselves.
 5. **Save/load** (`/if/<slug>/saves/`, `save_views.py`) — copies `CurrentGame.state`
    into (or out of) a named `SaveState` slot, plus JSON export/import of a single
    slot. Loading a slot never mutates the slot itself.
@@ -553,12 +581,10 @@ does not track the actual configured cap.
 
 **Concurrent-tab guard.** Two browser tabs playing the same story share one
 `CurrentGame` row. `CurrentGame.turn_count` is a denormalized copy of
-`state["turn_count"]`, read via a lightweight `.only("turn_count")` query so the
-guard doesn't force detoasting the full state JSON just to compare a number. The play
-`POST` includes the `turn_count` the submitting tab last rendered, and the view
-compares it against the stored value before applying the choice, rejecting a
-mismatch with a "story has moved on — refresh to continue" response instead of a
-silent last-writer-wins overwrite.
+`state["turn_count"]`. The play `POST` includes the `turn_count` the submitting tab
+last rendered; `views._play_turn()` locks the row (`select_for_update`) and compares
+the two before rebuilding anything, rejecting a mismatch with a "story has moved on —
+refresh to continue" response instead of a silent last-writer-wins overwrite.
 
 Both tables serialize `InkRuntimeState.to_dict()` directly — no custom JSON encoder,
 since the state is plain dicts/lists/primitives by construction.
@@ -668,9 +694,9 @@ module of dataclasses and functions, with no import of any sibling plugin:
   `Condition` built from a closed vocabulary (flag, time-of-day range, story-registered
   rule or value, another plugin's state, a plugin query, and AND/OR/NOT). No `EXTERNAL`
   bindings of its own — a schedule is data the game declares in Python, not something
-  Ink calls. Note `resolve_schedule`'s `clock` argument is in the story's own tick unit
-  (`minute_of_day = (clock % 288) * 5`) while a `Condition`'s range bounds are
-  minutes-of-day.
+  Ink calls. `resolve_schedule`'s `clock` argument is the engine clock in minutes,
+  the same unit the scheduling plugin keeps; a game with its own tick converts before
+  calling.
 - **`skills.py`** — a percentile roll-under skill-check mechanic, normalizing any
   0–max_level scale to 0–100, with its own independent RNG seed (deliberately
   separate from the interpreter's own story-level seeded RNG). Provides the mechanic

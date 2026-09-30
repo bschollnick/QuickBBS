@@ -900,10 +900,13 @@ quickbbs/
 │                          # clear_caches, scan, purge_out_of_tree
 │                          # (management_helper.py is a shared helper, not a command)
 │
-├── tests/                 # test_directoryindex.py (66), test_fileindex.py (65),
-│                          # test_query_improvements.py (23), test_sync.py (21),
-│                          # test_alias_resolution.py (18), test_monitored_cache.py (15),
-│                          # test_parent_optimization.py (12), test_bulk_cache_clearing.py (6)
+├── tests/                 # test_directoryindex.py (68), test_fileindex.py (65),
+│                          # test_directoryindex_cache.py (32), test_query_improvements.py (23),
+│                          # test_sync.py (21), test_alias_resolution.py (19),
+│                          # test_monitored_cache.py (15), test_parent_optimization.py (12),
+│                          # test_bulk_cache_clearing.py (6), test_server_role.py (6),
+│                          # test_admin_site.py (2), test_sha_executor.py (2);
+│                          # albums_root.py is a shared test base, not a test module
 │
 └── 3rd_party_libraries.py # NOT imported by app logic — CDN version pins for templates
 ```

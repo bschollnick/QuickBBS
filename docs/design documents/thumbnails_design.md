@@ -1,10 +1,10 @@
 # thumbnails — Design Document
 
-**Version:** 4.5
+**Version:** 4.6  
 **Author:** Benjamin Schollnick
 
 **Date Created:** 2026-08-10  
-**Last Updated:** 2026-09-19  
+**Last Updated:** 2026-09-24  
 **Last Reviewed:** 2026-09-19
 
 **See also:** [`thumbnails_erd.md`](thumbnails_erd.md) for the entity-relationship
@@ -30,25 +30,23 @@ everything else it tracks. That duplication is where the real cost is, not raw d
   duplicate, or a deleted source file changes exactly one thing to reconcile — the
   database row — instead of a database row plus a matching (or now-orphaned) set of
   files on disk.
-- **Consequence: one write path, transactionally.** Generation stores the thumbnail
-  bytes on the same row, in the same transaction, as the rest of the bookkeeping
-  `get_or_create_thumbnail_record()` already does (Section 4.10) — there is no second write
-  (a file create) that can succeed while the first (the row update) fails, or vice
-  versa, and nothing to fsync separately or clean up after a crash mid-write. A
+- **Consequence: one write path, transactionally.** When a view generates a
+  thumbnail, `get_or_create_thumbnail_record()` stores the bytes on the same row, in
+  the same transaction, as the rest of its bookkeeping (Section 4.10). The batch path,
+  `quickbbs.tasks.generate_missing_thumbnails()`, passes `suppress_save=True` and
+  writes every generated row afterwards in one `bulk_update()`. Either way there is no
+  second write (a file create) that can succeed while the row update fails, or the
+  reverse, and nothing to fsync separately or clean up after a crash mid-write. A
   disk-cache design would need to make that pair of writes atomic itself.
 - **Consequence: no separate existence check to add.** Every thumbnail request already
-  needs the `ThumbnailFiles`/`FileIndex` row anyway, to resolve the generic-icon and
-  link short-circuits (Section 1.5, Section 4.11) before any bytes are served. Storing the bytes on
-  that same row means serving one doesn't cost a second I/O subsystem on top of the
-  query that was already required — a disk cache would add a file `open()`/`read()`
-  after the same row lookup, not replace it.
-- **Consequence: read cost stays proportional to size.** Small thumbnails
-  are generally stored inline and retrieved with the row itself — the cheapest case.
-  Medium and large thumbnails are not inline and are fetched separately from the row,
-  so they don't get that same discount. The case for the database here isn't that
-  every read is the fastest possible one. It's that generation collapses into one
-  transactional write. Invalidation also becomes an easier process since the database
-  already manages this by design.
+  looks up the `FileIndex` row, to resolve the generic-icon and link short-circuits
+  (Section 1.5, Section 4.11) before any bytes are served. The bytes then come from one
+  single-column `SELECT` on `ThumbnailFiles`; a disk cache would add a file
+  `open()`/`read()` after the same row lookup, not replace it.
+- **Consequence: a read fetches only the size it serves.** Every read path selects
+  only the blob column it needs: the serving fast path loads just the requested size,
+  and `get_or_create_thumbnail_record()` defers all three blob columns. A small
+  thumbnail request never transfers the medium or large bytes.
 
 ### 1.2 GPU acceleration is an accelerator, never a requirement
 
@@ -64,8 +62,10 @@ software rendering.
   Backend availability is probed once, not assumed from the platform name, and whether
   automatic selection is allowed to pick a macOS backend at all is itself a separate
   setting — so the accelerated path can be turned off independent of what's actually
-  installed. Explicitly requesting a macOS backend by name is the only way to demand it
-  outright; automatic selection always has a working fallback.
+  installed. Requesting `"coreimage"` by name is the only way to demand a macOS backend
+  outright: it raises `ImportError` when Core Image is missing. Every other selector,
+  including an explicit `"pdfkit"`, falls back to its cross-platform backend
+  (Section 4.3).
 
 ### 1.3 A cache must never claim something doesn't exist
 
@@ -90,15 +90,17 @@ once per distinct piece of content, however many times that content appears.
 A gallery page shows an image for every entry on it. For an image, PDF, or video, that
 image is a real rendered thumbnail of the file's own content (Section 4.4–Section 4.9). For a
 directory, it's a cover image selected from one of the files inside it —
-`thumbnail_dir()` (Section 4.11) prefers a file named `cover` or `title`, then falls back to
-any thumbnailable file in the directory — so browsing a gallery of directories shows an
-actual preview of what's inside each one, not a folder icon.
+`thumbnail_dir()` (Section 4.11) prefers a file already chosen as the cover, then a file
+whose name starts with an entry in `settings.DIRECTORY_COVER_NAMES` (`cover`, `title`)
+followed by a dot, then any image, video or PDF in the directory — so browsing a
+gallery of directories shows an actual preview of what's inside each one, not a
+folder icon.
 
 - **The rule.** Every file resolves to *some* displayable image.
   - Most files: a rendered thumbnail of their own content.
   - Directories: a cover image proxied from a file inside them.
-  - The remaining cases fall back to the filetype's own generic icon (e.g. the Acrobat
-    icon for a PDF, a generic image icon for an image file) — either because the
+  - The remaining cases fall back to the filetype's own generic icon, stored on its
+    `filetypes` row — either because the
     filetype was never meant to have a rendered preview (text, archives, and similar),
     or because generation was attempted for this specific file and failed.
 - **Consequence: a failure to generate is not a failure to display.** Thumbnail
@@ -131,19 +133,21 @@ on-disk thumbnail cache.
 HTTP request
     └── thumbnail_file(sha256)  /  thumbnail_dir(dir_sha256)
               │
+              ├── requested size already stored → send_thumbnail()   (no lock)
+              │
               ▼
     ThumbnailFiles.get_or_create_thumbnail_record(sha256)
               │  pg_advisory_xact_lock (per-SHA)
               │  prevents duplicate generation under concurrency
               │
-              ├── record exists + small_thumb populated → send_thumbnail()
+              ├── small_thumb populated by another worker → return the record
               │
-              └── record missing / small_thumb absent
+              └── small_thumb absent
                         │
                         ▼
-              create_thumbnails_from_path(file_path, sizes, backend)
+              create_thumbnails_from_path(file_path, sizes, backend=selector)
                         │
-                        │  backend selection (once per backend type, cached)
+                        │  backend selection (once per selector, cached)
                         │
                         ├── CoreImageBackend   (macOS GPU, images — Section 1.2)
                         ├── PDFKitBackend      (macOS GPU, PDFs)
@@ -154,8 +158,8 @@ HTTP request
                         │
                         ▼
               ThumbnailFiles (model)
-              small_thumb / medium_thumb / large_thumb  ← bytes stored in DB
-              FileIndex.new_ftnail  ← FK linked
+              small_thumb / medium_thumb / large_thumb  ← bytes stored in the database
+              FileIndex.new_ftnail  ← foreign key linked
 ```
 
 ---
@@ -179,21 +183,22 @@ which re-exports the engine's five so a single import still reaches all seven.
 
 | Exception | Inherits | Purpose |
 |---|---|---|
-| `ThumbnailGenerationError` | `Exception` | The generation pipeline ran but produced an invalid result — empty output, GPU-corrupted (all-white) image, or unsupported input |
+| `ThumbnailGenerationError` | `Exception` | Generation returned no small thumbnail, or `send_thumbnail()` found the requested blob empty; carries `filename` |
 | `MediaProcessingError` | `Exception` | A backend failed to load or decode a file; carries `file_path` |
-| `PDFProcessingError` | `MediaProcessingError` | PDF-specific decode/render failure |
-| `VideoProcessingError` | `MediaProcessingError` | Video-specific decode/extraction failure |
-| `UnsupportedFormatError` | `ValueError` | An unrecognized output format was requested; carries `fmt` |
+| `PDFProcessingError` | `MediaProcessingError` | `PDFKitBackend` or `PDFBackend` (PyMuPDF) could not load or render a PDF |
+| `VideoProcessingError` | `MediaProcessingError` | Either video backend could not probe a video or extract a frame |
+| `UnsupportedFormatError` | `ValueError` | An unrecognized output format or backend selector was requested; carries `fmt` |
 | `OrphanedThumbnail` | `Exception` | *(app-level)* A `ThumbnailFiles` row has no matching `FileIndex` record; carries `.thumbnail` and `.sha256` |
 | `OrphanedFileIndex` | `Exception` | *(app-level)* A `FileIndex` record's `home_directory` is `None` (its directory was deleted); carries `.thumbnail`, `.file_index_id`, `.sha256` |
 
 The first five are declared in `engine/exceptions.py`; the two marked *(app-level)* are
 declared in `thumbnails/exceptions.py` because they reference the ORM model.
 
-**`OrphanedThumbnail` and `OrphanedFileIndex`** are not error conditions in the
-traditional sense — they are signals telling the caller to delete the stale record and
-fall back to the generic icon. Both views catch them explicitly and call
-`exc.thumbnail.delete()`.
+**`OrphanedThumbnail` and `OrphanedFileIndex`** tell the caller to delete the stale
+`ThumbnailFiles` record. Every caller catches them and calls `exc.thumbnail.delete()`:
+`thumbnail_dir` then serves the directory's generic icon, `thumbnail_file` returns
+HTTP 400 ("File no longer exists in gallery."), and
+`quickbbs.tasks.generate_missing_thumbnails()` skips the file.
 
 ---
 
@@ -207,15 +212,16 @@ implements, with a uniform three-method contract:
 
 ```python
 class AbstractBackend(ABC):
-    def process_from_file(self, file_path, sizes, output_format, quality) -> dict[str, bytes]: ...
-    def process_from_memory(self, image_bytes, sizes, output_format, quality) -> dict[str, bytes]: ...
-    def process_data(self, pil_image, sizes, output_format, quality) -> dict[str, bytes]: ...
+    def process_from_file(self, file_path, sizes, output_format, quality) -> ThumbnailResult: ...
+    def process_from_memory(self, source_bytes, sizes, output_format, quality) -> ThumbnailResult: ...
+    def process_data(self, pil_image, sizes, output_format, quality) -> ThumbnailResult: ...
 ```
 
-Return values are a `dict` keyed by size name (`"small"`, `"medium"`, `"large"`) mapping
-to raw image bytes in the requested format; video and PDF backends add `"duration"`
-and/or `"format"` keys. This shared return value is what lets `FastImageProcessor` (Section 4.3) call
-any backend identically regardless of input source.
+Every backend returns a `ThumbnailResult` (defined beside `AbstractBackend`):
+`images` maps each size name (`"small"`, `"medium"`, `"large"`) to the encoded bytes,
+`format` names their encoding, and `duration` is the source video's length in seconds,
+or `None` for a still image or PDF. This shared return value is what lets
+`FastImageProcessor` (Section 4.3) call any backend identically regardless of input source.
 
 ---
 
@@ -226,7 +232,8 @@ favoring a GPU-accelerated option when it's available, and otherwise falling bac
 automatically to the cross-platform thumbnail system.
 
 **What is its purpose?** Defines `FastImageProcessor`, the central dispatcher: selects
-the right backend for a file and caches backend instances so each is constructed once.
+the right backend for a file and caches backend instances so each selector's backend is
+constructed once.
 
 **Backend selectors** (`BackendType`): `"image"`, `"coreimage"`, `"auto"` (still
 images); `"video"`, `"corevideo"` (video); `"pdf"`, `"pymupdf"`, `"pdfkit"` (PDF). The
@@ -240,13 +247,20 @@ running on Apple Silicon specifically, not just any Mac — an Intel Mac with
 `MACINTOSH_OPTIMIZATIONS` enabled and Core Image or PDFKit importable still falls back
 to `ImageBackend`/`PDFBackend`. `"corevideo"` carries no such Apple Silicon check, so it
 selects `AVFoundationVideoBackend` on any Mac where AVFoundation imports and the
-setting is on. Explicit requests (`"coreimage"`, `"pdfkit"`) are never gated by any of
-this — asking for a macOS backend by name either returns it or raises `ImportError` if
-it's genuinely unavailable.
+setting is on. `"pdfkit"` ignores the setting and the processor type: it selects
+`PDFKitBackend` whenever PDFKit imports, and `PDFBackend` otherwise. `"coreimage"` ignores
+both too, and raises `ImportError` when Core Image is unavailable.
 
-**`_backend_cache`** — a class-level `dict[str, AbstractBackend]` protected by a
-`threading.Lock`, so each backend type is constructed once per process and reused
-across every request that resolves to it.
+These rules live in the `_BACKEND_RULES` table, one entry per selector, each returning
+the backend name to construct. If constructing the chosen backend raises `ImportError`,
+`RuntimeError` or `OSError` (for example, no Metal device), `"auto"` constructs
+`ImageBackend` instead; every other selector lets the error propagate.
+
+**`_backend_cache`** — a module-level dictionary keyed by backend selector and
+protected by `_backend_lock`, so each selector's backend is constructed once per
+process and reused by every request that names that selector. Two selectors that
+resolve to the same class (for example `"auto"` and `"image"` on a machine without
+Core Image) each hold their own instance.
 
 **Fork safety.** `os.register_at_fork` wires the backend and processor caches to clear
 themselves in a forked child, discarding any `CoreImageBackend` whose Metal command
@@ -258,13 +272,21 @@ the fork.
 
 | Function | Description |
 |---|---|
-| `create_thumbnails_from_path(file_path, sizes, backend, output, quality)` | Main entry: resolves the backend, calls `process_from_file()` |
+| `create_thumbnails_from_path(file_path, sizes, output, quality, backend)` | Main entry: resolves the backend, calls `process_from_file()` |
 | `create_thumbnails_from_pil(pil_image, sizes, ...)` | For an already-decoded PIL image (avoids a second decode) |
 | `create_thumbnails_from_bytes(image_bytes, sizes, ...)` | For in-memory bytes |
-| `clear_backend_caches(force_gc)` | Clears both caches; optionally forces a GC pass — releases accumulated Core Image GPU resources |
+| `resolve_backend_name(backend, sizes)` | Returns the class name the selector resolves to, e.g. `"CoreImageBackend"`; `quickbbs.tasks` logs it |
+| `get_video_info(path)` | Video metadata (`duration`, `width`, `height`, `fps`, `codec`, `format`). Uses the AVFoundation probe on macOS whenever pyobjc imports, regardless of `macintosh_optimizations`, and retries with the ffmpeg probe when AVFoundation raises `MediaProcessingError` |
+| `is_all_white_thumbnail(small_thumb)` | True when a blob decodes to an entirely white RGB or greyscale image |
+| `clear_backend_caches(force_gc)` | Clears both caches; with `force_gc=True` (the default) also runs a full garbage collection — releases accumulated Core Image GPU resources |
 | `get_cache_stats()` | Reports current cache sizes, for deciding when to call `clear_backend_caches()` |
 
-Default sizes come from `settings.IMAGE_SIZE`.
+The three `create_thumbnails_*` functions return the backend's `ThumbnailResult`; read a
+thumbnail as `result.images["small"]`. `clear_backend_caches(force_gc=True)` reports
+memory freed as 0 MB on Windows, where the `resource` module does not exist.
+
+The engine has no default sizes: every entry point takes `sizes`, and QuickBBS passes
+`settings.IMAGE_SIZE`.
 
 ---
 
@@ -282,12 +304,13 @@ every other backend that needs JPEG-safe output: RGBA/P/LA images are composited
 white background for JPEG (which has no alpha channel), other exotic modes convert to
 RGB, and everything else passes through unchanged.
 
-**`_process_pil_image()`** auto-orients via EXIF, then generates sizes largest-first,
+**`render_sizes()`** auto-orients via EXIF, then generates sizes largest-first,
 resizing each from the *previous* thumbnail rather than from a fresh copy of the
 original — the source for the medium thumbnail is the already-downsampled large one, and
-so on. This is a deliberate speed trade (resizing a smaller image is faster) accepted
-because sequential downsampling from largest to smallest loses negligible quality
-compared to the increment already introduced by lossy JPEG re-encoding at each step.
+so on. Resizing a smaller image is faster, and the quality lost by resizing an
+already-downsampled image is small next to the JPEG encoding each thumbnail receives.
+Each size is encoded once from its in-memory image, so no JPEG is decoded and
+re-encoded along the chain.
 Resizing uses `BICUBIC`, chosen over `LANCZOS` for its lower per-call cost at thumbnail
 sizes.
 
@@ -299,19 +322,20 @@ sizes.
 any machine, without needing Apple's own PDF renderer.
 
 **What is its purpose?** Defines `PDFBackend`, the cross-platform PDF backend using
-PyMuPDF (`fitz`) — used on non-macOS platforms, or whenever `PDFKitBackend` is
+PyMuPDF (imported as `pymupdf`) — used on non-macOS platforms, or whenever `PDFKitBackend` is
 unavailable or not selected.
 
 Renders page 0 once at a zoom factor sized for the largest requested thumbnail (10%
 over the minimum needed to fit, for a small quality buffer), converts the pixmap
 straight to a PIL `Image` with no intermediate file encoding, then delegates to
-`ImageBackend._process_pil_image()` for the actual resizing. `_calculate_optimal_zoom`
-is `@lru_cache`d, since PDF pages sharing the same dimensions (common within one
-document) don't need the division repeated.
+`ImageBackend.render_sizes()` for the actual resizing. `_calculate_optimal_zoom`
+is cached with `cachetools` (`_zoom_cache`), since PDF pages sharing the same dimensions (common within one
+document) don't need the division repeated. A missing file raises `FileNotFoundError`;
+a failure opening or rendering the PDF (PyMuPDF's errors, or PIL's `OSError`/`ValueError`)
+is re-raised as `PDFProcessingError`.
 
-`process_data()` raises `NotImplementedError` — there is no PDF-bytes-to-PIL-Image
-conversion path that doesn't already require rendering a page, which defeats the point
-of accepting a pre-decoded PIL image.
+`process_data()` raises `NotImplementedError`: it receives an already-decoded PIL
+image, which cannot hold a PDF page to render.
 
 ---
 
@@ -328,10 +352,11 @@ framework isn't present.
 Renders the page to an `NSImage` via PDFKit's own thumbnail method, converts it to TIFF
 bytes (the only bridge between `NSImage` and Core Image's `CIImage`, and lossless so no
 quality is lost in the conversion), then hands the resulting `CIImage` to
-`CoreImageBackend._process_ci_image()` for GPU-accelerated resizing and encoding.
+`CoreImageBackend.render_sizes()` for GPU-accelerated resizing and encoding.
 
-**AppKit suppression.** Both this backend and `AVFoundationVideoBackend` set
-`NSApplicationActivationPolicyProhibited` on init — without it, PDFKit or AVFoundation
+**AppKit suppression.** Both this backend and `AVFoundationVideoBackend` call
+`hide_dock_icon()` (`core_image_thumbnails.py`) on init, which sets
+`NSApplicationActivationPolicyProhibited` when AppKit is installed — without it, PDFKit or AVFoundation
 can trigger AppKit's GUI layer and pop a dock icon for what is meant to be a headless
 Django worker process.
 
@@ -386,7 +411,7 @@ selected.
 
 Captures a single frame at `duration / 2` (the midpoint) with `ffmpeg`'s `scale` and
 `pad` filters doing aspect-preserving letterbox/pillarbox in the same subprocess call,
-then delegates resizing to `ImageBackend`. `_get_video_info()` (via `ffmpeg.probe()`)
+then delegates resizing to `ImageBackend`. `read_video_info()` (via `ffmpeg.probe()`)
 supplies `duration`, `width`, `height`, `fps`, `codec`, and `format`; an empty-stdout
 result from `ffmpeg` (corrupt stream, seek past the last decodable frame) raises
 `VideoProcessingError` with ffmpeg's own stderr rather than letting PIL fail later on
@@ -400,15 +425,15 @@ empty bytes with an unhelpful decode error.
 the video directly rather than handing it off to a separate helper program.
 
 **What is its purpose?** Defines `AVFoundationVideoBackend`, the macOS-native video
-backend using AVFoundation — preferred over `VideoBackend` on macOS because frame
-extraction happens in-process via Objective-C, with no subprocess spawn.
+backend using AVFoundation — chosen by the `"corevideo"` selector over `VideoBackend`
+because frame extraction happens in-process via Objective-C, with no subprocess spawn.
 Only decodes formats macOS itself has codecs for (MP4/MOV/M4V and similar); WMV, FLV,
-and MPEG-1 raise `VideoProcessingError` ("No video tracks found").
+and MPEG-1 raise `VideoProcessingError` ("No video tracks found in file").
 
 `setAppliesPreferredTrackTransform_(True)` is set on the image generator specifically
 to correct rotation metadata — without it, a portrait video shot on a phone would
 extract sideways. The extracted frame becomes a `CIImage` and is handed to
-`CoreImageBackend._process_ci_image()` for the same GPU-accelerated resize path PDFKit
+`CoreImageBackend.render_sizes()` for the same GPU-accelerated resize path PDFKit
 uses.
 
 ---
@@ -420,11 +445,12 @@ one set per distinct piece of file content, so the gallery never has to regenera
 same picture twice.
 
 **What is its purpose?** Defines `ThumbnailFiles`, the single ORM model, one row per
-distinct file content (Section 1.4), keyed by `sha256_hash`.
+distinct file content (Section 1.4), looked up by `sha256_hash`. The primary key is the
+auto-increment `id`.
 
 | Field | Type | Notes |
 |---|---|---|
-| `sha256_hash` | `CharField`, unique, indexed | Content SHA256 of the source file |
+| `sha256_hash` | `CharField`, unique, indexed, nullable | Content SHA256 of the source file |
 | `small_thumb` / `medium_thumb` / `large_thumb` | `BinaryField(null=True)` | JPEG bytes; `NULL` is the only "no data" state — a `CheckConstraint` (`thumbnails_no_empty_blobs`) forbids empty-bytes rows so nothing can silently escape the missing-thumbnail index below |
 
 **Partial indexes:**
@@ -459,17 +485,23 @@ that a thumbnail is missing.
 4. Re-check for an already-populated `small_thumb` — another worker may have generated
    it while this one waited for the lock — and return immediately if so.
 5. Resolve a `FileIndex` record to generate from, repairing an orphaned link where
-   possible and raising `OrphanedThumbnail`/`OrphanedFileIndex` where it can't be (Section 4.1).
-6. Dispatch by filetype — image, movie, PDF, or otherwise generic — generate, validate
-   the result isn't empty, and store the three blobs. A file whose type never gets a
-   rendered thumbnail (text, archives, and similar) is marked generic here and no
-   generation is attempted at all (Section 1.5). A link file (`.link`, `.alias`) is skipped
-   entirely — no blobs, no generic mark; the view layer resolves it to the linked
-   directory's cover thumbnail instead (Section 4.11).
+   possible and raising `OrphanedThumbnail`/`OrphanedFileIndex` where it can't be
+   (Section 4.1). It raises `ValueError` when matching `FileIndex` records exist but
+   cannot be linked.
+6. If that file is already marked generic, return without generating unless its
+   directory's `cache_invalidated` is set; a rescanned directory gets one retry, and a
+   successful retry clears the generic mark on every copy of the content.
+7. Dispatch by filetype, with the selector `"auto"` for an image, `"corevideo"` for a
+   video and `"pdf"` for a PDF; check the small thumbnail isn't empty, and store the
+   three blobs. A file whose type never gets a rendered thumbnail (text, archives, and
+   similar) is marked generic here and no generation is attempted at all (Section 1.5).
+   A link file (`.link`, `.alias`) is skipped entirely — no blobs, no generic mark; the
+   view layer resolves it to the linked directory's cover thumbnail instead
+   (Section 4.11).
 
-**GPU-corruption safeguard.** Early Core Image acceleration, under heavy load, could
-occasionally produce a corrupted all-white thumbnail; the underlying cause appears
-resolved, but the safeguard remains as a defense-in-depth measure. It only runs when
+**GPU-corruption safeguard.** Core Image can produce an all-white thumbnail instead of
+raising, most often in a forked child still using a Metal command queue whose Mach
+ports died with the parent (Section 4.3). The safeguard only runs when
 `settings.MAC_OPTIMIZATION_WHITECHECK` is turned on (`False` by default) — otherwise a
 freshly generated thumbnail is stored as-is with no white check at all. When it is on
 and a freshly generated `small_thumb` is both suspiciously small
@@ -481,9 +513,10 @@ content, not corruption, so there is no retry loop past the one.
 **Failure handling** distinguishes three cases: a moved/deleted file
 (`FileNotFoundError`) marks that one `FileIndex` `delete_pending` rather than touching
 other copies of the same content; a decode failure the backend itself raises
-(`MediaProcessingError`) marks every `FileIndex` sharing the SHA generic; any other
-exception does the same and logs at `ERROR` rather than `WARNING`, since it's an
-unclassified failure rather than a known data problem. In every one of these cases the
+(`MediaProcessingError`) marks every `FileIndex` sharing the SHA generic and logs at
+`WARNING`, which includes every `PDFBackend` failure (Section 4.5); any other exception
+does the same and logs at `ERROR` with a traceback. That last case includes an empty
+result (`ThumbnailGenerationError`). In every one of these cases the
 method returns the (unpopulated) `thumbnail` record rather than raising — the caller's
 fallback to the filetype's generic icon (Section 1.5) is what actually surfaces the failure to
 the person browsing.
@@ -541,8 +574,8 @@ Splits into a read-only fast path and a generation-locked slow path:
   matters for the uncommon case (thumbnail doesn't exist yet).
 
 A link file (`.link`, `.alias`) with a `virtual_directory` is never given a thumbnail of
-its own — the request is redirected to `thumbnail_dir()` for the directory it points
-at, on both the fast and slow paths.
+its own — the view calls `thumbnail_dir()` for the directory it points at and returns
+that response, on both the fast and slow paths.
 
 ---
 
@@ -557,29 +590,32 @@ as a `FileResponse`.
 
 1. If the directory already has a cached, valid thumbnail reference, try to serve it
    directly.
-2. Otherwise, select a cover image via `DirectoryIndex.get_cover_image()` — preferring
-   files named `cover` or `title`, then any thumbnailable file — resyncing from disk
-   first if nothing is found.
-3. Assign the cover image and ensure its `ThumbnailFiles` record exists (calling
-   `get_or_create_thumbnail_record()`, Section 4.10, if it doesn't — so a directory's first
-   visit can still pay the generation cost, not just a file's first visit), wrapped in
-   `transaction.atomic()` to avoid a race when multiple requests hit an uncached
-   directory simultaneously.
-4. Serve the resulting thumbnail; on any serving failure, mark the directory generic and
-   fall back to the filetype's default icon rather than erroring out to the browser.
+2. Otherwise, select a cover image via `DirectoryIndex.get_cover_image()`, in the
+   order given in Section 1.5. If nothing is found, sync the directory from disk and
+   try once more; if there is still nothing, serve the directory's generic icon.
+3. Inside `transaction.atomic()`, assign the cover image to the directory and flag the
+   file as its cover. Then, if the file has no `ThumbnailFiles` record, call
+   `get_or_create_thumbnail_record()` (Section 4.10) — so a directory's first visit can
+   still pay the generation cost, not just a file's first visit — and link the result
+   in a second `transaction.atomic()`. An orphaned record (Section 4.1) is deleted and
+   the generic icon is served.
+4. Serve the resulting thumbnail; if serving raises `OSError`, `ValueError`,
+   `AttributeError` or `ThumbnailGenerationError`, mark the directory generic and serve
+   the filetype's generic icon instead of an error.
 
 ---
 
 ### 4.12 `admin.py`
 
 **What does this do?** Gives a staff member a way to look at and export thumbnail data
-in the Django admin site, without dumping raw unreadable binary data on screen.
+in the Django administration site, without dumping raw unreadable binary data on
+screen.
 
 **What is its purpose?** Defines `AdminThumbnail_Files`, the standard `ModelAdmin` for
 `ThumbnailFiles`. `small_thumb`/`medium_thumb`/`large_thumb` are replaced in the
 list and detail views by computed `sthumb`/`mthumb`/`lthumb` columns showing the first
 25 bytes as a preview string — the raw blobs are unreadable and unnecessarily heavy to
-render in the admin UI. A `download_thumbnails` admin action bundles every size for the
+render on an administration page. A `download_thumbnails` action bundles every size for the
 selected rows into an in-memory ZIP, named `<sha256>_<size>.jpg`.
 
 ---
@@ -597,9 +633,10 @@ check-lock-recheck, not check-then-act.
 
 ### Threading and fork safety
 
-Backend instances are created once per type under `FastImageProcessor._backend_lock`
-and are otherwise stateless across calls, safe to use from multiple threads
-concurrently. `os.register_at_fork` (Section 4.3) clears both the processor and backend caches
+Backend instances are created once per selector under the module-level
+`_backend_lock` in `engine/engine.py`, and keep no per-request state, so one instance
+serves every thread. `CoreImageBackend` holds one long-lived `CIContext` shared by all
+calls. `os.register_at_fork` (Section 4.3) clears both the processor and backend caches
 in a forked child, since a `CoreImageBackend`'s Metal command queue does not survive a
 fork.
 
@@ -614,8 +651,10 @@ thread's pool and are never drained in a long-running Django worker.
 ## 6. Module Structure Summary
 
 The app is split in two: `engine/` is the framework-independent work layer, and
-everything beside it is the Django integration. Nothing under `engine/` imports
-Django — see Section 1.x on the extraction boundary.
+everything beside it is the Django integration. `engine/__init__.py` states that the
+engine imports no Django, but `pdf_thumbnails.py` and `pdfkit_thumbnails.py` read
+`django.conf.settings` and import `quickbbs.MonitoredCache` when they load; every other
+engine module is Django-free.
 
 ```
 thumbnails/
@@ -634,11 +673,12 @@ thumbnails/
 │   ├── video_thumbnails.py           # VideoBackend: ffmpeg cross-platform video backend
 │   ├── avfoundation_video_thumbnails.py  # AVFoundationVideoBackend: macOS native video
 │   ├── benchmarks/
-│   │   └── thumbnail_benchmarks.py   # Standalone performance benchmarks — not imported by the app
+│   │   ├── thumbnail_benchmarks.py   # Standalone performance benchmarks — not imported by the app
+│   │   └── README.md                 # Plus saved result files and sample output images
 │   └── tests/
-│       └── test_engine.py            # Pure pytest — runs without Django
+│       └── test_engine.py            # Plain pytest, no database; its PyMuPDF test loads Django settings (see above)
 ├── exceptions.py                     # ORM-coupled exceptions + re-exports of engine's
-├── apps.py                           # ThumbnailsConfig.ready() → pushes settings into engine config
+├── apps.py                           # ThumbnailsConfig.ready() → pushes settings into engine/config.py
 ├── models.py                         # ThumbnailFiles model + get_or_create_thumbnail_record
 ├── views.py                          # thumbnail_file, thumbnail_dir HTTP views
 ├── admin.py                          # AdminThumbnail_Files + download_thumbnails action
